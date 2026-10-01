@@ -1,0 +1,14 @@
+# Birim fiyatlar (USD). Kaynak: fal.ai model sayfaları, Ekim 2026.
+# Fiyatlar değişir: üretime geçmeden önce güncelle.
+# DRY_RUN modunda da bu fiyatlar kullanılır; böylece Kill-Switch gerçekçi rakamlarla test edilir.
+video_per_second:
+  fal_wan:            # Wan 2.2 A14B image-to-video
+    "480p": 0.04
+    "720p": 0.08
+  seedance:           # Seedance 2.0 Fast, ~1.21 USD / 5 sn 720p
+    "720p": 0.242
+  higgsfield:         # henüz kullanılmıyor; tahmini
+    "720p": 0.25
+image_per_megapixel:
+  flux_lora: 0.035
+lipsync_per_minute: 5.0

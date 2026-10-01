@@ -1,0 +1,61 @@
+# Hell Grind — Kademe 1 (yerel, sıfır maliyet)
+x-backend: &backend
+  build: ./backend
+  env_file: .env
+  volumes:
+    - ./samples:/samples
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis:    { condition: service_healthy }
+    minio:    { condition: service_started }
+
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_USER: hg, POSTGRES_PASSWORD: hg, POSTGRES_DB: hellgrind }
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hg -d hellgrind"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  minio:   # S3 yerine yerel, ücretsiz nesne deposu
+    image: cgr.dev/chainguard/minio:latest
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: minio, MINIO_ROOT_PASSWORD: minio12345 }
+    volumes: [miniodata:/data]
+    ports: ["9000:9000", "9001:9001"]
+
+  api:
+    <<: *backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+
+  worker:
+    <<: *backend
+    command: celery -A app.worker.celery_app worker -Q gen,post,control -c 4 --loglevel=INFO
+
+  beat:
+    <<: *backend
+    command: celery -A app.worker.celery_app beat --loglevel=INFO
+
+  flower:
+    <<: *backend
+    command: celery -A app.worker.celery_app flower --port=5555
+    ports: ["5555:5555"]
+
+volumes:
+  pgdata: {}
+  miniodata: {}
