@@ -15,6 +15,7 @@ from app.budget import killswitch
 from app.config import settings
 from app.core.hashing import grade_settings, stable_hash
 from app.core.rerender import Stage
+from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine.references import sha_of
 from app.models import Project
@@ -27,6 +28,7 @@ REGRADE = Stage.GRADE | Stage.MUX
 
 
 @router.post("/scenes/{scene_id}/grade")
+@curated("grade_change")
 def set_grade(scene_id: SceneId, body: GradeIn, s: Session = Depends(get_session)):
     """Çekimin renk ayarı. Yalnızca renk değiştiği için görüntü ve dudak senkronu yeniden çalışmaz: GRADE + MUX."""
     sc = scene_or_404(s, scene_id)
@@ -76,6 +78,7 @@ def _regrade(project_id: str) -> dict:
 
 
 @router.post("/projects/{project_id}/lut")
+@curated("lut_change")
 async def upload_lut(project_id: ProjectId, request: Request, filename: str = Query("film.cube", max_length=200)):
     """Film geneli 3B LUT (.cube, istek gövdesinde). Bütün bitmiş çekimlerde GRADE + MUX çalışır."""
     if not filename.lower().endswith(".cube"):
@@ -112,6 +115,7 @@ async def upload_lut(project_id: ProjectId, request: Request, filename: str = Qu
 
 
 @router.delete("/projects/{project_id}/lut")
+@curated("lut_change")
 def remove_lut(project_id: ProjectId, s: Session = Depends(get_session)):
     p = project_or_404(s, project_id)
     ensure_not_frozen(project_id)
@@ -122,6 +126,7 @@ def remove_lut(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/continuity")
+@curated("continuity_check")
 def run_continuity(project_id: ProjectId, s: Session = Depends(get_session)):
     """Süreklilik kontrolünü kuyruğa verir (para harcamaz). Rapor overview ve GET ile okunur."""
     project_or_404(s, project_id)

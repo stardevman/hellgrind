@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ProjectId, project_or_404
 from app.budget import killswitch
+from app.curation import curated
 from app.db import get_session
 from app.schemas import KillSwitchIn
 
@@ -29,6 +30,7 @@ def budget(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/killswitch")
+@curated(lambda kw, r: f"killswitch_{kw['body'].action}")
 def killswitch_action(project_id: ProjectId, body: KillSwitchIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     if body.action == "freeze":

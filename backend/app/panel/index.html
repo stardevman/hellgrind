@@ -259,6 +259,29 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 
 /* stil kılavuzu */
 .style-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap: var(--gap); align-items: start; }
+/* verimlilik */
+.eff-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.eff-grid > div { min-width: 0; }
+.eff-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.eff-figures .fig { background: var(--sunk); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; }
+.eff-figures .fig small { display: block; color: var(--dust); font-size: 12px; margin-top: 2px; }
+.eff-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 18px var(--gap); align-items: start; }
+.eff-grid h3 { margin-bottom: 8px; }
+.table-wrap { overflow-x: auto; }
+.eff-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.eff-table th { text-align: left; font-weight: 600; color: var(--dust); font-size: 13px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.eff-table td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.eff-table td.r, .eff-table th.r { text-align: right; }
+.share { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+.share .track { flex: 1; height: 8px; border-radius: 4px; background: var(--sunk); overflow: hidden; }
+.share .track i { display: block; height: 100%; background: var(--steel); border-radius: 0 4px 4px 0; }
+.share span { min-width: 3.2em; text-align: right; }
+.eff-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+.eff-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.eff-list li .share { grid-column: 1 / -1; }
+.curation { margin: 0; padding: 0; list-style: none; max-height: 420px; overflow-y: auto; }
+.curation li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.curation time { color: var(--dust); }
 .style-form { display: grid; gap: 12px; }
 .style-form label, .impact label { display: grid; gap: 4px; font-size: 13px; color: var(--dust); }
 .style-form .rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -272,7 +295,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .impact label.check { display: flex; gap: 8px; align-items: center; color: var(--ash); font-size: 14px; }
 
 @media (max-width: 960px) {
-  .layout, .film, .style-grid { grid-template-columns: 1fr; }
+  .layout, .film, .style-grid, .eff-grid { grid-template-columns: 1fr; }
   .style-form .rules { grid-template-columns: 1fr; }
   .inspector { position: static; }
   .scene { grid-template-columns: 1fr auto; }
@@ -339,6 +362,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
       <button class="tab" role="tab" id="tab-assets" data-tab="assets" aria-controls="pane-assets" aria-selected="false" type="button">Varlıklar <span class="num muted" id="tab-assets-count"></span></button>
       <button class="tab" role="tab" id="tab-board" data-tab="board" aria-controls="pane-board" aria-selected="false" type="button">Storyboard <span class="num muted" id="tab-board-count"></span></button>
       <button class="tab" role="tab" id="tab-style" data-tab="style" aria-controls="pane-style" aria-selected="false" type="button">Stil kılavuzu <span class="num muted" id="tab-style-version"></span></button>
+      <button class="tab" role="tab" id="tab-efficiency" data-tab="efficiency" aria-controls="pane-efficiency" aria-selected="false" type="button">Verimlilik</button>
     </nav>
     <div id="pane-scenes" role="tabpanel" aria-labelledby="tab-scenes">
     <div class="layout">
@@ -529,6 +553,40 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
       </div>
     </div>
 
+    <div id="pane-efficiency" role="tabpanel" aria-labelledby="tab-efficiency" hidden>
+      <section class="panel" aria-labelledby="eff-title">
+        <header><h2 id="eff-title">Verimlilik</h2><span class="muted" id="eff-summary"></span></header>
+        <div class="body eff-body">
+          <div class="eff-figures" id="eff-figures"></div>
+          <div class="eff-grid">
+            <div>
+              <h3>Sekanslar</h3>
+              <div class="table-wrap"><table class="eff-table" id="eff-sequences"></table></div>
+            </div>
+            <div>
+              <h3>Eleme nedenleri</h3>
+              <ul class="eff-list" id="eff-purges"></ul>
+              <h3 style="margin-top:16px">Harcama kalemleri</h3>
+              <ul class="eff-list" id="eff-kinds"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="style-grid" style="margin-top:var(--gap)">
+        <section class="panel" aria-labelledby="curation-title">
+          <header><h2 id="curation-title">Son kararlar</h2><span class="spacer"></span><a class="btn small" id="curation-download" download>Kürasyon kaydını indir (JSONL)</a></header>
+          <ol class="curation" id="curation-list"></ol>
+        </section>
+        <section class="panel" aria-labelledby="export-title">
+          <header><h2 id="export-title">Profesyonel dışa aktarma</h2></header>
+          <div class="body">
+            <p class="muted" id="export-hint"></p>
+            <div class="actions-row" id="export-links" style="margin-top:12px"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
     <div id="pane-assets" role="tabpanel" aria-labelledby="tab-assets" hidden>
       <section class="panel" aria-labelledby="assets-title">
         <header><h2 id="assets-title">Varlıklar</h2><span class="muted" id="assets-summary"></span><span class="spacer"></span><button class="btn small retry-blocked" type="button" hidden>Engellenen çekimleri yeniden dene</button></header>
@@ -580,7 +638,7 @@ const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma
 
 const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
             offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null,
-            style: null, impact: null, impactScroll: false, styleFormFor: null, filmKind: "final", revs: {} };
+            style: null, impact: null, impactScroll: false, metrics: null, curation: null, styleFormFor: null, filmKind: "final", revs: {} };
 const METHOD_TR = { generate: "Yapay zekâ üretimi", previs_guide: "Previs rehberi", external: "Dış çekim" };
 let timer = null;
 
@@ -1058,7 +1116,7 @@ function renderEvents() {
 }
 
 /* ---------- varlıklar ---------- */
-const TABS = ["scenes", "assets", "board", "style"];
+const TABS = ["scenes", "assets", "board", "style", "efficiency"];
 function renderTabs() {
   for (const t of TABS) {
     const on = S.tab === t;
@@ -1301,6 +1359,68 @@ function renderStyle() {
   }
 }
 
+/* ---------- verimlilik (Faz 17) ---------- */
+const PURGE_TR = { quality_gate: "Kalite kontrolünde elendi", not_top_k: "Rafine havuza giremedi", superseded: "Yeni üretimle değişti",
+                   interrupted: "Yarıda kesildi", frozen: "Üretim durdurulunca kesildi", failed: "Üretilemedi", unknown: "Nedeni kayıtsız" };
+const KIND_TR = { local: "Görüntü üretimi", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri",
+                  lipsync: "Dudak senkronu", tts: "Konuşma", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)" };
+const pct = (x) => (x == null ? "—" : `%${Math.round(x * 100)}`);
+const ratio = (x, unit) => (x == null ? "—" : `${String(x).replace(".", ",")}${unit || ""}`);
+function shareBar(x, label) {
+  const w = Math.max(0, Math.min(100, (x || 0) * 100));
+  return `<div class="share" title="${esc(label)}"><div class="track" role="img" aria-label="${esc(label)}"><i style="width:${w.toFixed(1)}%"></i></div><span class="num">${pct(x)}</span></div>`;
+}
+function fig(value, label, hint) {
+  return `<div class="fig"><b class="num">${esc(value)}</b><span>${esc(label)}</span>${hint ? `<small>${esc(hint)}</small>` : ""}</div>`;
+}
+function renderEfficiency() {
+  const id = S.projectId;
+  const hasFilm = Boolean(S.ov.timeline);
+  setText($("export-hint"), hasFilm
+    ? "Kesme listesi DaVinci Resolve ya da Premiere'e aktarılabilir. Paket, her çekim için final videoyu, rafine adayları ve ayrı ses stem'lerini içerir."
+    : "Dışa aktarma birleştirilmiş filmin kesme listesinden yapılır. Önce Sahneler sekmesinden filmi birleştir.");
+  const exportLinks = hasFilm ? [["edl", "EDL (CMX3600)", "film.edl"], ["otio", "OpenTimelineIO", "film.otio"], ["package", "Çekim paketi (zip)", "paket.zip"]]
+    .map(([f, label, name]) => `<a class="btn small" href="/api/projects/${esc(id)}/export?format=${f}" download="${name}">${label}</a>`).join("") : "";
+  setHTML($("export-links"), exportLinks);
+  patchAttr($("curation-download"), "href", `/api/projects/${id}/curation.jsonl`);
+  if (S.tab !== "efficiency" || !S.metrics) return;
+  const m = S.metrics;
+  const minutes = m.film_minutes ? `${ratio(Math.round(m.film_minutes * 600) / 10)} sn` : "—";
+  setText($("eff-summary"), `${m.variations} varyasyon, ${m.accepted_shots} kabul edilen çekim`);
+  const figures = [
+    fig(ratio(m.variations_per_accepted_shot), "Kabul edilen çekim başına varyasyon", `${m.variations} varyasyon / ${m.accepted_shots} çekim`),
+    fig(m.cost_per_film_minute_usd == null ? "—" : usd(m.cost_per_film_minute_usd), "Film dakikası başına sanal maliyet",
+        `${usd(m.spent_usd)} / ${minutes} ${m.film_minutes_source === "film" ? "film" : "tamamlanan çekim"}`),
+    fig(pct(m.probe.success_rate), "Test turu başarı oranı", `${m.probe.succeeded} başarılı / ${m.probe.rounds} tur`),
+    fig(ratio(m.probe.mean_correction_rounds), "Ortalama düzeltme turu", `${m.probe.scenes} çekimde`),
+    fig(pct(m.draft.upgrade_ratio), "Kaba kurgudan iyileştirilen", `${m.draft.upgraded} / ${m.draft.drafted} taslak çekim`),
+  ];
+  setHTML($("eff-figures"), figures.join(""));
+  const seqRows = m.sequences.map((q) => {
+    const name = `${q.code} · ${q.title}`;
+    return `<tr><td>${esc(name)}</td><td class="r num">${q.variations}</td><td class="r num">${q.accepted_shots}</td>
+      <td class="r num">${ratio(q.variations_per_accepted_shot)}</td><td class="r num">${usd(q.spent_usd)}</td>
+      <td>${shareBar(q.variation_share, `${name}: varyasyon payı ${pct(q.variation_share)}`)}</td>
+      <td>${shareBar(q.spend_share, `${name}: harcama payı ${pct(q.spend_share)}`)}</td></tr>`;
+  }).join("");
+  setHTML($("eff-sequences"), m.sequences.length
+    ? `<thead><tr><th>Sekans</th><th class="r">Varyasyon</th><th class="r">Kabul</th><th class="r">Varyasyon/çekim</th><th class="r">Harcama</th><th>Varyasyon payı</th><th>Harcama payı</th></tr></thead><tbody>${seqRows}</tbody>`
+    : '<tbody><tr><td class="muted">Sekans yok.</td></tr></tbody>');
+  const purgeTotal = Object.values(m.purge_reasons).reduce((a, b) => a + b, 0);
+  setHTML($("eff-purges"), purgeTotal ? Object.entries(m.purge_reasons).map(([r, n]) => {
+    const label = PURGE_TR[r] || r;
+    return `<li><span>${esc(label)}</span><span class="num">${n}</span>${shareBar(n / purgeTotal, `${label}: ${n} varyasyon`)}</li>`;
+  }).join("") : '<li class="muted">Henüz elenen varyasyon yok.</li>');
+  const kinds = Object.entries(m.spent_by_kind);
+  setHTML($("eff-kinds"), kinds.length ? kinds.map(([k, v]) => `<li><span>${esc(KIND_TR[k] || k)}</span><span class="num">${usd(v)}</span></li>`).join("")
+    : '<li class="muted">Henüz harcama yok.</li>');
+  const items = S.curation || [];
+  setHTML($("curation-list"), items.length ? items.map((e) => {
+    const when = e.at ? new Date(e.at).toLocaleTimeString("tr-TR", { hour12: false }) : "";
+    return `<li><time>${esc(when)}</time><span>${esc(e.action_tr)}</span><span class="muted">${esc(e.scene_code || "")}</span></li>`;
+  }).join("") : '<li><span></span><span class="muted">Henüz karar kaydı yok.</span><span></span></li>');
+}
+
 /* ---------- not (her eylemden sonra) ---------- */
 function note(id, text, kind) {
   const el = $(id);
@@ -1323,6 +1443,7 @@ function renderAll() {
     renderAssets();
     renderBoards();
     renderStyle();
+    renderEfficiency();
   } else if (S.ov) {
     renderBudget();
   }
@@ -1335,6 +1456,9 @@ async function refresh(listToo) {
   S.ov = S.projectId ? await api(`/projects/${S.projectId}/overview`) : null;
   if (S.ov && S.tab === "assets") S.assets = await api(`/projects/${S.projectId}/assets`);
   if (S.ov && S.tab === "style") S.style = await api(`/projects/${S.projectId}/style`);
+  if (S.ov && S.tab === "efficiency") {
+    [S.metrics, S.curation] = await Promise.all([api(`/projects/${S.projectId}/metrics`), api(`/projects/${S.projectId}/curation?limit=40`)]);
+  }
 }
 let ticks = 0;
 async function tick() {
@@ -1365,7 +1489,7 @@ document.addEventListener("click", (ev) => {
     const id = S.sceneId;
     act(async () => { const r = await api(`/scenes/${id}/promote/${t.dataset.promote}`, "POST"); S.varId = null; note("insp-note", resultText(r), r.blocked ? "err" : "ok"); }, "insp-note");
   } else if (t.dataset.tab) {
-    if (S.tab !== t.dataset.tab) { S.tab = t.dataset.tab; S.assets = null; S.style = null; renderAll(); pollNow(); }
+    if (S.tab !== t.dataset.tab) { S.tab = t.dataset.tab; S.assets = null; S.style = null; S.metrics = null; renderAll(); pollNow(); }
   } else if (t.dataset.stylePreview) {
     const version = Number(t.dataset.stylePreview);
     act(async () => { S.impact = await api(`/projects/${S.projectId}/style/preview`, "POST", { version }); S.impactScroll = true; note("style-note", ""); }, "style-note");
@@ -1449,7 +1573,7 @@ $("insp-back").addEventListener("click", () => { S.varId = null; renderAll(); })
 document.querySelector(".tabs").addEventListener("keydown", (e) => {     // sekmeler arasında ok tuşlarıyla gezinme
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
   const next = TABS[(TABS.indexOf(S.tab) + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
-  S.tab = next; S.assets = null; S.style = null; renderAll(); $("tab-" + next).focus(); pollNow();
+  S.tab = next; S.assets = null; S.style = null; S.metrics = null; renderAll(); $("tab-" + next).focus(); pollNow();
 });
 $("style-form").addEventListener("input", (e) => {
   $("style-form")._touched = true;
@@ -1499,7 +1623,7 @@ document.addEventListener("submit", (e) => {                              // ref
     note("assets-note", `${REF_TR[kind]} yüklendi: ${data.name}, sürüm ${data.version}, ${ASTATUS_TR[data.status].toLocaleLowerCase("tr")}.`, "ok");
   }, "assets-note");
 });
-$("project-select").addEventListener("change", (e) => { $("style-form")._touched = false; S.styleFormFor = null; S.impact = null; S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
+$("project-select").addEventListener("change", (e) => { $("style-form")._touched = false; S.styleFormFor = null; S.impact = null; S.metrics = null; S.curation = null; S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
 $("new-project").addEventListener("click", () => { S.creating = true; renderAll(); $("f-title").focus(); });
 $("start-cancel").addEventListener("click", () => { S.creating = false; renderAll(); });
 $("f-script").addEventListener("input", (e) => { e.target._touched = true; });

@@ -6,6 +6,7 @@ from app import storage
 from app.api.deps import SceneId, VariationId, ensure_not_frozen, scene_or_404
 from app.api.plan import dispatch_result, ensure_idle
 from app.core.hashing import stable_hash
+from app.curation import curated
 from app.db import get_session
 from app.engine.providers import route_engine
 from app.hermes.ingest import dialogue_hash, music_hash
@@ -23,6 +24,7 @@ def get_scene(scene_id: SceneId, s: Session = Depends(get_session)):
 
 
 @router.patch("/scenes/{scene_id}")
+@curated("scene_edit")
 def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_session)):
     sc = scene_or_404(s, scene_id)
     changes = body.model_dump(exclude_none=True)
@@ -37,6 +39,7 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
 
 
 @router.post("/scenes/{scene_id}/render")
+@curated(lambda kw, r: "force_rerender" if kw.get("force_visual") else "render")
 def render(scene_id: SceneId, force_visual: bool = False, s: Session = Depends(get_session)):
     """Yalnızca değişen girdilerin aşamalarını çalıştırır; force_visual görüntüyü baştan üretir."""
     return dispatch_result(s, scene_or_404(s, scene_id), force_visual=force_visual)
@@ -54,6 +57,7 @@ def _content_hash(body: AudioIn, mood: str | None, emotion: str | None) -> str:
 
 
 @router.put("/scenes/{scene_id}/audio")
+@curated(lambda kw, r: "music_change" if kw["body"].kind == "music" else "audio_change")
 def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_session)):
     """Ses kanalının yeni sürümü: yalnızca gereken aşamalar çalışır (müzik değişince yalnızca montaj)."""
     sc = scene_or_404(s, scene_id)
@@ -102,6 +106,7 @@ def list_variations(scene_id: SceneId, s: Session = Depends(get_session)):
 
 
 @router.post("/scenes/{scene_id}/promote/{variation_id}")
+@curated("promote")
 def promote(scene_id: SceneId, variation_id: VariationId, s: Session = Depends(get_session)):
     """Küratör seçimi: Rafine Havuz'dan bir varyasyonu 1. sıraya alır; yalnızca dudak senkronu ve montaj yeniden çalışır."""
     sc = scene_or_404(s, scene_id)

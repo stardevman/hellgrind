@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.deps import AssetId, ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
 from app.budget import killswitch, pricing
 from app.config import project_settings, settings
+from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine import motion_test, references
 from app.hermes import lint
@@ -145,6 +146,7 @@ def list_assets(project_id: ProjectId, type: str | None = None, status: str | No
 
 
 @router.post("/projects/{project_id}/assets", status_code=201)
+@curated("asset_create")
 def create_asset(project_id: ProjectId, body: AssetIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     name = normalize_name(body.name)
@@ -167,6 +169,7 @@ def get_asset(asset_id: AssetId, s: Session = Depends(get_session)):
 
 
 @router.patch("/assets/{asset_id}")
+@curated("asset_edit")
 def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_session)):
     """Tarif ya da stil değişince sürüm artar ve hareket testi yeniden gerekir; ses kimliği görüntüyü etkilemez."""
     a = asset_or_404(s, asset_id, lock=True)
@@ -229,6 +232,7 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
 
 
 @router.post("/assets/{asset_id}/references", status_code=201)
+@curated("asset_reference")
 async def upload_reference(asset_id: AssetId, request: Request, kind: str = Query(...),
                            filename: str = Query(..., min_length=1, max_length=200)):
     """Referans dosyasını istek gövdesi olarak alır (multipart değil): `?kind=turnaround&filename=kerem.mp4`.
@@ -253,6 +257,7 @@ async def upload_reference(asset_id: AssetId, request: Request, kind: str = Quer
 
 
 @router.post("/assets/{asset_id}/references/placeholder", status_code=201)
+@curated("asset_reference")
 def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
     """Ücretsiz modda yerel taslak referans: karakter için dönüş videosu, mekân ve nesne için durağan görsel.
     Ücretli karşılığının sanal fiyatı bütçeden düşer."""
@@ -279,6 +284,7 @@ def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
 # ---------- onaylar ----------
 
 @router.post("/assets/{asset_id}/approve-still")
+@curated("asset_approve_still")
 def approve_still(asset_id: AssetId, s: Session = Depends(get_session)):
     a = asset_or_404(s, asset_id, lock=True)
     if a.status != "draft":
@@ -290,6 +296,7 @@ def approve_still(asset_id: AssetId, s: Session = Depends(get_session)):
 
 
 @router.post("/assets/{asset_id}/motion-test", status_code=202)
+@curated("motion_test")
 def start_motion_test(asset_id: AssetId, s: Session = Depends(get_session)):
     """Kısa, düşük çözünürlüklü hareket testi (worker'da). Onaylanmış bir test varsa yenisi onu geçersiz kılar."""
     a = asset_or_404(s, asset_id, lock=True)
@@ -317,6 +324,7 @@ def start_motion_test(asset_id: AssetId, s: Session = Depends(get_session)):
 
 
 @router.post("/assets/{asset_id}/approve-motion")
+@curated("asset_approve_motion")
 def approve_motion(asset_id: AssetId, s: Session = Depends(get_session)):
     a = asset_or_404(s, asset_id, lock=True)
     if a.status in ("motion_tested", "locked"):
@@ -338,6 +346,7 @@ def approve_motion(asset_id: AssetId, s: Session = Depends(get_session)):
 
 
 @router.post("/assets/{asset_id}/lock")
+@curated("asset_lock")
 def lock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
     """Varlığı kilitler. Engeli kalkan sahneler bildirilir; üretim, sahne yeniden render edilince başlar."""
     a = asset_or_404(s, asset_id, lock=True)
@@ -354,6 +363,7 @@ def lock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
 
 
 @router.post("/assets/{asset_id}/unlock")
+@curated("asset_unlock")
 def unlock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
     a = asset_or_404(s, asset_id, lock=True)
     if a.status != "locked":
@@ -365,6 +375,7 @@ def unlock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
 # ---------- sahne bağları ----------
 
 @router.post("/scenes/{scene_id}/assets", status_code=201)
+@curated("asset_link")
 def link_asset(scene_id: SceneId, body: SceneAssetIn, s: Session = Depends(get_session)):
     """Sahneye mekân ya da nesne bağlar (panelden). Görsel özet değişir: sahne yeniden üretilince geçerli olur."""
     sc = scene_or_404(s, scene_id)
@@ -384,6 +395,7 @@ def link_asset(scene_id: SceneId, body: SceneAssetIn, s: Session = Depends(get_s
 
 
 @router.delete("/scenes/{scene_id}/assets/{asset_id}")
+@curated("asset_unlink")
 def unlink_asset(scene_id: SceneId, asset_id: AssetId, s: Session = Depends(get_session)):
     """Bağı kaldırır. Senaryodan gelen bir bağ, senaryo yeniden yüklenince geri gelir."""
     scene_or_404(s, scene_id)

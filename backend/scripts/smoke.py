@@ -22,6 +22,9 @@ Kontroller:
   D. Dış çekim üretim harcaması olmadan `done` olur; rafine #1'in elle düzeltmesi yalnızca LIPSYNC ve MUX çalıştırır (Faz 15)
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
      düzeltme uygulanınca uyarı kalkar (Faz 16)
+  K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
+     panelin gördüğü sayılarla tutarlıdır; EDL tüm çekimleri doğru in/out değerleriyle içerir; paket zip'i açılır ve
+     stem'ler çekim süresindedir; baştan üretim isteği de kaydedilir
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
@@ -326,6 +329,8 @@ def main() -> int:
         pair = wait_pair(pid, "S001_SH02", lambda p: p["final"][1] == fixed["final_video_key"])
         check(bool(pair) and not pair["jump"], f"önerilen düzeltme uygulanınca uyarı kalktı (skor {pair and pair['score']})")
 
+    check_curation_and_exports(pid)
+
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
     c.post(f"/projects/{capped}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
@@ -359,6 +364,95 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+SPEC_ACTIONS = {"promote", "upgrade_request", "board_approve", "board_reject", "asset_lock", "revision_upload",
+                "style_activate", "force_rerender"}
+
+
+def curation(pid: str) -> list[dict]:
+    import json
+    return [json.loads(line) for line in c.get(f"/projects/{pid}/curation.jsonl").text.splitlines()]
+
+
+def check_curation_and_exports(pid: str) -> None:
+    import io
+    import re
+    import wave
+    import zipfile
+
+    from app.post.export import frames, timecode
+
+    print("K) Kürasyon kayıtları, metrikler ve dışa aktarma")
+    events = curation(pid)
+    actions = {e["action"] for e in events}
+    check(SPEC_ACTIONS - {"force_rerender"} <= actions,
+          f"panel eylemleri kürasyon kaydında ({len(events)} olay; eksik: {sorted(SPEC_ACTIONS - {'force_rerender'} - actions)})")
+    reject = next((e for e in events if e["action"] == "board_reject"), None)
+    promote = next((e for e in events if e["action"] == "promote"), None)
+    check(bool(reject and reject["scene_code"] == "S001_SH02" and reject["payload"]["request"]["body"].get("note") == "Fener daha parlak"
+               and promote and promote["variation_id"] and promote["payload"]["variation"]["score"] is not None),
+          "kararlar sahne, varyasyon, not ve skor bağlamıyla kaydedildi")
+
+    before_film = overview(pid)["timeline"]["url"]
+    c.post(f"/projects/{pid}/assemble").raise_for_status()           # revizyon ve renk sonrası güncel film
+    film = None
+    for _ in range(120):
+        film = overview(pid)["timeline"]
+        if film["url"] != before_film and film["cut"]:
+            break
+        time.sleep(1)
+    cut = film["cut"]
+    ov = overview(pid)
+    m = c.get(f"/projects/{pid}/metrics").json()
+    done = sum(sc["status"] == "done" for sc in ov["scenes"])
+    generated = [v for sc in ov["scenes"] for v in sc["variations"] if v["source"] != "external"]   # dış çekim üretim değil
+    seq_spent = {q["code"]: q["spent_usd"] for q in ov["sequences"]}
+    check(m["variations"] == len(generated) and m["accepted_shots"] == done == 4
+          and m["variations_per_accepted_shot"] == round(m["variations"] / done, 2),
+          f"kabul edilen çekim başına {m['variations_per_accepted_shot']} varyasyon ({m['variations']} / {done})")
+    check(abs(m["spent_usd"] - ov["project"]["spent_usd"]) < 1e-3 and m["film_minutes_source"] == "film"
+          and abs(m["film_minutes"] - cut["duration_s"] / 60) < 1e-3
+          and abs(m["cost_per_film_minute_usd"] - m["spent_usd"] / m["film_minutes"]) < 0.01,
+          f"film dakikası başına {m['cost_per_film_minute_usd']} USD (sanal, {m['film_minutes']} dk)")
+    check(sum(q["variations"] for q in m["sequences"]) == m["variations"]
+          and abs(sum(q["variation_share"] for q in m["sequences"]) - 1) < 0.01
+          and all(abs(q["spent_usd"] - seq_spent[q["code"]]) < 1e-3 for q in m["sequences"])
+          and sum(m["purge_reasons"].values()) == sum(v["status"] in ("purged", "failed") for v in generated),
+          f"sekans payları ve eleme nedenleri tutarlı: {m['purge_reasons']}")
+    check(m["probe"]["succeeded"] >= 4 and 0 < m["probe"]["success_rate"] <= 1 and m["draft"]["upgraded"] >= 1,
+          f"test turu başarı oranı {m['probe']['success_rate']}, iyileştirilen {m['draft']['upgraded']}/{m['draft']['drafted']}")
+
+    edl = c.get(f"/projects/{pid}/export", params={"format": "edl"}).text
+    events_edl = re.findall(r"^(\d{3})  (\S+)\s+AA/V  C\s+(\S+) (\S+) (\S+) (\S+)$", edl, re.M)
+    expected = [(timecode(frames(x["in_s"])), timecode(frames(x["out_s"]))) for x in cut["clips"]]
+    check(len(events_edl) == len(cut["clips"]) == 4 and [(e[4], e[5]) for e in events_edl] == expected
+          and [e[1] for e in events_edl] == [x["scene_code"].replace("_", "") for x in cut["clips"]],
+          f"EDL {len(events_edl)} çekimi doğru in/out değerleriyle içeriyor ({expected[0][0]} – {expected[-1][1]})")
+    r = c.get(f"/projects/{pid}/export", params={"format": "package"}, timeout=600)
+    ok, worst = r.status_code == 200, 0.0
+    try:
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        names = set(z.namelist())
+        ok = ok and z.testzip() is None and {"film.edl", "film.otio", "kurasyon.jsonl", "kesme_listesi.json"} <= names
+        for n, clip in enumerate(cut["clips"], start=1):
+            base = f"{n:03d}_{clip['scene_code']}"
+            ok = ok and f"{base}/final.mp4" in names and any(x.startswith(f"{base}/rafine/") for x in names)
+            for stem in ("dialogue", "music", "sfx"):
+                with wave.open(io.BytesIO(z.read(f"{base}/stems/{stem}.wav"))) as w:
+                    worst = max(worst, abs(w.getnframes() / w.getframerate() - (clip["out_s"] - clip["in_s"])))
+    except (zipfile.BadZipFile, KeyError) as e:
+        ok = False
+        print("   paket:", e)
+    check(ok and worst < 0.05, f"paket zip'i açılıyor; stem'ler çekim süresinde (en büyük sapma {worst * 1000:.0f} ms)")
+
+    sid = next(sc["id"] for sc in ov["scenes"] if sc["scene_code"] == "S002_SH01")
+    before = c.get(f"/scenes/{sid}").json()["final_video_key"]
+    r = c.post(f"/scenes/{sid}/render", params={"force_visual": "true"}).json()
+    wait_scene(sid, before)
+    last = curation(pid)[-1]
+    check("VISUAL" in r["stages"] and last["action"] == "force_rerender" and last["scene_code"] == "S002_SH01",
+          f"baştan üretim isteği kaydedildi ({r['stages']})")
 
 
 def check_sequences(pid: str) -> None:

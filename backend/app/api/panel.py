@@ -14,6 +14,7 @@ from app.api.plan import dispatch_all
 from app.api.sequences import sequences_out
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
+from app.curation import curated
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
@@ -42,6 +43,7 @@ def meta():
 
 
 @router.post("/projects/{project_id}/script")
+@curated("script_upload")
 def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
@@ -57,6 +59,7 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
 
 
 @router.post("/projects/{project_id}/render-all")
+@curated("render_all")
 def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
@@ -177,6 +180,7 @@ def media(key: str = Query(min_length=1, max_length=512)):
 
 
 @router.post("/projects/{project_id}/assemble")
+@curated("assemble")
 def assemble(project_id: ProjectId, kind: Literal["final", "draft"] = "final", s: Session = Depends(get_session)):
     """Tamamlanan sahneleri tek filmde birleştirir; kind=draft kaba kurguyu (taslak geçişin klipleri) birleştirir.
     Para harcamaz: donmuş projede de çalışır."""

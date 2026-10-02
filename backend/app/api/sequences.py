@@ -22,6 +22,7 @@ from app.api.deps import ProjectId, SequenceId, TrackId, project_or_404
 from app.budget import killswitch
 from app.config import settings
 from app.core.hashing import stable_hash
+from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine.references import EXTENSIONS, MAX_UPLOAD_BYTES, sha_of, streams
 from app.hermes.ingest import music_hash
@@ -97,6 +98,7 @@ def list_sequences(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.patch("/sequences/{sequence_id}")
+@curated("sequence_edit")
 def patch_sequence(sequence_id: SequenceId, body: SequencePatch, s: Session = Depends(get_session)):
     """Başlık ve tavan. Tavan yükseltilir ya da kaldırılırsa duran sekans yeniden açılır (sahneleri `pending` olur);
     harcamanın altına indirilirse sekans hemen durur."""
@@ -232,6 +234,7 @@ def list_tracks(sequence_id: SequenceId, s: Session = Depends(get_session)):
 
 
 @router.post("/sequences/{sequence_id}/tracks", status_code=201)
+@curated("track_change")
 async def create_sequence_track(sequence_id: SequenceId, request: Request, query: dict = Depends(_track_query)):
     """Sekans kanalı. JSON gövde ({"mood": "joy", "gain_db": -10}) prosedürel müzik; ham ses gövdesi
     (?filename=tema.wav&start_s=4&gain_db=-6) bestecinin zamanlanmış stem'i. Hiçbir çekim yeniden üretilmez."""
@@ -239,12 +242,14 @@ async def create_sequence_track(sequence_id: SequenceId, request: Request, query
 
 
 @router.post("/projects/{project_id}/tracks", status_code=201)
+@curated("track_change")
 async def create_film_track(project_id: ProjectId, request: Request, query: dict = Depends(_track_query)):
     """Film düzeyinde kanal (bütün filme yayılır; zamanlar filmin başına göredir)."""
     return await _create_track(request, project_id, None, query)
 
 
 @router.patch("/timeline-tracks/{track_id}")
+@curated("track_change")
 def patch_track(track_id: TrackId, body: TrackPatch, s: Session = Depends(get_session)):
     t = s.get(TimelineTrack, track_id)
     if t is None or not t.is_active:
@@ -260,6 +265,7 @@ def patch_track(track_id: TrackId, body: TrackPatch, s: Session = Depends(get_se
 
 
 @router.delete("/timeline-tracks/{track_id}")
+@curated("track_remove")
 def delete_track(track_id: TrackId, s: Session = Depends(get_session)):
     """Kanalı devre dışı bırakır (silmez); film yeniden birleştirilir."""
     t = s.get(TimelineTrack, track_id)

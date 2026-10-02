@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
 from app.budget import killswitch
+from app.curation import curated
 from app.db import get_session
 from app.models import StyleBible
 from app.schemas import StyleActivateIn, StyleIn, StyleVersionIn
@@ -42,6 +43,7 @@ def get_style(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/style", status_code=201)
+@curated("style_create")
 def create_style(project_id: ProjectId, body: StyleIn, s: Session = Depends(get_session)):
     """Yeni sürüm kaydeder; etkin sürüm değişmez, hiçbir çekim etkilenmez."""
     project_or_404(s, project_id)
@@ -59,6 +61,7 @@ def preview_style(project_id: ProjectId, body: StyleVersionIn, s: Session = Depe
 
 
 @router.post("/projects/{project_id}/style/activate")
+@curated("style_activate")
 def activate_style(project_id: ProjectId, body: StyleActivateIn, s: Session = Depends(get_session)):
     """Yönetmen onayı: sürümü etkinleştirir. render=true ise etkilenen çekimler hemen kuyruğa girer."""
     project_or_404(s, project_id)

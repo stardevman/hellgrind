@@ -83,6 +83,21 @@ def track_spec(t: TimelineTrack, sequence_code: str | None) -> list:
             round(t.fade_out_s, 3)]
 
 
+def active_tracks(s, project_id: str, sequences: dict) -> list[dict]:
+    """Projenin aktif film/sekans kanalları, yerleştirmeye hazır sözlükler olarak (sequences: {kimlik: Sequence})."""
+    rows = s.scalars(select(TimelineTrack).where(TimelineTrack.project_id == project_id, TimelineTrack.is_active)
+                     .order_by(TimelineTrack.created_at, TimelineTrack.id)).all()
+    out = []
+    for t in rows:
+        if t.sequence_id is not None and t.sequence_id not in sequences:
+            continue
+        code = sequences[t.sequence_id].code if t.sequence_id else None
+        out.append({"id": str(t.id), "sequence": code, "kind": t.kind, "source": t.source, "file_key": t.file_key,
+                    "params": t.params or {}, "start_s": t.start_s, "end_s": t.end_s, "gain_db": t.gain_db,
+                    "fade_in_s": t.fade_in_s, "fade_out_s": t.fade_out_s, "spec": track_spec(t, code)})
+    return out
+
+
 def place_tracks(tracks: list[dict], spans: dict, total: float) -> list[dict]:
     """Kanalları film süresine yerleştirir: zamanlar sekansın başına göredir (sekanssızsa filmin), bitiş sekansın sonunu
     aşamaz. Filme girmeyen sekansın kanalı atlanır. [{**kanal, "at": mutlak başlangıç, "length": süre}], filmdeki
@@ -99,7 +114,8 @@ def place_tracks(tracks: list[dict], spans: dict, total: float) -> list[dict]:
     return sorted(placed, key=lambda p: (p["at"], p["sequence"] or "", p["id"]))
 
 
-def _track_file(t: dict, work: str) -> str:
+def track_file(t: dict, work: str) -> str:
+    """Kanalın yerel dosyası: prosedürel müzik içerik-adresli anahtardan (yerleşim süresince), yüklenen stem depodan."""
     ext = os.path.splitext(t["file_key"])[1] if t["source"] == "upload" else ".wav"
     path = os.path.join(work, f"track_{t['id']}{ext}")
     if t["source"] == "procedural":
@@ -129,13 +145,7 @@ def assemble(project_id: str, kind: str = "final") -> dict:
                   sequences[sc.sequence_id].code if sc.sequence_id in sequences else None) for sc, clip in scenes]
         tiers = {sc.scene_code: ("draft" if clip == sc.draft_video_key else sc.cut_tier or "final") for sc, clip in scenes}
         titles = {q.code: q.title for q in sequences.values()}
-        rows = s.scalars(select(TimelineTrack).where(TimelineTrack.project_id == project_id, TimelineTrack.is_active)
-                         .order_by(TimelineTrack.created_at, TimelineTrack.id)).all()
-        tracks = [{"id": str(t.id), "sequence": sequences[t.sequence_id].code if t.sequence_id else None,
-                   "kind": t.kind, "source": t.source, "file_key": t.file_key, "params": t.params or {},
-                   "start_s": t.start_s, "end_s": t.end_s, "gain_db": t.gain_db, "fade_in_s": t.fade_in_s,
-                   "fade_out_s": t.fade_out_s, "spec": track_spec(t, sequences[t.sequence_id].code if t.sequence_id else None)}
-                  for t in rows if t.sequence_id is None or t.sequence_id in sequences]
+        tracks = active_tracks(s, project_id, sequences)
         loudness = project_settings(s.get(Project, project_id).settings)["loudness_lufs"]
     if not items:
         return {"error": "Henüz tamamlanmış sahne yok"}
@@ -165,7 +175,7 @@ def assemble(project_id: str, kind: str = "final") -> dict:
             film = concat(normalized, os.path.join(work, "cut.mp4"))     # yalnızca sahnelerin kendi sesleri
             placed = place_tracks(tracks, {k: tuple(v) for k, v in spans.items()}, t)
             if placed:                                                  # sekans müziği: diyalog altında kısılır
-                beds = [AudioInput(_track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"],
+                beds = [AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"],
                                    p["fade_out_s"]) for p in placed]
                 film = mux(film, [AudioInput(film)], beds, os.path.join(work, "film.mp4"), loudness)
             cutlist = os.path.join(work, "cut.json")

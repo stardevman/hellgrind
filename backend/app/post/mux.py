@@ -16,6 +16,7 @@ class AudioInput:
     duration_s: float | None = None     # verilirse kanal bu süreye kırpılır (film düzeyindeki sekans müziği)
     fade_in_s: float = 0.0              # yalnızca duration_s ile
     fade_out_s: float = 0.0
+    skip_s: float = 0.0                 # yalnızca duration_s ile: kaynağın başından atlanan süre (stem dilimleme)
 
 
 def _channel(index: int, a: AudioInput, label: str) -> str:
@@ -24,7 +25,8 @@ def _channel(index: int, a: AudioInput, label: str) -> str:
     shape = ""
     if a.duration_s is not None:
         d = a.duration_s
-        shape = f"atrim=0:{d:.3f},asetpts=PTS-STARTPTS,"
+        start = f"{a.skip_s:.3f}:{a.skip_s + d:.3f}" if a.skip_s else f"0:{d:.3f}"
+        shape = f"atrim={start},asetpts=PTS-STARTPTS,"
         if a.fade_in_s > 0:
             shape += f"afade=t=in:st=0:d={min(a.fade_in_s, d):.3f},"
         if a.fade_out_s > 0:

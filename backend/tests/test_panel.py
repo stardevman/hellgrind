@@ -263,3 +263,21 @@ def test_the_method_and_revision_tools_use_their_endpoints():
     for raw in re.findall(r"uploadRaw\(`/api([^`?]+)\?", SCRIPT):                         # ham gövdeyle yüklemeler
         assert "/api" + re.sub(r"\$\{[^}]*\}", "{}", raw) in known, raw
     assert len(re.findall(r"uploadRaw\(`/api", SCRIPT)) == 4                           # dış çekim, rehber, revizyon, LUT
+
+
+# ---------- verimlilik ve dışa aktarma (Faz 17) ----------
+
+def test_the_efficiency_tab_shows_the_metrics_and_offers_every_export():
+    for text in ("Verimlilik", "Kabul edilen çekim başına varyasyon", "Film dakikası başına sanal maliyet",
+                 "Varyasyon payı", "Harcama payı", "Eleme nedenleri", "Test turu başarı oranı", "Ortalama düzeltme turu",
+                 "Kaba kurgudan iyileştirilen", "Son kararlar", "Profesyonel dışa aktarma", "EDL (CMX3600)",
+                 "OpenTimelineIO", "Çekim paketi (zip)", "Kürasyon kaydını indir"):
+        assert text in HTML, text
+    calls = api_calls()
+    for needed in (("get", "/api/projects/{}/metrics"), ("get", "/api/projects/{}/curation")):
+        assert needed in calls, needed
+    known = {re.sub(r"\{[^}]*\}", "{}", p) for p, ops in app.openapi()["paths"].items() if "get" in ops}
+    assert "/api/projects/{}/export" in known and "/api/projects/{}/curation.jsonl" in known
+    assert "/export?format=${f}" in SCRIPT and "/curation.jsonl" in SCRIPT
+    assert re.search(r'\["edl",.*\["otio",.*\["package",', SCRIPT)
+    assert {"quality_gate", "not_top_k", "superseded", "interrupted", "frozen", "failed"} <= js_object_keys("PURGE_TR")

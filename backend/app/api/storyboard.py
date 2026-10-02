@@ -21,6 +21,7 @@ from app.budget import killswitch
 from app.config import settings
 from app.core.rerender import Stage, board_stale, fingerprints
 from app.core.state import load_assets, load_characters
+from app.curation import curated
 from app.db import get_session
 from app.engine.storyboard import build_pdf, dialogue_of
 from app.models import Scene, Sequence
@@ -29,6 +30,7 @@ from app.style import bible
 from app.worker.dispatch import build_chain
 
 router = APIRouter(tags=["storyboard"])
+BOARD_ACTIONS = {"approved": "board_approve", "changes_requested": "board_reject", "pending": "board_reset"}
 
 
 def _scenes(s: Session, project_id: str) -> list[Scene]:
@@ -36,6 +38,7 @@ def _scenes(s: Session, project_id: str) -> list[Scene]:
 
 
 @router.post("/projects/{project_id}/storyboard")
+@curated("storyboard_prepare")
 def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session)):
     """Karesi olmayan ya da eskiyen her çekim için kare çizer (yalnızca STORYBOARD aşaması; görüntü üretilmez).
     Kareler sahneyi onaya bırakır. Varlık kontrolü uygulanmaz: storyboard, varlıklar kilitlenmeden önce de hazırlanır."""
@@ -66,6 +69,7 @@ def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session))
 
 
 @router.post("/scenes/{scene_id}/board")
+@curated(lambda kw, r: BOARD_ACTIONS[kw["body"].status])
 def review_board(scene_id: SceneId, body: BoardIn, s: Session = Depends(get_session)):
     """Yönetmenin kararı: approved | changes_requested (not ile) | pending (kararı geri al)."""
     sc = scene_or_404(s, scene_id)
@@ -80,6 +84,7 @@ def review_board(scene_id: SceneId, body: BoardIn, s: Session = Depends(get_sess
 
 
 @router.post("/scenes/{scene_id}/upgrade")
+@curated(lambda kw, r: "upgrade_request" if kw["body"].requested else "upgrade_cancel")
 def flag_upgrade(scene_id: SceneId, body: UpgradeIn, s: Session = Depends(get_session)):
     """Kaba kurguda zayıf bulunan çekimi iyileştirme geçişi için işaretler (ya da işareti kaldırır)."""
     sc = scene_or_404(s, scene_id)
@@ -89,6 +94,7 @@ def flag_upgrade(scene_id: SceneId, body: UpgradeIn, s: Session = Depends(get_se
 
 
 @router.post("/projects/{project_id}/draft-pass")
+@curated("draft_pass")
 def draft_pass(project_id: ProjectId, s: Session = Depends(get_session)):
     """Taslak geçiş: görüntüsü üretilecek her çekim yalnızca test turuyla üretilir (onay zorunluysa yalnızca onaylılar).
     Son çekim bitince kaba kurgu kendiliğinden birleştirilir. Tam tur hiç çalışmaz."""
@@ -101,6 +107,7 @@ def draft_pass(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/upgrade-pass")
+@curated("upgrade_pass")
 def upgrade_pass(project_id: ProjectId, s: Session = Depends(get_session)):
     """İyileştirme geçişi: yalnızca "İyileştir" ile işaretli taslak çekimlerde tam tur. Test turu klipleri aynı seed'lerle
     yeniden kullanılır; yalnızca tam tur dalgaları ücretlendirilir."""

@@ -13,6 +13,7 @@ from app.api.plan import dispatch_result, ensure_idle
 from app.api.uploads import extension, receive
 from app.config import settings
 from app.core.hashing import visual_fingerprint
+from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine import methods
 from app.engine.references import EXTENSIONS, sha_of, streams
@@ -58,6 +59,7 @@ def _apply_method(scene_id: str, method: str, **fields) -> dict:
 
 
 @router.post("/scenes/{scene_id}/external")
+@curated("external_upload")
 async def upload_external(scene_id: SceneId, request: Request, filename: str = Query(..., min_length=1, max_length=200)):
     """Dışarıda bitirilmiş çekim (ham gövde, ?filename=kovalama.mp4). Görüntü üretilmez; klip anomali kontrolünden,
     sesten ve montajdan geçer. Dosyanın içerik özeti görsel özetin yerine geçer."""
@@ -79,6 +81,7 @@ async def upload_external(scene_id: SceneId, request: Request, filename: str = Q
 
 
 @router.post("/scenes/{scene_id}/guide")
+@curated("guide_upload")
 async def upload_guide(scene_id: SceneId, request: Request, filename: str = Query(..., min_length=1, max_length=200)):
     """Previs (3D taslak) rehber videosu. Sahne rehberle üretilir: ücretsiz modda rehber, stil kılavuzunun renk diliyle
     doğrudan kullanılır; ücretli modda video-to-video stil aktarımı (Faz 18)."""
@@ -100,6 +103,7 @@ async def upload_guide(scene_id: SceneId, request: Request, filename: str = Quer
 
 
 @router.post("/scenes/{scene_id}/method")
+@curated("method_change")
 def set_method(scene_id: SceneId, body: MethodIn, s: Session = Depends(get_session)):
     """Yöntem seçimi. Dış çekim ve previs için önce dosyası yüklenmiş olmalı. Üretime dönüş, önceki klipleri yeniden
     kullanır (dış çekime geçerken havuz silinmez)."""
@@ -133,6 +137,7 @@ def list_revisions(variation_id: VariationId, s: Session = Depends(get_session))
 
 
 @router.post("/variations/{variation_id}/revisions", status_code=201)
+@curated("revision_upload")
 async def upload_revision(variation_id: VariationId, request: Request,
                           kind: str = Query("video", pattern="^(video|first_frame)$"),
                           filename: str = Query(..., min_length=1, max_length=200),
@@ -183,6 +188,7 @@ def _after_revision(scene_id: str, rev: dict | None, winner: bool) -> dict:
 
 
 @router.post("/variations/{variation_id}/revisions/active")
+@curated("revision_activate")
 def set_active_revision(variation_id: VariationId, body: RevisionActiveIn, s: Session = Depends(get_session)):
     """Etkin revizyonu seçer; revision_id null ise orijinale döner."""
     v = _variation(s, variation_id)

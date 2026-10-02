@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ProjectId, project_or_404
 from app.budget import killswitch
 from app.config import project_settings
+from app.curation import curated
 from app.db import get_session
 from app.engine.providers import route_engine
 from app.hermes.ingest import AssetBook, ensure_character
@@ -36,6 +37,7 @@ def list_projects(s: Session = Depends(get_session)):
 
 
 @router.post("/projects", status_code=201)
+@curated("project_create")
 def create_project(body: ProjectIn, s: Session = Depends(get_session)):
     p = Project(title=body.title, budget_limit_usd=body.budget_limit_usd, settings=body.settings, status="draft")
     s.add(p)
@@ -49,6 +51,7 @@ def get_project(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.patch("/projects/{project_id}")
+@curated("project_settings")
 def patch_project(project_id: ProjectId, body: ProjectPatch, s: Session = Depends(get_session)):
     """Proje adı ve ayarları (ör. {"settings": {"require_board_approval": true}}). Ayarlar birleştirilir."""
     p = project_or_404(s, project_id)
@@ -61,6 +64,7 @@ def patch_project(project_id: ProjectId, body: ProjectPatch, s: Session = Depend
 
 
 @router.post("/projects/{project_id}/characters", status_code=201)
+@curated("character_create")
 def create_character(project_id: ProjectId, body: CharacterIn, s: Session = Depends(get_session)):
     """Karakter ve ona bağlı taslak karakter varlığı (referansları Varlıklar sekmesinden yüklenir)."""
     project_or_404(s, project_id)
@@ -91,6 +95,7 @@ def _sequence_for(s: Session, project_id: str, sequence_id) -> Sequence:
 
 
 @router.post("/projects/{project_id}/scenes", status_code=201)
+@curated("scene_create")
 def create_scene(project_id: ProjectId, body: SceneIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     wanted = set(body.character_ids)

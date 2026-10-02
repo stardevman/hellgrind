@@ -272,3 +272,15 @@ class CostLedger(Base):
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     reservation: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CurationEvent(Base):
+    """Yönetmenin bir kararı (Faz 17): seçim, eleme, iyileştirme işareti, onay... Kalite modeli eğitiminin verisi."""
+    __tablename__ = "curation_events"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
+    variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("variations.id"))
+    action: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
