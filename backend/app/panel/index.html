@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hell Grind — Kontrol Paneli</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%232A2D31%27/%3E%3Cpath d=%27M16 4c1 5 7 7 7 14a7 7 0 0 1-14 0c0-3 2-4 3-7 1 2 2 3 3 3 0-3 0-6 1-10z%27 fill=%27%23E4A23E%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --slag: #2A2D31; --plate: #33373C; --ash: #E6E1D8; --dust: #A39E95;
+  --ember: #E4A23E; --verdigris: #62AE8E; --oxide: #C2573F; --steel: #86A5B8;
+  --line: rgba(230, 225, 216, .14); --sunk: rgba(0, 0, 0, .22);
+  --gap: 16px;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body {
+  margin: 0; background: var(--slag); color: var(--ash);
+  font: 400 15px/1.45 "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif; font-stretch: 100%;
+}
+h1, h2, h3 { margin: 0; font-stretch: 118%; font-weight: 800; letter-spacing: -.01em; }
+h2 { font-size: 18px; } h3 { font-size: 15px; font-stretch: 112%; }
+p { margin: 0; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 3px; }
+[hidden] { display: none !important; }
+.muted { color: var(--dust); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* üst bant */
+.topbar {
+  position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 12px var(--gap);
+  padding: 10px var(--gap); background: var(--plate); border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 22px; font-stretch: 125%; font-weight: 900; color: var(--ember); margin-right: 4px; }
+.topbar select { min-width: 220px; max-width: 100%; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: var(--sunk); border: 1px solid var(--line); color: var(--dust); font-size: 13px;
+}
+.chip.free { color: var(--verdigris); border-color: rgba(98, 174, 142, .45); }
+.chip.paid { color: var(--oxide); border-color: rgba(194, 87, 63, .6); }
+.spacer { flex: 1; }
+
+/* denetimler */
+.btn {
+  min-height: 36px; padding: 6px 14px; border-radius: 4px; background: var(--slag); border: 1px solid var(--line);
+  font-weight: 600; transition: background .15s, border-color .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--dust); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--ember); color: #24201a; border-color: var(--ember); }
+.btn.primary:hover:not(:disabled) { background: #f0b350; }
+.btn.danger { border-color: rgba(194, 87, 63, .7); color: #f0a091; }
+.btn.good { border-color: rgba(98, 174, 142, .7); color: var(--verdigris); }
+.btn.small { min-height: 30px; padding: 3px 10px; font-size: 13px; }
+select, input[type=text], input[type=number], textarea {
+  background: var(--slag); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; min-height: 36px;
+}
+textarea { width: 100%; resize: vertical; line-height: 1.5; }
+
+/* bütçe rayı */
+.rail { display: grid; grid-template-columns: 1fr auto; gap: 8px var(--gap); align-items: center; padding: 12px var(--gap); background: var(--plate); border-bottom: 1px solid var(--line); }
+.rail .figures { display: flex; flex-wrap: wrap; gap: 4px 22px; }
+.fig b { display: block; font-size: 20px; font-stretch: 112%; font-weight: 800; }
+.fig span { color: var(--dust); font-size: 13px; }
+.meter { grid-column: 1 / -1; position: relative; height: 10px; border-radius: 5px; background: var(--sunk); overflow: hidden; }
+.meter .spent { position: absolute; inset: 0 auto 0 0; background: var(--ember); }
+.meter .reserved { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--steel) 0 4px, transparent 4px 8px); opacity: .8; }
+.meter .soft { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ash); opacity: .55; }
+.rail .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.banner { padding: 10px var(--gap); border-bottom: 1px solid var(--line); }
+.banner.frozen { background: rgba(194, 87, 63, .22); color: #f3b5a8; }
+.banner.soft { background: rgba(228, 162, 62, .16); color: #f1cd8f; }
+.banner.offline { background: var(--sunk); color: var(--dust); }
+
+/* ana yerleşim */
+main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
+.layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr); gap: var(--gap); align-items: start; }
+.panel { background: var(--plate); border: 1px solid var(--line); border-radius: 6px; }
+.panel > header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel .body { padding: 14px; }
+
+/* sahne satırları */
+.scene { display: grid; grid-template-columns: 112px minmax(0, 1fr) 70px; gap: 6px 14px; padding: 12px 14px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+.scene:last-child { border-bottom: 0; }
+.scene.selected { background: rgba(134, 165, 184, .09); border-left-color: var(--steel); }
+.scene-head { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.scene-pick { background: none; border: 0; padding: 0; text-align: left; font-weight: 800; font-stretch: 112%; }
+.scene-info { min-width: 0; }
+.scene-info .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.scene-info .head { color: var(--dust); font-size: 13px; }
+.scene .spend { text-align: right; align-self: start; }
+.scene .strip { grid-column: 1 / -1; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--sunk); }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dust); }
+.status.done { color: var(--verdigris); } .status.done::before { background: var(--verdigris); }
+.status.refined { color: var(--steel); } .status.refined::before { background: var(--steel); }
+.status.failed, .status.needs_review, .status.frozen { color: #f0a091; } .status.failed::before, .status.needs_review::before, .status.frozen::before { background: var(--oxide); }
+.status.work { color: var(--ember); } .status.work::before { background: var(--ember); animation: breathe 1.6s ease-in-out infinite; }
+
+/* film şeridi */
+.strip { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-height: 26px; }
+.tile { position: relative; width: 44px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; background: #1d1f22; }
+.tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tile.tier-start { margin-left: 12px; }
+.tile.tier-start::before { content: ""; position: absolute; left: -9px; top: 3px; bottom: 3px; width: 1px; background: var(--dust); }
+.tile .rank { position: absolute; right: 0; bottom: 0; min-width: 15px; padding: 0 3px; font-size: 11px; font-weight: 800; background: var(--verdigris); color: #14231c; line-height: 15px; text-align: center; }
+.tile.refined { border: 2px solid var(--verdigris); }
+.tile.rejected { filter: grayscale(1); opacity: .6; }
+.tile.rejected::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--oxide) calc(50% - 1.5px), var(--oxide) calc(50% + 1.5px), transparent calc(50% + 1.5px)); }
+.tile.retired { opacity: .38; }
+.tile.failed { border-style: dashed; border-color: var(--oxide); opacity: .7; }
+.tile.working { border-color: var(--ember); background: rgba(228, 162, 62, .35); animation: breathe 1.6s ease-in-out infinite; }
+.tile.selected { outline: 2px solid var(--ash); outline-offset: 1px; }
+.tile:hover { border-color: var(--ash); }
+@keyframes breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--dust); font-size: 13px; }
+.legend i { display: inline-block; width: 22px; height: 13px; border: 1px solid var(--line); border-radius: 2px; vertical-align: -2px; margin-right: 6px; position: relative; overflow: hidden; background: #1d1f22; }
+.legend i.refined { border: 2px solid var(--verdigris); } .legend i.rejected { filter: grayscale(1); opacity: .7; }
+.legend i.rejected::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1px), var(--oxide) calc(50% - 1px), var(--oxide) calc(50% + 1px), transparent calc(50% + 1px)); }
+.legend i.retired { opacity: .38; } .legend i.working { background: rgba(228, 162, 62, .5); border-color: var(--ember); }
+
+/* denetçi */
+.inspector { position: sticky; top: 150px; max-height: calc(100vh - 166px); overflow: auto; }
+.inspector .body { display: grid; gap: 18px; }
+.media { background: #111; border-radius: 4px; overflow: hidden; aspect-ratio: 16 / 9; display: grid; place-items: center; }
+.media video { width: 100%; height: 100%; display: block; background: #000; }
+.media .none { color: var(--dust); padding: 16px; text-align: center; }
+.caption { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 6px; color: var(--dust); font-size: 13px; }
+.pool { display: grid; gap: 8px; }
+.pool-item { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); }
+.pool-item img, .pool-item .ph { width: 64px; height: 36px; object-fit: cover; border-radius: 2px; background: #1d1f22; }
+.pool-item.use { border-color: rgba(98, 174, 142, .6); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+.kv dt { color: var(--dust); } .kv dd { margin: 0; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.lines { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.lines li { padding: 6px 10px; border-left: 3px solid var(--steel); background: var(--sunk); border-radius: 0 4px 4px 0; }
+.lines .who { font-weight: 700; }
+.form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.form-row label { display: grid; gap: 4px; font-size: 13px; color: var(--dust); }
+.form-row input[type=number] { width: 96px; }
+.note { min-height: 22px; padding: 8px 12px; border-radius: 4px; background: var(--sunk); border-left: 3px solid var(--steel); }
+.note.err { border-left-color: var(--oxide); color: #f3b5a8; }
+.note.ok { border-left-color: var(--verdigris); }
+.note:empty { display: none; }
+
+/* film bölümü */
+.film { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: var(--gap); margin-top: var(--gap); align-items: start; }
+.cutbar { display: flex; gap: 2px; margin-top: 10px; min-height: 40px; }
+.cut { position: relative; border: 0; padding: 4px 6px; min-width: 36px; border-radius: 3px; color: #101214; font-size: 12px; font-weight: 700; text-align: left; overflow: hidden; white-space: nowrap; opacity: .82; }
+.cut.active { opacity: 1; outline: 2px solid var(--ash); outline-offset: 1px; }
+.cut:hover { opacity: 1; }
+.events { max-height: 340px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.events li { padding: 8px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 66px 1fr; gap: 10px; }
+.events li:last-child { border-bottom: 0; }
+.events time { color: var(--dust); font-size: 13px; }
+.events .bad { color: #f3b5a8; } .events .good { color: var(--verdigris); }
+
+/* yeni proje / boş durum */
+.start { max-width: 860px; margin: 24px auto; }
+.start form { display: grid; gap: 16px; }
+.start .row { display: flex; flex-wrap: wrap; gap: 14px; }
+.start label { display: grid; gap: 4px; color: var(--dust); font-size: 13px; }
+.start .grow { flex: 1 1 260px; }
+.start .intensity { display: grid; gap: 8px; }
+.start label.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); color: var(--ash); font-size: 15px; }
+.choice input { margin-top: 4px; }
+.choice small { display: block; color: var(--dust); }
+.empty { padding: 28px 16px; text-align: center; color: var(--dust); }
+
+@media (max-width: 960px) {
+  .layout, .film { grid-template-columns: 1fr; }
+  .inspector { position: static; }
+  .scene { grid-template-columns: 1fr auto; }
+  .scene-head { grid-column: 1; } .scene .spend { grid-column: 2; grid-row: 1; }
+  .scene-info { grid-column: 1 / -1; }
+  .topbar select { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1 class="brand">Hell Grind</h1>
+  <select id="project-select" aria-label="Proje seçici"></select>
+  <button class="btn" id="new-project" type="button">Yeni proje</button>
+  <span class="spacer"></span>
+  <span class="chip" id="mode-chip">Mod yükleniyor…</span>
+</header>
+
+<section class="rail" id="rail" aria-label="Bütçe" hidden>
+  <div class="figures" id="rail-figures"></div>
+  <div class="actions">
+    <button class="btn danger" id="freeze" type="button">Üretimi durdur</button>
+    <button class="btn good" id="resume" type="button">Üretime devam et</button>
+  </div>
+  <div class="meter" id="meter" role="img" aria-label="Bütçe kullanımı"></div>
+</section>
+<div class="banner frozen" id="banner-frozen" role="alert" hidden></div>
+<div class="banner soft" id="banner-soft" hidden>Yumuşak bütçe sınırı aşıldı: yeni tam dalga başlatılmıyor, sahneler eldeki adaylarla tamamlanıyor.</div>
+<div class="banner offline" id="banner-offline" role="status" hidden>Sunucuya ulaşılamıyor; yeniden deniyorum…</div>
+
+<main>
+  <!-- yeni proje ve boş durum -->
+  <section class="start panel" id="view-start" hidden>
+    <header><h2 id="start-title">Yeni proje</h2><span class="spacer"></span><button class="btn small" id="start-cancel" type="button" hidden>Vazgeç</button></header>
+    <div class="body">
+      <form id="start-form">
+        <div class="row" id="start-project-fields">
+          <label class="grow">Proje adı<input type="text" id="f-title" required maxlength="200" value="Örnek film"></label>
+          <label>Sanal bütçe (USD)<input type="number" id="f-budget" min="1" max="1000000" step="1" value="60" required></label>
+        </div>
+        <div class="intensity" id="start-intensity" role="radiogroup" aria-label="Üretim yoğunluğu">
+          <span class="muted">Üretim yoğunluğu</span>
+          <label class="choice"><input type="radio" name="intensity" value="preview" checked><span><b>Önizleme</b><small id="intensity-preview"></small></span></label>
+          <label class="choice"><input type="radio" name="intensity" value="brief"><span><b>Brifing</b><small id="intensity-brief"></small></span></label>
+        </div>
+        <label>Senaryo<textarea id="f-script" rows="16" spellcheck="false" required minlength="10"></textarea></label>
+        <div class="row" style="align-items:center">
+          <button class="btn primary" id="start-submit" type="submit">Senaryoyu işle ve üret</button>
+          <span class="muted" id="start-hint">Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır.</span>
+        </div>
+        <div class="note" id="start-note" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- proje görünümü -->
+  <div id="view-project" hidden>
+    <div class="layout">
+      <section class="panel" aria-labelledby="scenes-title">
+        <header><h2 id="scenes-title">Sahneler</h2><span class="muted num" id="scenes-count"></span></header>
+        <div id="scenes"></div>
+        <div class="legend" aria-label="Film şeridi göstergeleri">
+          <span><i class="refined"></i>rafine havuzda</span>
+          <span><i class="rejected"></i>kalite kontrolünde elendi</span>
+          <span><i class="retired"></i>havuza giremedi</span>
+          <span><i class="working"></i>üretiliyor</span>
+        </div>
+      </section>
+
+      <aside class="panel inspector" id="inspector" aria-label="Sahne denetçisi">
+        <header><h2 id="insp-title">Sahne seçin</h2><span id="insp-status"></span></header>
+        <div class="body" id="insp-body" hidden>
+          <div>
+            <div class="media" id="insp-media"></div>
+            <div class="caption"><span id="insp-caption"></span><button class="btn small" id="insp-back" type="button" hidden>Sonuca dön</button></div>
+          </div>
+          <div><h3>Rafine havuz</h3><div class="pool" id="insp-pool" style="margin-top:8px"></div></div>
+          <div><h3>Çekim bilgileri</h3><dl class="kv" id="insp-info" style="margin-top:8px"></dl></div>
+          <div><h3>Diyalog</h3><ul class="lines" id="insp-lines" style="margin-top:8px"></ul></div>
+          <div>
+            <h3>Müziği değiştir</h3>
+            <form class="form-row" id="music-form" style="margin-top:8px" novalidate>
+              <label>Duygu<select id="music-emotion"></select></label>
+              <label>Seviye (dB)<input type="number" id="music-gain" min="-40" max="0" step="1" value="-8"></label>
+              <button class="btn" id="music-submit" type="submit">Müziği değiştir</button>
+            </form>
+          </div>
+          <div class="form-row"><button class="btn" id="regen" type="button">Bu sahneyi baştan üret</button></div>
+          <div class="note" id="insp-note" role="status" aria-live="polite"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="film">
+      <section class="panel" aria-labelledby="film-title">
+        <header><h2 id="film-title">Film</h2><span class="spacer"></span><button class="btn primary" id="assemble" type="button">Tamamlanan sahneleri birleştir</button></header>
+        <div class="body">
+          <div class="media" id="film-media"><p class="none">Henüz film yok. Sahneler tamamlanınca birleştirin.</p></div>
+          <div class="cutbar" id="cutbar" aria-label="Kesme listesi"></div>
+          <div class="note" id="film-note" role="status" aria-live="polite" style="margin-top:10px"></div>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="events-title">
+        <header><h2 id="events-title">Olay akışı</h2></header>
+        <ol class="events" id="events"></ol>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+const POLL_MS = 2000;
+const STATUS_TR = {
+  pending: "Sırada", parsed: "Ayrıştırıldı", probing: "Test turu", generating: "Tam tur", correcting: "Düzeltme",
+  refined: "Rafine", needs_review: "İnceleme gerekli", audio: "Ses", lipsync: "Dudak senkronu", muxing: "Montaj",
+  done: "Hazır", failed: "Hata", frozen: "Donduruldu",
+};
+const PROJECT_STATUS_TR = { draft: "Taslak", parsing: "Ayrıştırılıyor", producing: "Üretimde", paused: "Durduruldu", killed: "İptal edildi", completed: "Tamamlandı" };
+const WORKING = new Set(["probing", "generating", "correcting", "audio", "lipsync", "muxing"]);
+const EMOTION_TR = { neutral: "Nötr", joy: "Sevinç", anger: "Öfke", fear: "Korku", sadness: "Hüzün", surprise: "Şaşkınlık", disgust: "Tiksinti", tension: "Gerilim" };
+const EMOTION_COLOR = { neutral: "#A39E95", joy: "#E4A23E", anger: "#C2573F", fear: "#86A5B8", sadness: "#6F8CA0", surprise: "#D9B77A", disgust: "#8FA66A", tension: "#C9895A" };
+const ANOMALY_TR = { black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya", unreadable: "okunamayan dosya" };
+const SHOT_TR = { extreme_wide: "çok geniş", wide: "geniş", pov: "öznel", medium: "orta", over_shoulder: "omuz üstü", close_up: "yakın", extreme_close_up: "çok yakın" };
+const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma", pan: "pan", tilt: "tilt", crane: "vinç", orbit: "yörünge", tracking: "takip", handheld: "el kamerası" };
+
+const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
+            offline: false, busy: false, assembling: null };
+let timer = null;
+
+/* ---------- yardımcılar ---------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const usd = (n) => "$" + Number(n || 0).toFixed(2);
+const clock = (ts) => new Date(ts * 1000).toLocaleTimeString("tr-TR", { hour12: false });
+function store(key, value) { try { value == null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch (_) { /* depolama kapalı olabilir */ } }
+function recall(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
+
+function detailOf(data) {
+  if (!data) return "";
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail)) return data.detail.map((d) => (d.msg || "").replace(/^Value error, /, "")).filter(Boolean).join("; ");
+  return "";
+}
+async function api(path, method = "GET", body) {
+  const res = await fetch("/api" + path, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* gövde yok */ }
+  if (!res.ok) throw Object.assign(new Error(detailOf(data) || `İstek başarısız (${res.status})`), { status: res.status });
+  return data;
+}
+/* Yalnızca içerik değiştiyse DOM'a yazar: 2 saniyelik yoklama oynatıcıları, girdileri ve odağı bozmasın. */
+function setHTML(el, html) { if (el._sig !== html) { el._sig = html; el.innerHTML = html; } }
+function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+
+const curScene = () => S.ov && S.ov.scenes.find((s) => s.id === S.sceneId);
+const stagesText = (stages) => {
+  const k = stages.join("+");
+  return ({
+    "": "Yapılacak iş yok: girdiler değişmedi.",
+    "MUX": "Yalnızca montaj; görüntü motoru çağrılmadı.",
+    "LIPSYNC+MUX": "Yalnızca dudak senkronu ve montaj; görüntü motoru çağrılmadı.",
+    "VISUAL+LIPSYNC+MUX": "Görüntü baştan üretilecek, ardından ses ve montaj.",
+  })[k] || `Çalışacak aşamalar: ${stages.join(", ")}`;
+};
+
+/* ---------- görünüm seçimi ---------- */
+function showView() {
+  const loading = S.projectId && !S.ov && !S.creating && !S.offline;      // yüklenirken boş durum ekranı yanıp sönmesin
+  const hasScenes = S.ov && S.ov.scenes.length > 0;
+  const start = S.creating || !S.projectId || !hasScenes;
+  $("view-start").hidden = loading || !start;
+  $("view-project").hidden = loading || start;
+  $("rail").hidden = !S.projectId || !S.ov;
+  if (start && !loading) renderStart();
+}
+function renderStart() {
+  const newProject = S.creating || !S.projectId;
+  $("start-title").textContent = newProject ? "Yeni proje" : "Senaryoyu yükle";
+  $("start-project-fields").hidden = !newProject;
+  $("start-intensity").hidden = !newProject;
+  $("start-cancel").hidden = !(S.creating && S.projects.length);
+  if (S.meta) {
+    const p = S.meta.presets.preview, d = S.meta.defaults;
+    setText($("intensity-preview"), `En çok ${p.probe_n} test ve ${p.full_n} tam klip: hızlı sonuç, örnek film için uygun.`);
+    setText($("intensity-brief"), `${d.probe_n} test ve en çok ${d.full_n} tam klip: brifingdeki yoğunluk.`);
+    if (!$("f-script").value && !$("f-script")._touched) $("f-script").value = S.meta.sample_script;
+  }
+}
+
+/* ---------- üst bant ve bütçe ---------- */
+function renderTop() {
+  const options = S.projects.map((p) => `<option value="${p.id}"${p.id === S.projectId ? " selected" : ""}>${esc(p.title)} — ${PROJECT_STATUS_TR[p.status] || esc(p.status)}</option>`).join("");
+  setHTML($("project-select"), options || '<option value="">Henüz proje yok</option>');
+  $("project-select").value = S.projectId || "";
+  const chip = $("mode-chip");
+  if (S.meta) {
+    chip.className = "chip " + (S.meta.dry_run ? "free" : "paid");
+    setText(chip, S.meta.dry_run ? "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" : "Ücretli mod açık: gerçek harcama yapılır");
+  }
+}
+function renderBudget() {
+  if (!S.ov) return;
+  const p = S.ov.project, limit = p.budget_limit_usd || 1;
+  const left = Math.max(0, limit - p.spent_usd - p.reserved_usd);
+  const virtual = p.dry_run ? " (sanal)" : "";
+  setHTML($("rail-figures"), `
+    <div class="fig"><b class="num">${usd(p.spent_usd)}</b><span>Harcanan${virtual}</span></div>
+    <div class="fig"><b class="num">${usd(p.reserved_usd)}</b><span>Ayrılan</span></div>
+    <div class="fig"><b class="num">${usd(left)}</b><span>Kalan</span></div>
+    <div class="fig"><b class="num">${usd(p.budget_limit_usd)}</b><span>Limit</span></div>`);
+  const pct = (x) => Math.min(100, (x / limit) * 100).toFixed(2);
+  setHTML($("meter"), `<div class="spent" style="width:${pct(p.spent_usd)}%"></div><div class="reserved" style="left:${pct(p.spent_usd)}%;width:${pct(p.reserved_usd)}%"></div><div class="soft" style="left:${(p.settings.soft_budget_ratio * 100).toFixed(1)}%" title="Yumuşak limit"></div>`);
+  $("meter").setAttribute("aria-label", `Bütçenin yüzde ${Math.round((p.spent_usd / limit) * 100)} kadarı harcandı`);
+  $("freeze").disabled = p.frozen;
+  $("resume").disabled = !p.frozen;
+  const banner = $("banner-frozen");
+  banner.hidden = !p.frozen;
+  if (p.frozen) {
+    const ev = S.ov.events.find((e) => e.kind === "frozen");
+    setText(banner, `Üretim durduruldu${ev && ev.reason ? " (" + ev.reason + ")" : ""}. Sahneler donduruldu; devam edene kadar yeni iş başlamaz.`);
+  }
+  $("banner-soft").hidden = !p.soft_limited || p.frozen;
+}
+
+/* ---------- sahne satırları ---------- */
+/* Satırlar ve kareler yerinde yamalanır, yeniden yazılmaz: üretim sürerken 2 saniyelik yoklama, kullanıcı tam bir kareye
+   basarken düğümü değiştirirse tıklama kaybolurdu; <img> de her seferinde yeniden yüklenirdi. */
+function tileSpec(v, prev) {
+  const cls = ["tile"];
+  const working = ["queued", "running", "generated"].includes(v.status);
+  let fate;
+  if (v.rank) { cls.push("refined"); fate = `rafine havuzda, ${v.rank}. sıra`; }
+  else if (v.status === "purged" && v.reason === "quality_gate") { cls.push("rejected"); fate = "kalite kontrolünde elendi: " + (v.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ") || "eşik altı"); }
+  else if (v.status === "purged") { cls.push("retired"); fate = v.reason === "superseded" ? "yeni üretimle yerini kaybetti" : "havuza giremedi"; }
+  else if (v.status === "failed") { cls.push("failed"); fate = "üretilemedi"; }
+  else if (working) { cls.push("working"); fate = "üretiliyor"; }
+  else fate = "kalite kontrolünü geçti";
+  if (v.tier === "full" && (!prev || prev.tier !== "full")) cls.push("tier-start");
+  const selected = S.varId === v.id;
+  if (selected) cls.push("selected");
+  const score = v.score != null ? ` · skor ${v.score.toFixed(3)}` : "";
+  return { cls: cls.join(" "), selected, thumb: v.thumb_url || "", rank: v.rank || 0,
+           label: `${v.tier === "probe" ? "Test turu" : "Tam tur"} ${v.wave_no + 1}. dalga${score} · ${fate}` };
+}
+function patchAttr(el, name, value) { if (el.getAttribute(name) !== value) el.setAttribute(name, value); }
+function patchStrip(strip, vars, sceneId) {
+  const have = new Map([...strip.querySelectorAll(".tile")].map((el) => [el.dataset.var, el]));
+  const empty = strip.querySelector(".none");
+  if (!vars.length) { if (!empty) strip.innerHTML = '<span class="muted none">Henüz klip yok</span>'; return; }
+  if (empty) empty.remove();
+  vars.forEach((v, i) => {
+    let el = have.get(v.id);
+    have.delete(v.id);
+    if (!el) { el = document.createElement("button"); el.type = "button"; el.dataset.var = v.id; el.dataset.scene = sceneId; }
+    const t = tileSpec(v, vars[i - 1]);
+    if (el.className !== t.cls) el.className = t.cls;
+    patchAttr(el, "aria-pressed", String(t.selected)); patchAttr(el, "aria-label", t.label); patchAttr(el, "title", t.label);
+    let img = el.querySelector("img");
+    if (t.thumb) {
+      if (!img) { img = new Image(); img.alt = ""; img.loading = "lazy"; img.decoding = "async"; el.prepend(img); }
+      if (img.getAttribute("src") !== t.thumb) img.src = t.thumb;
+    } else if (img) img.remove();
+    let rank = el.querySelector(".rank");
+    if (t.rank) { if (!rank) { rank = document.createElement("span"); rank.className = "rank"; el.append(rank); } setText(rank, String(t.rank)); }
+    else if (rank) rank.remove();
+    if (strip.children[i] !== el) strip.insertBefore(el, strip.children[i] || null);
+  });
+  have.forEach((el) => el.remove());
+}
+function makeRow(id) {
+  const el = document.createElement("article");
+  el.className = "scene"; el.dataset.id = id;
+  el.innerHTML = `
+    <div class="scene-head"><button type="button" class="scene-pick"></button><span class="status"></span></div>
+    <div class="scene-info"><p class="desc"></p><p class="head"></p></div>
+    <div class="spend num muted" title="Sahne harcaması"></div>
+    <div class="strip"></div>`;
+  return el;
+}
+function patchRow(el, sc) {
+  const pick = el.querySelector(".scene-pick");
+  pick.dataset.scene = sc.id; setText(pick, sc.scene_code); patchAttr(pick, "aria-label", `${sc.scene_code} sahnesini seç`);
+  const st = el.querySelector(".status");
+  const cls = "status " + (WORKING.has(sc.status) ? "work" : sc.status);
+  if (st.className !== cls) st.className = cls;
+  setText(st, STATUS_TR[sc.status] || sc.status);
+  setText(el.querySelector(".desc"), sc.description || "");
+  const error = sc.last_error && sc.status !== "done" ? sc.last_error.split("\n")[0] : "";
+  setHTML(el.querySelector(".head"), esc(sc.heading) + (error ? ` · <span style="color:#f3b5a8">${esc(error)}</span>` : ""));
+  setText(el.querySelector(".spend"), usd(sc.spent_usd));
+  const strip = el.querySelector(".strip");
+  patchAttr(strip, "aria-label", `${sc.scene_code} film şeridi`);
+  patchStrip(strip, sc.variations, sc.id);
+  el.classList.toggle("selected", sc.id === S.sceneId);
+}
+function renderScenes() {
+  const host = $("scenes");
+  const scenes = S.ov.scenes;
+  setText($("scenes-count"), `${scenes.length} sahne · ${scenes.filter((s) => s.status === "done").length} hazır`);
+  const existing = new Map([...host.children].map((el) => [el.dataset.id, el]));
+  scenes.forEach((sc, i) => {
+    let el = existing.get(sc.id) || makeRow(sc.id);
+    existing.delete(sc.id);
+    patchRow(el, sc);
+    if (host.children[i] !== el) host.insertBefore(el, host.children[i] || null);
+  });
+  existing.forEach((el) => el.remove());
+}
+
+/* ---------- denetçi ---------- */
+function pickMedia(sc) {
+  const best = sc.variations.find((v) => v.rank === 1);
+  const chosen = S.varId && sc.variations.find((v) => v.id === S.varId);
+  if (chosen && chosen.video_url) {
+    const inQuarantine = chosen.video_url.includes("quarantine");
+    return { src: chosen.video_url, poster: chosen.thumb_url, preview: true,
+             label: `Varyasyon önizlemesi${inQuarantine ? " (karantinada)" : ""}${chosen.score != null ? " · skor " + chosen.score.toFixed(3) : ""}` };
+  }
+  if (sc.final_url) return { src: sc.final_url, poster: best && best.thumb_url, label: "Sonuç videosu" };
+  if (best && best.video_url) return { src: best.video_url, poster: best.thumb_url, label: "Rafine video (montaj bekliyor)" };
+  return null;
+}
+function syncVideo(host, media) {
+  const src = media ? media.src : "";
+  if (host.dataset.src === src) return;
+  host.dataset.src = src;
+  host.innerHTML = "";
+  if (!media) { host.innerHTML = '<p class="none">Henüz video yok.</p>'; return; }
+  const v = document.createElement("video");
+  v.controls = true; v.preload = "metadata"; v.playsInline = true;
+  if (media.poster) v.poster = media.poster;
+  v.src = media.src;
+  host.appendChild(v);
+}
+function renderInspector() {
+  const sc = curScene();
+  $("insp-body").hidden = !sc;
+  if (!sc) { setText($("insp-title"), "Sahne seçin"); setHTML($("insp-status"), ""); return; }
+  setText($("insp-title"), `${sc.scene_code} · ${sc.heading}`);
+  setHTML($("insp-status"), `<span class="status ${WORKING.has(sc.status) ? "work" : sc.status}">${STATUS_TR[sc.status] || esc(sc.status)}</span>`);
+
+  const media = pickMedia(sc);
+  syncVideo($("insp-media"), media);
+  setText($("insp-caption"), media ? media.label : "");
+  $("insp-back").hidden = !(media && media.preview);
+
+  const pool = sc.variations.filter((v) => v.rank).sort((a, b) => a.rank - b.rank);
+  setHTML($("insp-pool"), pool.length ? pool.map((v) => `
+    <div class="pool-item${v.rank === 1 ? " use" : ""}">
+      ${v.thumb_url ? `<img src="${esc(v.thumb_url)}" alt="" loading="lazy">` : '<span class="ph"></span>'}
+      <div><b>${v.rank}. sıra</b><br><span class="muted num">skor ${v.score != null ? v.score.toFixed(3) : "—"}</span></div>
+      ${v.rank === 1 ? '<span class="muted">Kullanımda</span>' : `<button type="button" class="btn small" data-promote="${v.id}"${S.busy ? " disabled" : ""}>Bunu kullan</button>`}
+    </div>`).join("") : '<p class="muted">Henüz rafine havuz yok.</p>');
+
+  const cam = sc.camera || {};
+  setHTML($("insp-info"), `
+    <dt>Duygu</dt><dd><span class="dot" style="background:${EMOTION_COLOR[sc.emotion] || "#A39E95"}"></span>${EMOTION_TR[sc.emotion] || esc(sc.emotion)}</dd>
+    <dt>Kamera</dt><dd>${SHOT_TR[cam.shot] || esc(cam.shot || "—")}, ${MOVE_TR[cam.movement] || esc(cam.movement || "—")}, ${esc(cam.lens_mm || "—")} mm</dd>
+    <dt>Süre</dt><dd class="num">${Number(sc.duration_s).toFixed(1)} sn</dd>
+    <dt>Aksiyon</dt><dd class="num">${Number(sc.action_complexity).toFixed(2)}</dd>
+    <dt>Motor</dt><dd>${esc(sc.engine || "—")}</dd>
+    <dt>Karakterler</dt><dd>${esc(sc.characters.join(", ") || "—")}</dd>`);
+
+  const lines = sc.tracks.filter((t) => t.kind === "dialogue");
+  setHTML($("insp-lines"), lines.length ? lines.map((t) => `<li><span class="who">${esc(t.character || "Anlatıcı")}</span> · ${esc(t.text)}
+      <span class="muted">(${EMOTION_TR[t.emotion] || "—"}, ${Number(t.start_offset_s).toFixed(1)} sn)</span></li>`).join("") : '<li class="muted">Bu çekimde diyalog yok.</li>');
+
+  const music = sc.tracks.find((t) => t.kind === "music");
+  const form = $("music-form");
+  const sig = sc.id + ":" + (music ? music.version : "-");
+  if (form.dataset.sig !== sig) {                       // kullanıcı yazarken yoklama alanları ezmesin
+    form.dataset.sig = sig;
+    $("music-emotion").innerHTML = Object.entries(EMOTION_TR).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+    $("music-emotion").value = (music && music.mood) || sc.emotion;
+    $("music-gain").value = music ? music.gain_db : -8;
+  }
+  const busy = S.busy || (S.ov && S.ov.project.frozen);
+  $("music-submit").disabled = busy; $("regen").disabled = busy;
+}
+
+/* ---------- film ve olaylar ---------- */
+function renderFilm() {
+  const done = S.ov.scenes.filter((s) => s.status === "done").length;
+  const t = S.ov.timeline;
+  if (S.assembling && t && t.url !== S.assembling.before) S.assembling = null;           // yeni film geldi
+  else if (S.assembling && Date.now() - S.assembling.at > 90000) S.assembling = null;    // sonsuza dek beklemesin
+  const b = $("assemble");
+  setText(b, S.assembling ? "Birleştiriliyor…" : `Tamamlanan ${done} sahneyi birleştir`);
+  b.disabled = done === 0 || !!S.assembling;
+  const media = t ? { src: t.url, label: "Film" } : null;
+  const host = $("film-media");
+  if (host.dataset.src !== (media ? media.src : "")) {
+    host.dataset.src = media ? media.src : "";
+    host.innerHTML = "";
+    if (!media) host.innerHTML = '<p class="none">Henüz film yok. Sahneler tamamlanınca birleştirin.</p>';
+    else { const v = document.createElement("video"); v.controls = true; v.preload = "metadata"; v.playsInline = true; v.src = media.src; v.addEventListener("timeupdate", markActiveCut); host.appendChild(v); }
+  }
+  const clips = (t && t.cut && t.cut.clips) || [];
+  setHTML($("cutbar"), clips.map((c) => {
+    const d = Math.max(0.1, c.out_s - c.in_s);
+    return `<button type="button" class="cut" data-in="${c.in_s}" data-out="${c.out_s}" style="flex:${d} 1 0;background:${EMOTION_COLOR[c.emotion] || "#A39E95"}" title="${esc(c.scene_code)} · ${esc(c.description || "")}" aria-label="${esc(c.scene_code)} sahnesine git">${esc(c.scene_code)}</button>`;
+  }).join(""));
+}
+function markActiveCut() {
+  const v = $("film-media").querySelector("video");
+  if (!v) return;
+  document.querySelectorAll("#cutbar .cut").forEach((el) => el.classList.toggle("active", v.currentTime >= +el.dataset.in && v.currentTime < +el.dataset.out));
+}
+function eventText(e, codes) {
+  const where = e.scene_id && codes[e.scene_id] ? codes[e.scene_id] + ": " : "";
+  const pct = (x) => Math.round((x || 0) * 100);
+  switch (e.kind) {
+    case "probe_wave": return { t: `${where}test turu ${e.round + 1}: ${e.n} klip, ortalama skor ${Number(e.mean_composite).toFixed(3)}, geçme oranı %${pct(e.pass_rate)}` };
+    case "full_wave": return { t: `${where}tam tur ${e.wave}. dalga: ${e.n} klip, ${e.excellent} mükemmel aday` };
+    case "refined": return { t: `${where}rafine havuz hazır (${e.pool} klip)`, c: "good" };
+    case "soft_limit": return { t: "Yumuşak bütçe sınırına ulaşıldı" };
+    case "soft_limit_stop": return { t: `${where}yumuşak limit: yeni dalga başlatılmadı` };
+    case "frozen": return { t: `Üretim donduruldu${e.reason ? ": " + e.reason : ""}`, c: "bad" };
+    case "resumed": return { t: "Üretime devam edildi", c: "good" };
+    case "timeline": return { t: `Film birleştirildi: ${e.scenes} sahne`, c: "good" };
+    case "timeline_failed": return { t: `Film birleştirilemedi: ${e.error}`, c: "bad" };
+    default: return { t: e.kind };
+  }
+}
+function renderEvents() {
+  const codes = Object.fromEntries(S.ov.scenes.map((s) => [s.id, s.scene_code]));
+  setHTML($("events"), S.ov.events.length ? S.ov.events.map((e) => { const x = eventText(e, codes); return `<li><time>${clock(e.ts)}</time><span class="${x.c || ""}">${esc(x.t)}</span></li>`; }).join("") : '<li><span class="muted"></span><span class="muted">Henüz olay yok.</span></li>');
+}
+
+/* ---------- not (her eylemden sonra) ---------- */
+function note(id, text, kind) {
+  const el = $(id);
+  el.className = "note" + (kind ? " " + kind : "");
+  el.textContent = text || "";
+}
+
+/* ---------- ana döngü ---------- */
+function renderAll() {
+  renderTop();
+  showView();
+  if (S.ov && !S.creating && S.ov.scenes.length) {
+    renderBudget();
+    if (!curScene()) S.sceneId = S.ov.scenes[0].id;
+    renderScenes();
+    renderInspector();
+    renderFilm();
+    renderEvents();
+  } else if (S.ov) {
+    renderBudget();
+  }
+  $("banner-offline").hidden = !S.offline;
+}
+async function refresh(listToo) {
+  if (listToo || !S.projects.length) S.projects = await api("/projects");
+  if (S.projectId && !S.projects.some((p) => p.id === S.projectId)) { S.projectId = null; S.ov = null; }
+  if (!S.projectId && S.projects.length && !S.creating) S.projectId = S.projects[0].id;
+  S.ov = S.projectId ? await api(`/projects/${S.projectId}/overview`) : null;
+}
+let ticks = 0;
+async function tick() {
+  try {
+    await refresh(ticks++ % 5 === 0);
+    S.offline = false;
+  } catch (_) { S.offline = true; }
+  renderAll();
+  timer = setTimeout(tick, POLL_MS);
+}
+function pollNow() { clearTimeout(timer); tick(); }
+
+/* ---------- olaylar ---------- */
+async function act(fn, noteId) {
+  if (S.busy) return;
+  S.busy = true; renderAll();
+  try { await fn(); }
+  catch (e) { note(noteId, e.message, "err"); }
+  finally { S.busy = false; pollNow(); }
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("button");
+  if (!t) return;
+  if (t.dataset.var) { S.sceneId = t.dataset.scene; S.varId = S.varId === t.dataset.var ? null : t.dataset.var; note("insp-note", ""); renderAll(); }
+  else if (t.classList.contains("scene-pick")) { if (S.sceneId !== t.dataset.scene) { S.sceneId = t.dataset.scene; S.varId = null; note("insp-note", ""); } renderAll(); }
+  else if (t.dataset.promote) {
+    const id = S.sceneId;
+    act(async () => { const r = await api(`/scenes/${id}/promote/${t.dataset.promote}`, "POST"); S.varId = null; note("insp-note", stagesText(r.stages), "ok"); }, "insp-note");
+  } else if (t.classList.contains("cut")) {
+    const v = $("film-media").querySelector("video");
+    if (v) { v.currentTime = +t.dataset.in + 0.05; v.play().catch(() => {}); markActiveCut(); }
+  }
+});
+$("insp-back").addEventListener("click", () => { S.varId = null; renderAll(); });
+$("project-select").addEventListener("change", (e) => { S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
+$("new-project").addEventListener("click", () => { S.creating = true; renderAll(); $("f-title").focus(); });
+$("start-cancel").addEventListener("click", () => { S.creating = false; renderAll(); });
+$("f-script").addEventListener("input", (e) => { e.target._touched = true; });
+
+$("freeze").addEventListener("click", () => act(() => api(`/projects/${S.projectId}/killswitch`, "POST", { action: "freeze", reason: "panelden durduruldu" }), "film-note"));
+$("resume").addEventListener("click", () => act(() => api(`/projects/${S.projectId}/killswitch`, "POST", { action: "resume" }), "film-note"));
+
+$("regen").addEventListener("click", () => {
+  const id = S.sceneId;
+  act(async () => { const r = await api(`/scenes/${id}/render?force_visual=true`, "POST"); S.varId = null; note("insp-note", stagesText(r.stages), "ok"); }, "insp-note");
+});
+$("music-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = S.sceneId, emotion = $("music-emotion").value, gain = Number($("music-gain").value);
+  if (!Number.isFinite(gain) || gain < -40 || gain > 0) { note("insp-note", "Seviye -40 ile 0 dB arasında olmalı.", "err"); return; }
+  act(async () => {
+    const r = await api(`/scenes/${id}/audio`, "PUT", { kind: "music", emotion, gain_db: gain, params: { mood: emotion } });
+    note("insp-note", stagesText(r.stages), "ok");
+  }, "insp-note");
+});
+$("assemble").addEventListener("click", () => {
+  const before = S.ov.timeline && S.ov.timeline.url;
+  act(async () => { await api(`/projects/${S.projectId}/assemble`, "POST"); S.assembling = { before, at: Date.now() }; note("film-note", "Film birleştirmeye alındı.", "ok"); }, "film-note");
+});
+
+$("start-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const submit = $("start-submit");
+  submit.disabled = true; note("start-note", "İşleniyor…");
+  try {
+    let id = S.projectId;
+    if (S.creating || !id) {
+      const budget = Number($("f-budget").value);
+      const preset = S.meta.presets[document.querySelector("input[name=intensity]:checked").value] || {};
+      // Hız bekçisi (10 dakikada izin verilen harcama) bütçenin yarısı olarak yazılır: örnek film saniyeler içinde
+      // ~22 sanal USD harcar ve varsayılan 20 USD sınırı filmin ortasında projeyi dondururdu.
+      const created = await api("/projects", "POST", { title: $("f-title").value, budget_limit_usd: budget, settings: { ...preset, max_spend_per_10min: Math.max(0.5, budget / 2) } });
+      id = created.id;
+    }
+    const r = await api(`/projects/${id}/script`, "POST", { text: $("f-script").value });
+    S.projectId = id; S.creating = false; S.sceneId = null; S.varId = null; store("hg-project", id);
+    note("start-note", "");
+    if (r.busy && r.busy.length) note("insp-note", `${r.busy.join(", ")} şu an işlendiği için atlandı.`);
+    await refresh(true);
+  } catch (err) { note("start-note", err.message, "err"); }
+  finally { submit.disabled = false; renderAll(); pollNow(); }
+});
+
+/* ---------- açılış ---------- */
+(async function init() {
+  S.projectId = recall("hg-project");
+  try { S.meta = await api("/meta"); } catch (_) { S.offline = true; }
+  tick();
+})();
+</script>
+</body>
+</html>

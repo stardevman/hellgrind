@@ -3,12 +3,13 @@ import pytest
 from sqlalchemy import select, text
 
 from app.config import settings
-from app.core.rerender import Stage, plan_rerender
+from app.core.rerender import Stage
 from app.db import session_scope
 from app.hermes import ingest as hermes_ingest
 from app.hermes import rules
 from app.hermes.ingest import ingest
-from app.models import AudioTrack, Character, Project, Scene, SceneCharacter
+from app.models import Character, Project
+from tests.scene_utils import load_scenes, mark_finished, plans
 
 TWO_LINES = """İÇ. ODA
 
@@ -20,34 +21,6 @@ Birinci replik burada.
 KEREM
 İkinci replik şurada.
 """
-
-
-def load_scenes(pid):
-    """{scene_code: (scene, karakterler, kanallar)} — hepsi veritabanından okunur (oturumdan koparılmış)."""
-    with session_scope() as s:
-        out = {}
-        for sc in s.scalars(select(Scene).where(Scene.project_id == pid).order_by(Scene.seq_order)):
-            chars = list(s.scalars(select(Character).join(SceneCharacter, SceneCharacter.character_id == Character.id)
-                                   .where(SceneCharacter.scene_id == sc.id)))
-            tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)
-                                    .order_by(AudioTrack.start_offset_s, AudioTrack.kind)))
-            out[sc.scene_code] = (sc, chars, tracks)
-        s.expunge_all()
-        return out
-
-
-def plans(pid):
-    return {code: plan_rerender(sc, chars, tracks)[0] for code, (sc, chars, tracks) in load_scenes(pid).items()}
-
-
-def mark_all_done(pid):
-    """Her sahneyi, şimdiki girdilerle başarıyla render edilmiş gibi işaretler."""
-    for code, (sc, chars, tracks) in load_scenes(pid).items():
-        _, fp = plan_rerender(sc, chars, tracks)
-        with session_scope() as s:
-            s.execute(text("""UPDATE scenes SET visual_hash = :v, dialogue_hash = :d, bed_hash = :b,
-                              lipsync_video_key = 'l.mp4', final_video_key = 'f.mp4' WHERE id = :i"""),
-                      {"v": fp.visual, "d": fp.dialogue, "b": fp.bed, "i": sc.id})
 
 
 def active(tracks, kind):
@@ -94,7 +67,7 @@ def test_characters_get_their_own_vector_namespace_and_default_identity(mk_proje
 def test_engine_is_routed_from_action_complexity_at_ingest_so_the_visual_fingerprint_is_stable(mk_project):
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT)
-    mark_all_done(pid)
+    mark_finished(pid)
     ingest(pid, rules.SAMPLE_SCRIPT)
     assert set(plans(pid).values()) == {Stage.NONE}
     with session_scope() as s:                                     # yönetmen motoru elle değiştirirse yeniden render gerekir
@@ -128,7 +101,7 @@ def test_reingesting_the_same_script_changes_nothing_and_plans_no_work(mk_projec
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT)
     before = {code: [t.id for t in tracks] for code, (_, _, tracks) in load_scenes(pid).items()}
-    mark_all_done(pid)
+    mark_finished(pid)
     assert set(plans(pid).values()) == {Stage.NONE}
 
     result = ingest(pid, rules.SAMPLE_SCRIPT)
@@ -142,7 +115,7 @@ def test_editing_one_line_replaces_only_that_channel_and_replans_only_that_scene
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT)
     before = load_scenes(pid)
-    mark_all_done(pid)
+    mark_finished(pid)
 
     ingest(pid, rules.SAMPLE_SCRIPT.replace("Burada kimse yok mu?", "Orada kimse yok mu?"))
 

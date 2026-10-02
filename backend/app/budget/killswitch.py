@@ -62,6 +62,11 @@ def is_soft_limited(project_id: str) -> bool:
     return bool(r().exists(SOFT.format(project_id)))
 
 
+def has_running_tasks(project_id: str) -> bool:
+    """Projede şu an çalışan (başlamış, bitmemiş) görev var mı. Çöken worker'ın bıraktığı sahne durumunu ayırt eder."""
+    return bool(r().scard(TASKS.format(project_id)))
+
+
 def register_task(project_id: str, task_id: str | None) -> None:
     if task_id:
         r().sadd(TASKS.format(project_id), task_id)

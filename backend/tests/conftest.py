@@ -162,3 +162,66 @@ def sample_scene(mk_project, fast):
         return pid, codes
 
     return make
+
+
+@pytest.fixture
+def api(pg):
+    """Uygulamaya süreç içinden istek atar. Yaşam döngüsü (migrate/ensure_bucket) çalıştırılmaz: bunu test altyapısı yapar."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    return TestClient(app)
+
+
+@pytest.fixture
+def dispatched(monkeypatch):
+    """Celery'ye hiçbir şey göndermez; planlanan zincirleri kaydeder: [(proje, sahne, ["VISUAL", ...]), ...].
+    Testler geliştirme worker'ının kuyruğuna görev bırakmaz."""
+    from app.core.rerender import stage_names
+
+    jobs = []
+
+    class Job:
+        def __init__(self, pid, sid, stages):
+            self.record = (pid, sid, stage_names(stages))
+
+        def apply_async(self):
+            jobs.append(self.record)
+
+    monkeypatch.setattr("app.api.plan.build_chain", lambda pid, sid, stages: Job(pid, sid, stages) if stages else None)
+    monkeypatch.setattr("app.worker.tasks.assemble_timeline.delay", lambda pid: jobs.append((pid, None, ["ASSEMBLE"])))
+    return jobs
+
+
+@pytest.fixture
+def eager(monkeypatch):
+    """Celery görevleri istek içinde, aynı süreçte ve eşzamanlı çalışır (uçtan uca testler için)."""
+    from app.worker.celery_app import celery
+
+    monkeypatch.setattr(celery.conf, "task_always_eager", True)
+    monkeypatch.setattr(celery.conf, "task_eager_propagates", True)
+
+
+@pytest.fixture
+def api_project(api, pg):
+    """API üzerinden proje oluşturur (başlık "pytest-" ile başlar); test bitince projeyi ve Redis anahtarlarını siler."""
+    from sqlalchemy import text
+
+    from app.budget import killswitch as ks
+    from app.db import session_scope
+
+    created: list[str] = []
+
+    def make(limit: float = 60.0, **cfg) -> str:
+        r = api.post("/api/projects", json={"title": f"pytest-{uuid.uuid4().hex[:8]}", "budget_limit_usd": limit, "settings": cfg})
+        assert r.status_code == 201, r.text
+        created.append(r.json()["id"])
+        return created[-1]
+
+    yield make
+
+    for pid in created:
+        ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
+        with session_scope() as s:
+            s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})

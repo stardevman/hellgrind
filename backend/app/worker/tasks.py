@@ -10,6 +10,7 @@ from app.budget import killswitch
 from app.db import session_scope
 from app.models import Scene
 from app.worker.celery_app import celery
+from app.worker.dispatch import release_dispatch
 
 log = logging.getLogger("hellgrind.tasks")
 
@@ -53,6 +54,8 @@ def _guard(task, project_id: str, scene_id: str, work):
 
 @celery.task(bind=True, name="hg.generate_scene")
 def generate_scene(self, project_id: str, scene_id: str):
+    release_dispatch(scene_id)          # kuyruk aralığı bitti: sahne artık durum ve görev kaydıyla korunur
+
     def work():
         from app.engine.iteration import run_tiered_generation
         return run_tiered_generation(project_id, scene_id)
