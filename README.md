@@ -11,8 +11,8 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 3. **Tek bir stil dili kullanır.** Işık dili, hareket tarzı ve render kuralları projenin sürümlü *stil kılavuzundan* gelir ve her çekimin prompt'una aynı ifadeyle eklenir. Kılavuz değişince önce hangi çekimlerin yeniden üretileceği ve kaça mal olacağı gösterilir; yönetmen onaylamadan hiçbir şey üretilmez.
 4. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir.
 5. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
-6. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), duyguya göre fon müziği, diyalog altında müziğin kısılması, ses seviyesi dengeleme.
-7. **Filmi birleştirir.** Hazır sahneleri sırayla tek videoda toplar ve tıklanabilir bir kesme listesi üretir.
+6. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
+7. **Filmi birleştirir.** Hazır sahneleri sekanslarına göre sırayla tek videoda toplar. Müzik sekans düzeyindedir ve çekimler arasında kesilmeden akar. Tıklanabilir bir kesme listesi üretir.
 8. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
 
 Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır:
@@ -22,7 +22,8 @@ Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır
 | İstem, kamera, motor, süre, karakter sürümü, bir varlığın referansı ya da etkin stil kılavuzu | Görüntü, ses, montaj | çağrılır |
 | Bir diyalog satırı | Ses ve montaj | çağrılmaz |
 | Küratör rafine havuzdan başka bir klip seçer | Ses ve montaj | çağrılmaz |
-| Yalnızca müzik ya da müzik seviyesi | Yalnızca montaj | çağrılmaz |
+| Bir çekime özel müzik ya da seviyesi | Yalnızca montaj | çağrılmaz |
+| Sekans ya da film müziği, bestecinin stem'i | Yalnızca film birleştirme | çağrılmaz |
 | Hiçbiri | Hiçbiri | çağrılmaz |
 
 ## Gereksinimler
@@ -69,7 +70,8 @@ Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veri
 5. Bir sahneye ya da bir kareye tıklayın. **Denetçi** sonuç videosunu, rafine havuzu, çekim bilgilerini ve diyaloğu gösterir. Elenen klipler de (karantinadakiler dahil) önizlenir.
 6. Denetçiden:
    - **Bunu kullan**: havuzdan başka bir klip seçer; yalnızca ses ve montaj yeniden çalışır.
-   - **Müziği değiştir**: duygu ve seviye; yalnızca montaj yeniden çalışır.
+   - **Müziği değiştir**: duygu ve seviye. *Sekansın tamamı* (varsayılan) sekans müziğini değiştirir: hiçbir çekim yeniden üretilmez, yalnızca film yeniden birleştirilir. *Yalnızca bu çekim* çekime özel bir müzik koyar: yalnızca o çekimin montajı yeniden çalışır.
+   - **Sekans**: bütçe tavanı, sekansın film kanalları ve **Stem yükle** (bestecinin zamanlanmış müzik dosyası; başlangıcı sekansın başına göredir).
    - **Bu sahneyi baştan üret**: görüntüyü yeni klip adaylarıyla yeniden üretir.
    - **Nesne bağla**: çekime bir nesne ekler (ör. "Taksi"); nesne taslak olarak oluşur ve kilitlenene dek çekimi engeller.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
@@ -100,6 +102,8 @@ Burada kimse yok mu?
 
 Mekân sahne başlığından çıkar, gün zamanı atılır: `İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE` → *Terk Edilmiş Dökümhane*. `[NESNE: Taksi, Bavul]` işareti bir paragrafın içindeyse o çekime, tek başına bir satırdaysa sahnenin bütün çekimlerine bağlanır; işaret metinden ve replikten silinir. Karakter, mekân ve nesneler ilk görüldüklerinde *taslak* varlık olarak oluşur.
 
+Film sekanslara bölünür: `# SEKANS: Havalimanı` satırı yeni bir sekans başlatır ve sonraki sahne başlıkları ona aittir (sekans satırını sahne başlığından önce yazın). Hiç sekans satırı yoksa bütün sahneler tek sekanstadır (*Sekans 1*). Örnek senaryo iki sekanslıdır: *Dökümhane* ve *Köprü*.
+
 Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök sözlüğünden çıkarılır (korku, öfke, gerilim...). Aksiyon kelimeleri (koş, atla, patla, düş, kop, sarsıl...) çekimi geniş açı ve yüksek aksiyon yoğunluğuna çevirir. Yoğun aksiyon (≥ 0,7) Seedance'e, gerisi Wan'a yönlenir (ücretsiz modda yalnızca sanal fiyatı değiştirir).
 
 ## Testler
@@ -108,12 +112,12 @@ Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök s�
 
 ```bash
 make test    # tam paket: Docker içinde, PostgreSQL, Redis ve MinIO ile (~4 dk)
-make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~1,5 dk)
+make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 ```
 
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin.
 - **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi yoktur; altyapı gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir.
-- **`make smoke`** şunları denetler: ücretli çağrılar engelli; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
+- **`make smoke`** şunları denetler: ücretli çağrılar engelli; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; sekans müziği değişince yalnızca film yeniden birleştirilir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
 
@@ -126,6 +130,14 @@ Referans verilmeyen bir taksiye model rastgele yolcular ekler. Bu yüzden:
 - Görsel bir referans değişince varlığın **sürümü** artar ve varlık taslağa döner; sürüm görsel özete girdiği için o varlığı kullanan çekimler yeniden üretilir. Onay ve kilit durumu özete girmez: kilitlemek tek başına yeniden üretim tetiklemez. Aynı dosyayı yeniden yüklemek hiçbir şeyi değiştirmez. Kilitli varlık değiştirilemez; önce kilidi açılır.
 - **Hareket testi** her üretim gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal, Wan 480p fiyatıyla) ve gerçek anomali tespitinden geçer. Test varlığın sürümüne bağlıdır: referans ya da tarif değişince eski test onaylanamaz.
 - API: `GET/POST /api/projects/{id}/assets`, `GET/PATCH /api/assets/{id}`, `POST /api/assets/{id}/references?kind=still|turnaround|expressions|voice_sample&filename=...` (dosya istek gövdesinde), `POST /api/assets/{id}/references/placeholder`, `POST /api/assets/{id}/approve-still`, `/motion-test`, `/approve-motion`, `/lock`, `/unlock`, `POST /api/scenes/{id}/assets` ve `DELETE /api/scenes/{id}/assets/{asset_id}`.
+
+## Sekanslar ve film düzeyinde ses
+
+- Her sahne bir sekansa aittir (`SEQ01`, `SEQ02`...). Panelde sahneler sekans başlıkları altında gruplanır; başlıkta çekim sayısı, harcama ve tavan görünür.
+- **Müzik sekans düzeyindedir.** Senaryo yüklenince her sekans, çekimlerinin baskın duygusuna (sürelerine göre) uygun prosedürel bir müzik kanalı alır (−8 dB, yumuşak giriş ve çıkış). Çekimlere müzik eklenmez; çekime özel fon (ör. tek çekimlik efekt) isteğe bağlıdır. Faz 11'den önce oluşturulmuş projelerde çekim müzikleri yerinde kalır ve sekans müziği eklenmez (film çift müzik çalmasın).
+- **Film birleştirme:** önce sahne klipleri kendi sesleriyle (diyalog ve varsa çekime özel fon) birleştirilir; sonra zaman çizelgesi kanalları sekans aralıklarına yerleştirilir (sekansın sonunu aşmaz), diyalog müziği sidechain ile bastırır ve en sonda loudnorm uygulanır. Kanalların içerik özetleri ve zamanlamaları film anahtarına girer.
+- **Besteci desteği:** `POST /api/sequences/{id}/tracks?filename=tema.wav&start_s=4&gain_db=-6&fade_in_s=1` (dosya istek gövdesinde) zamanlanmış bir stem ekler; bir sekansta birden çok stem olabilir. JSON gövdeyle (`{"mood": "joy", "gain_db": -10}`) prosedürel müzik değişir; yüklenen stem'lere dokunulmaz. Film düzeyinde kanal için `POST /api/projects/{id}/tracks`. Kanallar `PATCH`/`DELETE /api/timeline-tracks/{id}` ile düzenlenir ya da kaldırılır. Her değişiklikte film kendiliğinden yeniden birleştirilir; hiçbir çekim yeniden üretilmez.
+- **Sekans bütçe tavanı:** `PATCH /api/sequences/{id}` ile `budget_cap_usd`. Rezervasyon, proje limitinin yanında sekans tavanını da aynı işlemde denetler. Tavan dolunca yalnızca o sekans durur (`capped`), sahneleri `frozen` olur ve olay yazılır; proje ve diğer sekanslar üretmeye devam eder. Tavan yükseltilince ya da kaldırılınca sekans yeniden açılır. Projeyi *Üretime devam et* ile sürdürmek tavandaki sekansı açmaz.
 
 ## Stil kılavuzu
 
@@ -204,8 +216,8 @@ backend/
                  references (kare örnekleme, vektör, yerel taslak), motion_test (hareket testi)
     style/       bible (sürümler, etkin sürüm, etki önizlemesi), composer (prompt bestecisi)
     quality/     anomaly (FFmpeg), gate (skor, rafine havuz)
-    post/        audio, mux, pipeline (LIPSYNC ve MUX aşamaları), timeline (film)
-    api/         projects, scenes, assets, style, budget, panel, plan, deps
+    post/        audio, mux, pipeline (LIPSYNC ve MUX aşamaları), timeline (film ve sekans müziği)
+    api/         projects, scenes, sequences, assets, style, budget, panel, plan, deps
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
     panel/       index.html (tek sayfa, build adımı yok)

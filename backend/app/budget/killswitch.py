@@ -4,6 +4,9 @@ Kural: hiçbir ücretli çağrı, bütçeden atomik bir rezervasyon almadan yap�
   reserve()  -> harcamadan ÖNCE tahmini tutarı ayırır (limit aşılacaksa reddeder ve projeyi dondurur)
   commit()   -> gerçek maliyeti yazar, rezervasyonu düşer
   release()  -> çağrı başarısızsa rezervasyonu iade eder
+
+Sekans tavanı (Faz 11): sahneye bağlı bir çağrı, proje limitinin yanında sahnenin sekansının tavanını da aynı işlemde
+denetler. Tavan dolunca yalnızca o sekans durur (`capped`) ve olay yazılır; proje ve diğer sekanslar üretmeye devam eder.
 """
 import json
 import logging
@@ -35,6 +38,10 @@ class ProjectFrozen(Exception):
 
 class BudgetExceeded(ProjectFrozen):
     """Rezervasyon bütçe limitini aşardı; Kill-Switch tetiklendi."""
+
+
+class SequenceCapReached(ProjectFrozen):
+    """Sahnenin sekansı bütçe tavanına ulaştı: yalnızca bu sekansın işleri durur (sahne `frozen` olur)."""
 
 
 @lru_cache(maxsize=1)
@@ -98,6 +105,37 @@ def freeze(project_id: str, reason: str) -> None:
     log.warning("KILL-SWITCH project=%s reason=%s revoked=%d", project_id, reason, len(task_ids))
 
 
+def cap_sequence(project_id: str, sequence_id, reason: str) -> None:
+    """Sekansı durdurur: yeni rezervasyon almaz, bekleyen sahneleri `frozen` olur. Proje çalışmaya devam eder."""
+    with session_scope() as s:
+        row = s.execute(text("""UPDATE sequences SET status = 'capped' WHERE id = :q AND status = 'active'
+                                RETURNING code, spent_usd, reserved_usd, budget_cap_usd"""), {"q": sequence_id}).first()
+        if row is None:
+            return                                          # zaten durmuş: olay bir kez yazılır
+        s.execute(text("""UPDATE scenes SET status = 'frozen'
+                          WHERE sequence_id = :q AND status IN ('pending','probing','generating','correcting',
+                                                                'audio','lipsync','muxing')"""), {"q": sequence_id})
+    event(project_id, "sequence_capped", sequence_id=str(sequence_id), code=row[0], reason=reason,
+          spent=float(row[1]), cap=float(row[3]) if row[3] is not None else None)
+    log.warning("SEKANS TAVANI project=%s sequence=%s reason=%s", project_id, row[0], reason)
+
+
+def reopen_sequence(project_id: str, sequence_id) -> bool:
+    """Tavan yükseltilince ya da kaldırılınca: sekans yeniden rezervasyon alır, donmuş sahneleri `pending` olur.
+    Harcama yeni tavanın altında değilse açılmaz."""
+    with session_scope() as s:
+        row = s.execute(text("""UPDATE sequences SET status = 'active'
+                                WHERE id = :q AND status = 'capped'
+                                  AND (budget_cap_usd IS NULL OR spent_usd + reserved_usd < budget_cap_usd)
+                                RETURNING code"""), {"q": sequence_id}).first()
+        if row is None:
+            return False
+        s.execute(text("UPDATE scenes SET status = 'pending' WHERE sequence_id = :q AND status = 'frozen'"),
+                  {"q": sequence_id})
+    event(project_id, "sequence_reopened", sequence_id=str(sequence_id), code=row[0])
+    return True
+
+
 def resume(project_id: str) -> None:
     """freeze'in tersi. Hız penceresi de sıfırlanır: yönetmenin bilinçli kararı, dondurmaya yol açan eski
     harcamayla ezilmez (yoksa bekçi 30 sn içinde aynı 10 dakikalık toplamı görüp yeniden dondururdu)."""
@@ -106,29 +144,56 @@ def resume(project_id: str) -> None:
     with session_scope() as s:
         s.execute(text("UPDATE projects SET status = 'producing' WHERE id = :p AND status = 'paused'"),
                   {"p": project_id})
-        s.execute(text("UPDATE scenes SET status = 'pending' WHERE project_id = :p AND status = 'frozen'"),
+        s.execute(text("""UPDATE scenes SET status = 'pending'
+                          WHERE project_id = :p AND status = 'frozen'
+                            AND (sequence_id IS NULL                 -- tavanı dolan sekans, tavan değişene dek durur
+                                 OR sequence_id NOT IN (SELECT id FROM sequences WHERE status = 'capped'))"""),
                   {"p": project_id})
     event(project_id, "resumed")
 
 
 # ---------- rezervasyon ----------
 
+def _sequence_of(s, scene_id):
+    if not scene_id:
+        return None
+    return s.execute(text("SELECT sequence_id FROM scenes WHERE id = :s"), {"s": scene_id}).scalar()
+
+
 def reserve(project_id: str, amount: float, provider: str, scene_id=None, variation_id=None) -> uuid.UUID:
     if is_frozen(project_id):
         raise ProjectFrozen(project_id)
-    rid = uuid.uuid4()
+    rid, refused = uuid.uuid4(), None
     with session_scope() as s:
-        row = s.execute(text("""
-            UPDATE projects SET reserved_usd = reserved_usd + :amt
-            WHERE id = :p AND status NOT IN ('paused','killed')
-              AND spent_usd + reserved_usd + :amt <= budget_limit_usd
-            RETURNING spent_usd, reserved_usd, budget_limit_usd
-        """), {"p": project_id, "amt": amount}).first()
-        if row is not None:
-            s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, provider, kind, amount_usd, reservation)
-                              VALUES (:p, :s, :v, :prov, 'reserve', :amt, :rid)"""),
-                      {"p": project_id, "s": scene_id, "v": variation_id, "prov": provider, "amt": amount, "rid": rid})
-    if row is None:
+        seq = _sequence_of(s, scene_id)
+        if seq is not None:                                 # önce sekans tavanı (kilit sırası: sekans, sonra proje)
+            ok = s.execute(text("""
+                UPDATE sequences SET reserved_usd = reserved_usd + :amt
+                WHERE id = :q AND status = 'active'
+                  AND (budget_cap_usd IS NULL OR spent_usd + reserved_usd + :amt <= budget_cap_usd)
+                RETURNING id
+            """), {"q": seq, "amt": amount}).first()
+            refused = None if ok else "sequence"
+        if refused is None:
+            row = s.execute(text("""
+                UPDATE projects SET reserved_usd = reserved_usd + :amt
+                WHERE id = :p AND status NOT IN ('paused','killed')
+                  AND spent_usd + reserved_usd + :amt <= budget_limit_usd
+                RETURNING spent_usd, reserved_usd, budget_limit_usd
+            """), {"p": project_id, "amt": amount}).first()
+            if row is None:
+                refused = "project"
+                s.rollback()                                # sekans rezervasyonu da geri alınır
+            else:
+                s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, sequence_id, provider, kind,
+                                                           amount_usd, reservation)
+                                  VALUES (:p, :s, :v, :q, :prov, 'reserve', :amt, :rid)"""),
+                          {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider,
+                           "amt": amount, "rid": rid})
+    if refused == "sequence":
+        cap_sequence(project_id, seq, f"budget_cap (istek {amount:.4f} USD reddedildi)")
+        raise SequenceCapReached(project_id)
+    if refused == "project":
         freeze(project_id, f"budget_limit (istek {amount:.4f} USD reddedildi)")
         raise BudgetExceeded(project_id)
     return rid
@@ -136,14 +201,24 @@ def reserve(project_id: str, amount: float, provider: str, scene_id=None, variat
 
 def commit(project_id: str, rid: uuid.UUID, estimate: float, actual: float, provider: str,
            scene_id=None, variation_id=None) -> None:
+    # Kilit sırası her yerde aynı: önce sekans, sonra proje satırı (eşzamanlı reserve/commit/release kilitlenmesin).
     with session_scope() as s:
+        seq, capped = _sequence_of(s, scene_id), None
+        if seq is not None:
+            q = s.execute(text("""UPDATE sequences SET reserved_usd = GREATEST(reserved_usd - :est, 0),
+                                                       spent_usd = spent_usd + :act
+                                  WHERE id = :q RETURNING spent_usd, budget_cap_usd"""),
+                          {"q": seq, "est": estimate, "act": actual}).first()
+            if q[1] is not None and q[0] >= q[1]:
+                capped = seq
         row = s.execute(text("""
             UPDATE projects SET reserved_usd = GREATEST(reserved_usd - :est, 0), spent_usd = spent_usd + :act
             WHERE id = :p RETURNING spent_usd, budget_limit_usd, settings
         """), {"p": project_id, "est": estimate, "act": actual}).first()
-        s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, provider, kind, amount_usd, reservation)
-                          VALUES (:p, :s, :v, :prov, 'commit', :amt, :rid)"""),
-                  {"p": project_id, "s": scene_id, "v": variation_id, "prov": provider, "amt": actual, "rid": rid})
+        s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, sequence_id, provider, kind, amount_usd,
+                                                   reservation)
+                          VALUES (:p, :s, :v, :q, :prov, 'commit', :amt, :rid)"""),
+                  {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider, "amt": actual, "rid": rid})
         if scene_id:
             s.execute(text("UPDATE scenes SET spent_usd = spent_usd + :a WHERE id = :s"), {"a": actual, "s": scene_id})
     spent, limit, cfg = float(row[0]), float(row[1]), {**DEFAULT_PROJECT_SETTINGS, **(row[2] or {})}
@@ -152,15 +227,22 @@ def commit(project_id: str, rid: uuid.UUID, estimate: float, actual: float, prov
         event(project_id, "soft_limit", spent=spent, limit=limit)
     if spent >= limit:
         freeze(project_id, "budget_exhausted")
+    if capped is not None:
+        cap_sequence(project_id, capped, "budget_cap_exhausted")
 
 
 def release(project_id: str, rid: uuid.UUID, estimate: float, provider: str, scene_id=None, variation_id=None) -> None:
     with session_scope() as s:
+        seq = _sequence_of(s, scene_id)
+        if seq is not None:                                 # kilit sırası: önce sekans, sonra proje
+            s.execute(text("UPDATE sequences SET reserved_usd = GREATEST(reserved_usd - :est, 0) WHERE id = :q"),
+                      {"q": seq, "est": estimate})
         s.execute(text("UPDATE projects SET reserved_usd = GREATEST(reserved_usd - :est, 0) WHERE id = :p"),
                   {"p": project_id, "est": estimate})
-        s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, provider, kind, amount_usd, reservation)
-                          VALUES (:p, :s, :v, :prov, 'release', :amt, :rid)"""),
-                  {"p": project_id, "s": scene_id, "v": variation_id, "prov": provider, "amt": estimate, "rid": rid})
+        s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, sequence_id, provider, kind, amount_usd,
+                                                   reservation)
+                          VALUES (:p, :s, :v, :q, :prov, 'release', :amt, :rid)"""),
+                  {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider, "amt": estimate, "rid": rid})
 
 
 @dataclass

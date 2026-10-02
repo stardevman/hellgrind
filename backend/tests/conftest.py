@@ -156,12 +156,14 @@ def sample_scene(mk_project, fast):
     from app.hermes import rules
     from app.hermes.ingest import ingest
     from app.models import Scene
+    from tests.scene_utils import add_scene_music
 
     def make(limit: float = 1000.0, **cfg):
         settings_ = {**dict(probe_n=3, full_n=6, wave_size=3, refined_k=2, max_correction_rounds=1,
                             max_spend_per_10min=10_000.0), **cfg}
         pid = mk_project(limit, **settings_)
-        ingest(pid, rules.SAMPLE_SCRIPT)
+        ingest(pid, rules.SAMPLE_SCRIPT, auto_music=False)
+        add_scene_music(pid)                     # Bölüm A: her çekimin kendi müziği (sekans müziği Faz 11 testlerinde)
         with session_scope() as s:
             codes = {sc.scene_code: str(sc.id) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
         return pid, codes

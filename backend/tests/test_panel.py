@@ -217,3 +217,17 @@ def test_the_style_tab_has_its_workflow_and_uses_the_style_endpoints():
                    ("post", "/api/projects/{}/style/preview"), ("post", "/api/projects/{}/style/activate")):
         assert needed in calls, needed
     assert 'id="pane-style"' in HTML
+
+
+# ---------- sekanslar (Faz 11) ----------
+
+def test_scenes_are_grouped_under_sequences_and_the_sequence_tools_use_their_endpoints():
+    for text in ("Sekansın tamamı", "Yalnızca bu çekim", "Bütçe tavanı", "Tavanı kaydet", "Stem yükle", "Tavan doldu",
+                 "Sekanssız"):
+        assert text in HTML, text
+    assert "seq-group" in SCRIPT and "seqHead" in SCRIPT and 'id="seqbar"' in HTML
+    calls = api_calls()
+    for needed in (("patch", "/api/sequences/{}"), ("post", "/api/sequences/{}/tracks"),
+                   ("delete", "/api/timeline-tracks/{}")):
+        assert needed in calls, needed
+    assert re.search(r"fetch\(`/api/sequences/\$\{q\.id\}/tracks\?", SCRIPT)                     # stem: ham gövde

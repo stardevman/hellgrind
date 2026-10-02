@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
+from app.api.sequences import sequences_out
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.db import get_session
@@ -45,7 +46,7 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
         summary = ingest(project_id, body.text, auto_music=body.auto_music)
     except killswitch.ProjectFrozen:                  # LLM modunda ayrıştırma sırasında bütçe dolabilir
         raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
-    result = {"planned": {}, "busy": [], "blocked": {}, "frozen": False}
+    result = {"planned": {}, "busy": [], "blocked": {}, "capped": [], "frozen": False}
     if body.auto_render:
         s.expire_all()
         result = dispatch_all(s, project_id)
@@ -95,6 +96,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
 
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
+        "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
         "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
@@ -131,7 +133,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "dry_run": settings.dry_run, "style_version": bible.active_version(s, project_id),
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
-        "scenes": scenes_out, "events": events, "timeline": timeline,
+        "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
     }
 
 

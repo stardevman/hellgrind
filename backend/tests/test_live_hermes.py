@@ -91,7 +91,7 @@ def test_a_perfect_llm_gives_exactly_what_the_rule_parser_gives(mk_project):
 def test_output_has_the_same_schema_as_the_rule_parser(mk_project):
     pid = mk_project()
     got, ref = parse_with_llm(rules.SAMPLE_SCRIPT, pid, llm=FakeLLM()), rules.parse(rules.SAMPLE_SCRIPT)
-    assert set(got) == set(ref) == {"cast", "shots"}
+    assert set(got) == set(ref) == {"cast", "sequences", "shots"}
     for a, b in zip(got["shots"], ref["shots"]):
         assert set(a) == set(b) and set(a["camera"]) == set(b["camera"])
         assert all(type(a[k]) is type(b[k]) for k in a)
@@ -354,7 +354,8 @@ def test_a_missing_key_blocks_before_an_llm_is_even_built(monkeypatch, mk_projec
 
 def test_an_empty_script_costs_nothing(mk_project):
     pid = mk_project()
-    assert parse_with_llm("", pid, llm=FakeLLM(lambda p, n: pytest.fail("çağrı yapıldı"))) == {"cast": [], "shots": []}
+    assert parse_with_llm("", pid, llm=FakeLLM(lambda p, n: pytest.fail("çağrı yapıldı"))) == {
+        "cast": [], "sequences": [], "shots": []}
     assert ledger(pid) == []
 
 

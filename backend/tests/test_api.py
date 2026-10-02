@@ -15,7 +15,7 @@ from app.hermes.ingest import dialogue_hash, music_hash
 from app.models import AudioTrack, Scene, Variation
 from tests.conftest import BOLUM_A
 from tests.media_utils import make_av
-from tests.scene_utils import add_variation, load_scenes, mark_finished, scene_row, track_rows
+from tests.scene_utils import add_scene_music, add_variation, load_scenes, mark_finished, scene_row, track_rows
 
 FULL = ["VISUAL", "LIPSYNC", "MUX"]
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
@@ -25,8 +25,10 @@ CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
 def sample(api, api_project, dispatched):
     """Örnek senaryo yüklenmiş proje (otomatik render kapalı): (proje, {kod: sahne kimliği})."""
     pid = api_project()
-    r = api.post(f"/api/projects/{pid}/script", json={"text": rules.SAMPLE_SCRIPT, "auto_render": False})
+    r = api.post(f"/api/projects/{pid}/script", json={"text": rules.SAMPLE_SCRIPT, "auto_render": False,
+                                                      "auto_music": False})
     assert r.status_code == 200, r.text
+    add_scene_music(pid)                        # Bölüm A: her çekimin kendi müziği
     with session_scope() as s:
         ids = {sc.scene_code: str(sc.id) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
     return pid, ids

@@ -81,3 +81,14 @@ def track_rows(sid, active=True):
         rows = list(s.scalars(q.where(AudioTrack.is_active) if active else q))
         s.expunge_all()
         return rows
+
+
+def add_scene_music(pid, gain_db=-8.0):
+    """Faz 11 öncesi ingest'in her çekime eklediği prosedürel müzik: Bölüm A testleri sahne düzeyindeki müziği sınar
+    (Faz 11'den beri müzik sekans düzeyindedir, sahne müziği isteğe bağlıdır)."""
+    from app.hermes.ingest import music_hash
+    with session_scope() as s:
+        for sc in s.scalars(select(Scene).where(Scene.project_id == pid)):
+            s.add(AudioTrack(scene_id=sc.id, kind="music", source="procedural", params={"mood": sc.emotion},
+                             content_hash=music_hash(sc.emotion), start_offset_s=0.0, gain_db=gain_db,
+                             is_active=True, version=1))

@@ -13,12 +13,24 @@ class AudioInput:
     path: str
     offset_s: float = 0.0
     gain_db: float = 0.0
+    duration_s: float | None = None     # verilirse kanal bu süreye kırpılır (film düzeyindeki sekans müziği)
+    fade_in_s: float = 0.0              # yalnızca duration_s ile
+    fade_out_s: float = 0.0
 
 
 def _channel(index: int, a: AudioInput, label: str) -> str:
-    """Her kanal: 48k stereo, başlangıç ofseti (adelay), kazanç (volume)."""
+    """Her kanal: 48k stereo, (isteğe bağlı) kırpma ve fade, başlangıç ofseti (adelay), kazanç (volume)."""
     ms = int(round(a.offset_s * 1000))
-    return (f"[{index}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,"
+    shape = ""
+    if a.duration_s is not None:
+        d = a.duration_s
+        shape = f"atrim=0:{d:.3f},asetpts=PTS-STARTPTS,"
+        if a.fade_in_s > 0:
+            shape += f"afade=t=in:st=0:d={min(a.fade_in_s, d):.3f},"
+        if a.fade_out_s > 0:
+            fade = min(a.fade_out_s, d)
+            shape += f"afade=t=out:st={d - fade:.3f}:d={fade:.3f},"
+    return (f"[{index}:a]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo,{shape}"
             f"adelay=delays={ms}:all=1,volume={a.gain_db}dB[{label}]")
 
 

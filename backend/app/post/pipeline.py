@@ -141,18 +141,25 @@ def ensure_dialogue_audio(t: AudioTrack, scene: Scene, tmp: str) -> None:
     _set_track(t.id, file_key=key, duration_s=duration)
 
 
+def music_file(mood: str, at_least_s: float, path: str) -> tuple[str, int]:
+    """En az `at_least_s` saniyelik prosedürel müzik, içerik-adresli: audio/music/{duygu}_{süre}s.wav. Süre
+    MUSIC_BUCKET_S adımlarıyla yuvarlanır; böylece sahneler ve sekanslar aynı dosyayı paylaşır. (anahtar, süre)."""
+    seconds = math.ceil(at_least_s / MUSIC_BUCKET_S) * MUSIC_BUCKET_S
+    key = f"audio/music/{mood}_{seconds}s.wav"
+    if storage.exists(key):
+        storage.download(key, path)
+    else:
+        synthesize_music(path, mood, seconds)
+        storage.put_file(path, key, "audio/wav")
+    return key, seconds
+
+
 def ensure_bed_audio(t: AudioTrack, scene: Scene, tmp: str) -> str:
     """Fon kanalının yerel dosyası. Prosedürel müzik içerik-adresli anahtardan gelir (yoksa üretilir)."""
     path = os.path.join(tmp, f"{t.id}.wav")
     if t.source == "procedural":
         mood = (t.params or {}).get("mood") or t.emotion or scene.emotion
-        seconds = math.ceil((scene.duration_s + 1) / MUSIC_BUCKET_S) * MUSIC_BUCKET_S
-        key = f"audio/music/{mood}_{seconds}s.wav"
-        if storage.exists(key):
-            storage.download(key, path)
-        else:
-            synthesize_music(path, mood, seconds)
-            storage.put_file(path, key, "audio/wav")
+        key, seconds = music_file(mood, scene.duration_s + 1, path)
         if t.file_key != key:
             _set_track(t.id, file_key=key, duration_s=seconds)
         return path

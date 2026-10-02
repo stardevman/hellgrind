@@ -49,7 +49,7 @@ def _ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args], check=True, capture_output=True)
 
 
-def _streams(path: str) -> set[str]:
+def streams(path: str) -> set[str]:
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
                          capture_output=True, text=True).stdout.split()
     return set(out)
@@ -94,7 +94,7 @@ def _validate(kind: str, path: str, filename: str) -> str:
             raise InvalidReference("Görsel okunamadı: dosya bozuk ya da görsel değil.")
     else:
         need = "video" if media == "video" else "audio"
-        if need not in _streams(path):
+        if need not in streams(path):
             raise InvalidReference(f"Dosyada {'görüntü' if need == 'video' else 'ses'} akışı yok.")
         try:
             if probe_duration(path) <= 0:

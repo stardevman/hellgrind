@@ -64,10 +64,48 @@ class Character(Base):
     asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"))
 
 
+class Sequence(Base):
+    """Filmin bir bölümü (Havalimanı, Taksi...). Müzik ve isteğe bağlı bütçe tavanı sekans düzeyindedir."""
+    __tablename__ = "sequences"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    code: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    seq_order: Mapped[int] = mapped_column(Integer)
+    budget_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
+    reserved_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
+    status: Mapped[str] = mapped_column(Text, default="active")          # active | capped
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TimelineTrack(Base):
+    """Film ya da sekans düzeyinde fon kanalı (müzik, efekt, ambiyans). Zamanlar sekansın başına göredir."""
+    __tablename__ = "timeline_tracks"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    sequence_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sequences.id"))
+    kind: Mapped[str] = mapped_column(AudioKind)
+    source: Mapped[str] = mapped_column(Text)                             # procedural | upload
+    file_key: Mapped[str | None] = mapped_column(Text)
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)
+    start_s: Mapped[float] = mapped_column(Float, default=0.0)
+    end_s: Mapped[float | None] = mapped_column(Float)
+    gain_db: Mapped[float] = mapped_column(Float, default=0.0)
+    fade_in_s: Mapped[float] = mapped_column(Float, default=0.0)
+    fade_out_s: Mapped[float] = mapped_column(Float, default=0.0)
+    content_hash: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Scene(Base):
     __tablename__ = "scenes"
     id: Mapped[uuid.UUID] = PK()
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    sequence_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sequences.id"))
     scene_code: Mapped[str] = mapped_column(Text)
     seq_order: Mapped[int] = mapped_column(Integer)
     script_text: Mapped[str] = mapped_column(Text, default="")
@@ -191,6 +229,7 @@ class CostLedger(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
     scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
     variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("variations.id"))
+    sequence_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sequences.id"))
     provider: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(LedgerKind)
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))

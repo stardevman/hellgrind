@@ -9,7 +9,7 @@ from app.config import project_settings
 from app.core.rerender import ALL, Stage, plan_rerender, stage_names
 from app.core.state import load_assets, load_characters
 from app.hermes import lint
-from app.models import AudioTrack, Project, Scene
+from app.models import AudioTrack, Project, Scene, Sequence
 from app.style import bible
 from app.worker.dispatch import build_chain, claim_dispatch, release_dispatch
 
@@ -20,6 +20,14 @@ ACTIVE_STATUSES = ("probing", "generating", "correcting", "audio", "lipsync", "m
 class Busy(HTTPException):
     def __init__(self, detail: str):
         super().__init__(409, detail)
+
+
+class SequenceCapped(HTTPException):
+    """Sahnenin sekansı bütçe tavanında: ücretli aşamalar (görüntü, dudak senkronu) başlamaz. Montaj ücretsizdir, serbesttir."""
+    def __init__(self, sc: Scene, seq: Sequence):
+        cap = f"{float(seq.budget_cap_usd):.2f}" if seq.budget_cap_usd is not None else "-"
+        super().__init__(423, f"{sc.scene_code}: {seq.code} sekansı bütçe tavanına ulaştı ({cap} USD); "
+                              "devam etmek için sekans tavanını yükselt.")
 
 
 class Blocked(Exception):
@@ -73,6 +81,9 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False) -> l
     if stages == Stage.NONE:
         return []
     ensure_idle(sc)
+    seq = s.get(Sequence, sc.sequence_id) if sc.sequence_id else None
+    if seq is not None and seq.status == "capped" and stages & (Stage.VISUAL | Stage.LIPSYNC):
+        raise SequenceCapped(sc, seq)
     if Stage.VISUAL in stages:
         lint_gate(s, sc)                     # para harcanmadan önce: eksik referansla görüntü üretilmez
     locked = Stage.VISUAL in stages
@@ -102,8 +113,9 @@ def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
 def dispatch_all(s: Session, project_id: str) -> dict:
     """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); eksik
     referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
-    kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin."""
-    planned, busy, blocked, frozen = {}, [], {}, False
+    kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin. Bütçe tavanındaki sekansın
+    sahneleri `capped` altında bildirilir; diğer sekanslar üretmeye devam eder."""
+    planned, busy, blocked, capped, frozen = {}, [], {}, [], False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
             frozen, planned[sc.scene_code] = True, []
@@ -116,4 +128,7 @@ def dispatch_all(s: Session, project_id: str) -> dict:
         except Blocked as e:
             planned[sc.scene_code] = []
             blocked[sc.scene_code] = [m["name"] for m in e.payload()["missing"]]
-    return {"planned": planned, "busy": busy, "blocked": blocked, "frozen": frozen}
+        except SequenceCapped:
+            planned[sc.scene_code] = []
+            capped.append(sc.scene_code)
+    return {"planned": planned, "busy": busy, "blocked": blocked, "capped": capped, "frozen": frozen}

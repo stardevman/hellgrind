@@ -110,6 +110,7 @@ class SceneIn(BaseModel):
     prompt_spec: PromptSpecIn = PromptSpecIn()
     engine: Engine | None = None
     character_ids: list[UUID] = []
+    sequence_id: UUID | None = None          # verilmezse projenin son sekansı (yoksa SEQ01 açılır)
 
 
 class ScenePatch(BaseModel):
@@ -233,3 +234,38 @@ class StyleVersionIn(BaseModel):
 
 class StyleActivateIn(StyleVersionIn):
     render: bool = False                             # etkilenen çekimleri hemen yeniden üret
+
+
+# ---------- sekanslar ve film düzeyinde ses (Faz 11) ----------
+
+class SequencePatch(BaseModel):
+    """Sekans başlığı ve bütçe tavanı. Tavan null: kaldırılır (yalnızca proje limiti geçerli)."""
+    title: str | None = Field(None, min_length=1, max_length=200)
+    budget_cap_usd: float | None = Field(None, gt=0, le=1e7)
+
+
+class TrackIn(BaseModel):
+    """Prosedürel sekans (ya da film) müziği. replace: kapsamdaki önceki prosedürel müzik kanallarının yerini alır;
+    yüklenen stem'lere dokunulmaz."""
+    kind: Literal["music"] = "music"
+    mood: Emotion
+    gain_db: float = Field(-8.0, ge=-60, le=20)
+    start_s: float = Field(0.0, ge=0, le=36000)
+    end_s: float | None = Field(None, gt=0, le=36000)
+    fade_in_s: float = Field(1.0, ge=0, le=60)
+    fade_out_s: float = Field(1.5, ge=0, le=60)
+    replace: bool = True
+
+    @model_validator(mode="after")
+    def _span(self):
+        if self.end_s is not None and self.end_s <= self.start_s:
+            raise ValueError("end_s, start_s'den büyük olmalı")
+        return self
+
+
+class TrackPatch(BaseModel):
+    start_s: float | None = Field(None, ge=0, le=36000)
+    end_s: float | None = Field(None, gt=0, le=36000)
+    gain_db: float | None = Field(None, ge=-60, le=20)
+    fade_in_s: float | None = Field(None, ge=0, le=60)
+    fade_out_s: float | None = Field(None, ge=0, le=60)

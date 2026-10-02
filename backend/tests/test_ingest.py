@@ -44,15 +44,17 @@ def test_sample_script_creates_cast_scenes_links_and_tracks(mk_project):
         {"Kerem"}, {"Ayşe"}, {"Kerem", "Ayşe"}, {"Kerem", "Ayşe"}]
 
 
-def test_each_scene_gets_its_dialogue_channel_and_one_music_channel_at_minus_8_db(mk_project):
+def test_each_scene_gets_its_dialogue_channel_and_its_sequence_one_music_channel_at_minus_8_db(mk_project):
+    """Faz 11: müzik çekimde değil, sekans düzeyindedir (çekimler arasında kesintisiz akar)."""
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT)
     for sc, _, tracks in load_scenes(pid).values():
         dialogue, music = active(tracks, "dialogue"), active(tracks, "music")
         assert len(dialogue) == 1 and dialogue[0].start_offset_s == pytest.approx(0.4)
         assert dialogue[0].character_id is not None and dialogue[0].text and dialogue[0].emotion
-        assert len(music) == 1 and music[0].gain_db == -8.0 and music[0].source == "procedural"
-        assert music[0].params == {"mood": sc.emotion}
+        assert music == []
+    for music in sequence_music(pid).values():
+        assert len(music) == 1 and music[0].gain_db == -8.0 and music[0].source == "procedural" and music[0].params["mood"]
 
 
 def test_characters_get_their_own_vector_namespace_and_default_identity(mk_project):
@@ -168,15 +170,22 @@ def test_the_same_line_spoken_twice_keeps_two_channels(mk_project):
 
 # ---------- müzik ----------
 
+def sequence_music(pid):
+    from app.models import Sequence, TimelineTrack
+    with session_scope() as s:
+        out = {q.code: list(s.scalars(select(TimelineTrack).where(TimelineTrack.sequence_id == q.id, TimelineTrack.is_active)))
+               for q in s.scalars(select(Sequence).where(Sequence.project_id == pid))}
+        s.expunge_all()
+        return out
+
+
 def test_existing_music_is_never_duplicated_or_reset(mk_project):
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT)
     with session_scope() as s:
-        s.execute(text("""UPDATE audio_tracks SET gain_db = -14 WHERE kind = 'music'
-                          AND scene_id IN (SELECT id FROM scenes WHERE project_id = :p)"""), {"p": pid})
+        s.execute(text("UPDATE timeline_tracks SET gain_db = -14 WHERE project_id = :p"), {"p": pid})
     ingest(pid, rules.SAMPLE_SCRIPT)
-    for _, _, tracks in load_scenes(pid).values():
-        music = active(tracks, "music")
+    for music in sequence_music(pid).values():
         assert len(music) == 1 and music[0].gain_db == -14
 
 
@@ -184,6 +193,7 @@ def test_auto_music_can_be_turned_off(mk_project):
     pid = mk_project()
     ingest(pid, rules.SAMPLE_SCRIPT, auto_music=False)
     assert all(not active(tracks, "music") for _, _, tracks in load_scenes(pid).values())
+    assert all(music == [] for music in sequence_music(pid).values())
 
 
 # ---------- korunması gerekenler ----------

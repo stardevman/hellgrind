@@ -1,4 +1,7 @@
-"""Ayrıştırılmış senaryoyu veritabanına yazar: karakterler, varlıklar, sahneler, diyalog ve müzik kanalları.
+"""Ayrıştırılmış senaryoyu veritabanına yazar: sekanslar, karakterler, varlıklar, sahneler, diyalog ve müzik kanalları.
+
+Müzik sekans düzeyindedir (Faz 11): her sekans, çekimlerinin baskın duygusuna göre bir prosedürel müzik kanalı alır ve
+müzik çekimler arasında kesintisiz akar. Sahneye müzik eklenmez; sahne düzeyindeki fon kanalları isteğe bağlıdır.
 
 Kadrodaki her karakter, başlıktaki her mekân ve [NESNE: ...] ile işaretlenen her nesne için bir varlık yoksa `draft`
 durumunda oluşturulur ve çekime bağlanır. Taslak varlıkla üretim başlamaz (hermes/lint.py); yönetmen referansları
@@ -18,12 +21,14 @@ from app.core.hashing import stable_hash
 from app.db import session_scope
 from app.engine.providers import route_engine
 from app.hermes import rules
-from app.models import Asset, AudioTrack, Character, Project, Scene, SceneAsset, SceneCharacter
+from app.models import Asset, AudioTrack, Character, Project, Scene, SceneAsset, SceneCharacter, Sequence, TimelineTrack
 
 log = logging.getLogger("hellgrind.hermes")
 
 DIALOGUE_START_S = 0.4      # ilk replik klibin başından bu kadar sonra başlar
 MUSIC_GAIN_DB = -8.0
+MUSIC_FADE_IN_S, MUSIC_FADE_OUT_S = 1.0, 1.5
+DEFAULT_SEQUENCE = {"code": "SEQ01", "title": "Sekans 1"}
 
 
 def parse_script(text: str, project_id: str) -> dict:
@@ -97,6 +102,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
         project = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
         project.script_source = text
 
+        seqs = _write_sequences(s, project_id, parsed)
         book = AssetBook(s, project_id)
         chars = {c.name: c for c in s.scalars(select(Character).where(Character.project_id == project_id))}
         for name in parsed["cast"]:
@@ -106,7 +112,8 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
         existing = {sc.scene_code: sc for sc in s.scalars(select(Scene).where(Scene.project_id == project_id))}
         for order, shot in enumerate(parsed["shots"], start=1):
             sc = existing.get(shot["scene_id"])
-            fields = dict(seq_order=order, script_text=script_text(shot), description=shot["description"],
+            fields = dict(seq_order=order, sequence_id=seqs[shot.get("sequence", DEFAULT_SEQUENCE["code"])].id,
+                          script_text=script_text(shot), description=shot["description"],
                           emotion=shot["emotion"], camera=shot["camera"], duration_s=shot["duration_s"],
                           action_complexity=shot["action_complexity"])
             prompt = {"prompt": shot["visual_prompt"], "lang": "tr"}
@@ -124,13 +131,66 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             s.flush()
             _write_cast(s, sc, shot, chars)
             _write_assets(s, sc, shot, book)
-            _write_tracks(s, sc, shot, chars, auto_music)
+            _write_tracks(s, sc, shot, chars)
+        music = _write_sequence_music(s, project_id, seqs, parsed["shots"]) if auto_music else []
 
     orphaned = sorted(set(existing) - {shot["scene_id"] for shot in parsed["shots"]})
     if orphaned:
         log.warning("senaryoda artık olmayan sahneler korunuyor (silinmedi): %s", orphaned)
     return {"cast": parsed["cast"], "shots": len(parsed["shots"]), "created": created, "updated": updated,
-            "orphaned": orphaned, "assets_created": book.created}
+            "orphaned": orphaned, "assets_created": book.created,
+            "sequences": [{"code": q["code"], "title": q["title"],
+                           "shots": sum(sh.get("sequence", DEFAULT_SEQUENCE["code"]) == q["code"] for sh in parsed["shots"])}
+                          for q in parsed.get("sequences") or [DEFAULT_SEQUENCE]],
+            "music_created": music}
+
+
+def _write_sequences(s, project_id: str, parsed: dict) -> dict:
+    """Senaryodaki sekansları koduna göre yazar (başlık ve sıra güncellenir; tavan ve harcama korunur). {kod: satır}.
+    Senaryoda artık olmayan sekanslar silinmez."""
+    wanted = parsed.get("sequences") or [DEFAULT_SEQUENCE]
+    rows = {q.code: q for q in s.scalars(select(Sequence).where(Sequence.project_id == project_id))}
+    for order, item in enumerate(wanted, start=1):
+        row = rows.get(item["code"])
+        if row is None:
+            row = rows[item["code"]] = Sequence(id=uuid.uuid4(), project_id=project_id, code=item["code"],
+                                                title=item["title"], seq_order=order, status="active", settings={})
+            s.add(row)
+        else:
+            row.title, row.seq_order = item["title"], order
+    s.flush()
+    return rows
+
+
+def dominant_mood(shots: list[dict]) -> str:
+    """Sekans müziğinin duygusu: çekim sürelerine göre en ağır basan duygu (eşitlikte önce geçen)."""
+    weight: dict[str, float] = {}
+    for shot in shots:
+        weight[shot["emotion"]] = weight.get(shot["emotion"], 0.0) + float(shot["duration_s"])
+    return max(weight, key=lambda e: weight[e]) if weight else "neutral"
+
+
+def _write_sequence_music(s, project_id: str, seqs: dict, shots: list[dict]) -> list[str]:
+    """Müziği olmayan her sekansa prosedürel müzik ekler. Yönetmenin değiştirdiği müzik ezilmez; sahne düzeyinde müziği
+    olan (Faz 11 öncesi) sekansa eklenmez: film çift müzik çalmasın."""
+    created = []
+    for code, seq in seqs.items():
+        mine = [sh for sh in shots if sh.get("sequence", DEFAULT_SEQUENCE["code"]) == code]
+        if not mine:
+            continue
+        has_music = s.scalar(select(TimelineTrack.id).where(TimelineTrack.sequence_id == seq.id, TimelineTrack.is_active,
+                                                            TimelineTrack.kind == "music").limit(1))
+        scene_music = s.scalar(select(AudioTrack.id).join(Scene, Scene.id == AudioTrack.scene_id)
+                               .where(Scene.sequence_id == seq.id, AudioTrack.is_active, AudioTrack.kind == "music").limit(1))
+        if has_music or scene_music:
+            continue
+        mood = dominant_mood(mine)
+        s.add(TimelineTrack(project_id=project_id, sequence_id=seq.id, kind="music", source="procedural",
+                            params={"mood": mood}, start_s=0.0, end_s=None, gain_db=MUSIC_GAIN_DB,
+                            fade_in_s=MUSIC_FADE_IN_S, fade_out_s=MUSIC_FADE_OUT_S,
+                            content_hash=music_hash(mood), is_active=True))
+        created.append(code)
+    return created
 
 
 def _write_cast(s, sc: Scene, shot: dict, chars: dict) -> None:
@@ -153,7 +213,7 @@ def _write_assets(s, sc: Scene, shot: dict, book: AssetBook) -> None:
                   .on_conflict_do_nothing(index_elements=["scene_id", "asset_id"]))
 
 
-def _write_tracks(s, sc: Scene, shot: dict, chars: dict, auto_music: bool) -> None:
+def _write_tracks(s, sc: Scene, shot: dict, chars: dict) -> None:
     tracks = s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)).all()
     active = [t for t in tracks if t.is_active]
     next_version = max((t.version for t in tracks if t.kind == "dialogue"), default=0) + 1
@@ -179,8 +239,3 @@ def _write_tracks(s, sc: Scene, shot: dict, chars: dict, auto_music: bool) -> No
     for leftovers in keep.values():                             # artık senaryoda olmayan replikler
         for track in leftovers:
             track.is_active = False
-
-    if auto_music and not any(t.kind == "music" for t in active):
-        s.add(AudioTrack(scene_id=sc.id, kind="music", source="procedural", params={"mood": sc.emotion},
-                         content_hash=music_hash(sc.emotion), start_offset_s=0.0, gain_db=MUSIC_GAIN_DB,
-                         is_active=True, version=1))

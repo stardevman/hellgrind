@@ -75,6 +75,7 @@ class State(TypedDict, total=False):
     project_id: str
     cast: list[str]
     chunks: list[str]
+    sequences: list                          # parça sırası -> sekans anahtarı (kodla, kural tabanlı ayrıştırıcının kuralıyla)
     drafts: Annotated[dict, _merge]          # sahne sırası -> taslak (paralel extract ve repair birleştirir)
     problems: dict                           # sahne sırası -> hata listesi (her validate geçişinde yeniden yazılır)
     passes: int
@@ -238,21 +239,28 @@ def assemble(state: State) -> dict:
         for shot in shots:
             shot["props"] += [p for p in dict.fromkeys(leftover) if p not in shot["props"]]
         scenes.append(shots)
+    # Sekanslar (# SEKANS: ...) kodla, kural tabanlı ayrıştırıcının kuralıyla atanır: LLM sekans satırlarını görmez.
+    keys = state.get("sequences") or [(0, None)] * len(scenes)
+    kept = [(shots, key) for shots, key in zip(scenes, keys) if shots]
+    codes, sequences = rules.number_sequences([key for _, key in kept])
     shots_out = []
-    for scene_no, shots in enumerate((s for s in scenes if s), start=1):
+    for scene_no, ((shots, _), code) in enumerate(zip(kept, codes), start=1):
         for shot_no, shot in enumerate(shots, start=1):
-            shots_out.append({"scene_id": f"S{scene_no:03d}_SH{shot_no:02d}", **{k: v for k, v in shot.items() if k != "scene_id"}})
-    return {"cast": state["cast"], "shots": shots_out}
+            shots_out.append({"scene_id": f"S{scene_no:03d}_SH{shot_no:02d}", "sequence": code,
+                              **{k: v for k, v in shot.items() if k not in ("scene_id", "sequence")}})
+    return {"cast": state["cast"], "sequences": sequences, "shots": shots_out}
 
 
 def parse_with_llm(text: str, project_id: str, llm=None) -> dict:
     """Senaryoyu LLM ile ayrıştırır. `llm` yalnızca testlerde verilir; yoksa guard'dan geçip ChatAnthropic kurulur."""
     key = guard("anthropic_api_key")
     cast = list(dict.fromkeys(b["name"] for b in rules.tokenize(text) if b["type"] == "speech"))
-    chunks = rules.split_scenes(text)
+    pairs = rules.split_scenes_with_sequences(text)
+    chunks = [chunk for chunk, _ in pairs]
     if not chunks:
-        return {"cast": cast, "shots": []}
+        return {"cast": cast, "sequences": [], "shots": []}
     graph = build_graph(llm or make_llm(key))
-    final = graph.invoke({"project_id": project_id, "cast": cast, "chunks": chunks, "drafts": {}, "problems": {}, "passes": 0},
+    final = graph.invoke({"project_id": project_id, "cast": cast, "chunks": chunks,
+                          "sequences": [key for _, key in pairs], "drafts": {}, "problems": {}, "passes": 0},
                          config={"max_concurrency": MAX_PARALLEL_CALLS})
     return final["result"]

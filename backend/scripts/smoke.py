@@ -12,9 +12,11 @@ Kontroller:
   3. Yalnızca müzik değişince planda yalnızca MUX vardır ve harcama değişmez
   4. Küratör seçimi yalnızca LIPSYNC ve MUX çalıştırır
   5. Değişiklik yoksa plan boştur
-  6. Film 4 sahneyle birleşir
+  6. Film 4 sahneyle birleşir; sekans müziği çekimler arasında kesilmeden akar
+  M. Sekans müziği değişince hiçbir sahne yeniden üretilmez, yalnızca film yeniden birleştirilir (Faz 11)
   S. Stil değişikliği: önizleme 4 çekimi ve sanal maliyeti listeler, onay olmadan hiçbir şey üretilmez; etkinleştirince
      çekimler yeni önekle yeniden üretilir
+  T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
 """
@@ -103,6 +105,7 @@ def main() -> int:
     r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]})
     r.raise_for_status()
     check(r.json()["shots"] == 4 and r.json()["cast"] == ["Kerem", "Ayşe"], f"senaryo 4 çekime ve {r.json()['cast']} kadrosuna ayrıldı")
+    check_sequences(pid)
     check(sorted(r.json()["blocked"]) == CODES, f"4 çekimin hepsi engellendi: {r.json()['blocked']}")
     ov = overview(pid)
     check(all(s["status"] == "blocked" for s in ov["scenes"]) and spent(pid) == 0, "çekimler blocked, harcama 0")
@@ -177,6 +180,28 @@ def main() -> int:
         time.sleep(2)
     clips = film["cut"]["clips"] if film and film["cut"] else []
     check([x["scene_code"] for x in clips] == CODES, f"film {len(clips)} sahneyle birleşti, {film['cut']['duration_s'] if film and film['cut'] else '?'} sn")
+    tracks = film["cut"].get("tracks", []) if film and film["cut"] else []
+    check([t["sequence"] for t in tracks] == ["SEQ01", "SEQ02"], "sekans müzikleri sekans aralıklarına yerleştirildi")
+    cut_db = audio_db_around(film["url"] if film else None, clips[1]["in_s"] if len(clips) > 1 else 0)
+    check(cut_db > -45, f"SEQ01 içindeki kesmede müzik sürüyor (ses düzeyi {cut_db:.1f} dB)")
+
+    print("M) Sekans müziği değişir: yalnızca film yeniden birleştirilir")
+    finals = {sc["scene_code"]: c.get(f"/scenes/{sc['id']}").json()["final_video_key"] for sc in overview(pid)["scenes"]}
+    seq1 = next(q for q in overview(pid)["sequences"] if q["code"] == "SEQ01")
+    before_film, before_spent = overview(pid)["timeline"]["url"], spent(pid)
+    r = c.post(f"/sequences/{seq1['id']}/tracks", json={"mood": "joy", "gain_db": -10}).json()
+    check(r["stages"] == ["ASSEMBLE"], f"plan yalnızca film birleştirme: {r['stages']}")
+    for _ in range(120):
+        film = overview(pid)["timeline"]
+        if film["url"] != before_film and film["cut"]:
+            break
+        time.sleep(1)
+    check(film["url"] != before_film and next(t for t in film["cut"]["tracks"] if t["sequence"] == "SEQ01")["mood"] == "joy",
+          "film yeni sekans müziğiyle yeniden birleştirildi")
+    plans_now = [c.post(f"/scenes/{sc['id']}/render").json()["stages"] for sc in overview(pid)["scenes"]]
+    after = {sc["scene_code"]: c.get(f"/scenes/{sc['id']}").json()["final_video_key"] for sc in overview(pid)["scenes"]}
+    check(plans_now == [[]] * 4 and after == finals and spent(pid) == before_spent,
+          "hiçbir sahne yeniden üretilmedi, sahne videoları ve harcama aynı")
 
     print("S) Stil değişikliği: önce önizleme, onay olmadan üretim yok")
     v2 = c.post(f"/projects/{pid}/style", json={**c.get(f"/projects/{pid}/style").json()["example"],
@@ -196,6 +221,22 @@ def main() -> int:
     check(prefix.startswith("Cold moonlight") and style_prefixes(pid, CODES, latest=True) == {prefix},
           "yeni varyasyonların hepsi yeni stil önekini taşıyor")
 
+    print("T) Sekans tavanı: yalnızca o sekans durur")
+    capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
+    c.post(f"/projects/{capped}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
+    seqs = {q["code"]: q for q in c.get(f"/projects/{capped}/sequences").json()}
+    c.patch(f"/sequences/{seqs['SEQ01']['id']}", json={"budget_cap_usd": 0.5}).raise_for_status()
+    c.post(f"/projects/{capped}/render-all").raise_for_status()
+    ov = wait_scenes(capped, timeout=300)
+    status = {s["scene_code"]: s["status"] for s in ov["scenes"]}
+    seqs = {q["code"]: q for q in ov["sequences"]}
+    check(status["S002_SH01"] == status["S002_SH02"] == "done", f"SEQ02 bitti: {status}")
+    check("frozen" in (status["S001_SH01"], status["S001_SH02"]) and seqs["SEQ01"]["status"] == "capped",
+          f"SEQ01 tavanda durdu (harcama ${seqs['SEQ01']['spent_usd']:.2f} / tavan $0.50)")
+    check(seqs["SEQ01"]["spent_usd"] + seqs["SEQ01"]["reserved_usd"] <= 0.5, "sekans harcaması tavanı aşmadı")
+    check(ov["project"]["status"] == "producing" and not ov["project"]["frozen"]
+          and any(e["kind"] == "sequence_capped" for e in ov["events"]), "proje durmadı, olay yazıldı")
+
     print("7) Kill-Switch: 1 USD'lik proje")
     tiny = new_project("duman-testi-kucuk-butce", 1.0, lint_strictness="off")     # yalnızca bütçe sınanır
     c.post(f"/projects/{tiny}/script", json={"text": meta["sample_script"]}).raise_for_status()
@@ -213,6 +254,37 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+def check_sequences(pid: str) -> None:
+    ov = overview(pid)
+    seqs = [(q["code"], q["title"], q["shots"], len(q["tracks"])) for q in ov["sequences"]]
+    check(seqs == [("SEQ01", "Dökümhane", 2, 1), ("SEQ02", "Köprü", 2, 1)],
+          f"iki sekans doğru gruplandı, her birinin kendi müziği var: {seqs}")
+    codes = {q["id"]: q["code"] for q in ov["sequences"]}
+    check([codes.get(sc["sequence_id"]) for sc in ov["scenes"]] == ["SEQ01", "SEQ01", "SEQ02", "SEQ02"]
+          and not any(t["kind"] == "music" for sc in ov["scenes"] for t in sc["tracks"]),
+          "çekimler sekanslarına bağlı, çekimlerde ayrı müzik yok")
+
+
+def audio_db_around(url: str | None, at: float) -> float:
+    """Filmin `at` saniyesi çevresindeki (±0,3 sn) ortalama ses düzeyi, dB."""
+    import subprocess
+    import tempfile
+    from urllib.parse import parse_qs, urlsplit
+
+    import numpy as np
+
+    from app import storage
+    if not url:
+        return float("-inf")
+    with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+        storage.download(parse_qs(urlsplit(url).query)["key"][0], f.name)      # panelin gösterdiği film dosyası
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, at - 0.3):.3f}", "-t", "0.6", "-i", f.name,
+                              "-vn", "-f", "f32le", "-ac", "1", "-ar", "16000", "-"], capture_output=True).stdout
+    samples = np.frombuffer(raw, dtype=np.float32)
+    rms_value = float(np.sqrt(np.mean(samples ** 2))) if len(samples) else 0.0
+    return 20 * np.log10(rms_value) if rms_value > 0 else float("-inf")
 
 
 def variation_count(pid: str) -> int:

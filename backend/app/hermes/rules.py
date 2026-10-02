@@ -7,6 +7,8 @@ Standart senaryo biçimini okur:
   diğer paragraflar                                     -> aksiyon, her biri yeni bir çekim
   [NESNE: Taksi] işareti                                -> nesne varlığı; paragraf içindeyse o çekime, tek başına
                                                            bir satırdaysa sahnenin tüm çekimlerine bağlanır
+  # SEKANS: Havalimanı                                  -> yeni sekans; sonraki sahne başlıkları ona aittir (yoksa
+                                                           bütün sahneler tek sekanstadır)
 Mekân, sahne başlığından çıkar ("İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE" -> "Terk Edilmiş Dökümhane").
 
 Çıktı, LLM modunun üreteceği şemayla aynıdır. Bu modül hiçbir dış servise ve yapılandırmaya bağlı değildir.
@@ -50,6 +52,7 @@ SLUG_EN = ("int/ext.", "int.", "ext.")
 PAREN = re.compile(r"\([^)]*\)")
 PROP_MARKER = re.compile(r"\[\s*NESNE\s*:\s*([^\]]*)\]", re.IGNORECASE)
 TIME_OF_DAY_SEP = re.compile(r"\s+[-–—]\s+")
+SEQUENCE_MARKER = re.compile(r"^#\s*(?:SEKANS|SEQUENCE)\s*:\s*(.*?)\s*$", re.IGNORECASE)
 
 
 # ---------- Türkçe büyük/küçük harf ----------
@@ -83,6 +86,17 @@ def _slug_prefix(line: str) -> str | None:
 
 def is_slug(line: str) -> bool:
     return _slug_prefix(line) is not None
+
+
+def sequence_title(line: str) -> str | None:
+    """"# SEKANS: Havalimanı" -> "Havalimanı"; sekans satırı değilse None (başlıksız satır boş dize döner)."""
+    m = SEQUENCE_MARKER.match(line.strip())
+    return " ".join(m.group(1).split()) if m else None
+
+
+def _breaks(line: str) -> bool:
+    """Paragrafı ve repliği bitiren satır: sahne başlığı ya da sekans satırı."""
+    return is_slug(line) or sequence_title(line) is not None
 
 
 def _has_lowercase(s: str) -> bool:
@@ -202,12 +216,16 @@ def _split_long_speech(text: str) -> list[str]:
 
 
 def tokenize(text: str) -> list[dict]:
-    """Bloklar: {"type": "slug", "heading"} | {"type": "speech", "name", "hint", "lines"} | {"type": "action", "text"}."""
+    """Bloklar: {"type": "slug", "heading"} | {"type": "sequence", "title"} | {"type": "speech", "name", "hint", "text"}
+    | {"type": "action", "text"}."""
     lines = [ln.strip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     blocks, i = [], 0
     while i < len(lines):
         line = lines[i]
-        if not line or is_transition(line):
+        if (title := sequence_title(line)) is not None:      # "# SEKANS:" geçiş satırı sanılmasın: önce bakılır
+            blocks.append({"type": "sequence", "title": title})
+            i += 1
+        elif not line or is_transition(line):
             i += 1
         elif is_slug(line):
             blocks.append({"type": "slug", "heading": line})
@@ -216,7 +234,7 @@ def tokenize(text: str) -> list[dict]:
             hints = PAREN.findall(line)
             i += 1
             said = []
-            while i < len(lines) and lines[i] and not is_slug(lines[i]):
+            while i < len(lines) and lines[i] and not _breaks(lines[i]):
                 if lines[i].startswith("(") and lines[i].endswith(")"):
                     hints.append(lines[i])
                 else:
@@ -227,7 +245,7 @@ def tokenize(text: str) -> list[dict]:
         else:
             paragraph = [line]
             i += 1
-            while i < len(lines) and lines[i] and not is_slug(lines[i]) and not _starts_dialogue(lines, i):
+            while i < len(lines) and lines[i] and not _breaks(lines[i]) and not _starts_dialogue(lines, i):
                 paragraph.append(lines[i])
                 i += 1
             blocks.append({"type": "action", "text": " ".join(paragraph)})
@@ -237,18 +255,23 @@ def tokenize(text: str) -> list[dict]:
 # ---------- 2. geçiş: bloklardan çekimlere ----------
 
 def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
-    """Çekimleri olan sahneler: [{heading, props, shots: [{description, characters, dialogue, emotion, kind, props}]}].
-    Sahnenin `props` listesi, tek başına bir satırda duran nesne işaretleridir (sahnenin tüm çekimlerine uygulanır)."""
+    """Çekimleri olan sahneler: [{heading, sequence, props, shots: [{description, characters, dialogue, emotion, kind,
+    props}]}]. Sahnenin `props` listesi, tek başına bir satırda duran nesne işaretleridir (sahnenin tüm çekimlerine
+    uygulanır). `sequence`: (sıra, başlık); sahne, başlığı okunduğu anda geçerli olan sekansa aittir."""
     scenes: list[dict] = []
+    sequence = (0, None)
 
     def scene():
         if not scenes:
-            scenes.append({"heading": "SAHNE", "props": [], "shots": []})
+            scenes.append({"heading": "SAHNE", "sequence": sequence, "props": [], "shots": []})
         return scenes[-1]
 
     for block in blocks:
+        if block["type"] == "sequence":
+            sequence = (sequence[0] + 1, block["title"] or None)
+            continue
         if block["type"] == "slug":
-            scenes.append({"heading": block["heading"], "props": [], "shots": []})
+            scenes.append({"heading": block["heading"], "sequence": sequence, "props": [], "shots": []})
             continue
         sc = scene()
         shots = sc["shots"]
@@ -321,17 +344,39 @@ def visual_prompt_for(heading: str, shot: dict) -> str:
     return _visual_prompt(heading, shot)
 
 
-def split_scenes(text: str) -> list[str]:
-    """Metni sahne başlıklarından parçalara böler; her parça kendi başlığıyla başlar. Başlıktan önceki metin ayrı bir parçadır."""
-    chunks, current = [], []
+def split_scenes_with_sequences(text: str) -> list[tuple[str, tuple]]:
+    """Metni sahne başlıklarından parçalara böler: [(parça, sekans anahtarı)]. Her parça kendi başlığıyla başlar;
+    başlıktan önceki metin ayrı bir parçadır. Sekans satırları parçalardan çıkarılır (LLM onları sahne sanmasın) ve
+    parçanın ilk dolu satırında geçerli olan sekans, parçanın anahtarı olur. Yalnızca sekans satırından oluşan parça
+    oluşmaz."""
+    chunks, current, sequence, key = [], [], (0, None), None
     for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if (title := sequence_title(line)) is not None:
+            sequence = (sequence[0] + 1, title or None)
+            continue
         if is_slug(line) and any(x.strip() for x in current):
-            chunks.append("\n".join(current))
-            current = []
+            chunks.append(("\n".join(current), key))
+            current, key = [], None
+        if key is None and line.strip():
+            key = sequence
         current.append(line)
     if any(x.strip() for x in current):
-        chunks.append("\n".join(current))
+        chunks.append(("\n".join(current), key))
     return chunks
+
+
+def split_scenes(text: str) -> list[str]:
+    """Sahne parçaları (sekans satırları çıkarılmış); bkz. split_scenes_with_sequences."""
+    return [chunk for chunk, _ in split_scenes_with_sequences(text)]
+
+
+def number_sequences(keys: list[tuple]) -> tuple[list[str], list[dict]]:
+    """Sahnelerin sekans anahtarları [(sıra, başlık)] -> (sahne başına kod, [{code, title}]). Yalnızca sahnesi olan
+    sekanslar numaralanır (SEQ01, SEQ02...); başlıksız sekans "Sekans N" olur."""
+    order = list(dict.fromkeys(keys))
+    codes = {key: f"SEQ{n:02d}" for n, key in enumerate(order, start=1)}
+    sequences = [{"code": codes[key], "title": key[1] or f"Sekans {n}"} for n, key in enumerate(order, start=1)]
+    return [codes[k] for k in keys], sequences
 
 
 def parse(text: str) -> dict:
@@ -342,12 +387,15 @@ def parse(text: str) -> dict:
             cast.append(block["name"])
 
     shots = []
-    for scene_no, sc in enumerate(_build_scenes(blocks, cast), start=1):
+    scenes = _build_scenes(blocks, cast)
+    codes, sequences = number_sequences([sc["sequence"] for sc in scenes])
+    for scene_no, (sc, sequence) in enumerate(zip(scenes, codes), start=1):
         location = location_name(sc["heading"])
         for shot_no, shot in enumerate(sc["shots"], start=1):
             camera, complexity = _camera(shot["kind"], shot["emotion"])
             shots.append({
                 "scene_id": f"S{scene_no:03d}_SH{shot_no:02d}",
+                "sequence": sequence,
                 "heading": sc["heading"],
                 "location": location,
                 "props": shot["props"] + [p for p in sc["props"] if p not in shot["props"]],
@@ -360,10 +408,12 @@ def parse(text: str) -> dict:
                 "duration_s": shot_duration(shot["description"], shot["dialogue"], shot["kind"] != "dialogue"),
                 "action_complexity": complexity,
             })
-    return {"cast": cast, "shots": shots}
+    return {"cast": cast, "sequences": sequences, "shots": shots}
 
 
-SAMPLE_SCRIPT = """İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE
+SAMPLE_SCRIPT = """# SEKANS: Dökümhane
+
+İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE
 
 Kızıl bir ışık paslı kazanların arasından süzülüyor. Kerem yavaşça içeri girer.
 
@@ -375,6 +425,8 @@ Ayşe gölgelerden çıkar, elinde titreyen bir fener var.
 
 AYŞE
 Sesini alçalt. Makineler hâlâ dinliyor.
+
+# SEKANS: Köprü
 
 DIŞ. ÇÖKEN KÖPRÜ - ŞAFAK
 

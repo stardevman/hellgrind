@@ -174,6 +174,14 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .choice small { display: block; color: var(--dust); }
 .empty { padding: 28px 16px; text-align: center; color: var(--dust); }
 
+/* sekanslar */
+.seq-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 10px 14px; background: var(--sunk); border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); }
+.seq-group:first-child .seq-head { border-top: 0; }
+.seq-head h3 { font-size: 15px; }
+.astatus.capped { color: #f0a091; } .astatus.capped::before { background: var(--oxide); }
+.seqbar { display: flex; gap: 2px; margin-top: 10px; }
+.seqbar span { padding: 3px 6px; border-radius: 3px; background: var(--sunk); border: 1px solid var(--line); font-size: 12px; color: var(--dust); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
 /* sekmeler */
 .tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 700; font-stretch: 112%; color: var(--dust); }
@@ -329,9 +337,25 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
           <div>
             <h3>Müziği değiştir</h3>
             <form class="form-row" id="music-form" style="margin-top:8px" novalidate>
+              <label>Kapsam<select id="music-scope"><option value="sequence">Sekansın tamamı</option><option value="scene">Yalnızca bu çekim</option></select></label>
               <label>Duygu<select id="music-emotion"></select></label>
               <label>Seviye (dB)<input type="number" id="music-gain" min="-40" max="0" step="1" value="-8"></label>
               <button class="btn" id="music-submit" type="submit">Müziği değiştir</button>
+            </form>
+          </div>
+          <div id="insp-seq">
+            <h3 id="insp-seq-title">Sekans</h3>
+            <p class="muted" id="insp-seq-info" style="margin-top:4px"></p>
+            <form class="form-row" id="cap-form" style="margin-top:8px">
+              <label>Bütçe tavanı (USD)<input type="number" id="cap-value" min="0.01" step="0.01" placeholder="tavan yok"></label>
+              <button class="btn small" type="submit">Tavanı kaydet</button>
+            </form>
+            <ul class="lines" id="insp-seq-tracks" style="margin-top:8px"></ul>
+            <form class="form-row" id="stem-form" style="margin-top:8px">
+              <label>Stem yükle<input type="file" id="stem-file" accept="audio/*" required></label>
+              <label>Başlangıç (sn)<input type="number" id="stem-start" min="0" step="0.1" value="0"></label>
+              <label>Seviye (dB)<input type="number" id="stem-gain" min="-40" max="0" step="1" value="-6"></label>
+              <button class="btn small" type="submit">Yükle</button>
             </form>
           </div>
           <div class="form-row"><button class="btn" id="regen" type="button">Bu sahneyi baştan üret</button></div>
@@ -345,6 +369,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
         <header><h2 id="film-title">Film</h2><span class="spacer"></span><button class="btn primary" id="assemble" type="button">Tamamlanan sahneleri birleştir</button></header>
         <div class="body">
           <div class="media" id="film-media"><p class="none">Henüz film yok. Sahneler tamamlanınca birleştirin.</p></div>
+          <div class="seqbar" id="seqbar" aria-label="Sekanslar"></div>
           <div class="cutbar" id="cutbar" aria-label="Kesme listesi"></div>
           <div class="note" id="film-note" role="status" aria-live="polite" style="margin-top:10px"></div>
         </div>
@@ -614,18 +639,42 @@ function patchRow(el, sc) {
   patchStrip(strip, sc.variations, sc.id);
   el.classList.toggle("selected", sc.id === S.sceneId);
 }
+const curSequence = (sc) => sc && (S.ov.sequences || []).find((q) => q.id === sc.sequence_id);
+function seqHead(g) {
+  if (!g.q) return `<h3>Sekanssız</h3><span class="muted">${g.scenes.length} çekim</span>`;
+  const q = g.q, cap = q.budget_cap_usd != null ? `tavan ${usd(q.budget_cap_usd)}` : "tavan yok";
+  return `<h3>${esc(q.code)} · ${esc(q.title)}</h3><span class="muted num">${q.shots} çekim · ${q.done} hazır · ${usd(q.spent_usd)} harcandı · ${cap}</span>`
+    + (q.status === "capped" ? '<span class="astatus capped">Tavan doldu</span>' : "");
+}
+/* Sahneler sekans başlıkları altında; satırlar yerinde yamalanır (sekans değişirse satır yeni gruba taşınır). */
 function renderScenes() {
   const host = $("scenes");
-  const scenes = S.ov.scenes;
-  setText($("scenes-count"), `${scenes.length} sahne · ${scenes.filter((s) => s.status === "done").length} hazır`);
-  const existing = new Map([...host.children].map((el) => [el.dataset.id, el]));
-  scenes.forEach((sc, i) => {
-    let el = existing.get(sc.id) || makeRow(sc.id);
-    existing.delete(sc.id);
-    patchRow(el, sc);
-    if (host.children[i] !== el) host.insertBefore(el, host.children[i] || null);
+  const scenes = S.ov.scenes, seqs = S.ov.sequences || [];
+  setText($("scenes-count"), `${seqs.length} sekans · ${scenes.length} sahne · ${scenes.filter((s) => s.status === "done").length} hazır`);
+  const groups = seqs.map((q) => ({ id: q.id, q, scenes: scenes.filter((sc) => sc.sequence_id === q.id) }));
+  const loose = scenes.filter((sc) => !seqs.some((q) => q.id === sc.sequence_id));
+  if (loose.length) groups.push({ id: "none", q: null, scenes: loose });
+  const groupEls = new Map([...host.querySelectorAll(".seq-group")].map((el) => [el.dataset.seq, el]));
+  const rows = new Map([...host.querySelectorAll(".scene")].map((el) => [el.dataset.id, el]));
+  groups.filter((g) => g.scenes.length).forEach((g, gi) => {
+    let gel = groupEls.get(g.id);
+    groupEls.delete(g.id);
+    if (!gel) {
+      gel = document.createElement("section"); gel.className = "seq-group"; gel.dataset.seq = g.id;
+      gel.innerHTML = '<header class="seq-head"></header><div class="seq-rows"></div>';
+    }
+    setHTML(gel.querySelector(".seq-head"), seqHead(g));
+    const box = gel.querySelector(".seq-rows");
+    g.scenes.forEach((sc, i) => {
+      const el = rows.get(sc.id) || makeRow(sc.id);
+      rows.delete(sc.id);
+      patchRow(el, sc);
+      if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+    });
+    if (host.children[gi] !== gel) host.insertBefore(gel, host.children[gi] || null);
   });
-  existing.forEach((el) => el.remove());
+  rows.forEach((el) => el.remove());
+  groupEls.forEach((el) => el.remove());
 }
 
 /* ---------- denetçi ---------- */
@@ -692,15 +741,36 @@ function renderInspector() {
       ? `<button type="button" data-unlink="${a.id}" aria-label="${esc(a.name)} bağını kaldır" title="Bağı kaldır">×</button>` : ""}</span>`).join("")
     : '<span class="muted">Bu çekime bağlı varlık yok.</span>');
 
-  const music = sc.tracks.find((t) => t.kind === "music");
+  const q = curSequence(sc);
+  $("insp-seq").hidden = !q;
+  if (q) {
+    setText($("insp-seq-title"), `Sekans ${q.code} · ${q.title}`);
+    setText($("insp-seq-info"), `${q.shots} çekim · ${usd(q.spent_usd)} harcandı · ${q.budget_cap_usd != null ? "tavan " + usd(q.budget_cap_usd) : "tavan yok"}`
+      + (q.status === "capped" ? " · tavan doldu: bu sekansta yeni üretim yapılmaz" : ""));
+    const capForm = $("cap-form");
+    if (capForm.dataset.sig !== q.id + ":" + q.budget_cap_usd) {
+      capForm.dataset.sig = q.id + ":" + q.budget_cap_usd;
+      $("cap-value").value = q.budget_cap_usd != null ? q.budget_cap_usd : "";
+    }
+    setHTML($("insp-seq-tracks"), q.tracks.length ? q.tracks.map((t) => `<li>${t.source === "procedural"
+        ? `Müzik · ${esc(EMOTION_TR[t.mood] || t.mood)}` : `${t.kind === "music" ? "Stem" : esc(t.kind)} · ${esc(t.filename)}`}
+        <span class="muted">(${Number(t.start_s).toFixed(1)} sn${t.end_s != null ? "–" + Number(t.end_s).toFixed(1) + " sn" : "'den sekans sonuna"}, ${Number(t.gain_db).toFixed(0)} dB)</span>
+        <button type="button" class="btn small" data-track-remove="${t.id}" style="margin-left:6px">Kaldır</button></li>`).join("")
+      : '<li class="muted">Bu sekansta film düzeyinde kanal yok.</li>');
+  }
+
+  const scope = q ? $("music-scope").value : "scene";
+  const music = scope === "sequence" ? q.tracks.find((t) => t.kind === "music" && t.source === "procedural")
+                                     : sc.tracks.find((t) => t.kind === "music");
   const form = $("music-form");
-  const sig = sc.id + ":" + (music ? music.version : "-");
+  const sig = sc.id + ":" + scope + ":" + (music ? music.id + music.gain_db : "-");
   if (form.dataset.sig !== sig) {                       // kullanıcı yazarken yoklama alanları ezmesin
     form.dataset.sig = sig;
     $("music-emotion").innerHTML = Object.entries(EMOTION_TR).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
     $("music-emotion").value = (music && music.mood) || sc.emotion;
     $("music-gain").value = music ? music.gain_db : -8;
   }
+  $("music-scope").disabled = !q;
   const busy = S.busy || (S.ov && S.ov.project.frozen);
   $("music-submit").disabled = busy; $("regen").disabled = busy;
 }
@@ -723,6 +793,8 @@ function renderFilm() {
     else { const v = document.createElement("video"); v.controls = true; v.preload = "metadata"; v.playsInline = true; v.src = media.src; v.addEventListener("timeupdate", markActiveCut); host.appendChild(v); }
   }
   const clips = (t && t.cut && t.cut.clips) || [];
+  const bands = (t && t.cut && t.cut.sequences) || [];
+  setHTML($("seqbar"), bands.map((b) => `<span style="flex:${Math.max(0.1, b.out_s - b.in_s)} 1 0" title="${esc(b.code)} · ${esc(b.title)}">${esc(b.code)} · ${esc(b.title)}</span>`).join(""));
   setHTML($("cutbar"), clips.map((c) => {
     const d = Math.max(0.1, c.out_s - c.in_s);
     return `<button type="button" class="cut" data-in="${c.in_s}" data-out="${c.out_s}" style="flex:${d} 1 0;background:${EMOTION_COLOR[c.emotion] || "#A39E95"}" title="${esc(c.scene_code)} · ${esc(c.description || "")}" aria-label="${esc(c.scene_code)} sahnesine git">${esc(c.scene_code)}</button>`;
@@ -749,6 +821,9 @@ function eventText(e, codes) {
     case "blocked": return { t: `${where}engellendi, eksik referans: ${(e.missing || []).join(", ")}`, c: "bad" };
     case "lint_warning": return { t: `${where}uyarı, onaysız referans: ${(e.missing || []).join(", ")}` };
     case "motion_test": return { t: `Hareket testi ${e.ok ? "temiz" : "kusurlu (" + (e.anomalies || []).join(", ") + ")"}`, c: e.ok ? "good" : "bad" };
+    case "sequence_capped": return { t: `${e.code} sekansı bütçe tavanına ulaştı (${usd(e.spent)} / ${usd(e.cap)}); diğer sekanslar sürüyor`, c: "bad" };
+    case "sequence_reopened": return { t: `${e.code} sekansı yeniden açıldı`, c: "good" };
+    case "track_changed": return { t: `Film kanalı ${e.removed ? "kaldırıldı" : "değişti"}; hiçbir çekim yeniden üretilmedi, film yeniden birleştiriliyor` };
     case "style_activated": return { t: `Stil kılavuzu sürüm ${e.version} etkin (${e.affected} çekim etkilendi)`, c: "good" };
     case "asset_status": return { t: `${e.name}: ${ASTATUS_TR[e.status] || e.status}`, c: e.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
@@ -1027,6 +1102,8 @@ document.addEventListener("click", (ev) => {
   } else if (t.dataset.act) {
     const run = ASSET_ACTS[t.dataset.act], id = t.dataset.asset;
     act(async () => note("assets-note", await run(id), "ok"), "assets-note");
+  } else if (t.dataset.trackRemove) {
+    act(async () => { const r = await api(`/timeline-tracks/${t.dataset.trackRemove}`, "DELETE"); note("insp-note", "Kanal kaldırıldı." + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok"); }, "insp-note");
   } else if (t.dataset.unlink) {
     const id = S.sceneId;
     act(async () => { const r = await api(`/scenes/${id}/assets/${t.dataset.unlink}`, "DELETE"); note("insp-note", "Bağ kaldırıldı. " + r.hint, "ok"); }, "insp-note");
@@ -1037,7 +1114,8 @@ document.addEventListener("click", (ev) => {
       const started = Object.entries(r.planned).filter(([, st]) => st.length).map(([code]) => code);
       const still = Object.keys(r.blocked);
       note(target, (started.length ? `Üretime alındı: ${started.join(", ")}.` : "Üretime alınan çekim yok.")
-        + (still.length ? ` Hâlâ engelli: ${still.join(", ")}.` : ""), still.length ? "err" : "ok");
+        + (still.length ? ` Hâlâ engelli: ${still.join(", ")}.` : "")
+        + (r.capped.length ? ` Sekans tavanında: ${r.capped.join(", ")}.` : ""), still.length || r.capped.length ? "err" : "ok");
     }, target);
   } else if (t.classList.contains("cut")) {
     const v = $("film-media").querySelector("video");
@@ -1114,9 +1192,43 @@ $("music-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const id = S.sceneId, emotion = $("music-emotion").value, gain = Number($("music-gain").value);
   if (!Number.isFinite(gain) || gain < -40 || gain > 0) { note("insp-note", "Seviye -40 ile 0 dB arasında olmalı.", "err"); return; }
+  const q = curSequence(curScene());
+  if (q && $("music-scope").value === "sequence") {
+    act(async () => {
+      const r = await api(`/sequences/${q.id}/tracks`, "POST", { mood: emotion, gain_db: gain });
+      note("insp-note", `${q.code} sekansının müziği değişti; hiçbir çekim yeniden üretilmedi.` + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
+    }, "insp-note");
+    return;
+  }
   act(async () => {
     const r = await api(`/scenes/${id}/audio`, "PUT", { kind: "music", emotion, gain_db: gain, params: { mood: emotion } });
     note("insp-note", resultText(r), r.blocked ? "err" : "ok");
+  }, "insp-note");
+});
+$("music-scope").addEventListener("change", renderAll);
+$("cap-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = curSequence(curScene()), raw = $("cap-value").value.trim();
+  if (!q) return;
+  const cap = raw === "" ? null : Number(raw);
+  if (cap !== null && !(cap > 0)) { note("insp-note", "Tavan sıfırdan büyük olmalı; kaldırmak için boş bırak.", "err"); return; }
+  act(async () => {
+    const r = await api(`/sequences/${q.id}`, "PATCH", { budget_cap_usd: cap });
+    note("insp-note", `${r.code} tavanı ${r.budget_cap_usd != null ? usd(r.budget_cap_usd) : "kaldırıldı"}${r.status === "capped" ? "; harcama tavanda, sekans durdu." : "."}`, r.status === "capped" ? "err" : "ok");
+  }, "insp-note");
+});
+$("stem-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = curSequence(curScene()), file = $("stem-file").files[0];
+  if (!q || !file) return;
+  const params = new URLSearchParams({ filename: file.name, start_s: $("stem-start").value || "0", gain_db: $("stem-gain").value || "0" });
+  act(async () => {
+    const res = await fetch(`/api/sequences/${q.id}/tracks?${params}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* gövde yok */ }
+    if (!res.ok) throw new Error(detailOf(data) || `Yükleme başarısız (${res.status})`);
+    $("stem-file").value = "";
+    note("insp-note", `${q.code} sekansına stem eklendi; hiçbir çekim yeniden üretilmedi.` + (data.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
   }, "insp-note");
 });
 $("assemble").addEventListener("click", () => {
