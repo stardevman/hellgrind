@@ -34,6 +34,8 @@ def build_chain(project_id: str, scene_id: str, stages: Stage, mode: str = "full
         signatures.append(tasks.generate_scene.si(**kwargs, **({"mode": mode} if mode != "full" else {})))
     if Stage.LIPSYNC in stages:
         signatures.append(tasks.lipsync_scene.si(**kwargs))
+    if Stage.GRADE in stages:
+        signatures.append(tasks.grade_scene.si(**kwargs))
     if Stage.MUX in stages:
         signatures.append(tasks.mux_scene.si(**kwargs))
     return chain(*signatures) if signatures else None

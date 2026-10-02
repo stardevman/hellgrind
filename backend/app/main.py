@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import migrate, storage
-from app.api import assets, budget, methods, panel, projects, scenes, sequences, storyboard, style
+from app.api import assets, budget, grade, methods, panel, projects, scenes, sequences, storyboard, style
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
-for module in (projects, scenes, methods, sequences, storyboard, assets, style, budget, panel):
+for module in (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, panel):
     app.include_router(module.router, prefix="/api")
 app.mount("/panel", StaticFiles(directory=PANEL_DIR, html=True), name="panel")
 

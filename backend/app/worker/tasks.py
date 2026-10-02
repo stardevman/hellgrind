@@ -78,6 +78,14 @@ def lipsync_scene(self, project_id: str, scene_id: str):
     return _guard(self, project_id, scene_id, work)
 
 
+@celery.task(bind=True, name="hg.grade_scene")
+def grade_scene(self, project_id: str, scene_id: str):
+    def work():
+        from app.post import pipeline
+        return pipeline.grade_scene(scene_id)
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.mux_scene")
 def mux_scene(self, project_id: str, scene_id: str):
     def work():
@@ -85,10 +93,32 @@ def mux_scene(self, project_id: str, scene_id: str):
         return pipeline.mux_scene(scene_id)
     result = _guard(self, project_id, scene_id, work)
     maybe_assemble_draft(project_id, scene_id)
+    maybe_refresh_continuity(project_id, scene_id)
     return result
 
 
-IN_FLIGHT = ("pending", "storyboard", "probing", "generating", "correcting", "refined", "audio", "lipsync", "muxing")
+IN_FLIGHT = ("pending", "storyboard", "probing", "generating", "correcting", "refined", "audio", "lipsync", "grading",
+             "muxing")
+
+
+def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:
+    """Süreklilik raporu olan projede montajı yenilenen çekimin komşu geçişleri yeniden ölçülür (öneri uygulanınca
+    uyarı kalksın)."""
+    with session_scope() as s:
+        from app.models import Project
+        p = s.get(Project, project_id)
+        if p is None or not p.continuity:
+            return
+    continuity.delay(project_id, scene_id)
+
+
+@celery.task(name="hg.continuity")
+def continuity(project_id: str, scene_id: str | None = None):
+    """Süreklilik kontrolü (renk sıçramaları). scene_id verilirse yalnızca o çekimin komşu geçişleri yenilenir."""
+    from app.quality.consistency import check_project
+    report = check_project(project_id, only_scene=scene_id)
+    killswitch.event(project_id, "continuity", jumps=sum(p["jump"] for p in report["pairs"]), pairs=len(report["pairs"]))
+    return {"jumps": sum(p["jump"] for p in report["pairs"])}
 
 
 def maybe_assemble_draft(project_id: str, scene_id: str) -> None:
@@ -116,6 +146,8 @@ def assemble_timeline(project_id: str, kind: str = "final"):
         killswitch.event(project_id, "timeline_failed", error=result["error"], cut=kind)
     else:
         killswitch.event(project_id, "timeline", cut=kind, **{k: v for k, v in result.items() if k != "cutlist_key"})
+        if kind == "final":                                # film birleşince süreklilik denetlenir
+            continuity.delay(project_id)
     return result
 
 

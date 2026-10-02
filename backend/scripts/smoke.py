@@ -20,6 +20,8 @@ Kontroller:
   S. Stil değişikliği: önizleme 4 çekimi ve sanal maliyeti listeler, onay olmadan hiçbir şey üretilmez; etkinleştirince
      çekimler yeni önekle yeniden üretilir
   D. Dış çekim üretim harcaması olmadan `done` olur; rafine #1'in elle düzeltmesi yalnızca LIPSYNC ve MUX çalıştırır (Faz 15)
+  C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
+     düzeltme uygulanınca uyarı kalkar (Faz 16)
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
@@ -301,6 +303,29 @@ def main() -> int:
     check(f"_r{r['revision']['id']}_" in sc["lipsync_video_key"] and spent(pid) == before_spent,
           "dudak senkronu revizyonla yeniden yapıldı, harcama değişmedi")
 
+    print("C) Renk aşaması ve süreklilik")
+    sid = ids["S001_SH02"]
+    before = c.get(f"/scenes/{sid}").json()
+    before_spent = spent(pid)
+    # Bilinçli sapma: önceki çekimden zaten parlaksa daha parlak ve sıcak, karanlıksa daha karanlık ve soğuk.
+    current = wait_pair(pid, "S001_SH02", lambda p: p["final"][1] == before["final_video_key"]) or {"delta": {"brightness": 0, "warmth": 0}}
+    off = {"exposure": 1.5 if current["delta"]["brightness"] >= 0 else -1.5,
+           "temperature": 3000 if current["delta"]["warmth"] >= 0 else 12000}
+    r = c.post(f"/scenes/{sid}/grade", json=off).json()
+    check(r["stages"] == ["GRADE", "MUX"], f"renk değişince yalnızca GRADE + MUX: {r['stages']}")
+    after = wait_scene(sid, before["final_video_key"])
+    check(after["lipsync_video_key"] == before["lipsync_video_key"] and after["graded_video_key"] and spent(pid) == before_spent,
+          "görüntü ve dudak senkronu çalışmadı, harcama değişmedi")
+    pair = wait_pair(pid, "S001_SH02", lambda p: p["final"][1] == after["final_video_key"])   # yeni montajın ölçümü
+    check(bool(pair and pair["jump"] and pair["suggestion"]),
+          f"bilerek farklı renklendirilen çekim uyarı üretti ({pair and pair['delta']})")
+    if pair and pair["suggestion"]:
+        before = c.get(f"/scenes/{sid}").json()
+        r = c.post(f"/scenes/{sid}/grade", json=pair["suggestion"]).json()
+        fixed = wait_scene(sid, before["final_video_key"])
+        pair = wait_pair(pid, "S001_SH02", lambda p: p["final"][1] == fixed["final_video_key"])
+        check(bool(pair) and not pair["jump"], f"önerilen düzeltme uygulanınca uyarı kalktı (skor {pair and pair['score']})")
+
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
     c.post(f"/projects/{capped}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
@@ -378,6 +403,17 @@ def pdf_subject(data: bytes) -> list[str]:
 def pdf_pages(data: bytes) -> int:
     import re
     return len(re.findall(rb"/Type\s*/Page\b", data))
+
+
+def wait_pair(pid: str, to: str, done, timeout: float = 120) -> dict | None:
+    """Süreklilik raporunda `to` çekimine giren geçiş, koşul sağlanana dek (rapor worker'da yenilenir)."""
+    t0, pair = time.time(), None
+    while time.time() - t0 < timeout:
+        pair = next((p for p in c.get(f"/projects/{pid}/continuity").json()["pairs"] if p["to"] == to), None)
+        if pair and done(pair):
+            return pair
+        time.sleep(1)
+    return pair
 
 
 def variation_count(pid: str) -> int:

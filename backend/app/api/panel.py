@@ -17,6 +17,7 @@ from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
+from app.core.hashing import grade_settings
 from app.engine.methods import suggest_method
 from app.hermes import lint
 from app.style import bible
@@ -30,7 +31,7 @@ PRESETS = {
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
 }
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
-                  "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/")
+                  "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/")
 EVENT_LIMIT = 30
 
 
@@ -117,7 +118,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
-        "guide_url": _media(sc.guide_key),
+        "guide_url": _media(sc.guide_key), "grade": grade_settings(sc.grade), "graded": bool(sc.graded_video_key),
+        "lipsync_ready": bool(sc.lipsync_video_key),
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
         "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
@@ -148,6 +150,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(project_id),
                     "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
                     "dry_run": settings.dry_run, "style_version": bible.active_version(s, project_id),
+                    "lut": bool(p.lut_key), "continuity": p.continuity,
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,

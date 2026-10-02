@@ -299,3 +299,14 @@ class MethodIn(BaseModel):
 
 class RevisionActiveIn(BaseModel):
     revision_id: UUID | None = None          # null: orijinal üretime dön
+
+
+# ---------- renk (Faz 16) ----------
+
+class GradeIn(BaseModel):
+    """Çekim renk ayarı. Etkisiz değerler: exposure 0, contrast/saturation/gamma 1, temperature 6500."""
+    exposure: float = Field(0.0, ge=-3, le=3)            # EV
+    contrast: float = Field(1.0, ge=0.5, le=2)
+    saturation: float = Field(1.0, ge=0, le=3)
+    gamma: float = Field(1.0, ge=0.3, le=3)
+    temperature: int = Field(6500, ge=2000, le=12000)    # Kelvin; düşük değer ısıtır

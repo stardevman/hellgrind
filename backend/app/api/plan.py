@@ -15,7 +15,7 @@ from app.style import bible
 from app.worker.dispatch import build_chain, claim_dispatch, release_dispatch
 
 # Bu durumlardaki sahne bir worker tarafından işleniyor olabilir.
-ACTIVE_STATUSES = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "muxing")
+ACTIVE_STATUSES = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
 
 class Busy(HTTPException):
@@ -76,22 +76,25 @@ def ensure_idle(sc: Scene) -> None:
 
 
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
-                      mode: str = "full") -> list[str]:
+                      mode: str = "full", allowed: Stage | None = None) -> list[str]:
     """Planlanan aşamaların adlarını döndürür ve zinciri kuyruğa verir; yapılacak iş yoksa [] döner.
 
     force_visual: görüntüyü baştan üretir. prompt_revision artar, böylece seed'ler (ve klipler) yenilenir; görsel özet
     revizyonu içermediğinden sonraki plan yine "değişiklik yok" der.
     rerun_visual: görsel aşamayı aynı seed'lerle yeniden çalıştırır (iyileştirme geçişi: taslağın test klipleri yeniden
     kullanılır, üstüne tam tur gelir). mode="draft": görsel aşama yalnızca test turunu çalıştırır.
+    allowed: plan bu aşamaların dışına çıkıyorsa hiçbir şey kuyruğa verilmez (ör. LUT değişince yalnızca renk ve montaj).
     Onay zorunluyken kare onaylı değilse görüntü üretilmez: gerekirse yalnızca kare çizilir ve AwaitingBoard fırlatılır."""
     pid = str(sc.project_id)
     ensure_not_frozen(pid)
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
+    project = s.get(Project, sc.project_id)
     stages, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
-                               bible.active_version(s, sc.project_id))
+                               bible.active_version(s, sc.project_id), project.lut_hash)
     if force_visual or rerun_visual:
-        stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE)
-    if stages == Stage.NONE:
+        stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE) | \
+            (Stage.GRADE if fp.grade is not None else Stage.NONE)
+    if stages == Stage.NONE or (allowed is not None and stages & ~allowed):
         return []
     ensure_idle(sc)
     seq = s.get(Sequence, sc.sequence_id) if sc.sequence_id else None
@@ -100,7 +103,7 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     awaiting = False
     if Stage.VISUAL in stages:
         lint_gate(s, sc)                     # para harcanmadan önce: eksik referansla görüntü üretilmez
-        cfg = project_settings(s.get(Project, sc.project_id).settings)
+        cfg = project_settings(project.settings)
         if cfg["require_board_approval"] and not board_ready(sc, fp.visual):
             stages, awaiting = (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE), True
             if stages == Stage.NONE:         # kare güncel ama onaysız: yalnızca onaya bırakılır
@@ -135,7 +138,7 @@ def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
         return {"stages": e.stages, "awaiting_board": True}
 
 
-def dispatch_all(s: Session, project_id: str, mode: str = "full") -> dict:
+def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage | None = None) -> dict:
     """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); eksik
     referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
     kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin. Bütçe tavanındaki sekansın
@@ -147,7 +150,7 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full") -> dict:
             frozen, planned[sc.scene_code] = True, []
             continue
         try:
-            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode)
+            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode, allowed=allowed)
         except AwaitingBoard as e:
             planned[sc.scene_code] = e.stages
             awaiting.append(sc.scene_code)

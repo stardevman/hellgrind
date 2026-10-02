@@ -13,9 +13,10 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 5. **Her çekim için yöntem seçtirir.** Çekim yapay zekâyla üretilebilir, bir previs (3D taslak) rehberinden çıkarılabilir ya da dışarıda bitirilip yüklenebilir. Üretilen klipler elle düzeltilip yeniden yüklenebilir; orijinal korunur.
 6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir.
 7. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
-8. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
-9. **Filmi birleştirir.** Hazır sahneleri sekanslarına göre sırayla tek videoda toplar. Müzik sekans düzeyindedir ve çekimler arasında kesilmeden akar. Tıklanabilir bir kesme listesi üretir.
-10. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
+8. **Rengi ve sürekliliği denetler.** Film geneli bir LUT ve çekim bazında renk ayarı uygular; ardışık çekimler arasındaki renk sıçramalarını bulur ve tek tıkla uygulanabilir bir düzeltme önerir.
+9. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
+10. **Filmi birleştirir.** Hazır sahneleri sekanslarına göre sırayla tek videoda toplar. Müzik sekans düzeyindedir ve çekimler arasında kesilmeden akar. Tıklanabilir bir kesme listesi üretir.
+11. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
 
 Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır:
 
@@ -26,6 +27,7 @@ Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır
 | Küratör rafine havuzdan başka bir klip seçer | Ses ve montaj | çağrılmaz |
 | Rafine #1 elle düzeltilir (revizyon yüklenir) ya da orijinaline dönülür | Ses ve montaj | çağrılmaz |
 | Dış çekim yüklenir | Ses ve montaj | çağrılmaz, harcama yok |
+| Çekimin renk ayarı ya da film LUT'u | Renk ve montaj | çağrılmaz |
 | Bir çekime özel müzik ya da seviyesi | Yalnızca montaj | çağrılmaz |
 | Sekans ya da film müziği, bestecinin stem'i | Yalnızca film birleştirme | çağrılmaz |
 | Hiçbiri | Hiçbiri | çağrılmaz |
@@ -121,7 +123,7 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin.
 - **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi yoktur; altyapı gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir.
-- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; sekans müziği değişince yalnızca film yeniden birleştirilir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
+- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
 
@@ -166,6 +168,14 @@ Karmaşık ya da çok özel hareketleri tarif ederek üretmek zordur. Profesyone
 - **Yönlendirici önerisi:** aksiyon yoğunluğu çok yüksek (≥ 0,8) ve kamera hareketi özel (el kamerası, takip, yörünge, vinç) olan çekimde panel previs rehberini önerir; karar yönetmenindir.
 
 **Elle düzeltme:** `POST /api/variations/{id}/revisions?kind=video|first_frame&filename=...&note=...` düzenlenmiş videoyu ya da ilk kareyi yükler. Her revizyon yeni bir sürümdür ve orijinal varyasyon olduğu gibi kalır; aynı dosyayı yeniden yüklemek yeni sürüm açmaz, kusurlu revizyon reddedilir. İlk kare düzeltmesi ücretsiz modda klibin başında kısa süre durup orijinale erir (ücretli modda düzenlenmiş kareden yeniden üretim Faz 18'dedir). Düzeltilen klip rafine #1 ise dudak senkronu anahtarı revizyon kimliğini içerir ve yalnızca dudak senkronu ile montaj yeniden çalışır. Geçmiş `GET /api/variations/{id}/revisions` ile görülür; `POST /api/variations/{id}/revisions/active` başka bir sürüme ya da orijinale döner.
+
+## Renk aşaması ve süreklilik
+
+- **GRADE aşaması** dudak senkronu ile montaj arasında çalışır: önce film geneli 3B LUT (`.cube`, FFmpeg `lut3d`), sonra çekimin ayarı: pozlama (EV), kontrast, doygunluk, gama (FFmpeg `eq`) ve renk sıcaklığı (Kelvin; 6500 nötr, düşük değer ısıtır). Ayar ve LUT bir özet olarak planlayıcıya girer: yalnızca renk değişince yalnızca renk ve montaj çalışır, görüntü ve dudak senkronu çalışmaz. Nötr ayar ve LUT yoksa aşama hiç çalışmaz.
+- Denetçinin **Renk** bölümünde ayarlar, çekimin orta karesinden **önce/sonra** karşılaştırması (kaydetmeden önizleme) ve *Rengi uygula* / *Nötre dön* vardır. API: `POST /api/scenes/{id}/grade`, `GET /api/scenes/{id}/grade/preview.jpg?before=true` ya da ayarlarla.
+- **Film LUT'u:** `POST /api/projects/{id}/lut?filename=film.cube` (dosya istek gövdesinde; biçim doğrulanır) ve `DELETE`. Bitmiş çekimlerin yalnızca rengi ve montajı yenilenir; görüntüsü üretilmemiş çekimler beklemez.
+- **Süreklilik kontrolü** (`quality/consistency.py`): aynı sekanstaki ardışık çekimlerin orta karelerinden HSV histogramları çıkarılır ve Bhattacharyya mesafesi raporlanır. Histogram mesafesi kompozisyon farkını da ölçtüğü için karar, histogramlardan türetilen ortalama parlaklık, sıcaklık ve doygunluk farkıyla verilir (ölçekler 40, 40, 80: aynı paletteki farklı çekimler arasındaki farkın üstünde). Film birleşince kendiliğinden, panelde *Sürekliliği denetle* ile elle çalışır; montajı değişen çekimin geçişleri kendiliğinden yeniden ölçülür. API: `POST/GET /api/projects/{id}/continuity`.
+- **Önerilen düzeltme:** sıçrama olan geçişte sonraki çekim için, önceki çekimin parlaklık ve sıcaklığına yaklaştıran ayar aranır. Aday ayarlar çekimin renklendirilmemiş karesine GRADE aşamasıyla birebir aynı filtreyle uygulanıp ölçülür; öneri bir tahmin değil, ölçülmüş bir sonuçtur. Panelde kesme şeridinin üstünde uyarı ve **Öneriyi uygula** düğmesi çıkar; sıçrama olan kesme kırmızı çizgiyle işaretlenir.
 
 ## Stil kılavuzu
 
@@ -244,9 +254,9 @@ backend/
                  references (kare örnekleme, vektör, yerel taslak), motion_test (hareket testi),
                  storyboard (kare, onay kapısı, PDF), methods (previs rehberi, dış çekim, elle düzeltme)
     style/       bible (sürümler, etkin sürüm, etki önizlemesi), composer (prompt bestecisi)
-    quality/     anomaly (FFmpeg), gate (skor, rafine havuz)
-    post/        audio, mux, pipeline (LIPSYNC ve MUX aşamaları), timeline (film ve sekans müziği)
-    api/         projects, scenes, methods, sequences, storyboard, assets, style, budget, panel, plan, deps, uploads
+    quality/     anomaly (FFmpeg), gate (skor, rafine havuz), consistency (renk sıçraması, öneri)
+    post/        audio, mux, grade (LUT ve renk ayarı), pipeline (LIPSYNC, GRADE, MUX), timeline (film ve sekans müziği)
+    api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, panel, plan, deps, uploads
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
     panel/       index.html (tek sayfa, build adımı yok)

@@ -15,7 +15,7 @@ def pg_enum(name: str, *values: str) -> ENUM:
 ProjectStatus = pg_enum("project_status", "draft", "parsing", "producing", "paused", "killed", "completed")
 SceneStatus = pg_enum("scene_status", "pending", "parsed", "probing", "generating", "correcting", "refined",
                       "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked",
-                      "storyboard", "board_review")
+                      "storyboard", "board_review", "grading")
 EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield")
 VariationTier = pg_enum("variation_tier", "probe", "full")
 VariationStatus = pg_enum("variation_status", "queued", "running", "generated", "passed", "rejected",
@@ -44,6 +44,9 @@ class Project(Base):
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     timeline_key: Mapped[str | None] = mapped_column(Text)
     draft_timeline_key: Mapped[str | None] = mapped_column(Text)
+    lut_key: Mapped[str | None] = mapped_column(Text)
+    lut_hash: Mapped[str | None] = mapped_column(Text)
+    continuity: Mapped[dict | None] = mapped_column(JSONB)
     script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -139,6 +142,9 @@ class Scene(Base):
     external_hash: Mapped[str | None] = mapped_column(Text)
     guide_key: Mapped[str | None] = mapped_column(Text)
     guide_hash: Mapped[str | None] = mapped_column(Text)
+    grade: Mapped[dict] = mapped_column(JSONB, default=dict)
+    grade_hash: Mapped[str | None] = mapped_column(Text)
+    graded_video_key: Mapped[str | None] = mapped_column(Text)
     spent_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

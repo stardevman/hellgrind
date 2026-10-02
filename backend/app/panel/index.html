@@ -207,6 +207,17 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .revs li.active { outline: 1px solid var(--verdigris); }
 .tile .rev { position: absolute; left: 0; top: 0; padding: 0 3px; font-size: 10px; font-weight: 800; line-height: 13px; background: var(--steel); color: #11181d; }
 
+/* renk ve süreklilik */
+.grade-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.grade-grid label { display: grid; gap: 4px; font-size: 13px; color: var(--dust); }
+.grade-grid input { width: 100%; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.compare figure { margin: 0; display: grid; gap: 4px; font-size: 12px; color: var(--dust); }
+.compare img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 3px; background: #1d1f22; }
+.jumps { display: grid; gap: 6px; margin-top: 10px; }
+.jump { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 8px 12px; border-left: 3px solid var(--oxide); background: rgba(194, 87, 63, .12); border-radius: 0 4px 4px 0; font-size: 13px; }
+.cut.jump-in { box-shadow: inset 4px 0 0 var(--oxide); }
+
 /* sekmeler */
 .tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 700; font-stretch: 112%; color: var(--dust); }
@@ -384,6 +395,27 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
               <button class="btn small" type="submit">Yükle</button>
             </form>
           </div>
+          <div id="grade-box">
+            <h3>Renk</h3>
+            <form id="grade-form" style="margin-top:8px">
+              <div class="grade-grid">
+                <label>Pozlama (EV)<input type="number" id="g-exposure" min="-3" max="3" step="0.05"></label>
+                <label>Kontrast<input type="number" id="g-contrast" min="0.5" max="2" step="0.05"></label>
+                <label>Doygunluk<input type="number" id="g-saturation" min="0" max="3" step="0.05"></label>
+                <label>Gama<input type="number" id="g-gamma" min="0.3" max="3" step="0.05"></label>
+                <label>Sıcaklık (K)<input type="number" id="g-temperature" min="2000" max="12000" step="100"></label>
+              </div>
+              <div class="compare" id="grade-compare">
+                <figure><img id="grade-before" alt="Renk ayarından önce"><figcaption>Önce</figcaption></figure>
+                <figure><img id="grade-after" alt="Renk ayarından sonra"><figcaption>Sonra (önizleme)</figcaption></figure>
+              </div>
+              <div class="form-row" style="margin-top:8px">
+                <button class="btn small" type="submit" id="grade-apply">Rengi uygula</button>
+                <button class="btn small" type="button" id="grade-reset">Nötre dön</button>
+              </div>
+            </form>
+            <p class="muted" id="grade-empty" style="margin-top:8px">Renk ayarı, çekimin dudak senkronlu videosu hazır olunca yapılır.</p>
+          </div>
           <div>
             <h3>Yöntem</h3>
             <p class="hint" id="method-hint" style="margin-top:8px" hidden></p>
@@ -424,6 +456,16 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
           <span class="spacer"></span><button class="btn primary" id="assemble" type="button">Tamamlanan sahneleri birleştir</button></header>
         <div class="body">
           <div class="media" id="film-media"><p class="none">Henüz film yok. Sahneler tamamlanınca birleştirin.</p></div>
+          <div class="form-row" style="margin-top:10px">
+            <button class="btn small" type="button" id="continuity-run">Sürekliliği denetle</button>
+            <form class="form-row" id="lut-form">
+              <label>Film LUT'u (.cube)<input type="file" id="lut-file" accept=".cube" required></label>
+              <button class="btn small" type="submit">LUT yükle</button>
+            </form>
+            <button class="btn small" type="button" id="lut-remove" hidden>LUT'u kaldır</button>
+            <span class="muted" id="lut-state"></span>
+          </div>
+          <div class="jumps" id="jumps" aria-live="polite"></div>
           <div class="seqbar" id="seqbar" aria-label="Sekanslar"></div>
           <div class="cutbar" id="cutbar" aria-label="Kesme listesi"></div>
           <div class="note" id="film-note" role="status" aria-live="polite" style="margin-top:10px"></div>
@@ -517,7 +559,7 @@ const STATUS_TR = {
   pending: "Sırada", parsed: "Ayrıştırıldı", probing: "Test turu", generating: "Tam tur", correcting: "Düzeltme",
   refined: "Rafine", needs_review: "İnceleme gerekli", audio: "Ses", lipsync: "Dudak senkronu", muxing: "Montaj",
   done: "Hazır", failed: "Hata", frozen: "Donduruldu", blocked: "Engellendi",
-  storyboard: "Storyboard", board_review: "Kare onay bekliyor",
+  storyboard: "Storyboard", board_review: "Kare onay bekliyor", grading: "Renk",
 };
 const TYPE_TR = { character: "Karakter", location: "Mekân", prop: "Nesne" };
 const ASTATUS_TR = { draft: "Taslak", still_approved: "Durağan onaylı", motion_tested: "Hareket testi onaylı", locked: "Kilitli" };
@@ -527,7 +569,8 @@ const REF_KINDS = { character: ["turnaround", "still", "expressions", "voice_sam
 const REF_ACCEPT = { still: "image/*", expressions: "image/*", turnaround: "video/*", voice_sample: "audio/*" };
 const TEST_TR = { queued: "Hareket testi sırada…", running: "Hareket testi üretiliyor…", passed: "Kusur bulunmadı: izleyip onaylayabilirsin.", rejected: "Kusurlu", failed: "Üretilemedi" };
 const PROJECT_STATUS_TR = { draft: "Taslak", parsing: "Ayrıştırılıyor", producing: "Üretimde", paused: "Durduruldu", killed: "İptal edildi", completed: "Tamamlandı" };
-const WORKING = new Set(["storyboard", "probing", "generating", "correcting", "audio", "lipsync", "muxing"]);
+const WORKING = new Set(["storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing"]);
+const GRADE_FIELDS = ["exposure", "contrast", "saturation", "gamma", "temperature"];
 const BOARD_TR = { pending: "Onay bekliyor", approved: "Onaylı", changes_requested: "Değişiklik istendi" };
 const EMOTION_TR = { neutral: "Nötr", joy: "Sevinç", anger: "Öfke", fear: "Korku", sadness: "Hüzün", surprise: "Şaşkınlık", disgust: "Tiksinti", tension: "Gerilim" };
 const EMOTION_COLOR = { neutral: "#A39E95", joy: "#E4A23E", anger: "#C2573F", fear: "#86A5B8", sadness: "#6F8CA0", surprise: "#D9B77A", disgust: "#8FA66A", tension: "#C9895A" };
@@ -851,6 +894,20 @@ function renderInspector() {
       : '<li class="muted">Bu sekansta film düzeyinde kanal yok.</li>');
   }
 
+  // renk
+  $("grade-form").hidden = !sc.lipsync_ready;
+  $("grade-empty").hidden = !!sc.lipsync_ready;
+  const gform = $("grade-form"), gsig = sc.id + ":" + JSON.stringify(sc.grade);
+  if (gform.dataset.sig !== gsig && !gform.contains(document.activeElement)) {
+    gform.dataset.sig = gsig;
+    GRADE_FIELDS.forEach((k) => { $("g-" + k).value = sc.grade[k]; });
+  }
+  if (sc.lipsync_ready) {
+    patchAttr($("grade-before"), "src", `/api/scenes/${sc.id}/grade/preview.jpg?before=true`);
+    patchAttr($("grade-after"), "src", `/api/scenes/${sc.id}/grade/preview.jpg?${gradeQuery()}`);
+  }
+  $("grade-apply").disabled = $("grade-reset").disabled = S.busy || (S.ov && S.ov.project.frozen);
+
   // yöntem
   const hint = $("method-hint");
   hint.hidden = !sc.method_hint;
@@ -876,6 +933,28 @@ function renderInspector() {
   $("music-scope").disabled = !q;
   const busy = S.busy || (S.ov && S.ov.project.frozen);
   $("music-submit").disabled = busy; $("regen").disabled = busy;
+}
+
+/* ---------- renk ve süreklilik ---------- */
+function gradeValues() {
+  const out = {};
+  GRADE_FIELDS.forEach((k) => { const v = Number($("g-" + k).value); if (Number.isFinite(v)) out[k] = k === "temperature" ? Math.round(v) : v; });
+  return out;
+}
+const gradeQuery = () => new URLSearchParams(Object.entries(gradeValues()).map(([k, v]) => [k, String(v)])).toString();
+const deltaText = (d) => [["brightness", "parlaklık"], ["warmth", "sıcaklık"], ["saturation", "doygunluk"]]
+  .map(([k, label]) => `${label} ${d[k] > 0 ? "+" : ""}${Math.round(d[k])}`).join(", ");
+function renderContinuity() {
+  const p = S.ov.project, report = p.continuity, jumps = report ? report.pairs.filter((x) => x.jump) : [];
+  $("lut-remove").hidden = !p.lut;
+  setText($("lut-state"), p.lut ? "Film LUT'u etkin." : "");
+  const dis = S.busy || p.frozen ? " disabled" : "";
+  setHTML($("jumps"), !report ? '<p class="muted">Süreklilik henüz denetlenmedi; film birleşince kendiliğinden denetlenir.</p>'
+    : jumps.length ? jumps.map((j) => `<div class="jump"><b>${esc(j.from)} → ${esc(j.to)}: renk sıçraması</b>
+        <span>${esc(deltaText(j.delta))}</span>
+        ${j.suggestion ? `<button class="btn small" type="button" data-apply-grade="${esc(j.to_id)}" data-grade='${esc(JSON.stringify(j.suggestion))}'${dis}>Öneriyi uygula</button>` : ""}</div>`).join("")
+    : `<p class="muted">Renk sıçraması yok (${report.pairs.length} geçiş denetlendi).</p>`);
+  return new Set(jumps.map((j) => j.to));
 }
 
 /* ---------- elle düzeltme ---------- */
@@ -929,9 +1008,10 @@ function renderFilm() {
   const clips = (t && t.cut && t.cut.clips) || [];
   const bands = (t && t.cut && t.cut.sequences) || [];
   setHTML($("seqbar"), bands.map((b) => `<span style="flex:${Math.max(0.1, b.out_s - b.in_s)} 1 0" title="${esc(b.code)} · ${esc(b.title)}">${esc(b.code)} · ${esc(b.title)}</span>`).join(""));
+  const jumpsTo = renderContinuity();
   setHTML($("cutbar"), clips.map((c) => {
-    const d = Math.max(0.1, c.out_s - c.in_s);
-    return `<button type="button" class="cut" data-in="${c.in_s}" data-out="${c.out_s}" style="flex:${d} 1 0;background:${EMOTION_COLOR[c.emotion] || "#A39E95"}" title="${esc(c.scene_code)} · ${esc(c.description || "")}" aria-label="${esc(c.scene_code)} sahnesine git">${esc(c.scene_code)}</button>`;
+    const d = Math.max(0.1, c.out_s - c.in_s), jumpCls = jumpsTo.has(c.scene_code) ? " jump-in" : "";
+    return `<button type="button" class="cut${jumpCls}" data-in="${c.in_s}" data-out="${c.out_s}" style="flex:${d} 1 0;background:${EMOTION_COLOR[c.emotion] || "#A39E95"}" title="${esc(c.scene_code)} · ${esc(c.description || "")}" aria-label="${esc(c.scene_code)} sahnesine git">${esc(c.scene_code)}</button>`;
   }).join(""));
 }
 function markActiveCut() {
@@ -964,6 +1044,9 @@ function eventText(e, codes) {
     case "storyboard_queued": return { t: `${e.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${e.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${e.shots} çekim tam tura alındı` };
+    case "continuity": return { t: e.jumps ? `Süreklilik: ${e.jumps} renk sıçraması (${e.pairs} geçiş)` : `Süreklilik: sıçrama yok (${e.pairs} geçiş)`, c: e.jumps ? "bad" : "good" };
+    case "grade_changed": return { t: `${e.code}: renk ayarı değişti` };
+    case "lut_changed": return { t: e.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${e.name})` };
     case "style_activated": return { t: `Stil kılavuzu sürüm ${e.version} etkin (${e.affected} çekim etkilendi)`, c: "good" };
     case "asset_status": return { t: `${e.name}: ${ASTATUS_TR[e.status] || e.status}`, c: e.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
@@ -1309,6 +1392,16 @@ document.addEventListener("click", (ev) => {
   } else if (t.dataset.act) {
     const run = ASSET_ACTS[t.dataset.act], id = t.dataset.asset;
     act(async () => note("assets-note", await run(id), "ok"), "assets-note");
+  } else if (t.dataset.applyGrade) {
+    const body = JSON.parse(t.dataset.grade), id = t.dataset.applyGrade;
+    act(async () => { const r = await api(`/scenes/${id}/grade`, "POST", body); note("film-note", "Önerilen renk uygulandı: " + resultText(r) + " Süreklilik, montaj bitince yeniden ölçülür.", "ok"); }, "film-note");
+  } else if (t.id === "continuity-run") {
+    act(async () => { await api(`/projects/${S.projectId}/continuity`, "POST"); note("film-note", "Süreklilik denetimi kuyruğa alındı.", "ok"); }, "film-note");
+  } else if (t.id === "lut-remove") {
+    act(async () => { const r = await api(`/projects/${S.projectId}/lut`, "DELETE"); note("film-note", `LUT kaldırıldı; yeniden renklendirilen: ${r.regraded.join(", ") || "yok"}.`, "ok"); }, "film-note");
+  } else if (t.id === "grade-reset") {
+    const id = S.sceneId;
+    act(async () => { const r = await api(`/scenes/${id}/grade`, "POST", {}); note("insp-note", "Nötr renk. " + resultText(r), "ok"); }, "insp-note");
   } else if (t.dataset.revs) {
     const vid = t.dataset.var, rid = t.dataset.revActivate || null;
     act(async () => {
@@ -1436,6 +1529,26 @@ $("music-form").addEventListener("submit", (e) => {
   }, "insp-note");
 });
 $("music-scope").addEventListener("change", renderAll);
+let gradeTimer = null;
+$("grade-form").addEventListener("input", () => {                       // önizleme, yazmayı bitirince yenilenir
+  clearTimeout(gradeTimer);
+  gradeTimer = setTimeout(() => { const sc = curScene(); if (sc) $("grade-after").src = `/api/scenes/${sc.id}/grade/preview.jpg?${gradeQuery()}`; }, 400);
+});
+$("grade-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = S.sceneId, body = gradeValues();
+  act(async () => { const r = await api(`/scenes/${id}/grade`, "POST", body); note("insp-note", "Renk uygulandı. " + resultText(r), r.blocked ? "err" : "ok"); }, "insp-note");
+});
+$("lut-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const file = $("lut-file").files[0];
+  if (!file) return;
+  act(async () => {
+    const r = await uploadRaw(`/api/projects/${S.projectId}/lut?filename=${encodeURIComponent(file.name)}`, file);
+    $("lut-file").value = "";
+    note("film-note", `LUT yüklendi (${r.lut.size}³); yeniden renklendirilen: ${r.regraded.join(", ") || "yok"}.`, "ok");
+  }, "film-note");
+});
 $("method-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const id = S.sceneId, method = $("method-select").value;

@@ -55,6 +55,24 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     return stable_hash(payload)
 
 
+GRADE_IDENTITY = {"exposure": 0.0, "contrast": 1.0, "saturation": 1.0, "gamma": 1.0, "temperature": 6500}
+
+
+def grade_settings(raw: dict | None) -> dict:
+    """Çekimin renk ayarı, eksikler etkisiz değerle; kayan nokta gürültüsü özeti değiştirmesin diye yuvarlanır."""
+    merged = {**GRADE_IDENTITY, **(raw or {})}
+    return {k: (int(round(merged[k])) if k == "temperature" else round(float(merged[k]), 3)) for k in GRADE_IDENTITY}
+
+
+def grade_fingerprint(scene, lut_hash: str | None) -> str | None:
+    """Renk aşamasını belirleyen her şey: çekimin ayarı ve film geneli LUT. Etkisiz ayar ve LUT yoksa None: GRADE
+    aşaması hiç gerekmez (Faz 16 öncesi sahnelerin planı değişmez)."""
+    grade = grade_settings(getattr(scene, "grade", None))
+    if grade == GRADE_IDENTITY and not lut_hash:
+        return None
+    return stable_hash({"grade": grade, "lut": lut_hash})
+
+
 def audio_fingerprint(tracks) -> str:
     """Yalnızca aktif kanallar: (tür, içerik özeti, başlangıç ofseti, kazanç). Sıra ve kayan nokta gürültüsü etkisiz."""
     return stable_hash(sorted(

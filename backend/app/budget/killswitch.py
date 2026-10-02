@@ -95,7 +95,7 @@ def freeze(project_id: str, reason: str) -> None:
                   {"p": project_id})
         s.execute(text("""UPDATE scenes SET status = 'frozen'
                           WHERE project_id = :p AND status IN ('pending','storyboard','probing','generating','correcting',
-                                                               'audio','lipsync','muxing')"""),
+                                                               'audio','lipsync','grading','muxing')"""),
                   {"p": project_id})
     task_ids = list(r().smembers(TASKS.format(project_id)))
     if task_ids:
@@ -114,7 +114,7 @@ def cap_sequence(project_id: str, sequence_id, reason: str) -> None:
             return                                          # zaten durmuş: olay bir kez yazılır
         s.execute(text("""UPDATE scenes SET status = 'frozen'
                           WHERE sequence_id = :q AND status IN ('pending','storyboard','probing','generating','correcting',
-                                                                'audio','lipsync','muxing')"""), {"q": sequence_id})
+                                                                'audio','lipsync','grading','muxing')"""), {"q": sequence_id})
     event(project_id, "sequence_capped", sequence_id=str(sequence_id), code=row[0], reason=reason,
           spent=float(row[1]), cap=float(row[3]) if row[3] is not None else None)
     log.warning("SEKANS TAVANI project=%s sequence=%s reason=%s", project_id, row[0], reason)

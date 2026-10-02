@@ -1,10 +1,11 @@
-"""Post-prodüksiyon: Stateless Re-render'ın LIPSYNC ve MUX aşamaları.
+"""Post-prodüksiyon: Stateless Re-render'ın LIPSYNC, GRADE ve MUX aşamaları.
 
 Ücretsiz modda: espeak-ng ile konuşma, prosedürel müzik, dudak senkronu atlanır (rafine video olduğu gibi kopyalanır).
 Çıktılar içerik-adreslidir; aynı girdi aynı anahtarı üretir ve dosya zaten varsa iş atlanır:
   audio/{motor}/{content_hash}.wav          diyalog sesi (aynı replik sahneler arasında paylaşılır)
   audio/music/{duygu}_{süre}s.wav           prosedürel müzik
   lipsync/{sahne}/{variation_id}[_r{revizyon}]_{dialogue_hash}.mp4   (rafine #1 elle düzeltildiyse revizyon kimliğiyle)
+  graded/{sahne}/{özet}.mp4                 renk ayarlı video (LUT + çekim ayarı; etkisizse yok)
   final/{sahne}/{mux_hash}.mp4
 """
 import logging
@@ -25,6 +26,7 @@ from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine.providers import TransientError
 from app.models import AudioTrack, Character, Project, Revision, Scene, Variation
+from app.post import grade
 from app.post.audio import synthesize, synthesize_music
 from app.post.mux import AudioInput, mix_audio, mux
 from app.quality.anomaly import probe_duration
@@ -43,6 +45,7 @@ class Snapshot:
     tracks: list[AudioTrack]       # aktif kanallar, başlangıç ofsetine göre sıralı
     fp: Fingerprints
     cfg: dict
+    lut_key: str | None = None
 
 
 @contextmanager
@@ -58,11 +61,13 @@ def _snapshot(scene_id: str) -> Snapshot:
         scene = s.get(Scene, scene_id)
         tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene_id, AudioTrack.is_active)
                                 .order_by(AudioTrack.start_offset_s, AudioTrack.kind)))
+        project = s.get(Project, scene.project_id)
         fp = fingerprints(scene, load_characters(s, scene_id), tracks, load_assets(s, scene_id),
-                          bible.active_version(s, scene.project_id))
-        cfg = project_settings(s.get(Project, scene.project_id).settings)
+                          bible.active_version(s, scene.project_id), project.lut_hash)
+        cfg = project_settings(project.settings)
+        lut_key = project.lut_key
         s.expunge_all()
-        return Snapshot(scene, tracks, fp, cfg)
+        return Snapshot(scene, tracks, fp, cfg, lut_key)
 
 
 def _rank_one(scene_id: str) -> tuple[str, str] | None:
@@ -197,8 +202,8 @@ def voice_and_lipsync(scene_id: str) -> str:
             advance_scene(project_id, scene_id, status="lipsync")
             _lipsync(scene, video_key, out_key, tmp)
     fields = dict(lipsync_video_key=out_key, dialogue_hash=snap.fp.dialogue)
-    if scene.lipsync_video_key != out_key:
-        fields["final_video_key"] = None       # kaynak video değişti: eski montaj artık geçersiz, plan yeniden montajlasın
+    if scene.lipsync_video_key != out_key:     # kaynak video değişti: eski renk ve montaj geçersiz, plan yeniden yapsın
+        fields.update(final_video_key=None, graded_video_key=None, grade_hash=None)
     advance_scene(project_id, scene_id, **fields)
     return out_key
 
@@ -224,6 +229,37 @@ def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str) -> None:
     storage.put_file(out, out_key)
 
 
+# ---------- GRADE ----------
+
+def grade_scene(scene_id: str) -> str:
+    """Dudak senkronlu videoya film geneli LUT'u ve çekimin renk ayarını uygular. Etkisizse ayarı temizler (montaj dudak
+    senkronlu videoyu kullanır). Çıktı içerik-adreslidir. Dönen: anahtar, "identity" ya da "skip (...)"."""
+    snap = _snapshot(scene_id)
+    scene, project_id = snap.scene, str(snap.scene.project_id)
+    if scene.status in SKIP_STATUSES:
+        return f"skip ({scene.status})"
+    if not scene.lipsync_video_key:
+        return "skip (dudak senkronlu video yok)"
+    if snap.fp.grade is None:
+        advance_scene(project_id, scene_id, graded_video_key=None, grade_hash=None)
+        return "identity"
+    out_key = f"graded/{scene_id}/{stable_hash([scene.lipsync_video_key, snap.fp.grade])}.mp4"
+    if not storage.exists(out_key):
+        advance_scene(project_id, scene_id, status="grading")
+        with workspace() as tmp:
+            video = storage.download(scene.lipsync_video_key, os.path.join(tmp, "video.mp4"))
+            lut = storage.download(snap.lut_key, os.path.join(tmp, "film.cube")) if snap.lut_key else None
+            out = grade.grade_video(video, os.path.join(tmp, "graded.mp4"), scene.grade, lut)
+            storage.put_file(out, out_key)
+    advance_scene(project_id, scene_id, graded_video_key=out_key, grade_hash=snap.fp.grade)
+    return out_key
+
+
+def picture_of(scene: Scene) -> str | None:
+    """Montajın görüntü kaynağı: renk ayarlı video, yoksa dudak senkronlu video."""
+    return scene.graded_video_key or scene.lipsync_video_key
+
+
 # ---------- MUX ----------
 
 def mux_scene(scene_id: str) -> str:
@@ -235,12 +271,13 @@ def mux_scene(scene_id: str) -> str:
     if not scene.lipsync_video_key:
         return "skip (dudak senkronlu video yok)"
 
-    mux_hash = stable_hash([scene.lipsync_video_key, snap.fp.dialogue, snap.fp.bed, snap.cfg["loudness_lufs"]])
+    source = picture_of(scene)
+    mux_hash = stable_hash([source, snap.fp.dialogue, snap.fp.bed, snap.cfg["loudness_lufs"]])
     out_key = f"final/{scene_id}/{mux_hash}.mp4"
     if not storage.exists(out_key):
         advance_scene(project_id, scene_id, status="muxing")
         with workspace() as tmp:
-            video = storage.download(scene.lipsync_video_key, os.path.join(tmp, "video.mp4"))
+            video = storage.download(source, os.path.join(tmp, "video.mp4"))
             dialogue, bed = [], []
             for t in snap.tracks:
                 if t.kind == "dialogue":

@@ -8,7 +8,7 @@ from app.config import settings
 from app.core.rerender import plan_rerender
 from app.core.state import load_assets, load_characters
 from app.db import session_scope
-from app.models import AudioTrack, Scene, Variation
+from app.models import AudioTrack, Project, Scene, Variation
 from app.style import bible
 
 
@@ -29,6 +29,11 @@ def style_version(pid):
         return bible.active_version(s, pid)
 
 
+def lut_hash(pid):
+    with session_scope() as s:
+        return s.get(Project, pid).lut_hash
+
+
 def scene_assets(pid):
     """{scene_code: varlıklar}: görsel özete giren bağlı varlıklar (üretim kodu da aynı yükleyiciyi kullanır)."""
     with session_scope() as s:
@@ -38,16 +43,16 @@ def scene_assets(pid):
 
 
 def plans(pid):
-    assets, style = scene_assets(pid), style_version(pid)
-    return {code: plan_rerender(sc, chars, tracks, assets[code], style)[0]
+    assets, style, lut = scene_assets(pid), style_version(pid), lut_hash(pid)
+    return {code: plan_rerender(sc, chars, tracks, assets[code], style, lut)[0]
             for code, (sc, chars, tracks) in load_scenes(pid).items()}
 
 
 def mark_finished(pid, status="done"):
     """Her sahneyi, şimdiki girdilerle başarıyla render edilmiş gibi işaretler (özetler ve anahtarlar yazılır)."""
-    assets, style = scene_assets(pid), style_version(pid)
+    assets, style, lut = scene_assets(pid), style_version(pid), lut_hash(pid)
     for code, (sc, chars, tracks) in load_scenes(pid).items():
-        _, fp = plan_rerender(sc, chars, tracks, assets[code], style)
+        _, fp = plan_rerender(sc, chars, tracks, assets[code], style, lut)
         with session_scope() as s:
             s.execute(text("""UPDATE scenes SET visual_hash = :v, dialogue_hash = :d, bed_hash = :b, status = CAST(:st AS scene_status),
                               lipsync_video_key = 'l.mp4', final_video_key = 'f.mp4' WHERE id = :i"""),

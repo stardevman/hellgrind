@@ -262,4 +262,4 @@ def test_the_method_and_revision_tools_use_their_endpoints():
     known = {re.sub(r"\{[^}]*\}", "{}", p) for p, ops in app.openapi()["paths"].items() if "post" in ops}
     for raw in re.findall(r"uploadRaw\(`/api([^`?]+)\?", SCRIPT):                         # ham gövdeyle yüklemeler
         assert "/api" + re.sub(r"\$\{[^}]*\}", "{}", raw) in known, raw
-    assert len(re.findall(r"uploadRaw\(`/api", SCRIPT)) == 3
+    assert len(re.findall(r"uploadRaw\(`/api", SCRIPT)) == 4                           # dış çekim, rehber, revizyon, LUT
