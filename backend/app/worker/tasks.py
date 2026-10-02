@@ -62,3 +62,11 @@ def watchdog():
 @celery.task(name="hg.reap_stale")
 def reap_stale():
     return killswitch.reap_stale_reservations()
+
+
+@celery.task(name="hg.assemble_timeline")
+def assemble_timeline(project_id: str):
+    from app.post.timeline import assemble
+    result = assemble(project_id)
+    killswitch.event(project_id, "timeline", **{k: v for k, v in result.items() if k != "cutlist_key"})
+    return result

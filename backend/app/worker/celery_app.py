@@ -18,6 +18,7 @@ celery.conf.update(
         "hg.generate_scene": {"queue": "gen"},
         "hg.lipsync_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},
+        "hg.assemble_timeline": {"queue": "post"},
         "hg.*": {"queue": "control"},
     },
     broker_transport_options={"visibility_timeout": 6 * 3600},
