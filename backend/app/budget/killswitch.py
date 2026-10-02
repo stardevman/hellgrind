@@ -25,6 +25,8 @@ FROZEN = "hg:frozen:{}"
 SOFT = "hg:soft:{}"
 TASKS = "hg:tasks:{}"
 EVENTS = "hg:events:{}"
+RESUMED_AT = "hg:resumed_at:{}"       # hız bekçisi yalnızca bu andan sonraki harcamayı sayar
+VELOCITY_WINDOW_S = 600
 
 
 class ProjectFrozen(Exception):
@@ -92,7 +94,10 @@ def freeze(project_id: str, reason: str) -> None:
 
 
 def resume(project_id: str) -> None:
+    """freeze'in tersi. Hız penceresi de sıfırlanır: yönetmenin bilinçli kararı, dondurmaya yol açan eski
+    harcamayla ezilmez (yoksa bekçi 30 sn içinde aynı 10 dakikalık toplamı görüp yeniden dondururdu)."""
     r().delete(FROZEN.format(project_id), SOFT.format(project_id))
+    r().set(RESUMED_AT.format(project_id), time.time(), ex=2 * VELOCITY_WINDOW_S)
     with session_scope() as s:
         s.execute(text("UPDATE projects SET status = 'producing' WHERE id = :p AND status = 'paused'"),
                   {"p": project_id})
@@ -180,21 +185,24 @@ def spend(project_id: str, estimate: float, provider: str, scene_id=None, variat
 # ---------- bekçiler (Celery beat) ----------
 
 def watchdog() -> list[str]:
-    """Harcama hızı denetimi: 10 dakikada izin verilenden fazla harcayan projeyi dondurur."""
+    """Harcama hızı denetimi: 10 dakikada izin verilenden fazla harcayan projeyi dondurur.
+    Pencere, projenin son `resume` anından önceki harcamayı saymaz."""
     tripped = []
     with session_scope() as s:
-        rows = s.execute(text("""
-            SELECT p.id, p.settings, COALESCE(SUM(l.amount_usd), 0) AS recent
-            FROM projects p
-            LEFT JOIN cost_ledger l ON l.project_id = p.id AND l.kind = 'commit'
-                                   AND l.created_at > now() - interval '10 minutes'
-            WHERE p.status = 'producing'
-            GROUP BY p.id, p.settings
-        """)).all()
-    for pid, cfg, recent in rows:
+        projects = s.execute(text("SELECT id, settings FROM projects WHERE status = 'producing'")).all()
+        recent = {}
+        for pid, _ in projects:
+            resumed_at = r().get(RESUMED_AT.format(pid))
+            recent[pid] = float(s.execute(text("""
+                SELECT COALESCE(SUM(amount_usd), 0) FROM cost_ledger
+                WHERE project_id = :p AND kind = 'commit'
+                  AND created_at > GREATEST(now() - make_interval(secs => :w),
+                                            COALESCE(to_timestamp(CAST(:from AS double precision)), '-infinity'::timestamptz))
+            """), {"p": pid, "w": VELOCITY_WINDOW_S, "from": float(resumed_at) if resumed_at else None}).scalar())
+    for pid, cfg in projects:
         limit = {**DEFAULT_PROJECT_SETTINGS, **(cfg or {})}["max_spend_per_10min"]
-        if float(recent) > limit:
-            freeze(str(pid), f"velocity ({float(recent):.2f} USD / 10 dk > {limit})")
+        if recent[pid] > limit:
+            freeze(str(pid), f"velocity ({recent[pid]:.2f} USD / 10 dk > {limit})")
             tripped.append(str(pid))
     return tripped
 

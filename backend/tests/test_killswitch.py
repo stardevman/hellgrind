@@ -5,6 +5,7 @@ Konteynerde çalıştırmak için:
   docker compose run --rm -v "$PWD/backend:/app" -v "$PWD/db:/db:ro" api python -m pytest -q
 """
 import json
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -261,6 +262,32 @@ def test_watchdog_freezes_projects_that_spend_too_fast(mk_project):
     assert not {slow, old, idle} & set(tripped)
     assert project_row(fast)[0] == "paused"
     assert project_row(slow)[0] == project_row(old)[0] == "producing"
+
+
+def test_resume_resets_the_velocity_window(mk_project):
+    """Regresyon: devam edince bekçi aynı eski 10 dakikalık toplamı görüp 30 sn içinde yeniden donduruyordu;
+    "Üretime devam et" 10 dakika boyunca işe yaramıyordu."""
+    pid = mk_project(max_spend_per_10min=5)
+    add_ledger(pid, "commit", 6, age="1 minute")
+    assert pid in ks.watchdog() and project_row(pid)[0] == "paused"
+
+    ks.resume(pid)
+
+    assert pid not in ks.watchdog() and project_row(pid)[0] == "producing"       # eski harcama artık sayılmaz
+    time.sleep(0.05)
+    add_ledger(pid, "commit", 3)                                                   # devamdan sonra: sınırın altında
+    assert pid not in ks.watchdog()
+    add_ledger(pid, "commit", 3)                                                   # devamdan sonra toplam 6 > 5
+    assert pid in ks.watchdog() and project_row(pid)[0] == "paused"
+
+
+def test_resume_does_not_hide_spending_made_after_it_from_other_projects(mk_project):
+    resumed, other = mk_project(max_spend_per_10min=5), mk_project(max_spend_per_10min=5)
+    add_ledger(resumed, "commit", 6, age="1 minute")
+    add_ledger(other, "commit", 6, age="1 minute")
+    ks.resume(resumed)
+    tripped = ks.watchdog()
+    assert other in tripped and resumed not in tripped                             # pencere projeye özel
 
 
 def test_watchdog_ignores_reserve_and_release_rows(mk_project):

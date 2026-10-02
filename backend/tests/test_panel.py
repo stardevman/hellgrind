@@ -61,3 +61,13 @@ def test_user_supplied_text_is_escaped_before_it_reaches_innerhtml():
 def test_film_button_counts_only_finished_scenes():
     """Montaj yalnızca status=done sahneleri birleştirir; düğme de aynı sayıyı göstermeli."""
     assert 's.status === "done" && s.final_url' in HTML
+
+
+def test_new_project_form_sets_the_velocity_guard_to_half_the_budget():
+    """Örnek film ~22 USD sanal harcar; varsayılan 20 USD / 10 dk eşiği filmi bitince dondururdu."""
+    assert "max_spend_per_10min: budget / 2" in HTML
+    assert "bütçenin yarısından fazlası" in HTML
+
+
+def test_tiles_retired_by_a_newer_generation_are_faded_not_crossed_out():
+    assert 'v.reason === "superseded"' in HTML and "önceki üretimden kaldı" in HTML

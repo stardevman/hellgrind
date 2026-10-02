@@ -137,6 +137,27 @@ def _mark_failed(vid):
         s.get(Variation, vid).status = "failed"
 
 
+def retire_previous_pool(scene_id) -> int:
+    """Yeni üretim başlarken önceki üretimin havuzunu (ve açıkta kalmış geçen adayları) emekli eder.
+
+    Görsel girdi değişince ya da sahne baştan üretilince eski videolar bayattır. Onları yerinde bırakmak
+    'refined' ama sırasız satırlar ve depoda sahipsiz dosyalar üretirdi. purge_mode'a göre quarantine/ önekine
+    taşınır (hard modda silinir) ve neden olarak 'superseded' yazılır; panelde yine izlenebilir."""
+    with session_scope() as s:
+        old = s.scalars(select(Variation).where(Variation.scene_id == scene_id,
+                                                Variation.status.in_(("refined", "passed")))).all()
+        keys = [(v.id, v.video_key) for v in old]
+        for v in old:
+            v.refined_rank = None
+    for vid, key in keys:
+        quarantined = storage.purge(key) if key else None
+        with session_scope() as s:
+            v = s.get(Variation, vid)
+            v.status, v.video_key = "purged", None
+            v.params = {**(v.params or {}), "quarantine_key": quarantined, "purge_reason": "superseded"}
+    return len(keys)
+
+
 def run_wave(c: Ctx, tier: str, wave_no: int, n: int, resolution: str) -> list[VarResult]:
     results, frozen = [], False
     with ThreadPoolExecutor(max_workers=settings.gen_concurrency) as ex:
@@ -178,6 +199,8 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
                   salt=fp, render={"emotion": scene.emotion, "camera": cam, "characters": [ch.name for ch in chars],
                                    "action": scene.action_complexity,
                                    "label": f"{scene.scene_code}  {cam.get('shot', '')} {cam.get('movement', '')}"})
+
+    retire_previous_pool(scene_id)
 
     # 1-2) Test turu (+ yeniden deneme turları)
     accepted = False

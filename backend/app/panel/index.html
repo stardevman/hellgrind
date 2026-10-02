@@ -173,7 +173,8 @@ function newProjectForm(inDialog) {
   <p>Senaryoyu yapıştır; sistem sahnelere ayırır, her çekim için varyasyonlar üretir, kalite kontrolünden geçirir, en iyi üçü seçer, sesi ekler ve montajlar. Bu modda her şey bilgisayarında, ücretsiz çalışır. Bütçe, gerçek sağlayıcı fiyatlarıyla sanal olarak tutulur.</p>
   <div class="field"><label for="f_title">Proje adı</label><input id="f_title" value="Hell Grind – deneme"></div>
   <div class="form">
-    <div class="field"><label for="f_budget">Sanal bütçe (USD)</label><input id="f_budget" type="number" min="1" step="1" value="60" style="width:140px"></div>
+    <div class="field"><label for="f_budget">Sanal bütçe (USD)</label><input id="f_budget" type="number" min="1" step="1" value="60" style="width:140px">
+      <span class="note" style="margin:0;max-width:34ch">Hız bekçisi: 10 dakikada bütçenin yarısından fazlası harcanırsa üretim kendiliğinden durur.</span></div>
     <div class="field"><label for="f_preset">Üretim yoğunluğu</label>
       <select id="f_preset"><option value="preview">Hızlı önizleme: 4 test + 8 tam varyasyon</option>
       <option value="brief">Brifing: 10 test + 50'ye kadar tam varyasyon (yavaş)</option></select></div>
@@ -187,8 +188,10 @@ function bindNewForm(root, dlg) {
   $("#f_go", root).onclick = async () => {
     const note = $("#f_note", root); note.className = "note"; note.textContent = "Proje oluşturuluyor…";
     try {
-      const p = await api("/projects", {method: "POST", body: {title: $("#f_title", root).value,
-        budget_limit_usd: Number($("#f_budget", root).value), settings: META.presets[$("#f_preset", root).value]}});
+      const budget = Number($("#f_budget", root).value);
+      // Hız bekçisi eşiği bütçenin yarısı: örnek film (~22 USD sanal) bitince kendiliğinden donmasın, gerçek kaçak harcama yine yakalansın
+      const p = await api("/projects", {method: "POST", body: {title: $("#f_title", root).value, budget_limit_usd: budget,
+        settings: {...META.presets[$("#f_preset", root).value], max_spend_per_10min: budget / 2}}});
       note.textContent = "Senaryo ayrıştırılıyor…";
       const r = await api(`/projects/${p.id}/script`, {method: "POST", body: {text: $("#f_script", root).value}});
       PID = p.id; localStorage.setItem("hg.pid", PID); SEL = null; dlg && dlg.close();
@@ -201,11 +204,11 @@ function bindNewForm(root, dlg) {
 
 /* ---------- çizim ---------- */
 function tile(v) {
-  const fate = v.status === "purged" && v.reason === "not_top_k" ? "retired" : v.status;
+  const fate = v.status === "purged" && (v.reason === "not_top_k" || v.reason === "superseded") ? "retired" : v.status;
   const cls = ["tile", v.tier, fate].join(" ");
   const bg = v.thumb_url ? `style="background-image:url('${v.thumb_url}')"` : "";
   const tip = `${v.tier === "probe" ? "Test" : "Tam"} varyasyon, skor ${v.score?.toFixed(3) ?? "–"}` +
-    (v.anomalies.length ? `, elendi: ${v.anomalies.join(", ")}` : fate === "retired" ? ", havuza girmedi" : "") + (v.rank ? `, rafine #${v.rank}` : "");
+    (v.anomalies.length ? `, elendi: ${v.anomalies.join(", ")}` : fate === "retired" ? (v.reason === "superseded" ? ", önceki üretimden kaldı" : ", havuza girmedi") : "") + (v.rank ? `, rafine #${v.rank}` : "");
   return `<button class="${cls}" ${bg} title="${esc(tip)}" aria-label="${esc(tip)}" data-v="${v.id}">${v.rank ? `<b>${v.rank}</b>` : ""}</button>`;
 }
 

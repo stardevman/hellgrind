@@ -44,10 +44,10 @@ docker compose up -d --build         # veritabanı silinmez, yeni sütunlar otom
 ## Panelde neler var
 
 - **Film şeridi:** her sahne için üretilen tüm varyasyonlar. Küçük kareler test turu, büyükler tam tur. Yeşil çerçeveli ve numaralı olanlar Rafine Havuz; kırmızı çizgili olanlar kalite kontrolünde elendi; soluk olanlar havuza giremedi. Bir kareye tıklayınca o varyasyonu (elenmiş olsa bile, karantinadan) izlersin.
-- **Sonuç:** sesi ve müziği eklenmiş sahne.
+- **Sonuç:** sesi ve müziği eklenmiş sahne. "Bu sahneyi baştan üret" dersen önceki üretimin havuzu silinmez, `quarantine/` önekine taşınır (soluk kareler olarak izlenebilir); `PURGE_MODE=hard` ise silinir.
 - **Rafine havuz:** "Bunu kullan" ile başka bir adayı seçersin. Yalnızca ses ve montaj yeniden yapılır.
 - **Müziği değiştir:** yalnızca montaj yeniden yapılır; görüntü motoru çağrılmaz ve bütçe değişmez. Stateless Re-render'ı burada canlı görürsün.
-- **Bütçe rayı ve "Üretimi durdur":** Kill-Switch. Sanal limit dolunca üretim kendiliğinden durur.
+- **Bütçe rayı ve "Üretimi durdur":** Kill-Switch. Sanal limit dolunca üretim kendiliğinden durur. Ayrıca **hız bekçisi** 10 dakikada ayarlanan tutardan (panelden açılan projelerde bütçenin yarısı) fazla harcanırsa projeyi dondurur. "Üretime devam et" bu pencereyi sıfırlar: yalnızca devamdan sonraki harcama sayılır.
 - **Film:** tamamlanan sahneleri tek videoda birleştirir; alttaki renkli kesme şeridine tıklayınca o sahneye atlar.
 
 Kendi senaryonu yazarken standart biçimi kullan: `İÇ.` / `DIŞ.` ile başlayan sahne başlıkları, büyük harfle karakter adı, altında isteğe bağlı `(duygu)` ve replik.

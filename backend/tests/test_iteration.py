@@ -317,22 +317,55 @@ def test_wave_concurrency_is_bounded_by_gen_concurrency(fast, mk_project, mk_sce
     assert state["max"] == workers
 
 
-# ---------- bilinen sorun ----------
+# ---------- yeniden üretim: eski havuz ----------
 
-@pytest.mark.xfail(strict=True, reason="Bilinen sorun, karar bekliyor: sahne baştan üretilince eski Rafine Havuz üyeleri "
-                                       "status='refined' ama sırasız olarak depoda kalıyor (silme davranışı onay ister).")
-def test_regeneration_leaves_no_orphaned_refined_variations(fast, mk_project, mk_scene):
-    pid, sid = start(mk_project, mk_scene)
-    run_tiered_generation(pid, sid)
+def regenerate(pid, sid):
     with session_scope() as s:
         s.execute(text("UPDATE scenes SET prompt_spec = CAST(:p AS jsonb) WHERE id = :s"),
                   {"p": '{"prompt": "tamamen yeni bir istek"}', "s": sid})
+    return run_tiered_generation(pid, sid)
 
+
+def test_regeneration_retires_the_previous_pool_to_quarantine(fast, mk_project, mk_scene):
+    """Regresyon: eski havuz üyeleri status='refined' ama sırasız olarak, dosyalarıyla depoda kalıyordu."""
+    pid, sid = start(mk_project, mk_scene)
     run_tiered_generation(pid, sid)
+    old_pool = [v for v in tiers(sid)[1] if v.refined_rank]
+    assert len(old_pool) == 2
+
+    assert regenerate(pid, sid) == "refined"
 
     vs = variations(sid)
-    assert [v for v in vs if v.status == "refined" and v.refined_rank is None] == []
-    assert sorted(v.refined_rank for v in vs if v.refined_rank) == [1, 2]
+    assert [v for v in vs if v.status == "refined" and v.refined_rank is None] == []        # sahipsiz satır yok
+    assert sorted(v.refined_rank for v in vs if v.refined_rank) == [1, 2]                    # yeni havuz
+    by_id = {v.id: v for v in vs}
+    for old in old_pool:
+        v = by_id[old.id]
+        assert v.status == "purged" and v.video_key is None and v.refined_rank is None
+        assert v.params["purge_reason"] == "superseded"
+        assert v.params["quarantine_key"] == f"quarantine/variations/{sid}/{v.id}.mp4"
+        assert storage.exists(v.params["quarantine_key"]) and not storage.exists(f"variations/{sid}/{v.id}.mp4")
+    assert all(storage.exists(v.video_key) for v in vs if v.refined_rank)                    # yeni havuz dosyaları yerinde
+
+
+def test_regeneration_in_hard_mode_deletes_the_previous_pool(fast, mk_project, mk_scene, monkeypatch):
+    monkeypatch.setattr(settings, "purge_mode", "hard")
+    pid, sid = start(mk_project, mk_scene)
+    run_tiered_generation(pid, sid)
+    old_pool = [v for v in tiers(sid)[1] if v.refined_rank]
+
+    regenerate(pid, sid)
+
+    by_id = {v.id: v for v in variations(sid)}
+    for old in old_pool:
+        assert by_id[old.id].params["quarantine_key"] is None
+        assert not storage.exists(f"variations/{sid}/{old.id}.mp4")
+        assert not storage.exists(f"quarantine/variations/{sid}/{old.id}.mp4")
+
+
+def test_first_generation_has_nothing_to_retire(fast, mk_project, mk_scene):
+    pid, sid = start(mk_project, mk_scene)
+    assert iteration.retire_previous_pool(sid) == 0
 
 
 def test_non_positive_wave_size_cannot_hang_the_worker(fast, mk_project, mk_scene):
