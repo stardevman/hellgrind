@@ -29,7 +29,7 @@ class GenRequest:
     duration_s: float
     negative: str = ""
     image_url: str | None = None
-    extra: dict = field(default_factory=dict)    # emotion, camera, characters, action, label (yerel render için)
+    extra: dict = field(default_factory=dict)    # emotion, camera, characters, action, label, lighting (yerel render için)
 
 
 @dataclass
@@ -65,7 +65,7 @@ class LocalProvider:
             x = req.extra
             render_clip(out, req.seed, width, height, req.duration_s, settings.local_render_fps,
                         emotion=x.get("emotion", "neutral"), camera=x.get("camera"), characters=x.get("characters"),
-                        action=float(x.get("action", 0.0)), label=x.get("label", ""))
+                        action=float(x.get("action", 0.0)), label=x.get("label", ""), lighting=x.get("lighting", ""))
         return GenResult(local_path=out, request_id=f"local-{uuid.uuid4()}", cost_usd=self.estimate(req),
                          engine=self.engine, meta={"planted_defect": defect})
 

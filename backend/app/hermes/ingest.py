@@ -24,8 +24,6 @@ log = logging.getLogger("hellgrind.hermes")
 
 DIALOGUE_START_S = 0.4      # ilk replik klibin başından bu kadar sonra başlar
 MUSIC_GAIN_DB = -8.0
-# Hareket eden şeyler temiz 3D, çevre boyalı: yoğun boyalı doku hareket halinde bozulur (Faz 13 stil kuralları bunu ezer).
-DEFAULT_RENDER_STYLE = {"character": "clean_3d", "prop": "clean_3d", "location": "painterly"}
 
 
 def parse_script(text: str, project_id: str) -> dict:
@@ -62,8 +60,9 @@ class AssetBook:
     def get(self, type_: str, name: str, description: str | None = None) -> Asset:
         row = self.rows.get((type_, name))
         if row is None:
+            # render_style boş: varlık stil kılavuzunun tür kuralını izler (style/bible.py)
             row = Asset(id=uuid.uuid4(), project_id=self.project_id, type=type_, name=name, description=description,
-                        render_style=DEFAULT_RENDER_STYLE[type_], status="draft", version=1, references={})
+                        render_style=None, status="draft", version=1, references={})
             self.s.add(row)
             self.rows[(type_, name)] = row
             self.created.append(f"{name} ({type_})")

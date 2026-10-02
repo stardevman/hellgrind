@@ -9,6 +9,7 @@ from app.budget import killswitch as ks
 from app.config import settings
 from app.core.rerender import Stage, plan_rerender
 from app.core.state import load_assets, load_characters
+from app.style import bible
 from app.db import session_scope
 from app.engine.iteration import run_tiered_generation
 from app.hermes import rules
@@ -50,7 +51,8 @@ def tracks(sid, active=True):
 def plan(sid):
     with session_scope() as s:
         return plan_rerender(s.get(Scene, sid), load_characters(s, sid),
-                             list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sid))), load_assets(s, sid))[0]
+                             list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sid))), load_assets(s, sid),
+                             bible.active_version(s, s.get(Scene, sid).project_id))[0]
 
 
 def rank_one(sid):

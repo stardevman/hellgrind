@@ -28,6 +28,7 @@ from app.models import AudioTrack, Character, Project, Scene, Variation
 from app.post.audio import synthesize, synthesize_music
 from app.post.mux import AudioInput, mix_audio, mux
 from app.quality.anomaly import probe_duration
+from app.style import bible
 
 log = logging.getLogger("hellgrind.post")
 
@@ -57,7 +58,8 @@ def _snapshot(scene_id: str) -> Snapshot:
         scene = s.get(Scene, scene_id)
         tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene_id, AudioTrack.is_active)
                                 .order_by(AudioTrack.start_offset_s, AudioTrack.kind)))
-        fp = fingerprints(scene, load_characters(s, scene_id), tracks, load_assets(s, scene_id))
+        fp = fingerprints(scene, load_characters(s, scene_id), tracks, load_assets(s, scene_id),
+                          bible.active_version(s, scene.project_id))
         cfg = project_settings(s.get(Project, scene.project_id).settings)
         s.expunge_all()
         return Snapshot(scene, tracks, fp, cfg)

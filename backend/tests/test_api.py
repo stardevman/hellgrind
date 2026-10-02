@@ -214,7 +214,7 @@ def test_a_project_frozen_while_dispatching_skips_the_rest_instead_of_failing_th
         ks.freeze(pid, "bütçe")
         return out
 
-    monkeypatch.setattr("app.api.panel.plan_and_dispatch", freeze_after_first)
+    monkeypatch.setattr("app.api.plan.plan_and_dispatch", freeze_after_first)
     body = api.post(f"/api/projects/{pid}/script", json={"text": rules.SAMPLE_SCRIPT}).json()
     assert body["frozen"] is True and body["planned"]["S001_SH01"] == FULL
     assert [v for k, v in body["planned"].items() if k != "S001_SH01"] == [[], [], []] and len(dispatched) == 1

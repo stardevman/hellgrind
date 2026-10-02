@@ -204,3 +204,16 @@ def test_the_panel_uses_the_asset_endpoints():
 
 def test_blocked_scenes_link_to_their_missing_assets():
     assert "data-goto-asset" in SCRIPT and "sc.missing" in SCRIPT and ".status.blocked" in STYLE
+
+
+# ---------- stil kılavuzu (Faz 13) ----------
+
+def test_the_style_tab_has_its_workflow_and_uses_the_style_endpoints():
+    for text in ("Stil kılavuzu", "Işık öneki", "Hareket tarzı", "Yeni sürüm olarak kaydet", "Etkisini önizle",
+                 "Etkinleştir", "Etkilenen çekimleri hemen yeniden üret", "Örnekle doldur"):
+        assert text in HTML, text
+    calls = api_calls()
+    for needed in (("get", "/api/projects/{}/style"), ("post", "/api/projects/{}/style"),
+                   ("post", "/api/projects/{}/style/preview"), ("post", "/api/projects/{}/style/activate")):
+        assert needed in calls, needed
+    assert 'id="pane-style"' in HTML

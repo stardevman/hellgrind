@@ -126,6 +126,22 @@ class SceneAsset(Base):
     source: Mapped[str] = mapped_column(Text, default="manual")     # script | manual
 
 
+class StyleBible(Base):
+    """Projenin sürümlü stil kılavuzu. Sürümler değişmez: her düzenleme yeni bir sürümdür; proje başına tek sürüm etkindir."""
+    __tablename__ = "style_bibles"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    lighting_prefix: Mapped[str] = mapped_column(Text, default="")
+    rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    negative: Mapped[str] = mapped_column(Text, default="")
+    motion_style: Mapped[str] = mapped_column(Text, default="")
+    palette: Mapped[list] = mapped_column(JSONB, default=list)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Variation(Base):
     __tablename__ = "variations"
     id: Mapped[uuid.UUID] = PK()

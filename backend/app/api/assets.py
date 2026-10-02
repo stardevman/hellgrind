@@ -25,6 +25,7 @@ from app.hermes.ingest import AssetBook, ensure_character
 from app.hermes.rules import tr_title
 from app.models import Asset, Character, Project, Scene, SceneAsset, SceneCharacter, Variation
 from app.schemas import AssetIn, AssetPatch, SceneAssetIn
+from app.style import bible
 
 router = APIRouter(tags=["assets"])
 
@@ -84,6 +85,7 @@ def _test_out(v: Variation | None, version: int) -> dict | None:
 def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
     """Varlık listesi; sorgu sayısı varlık sayısından bağımsızdır."""
     ids = [a.id for a in assets]
+    style = bible.active(s, assets[0].project_id) if assets else None
     tests, chars, used = {}, {}, defaultdict(list)
     if ids:
         test_ids = [a.motion_test_variation_id for a in assets if a.motion_test_variation_id]
@@ -105,6 +107,7 @@ def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
         out.append({
             "id": str(a.id), "project_id": str(a.project_id), "type": a.type, "name": a.name,
             "description": a.description, "render_style": a.render_style, "status": a.status, "version": a.version,
+            "effective_style": bible.effective_style(a, style),       # render_style boşsa kılavuzun tür kuralı
             "references": {k: _reference_out(v) for k, v in (a.references or {}).items()},
             "motion_test": _test_out(tests.get(a.motion_test_variation_id), a.version),
             "scenes": used[a.id],
@@ -168,6 +171,8 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
     """Tarif ya da stil değişince sürüm artar ve hareket testi yeniden gerekir; ses kimliği görüntüyü etkilemez."""
     a = asset_or_404(s, asset_id, lock=True)
     changes = body.model_dump(exclude_unset=True)
+    if "render_style" in changes:                       # boş: istisnayı kaldır, kılavuzun tür kuralına dön
+        changes["render_style"] = " ".join((changes["render_style"] or "").split()) or None
     visual = {k: v for k, v in changes.items() if k in ("description", "render_style") and v != getattr(a, k)}
     if visual:
         ensure_editable(a)

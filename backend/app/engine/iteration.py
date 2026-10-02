@@ -27,6 +27,8 @@ from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine.providers import GenRequest, TransientError, get_provider, route_engine
 from app.hermes import lint
+from app.style import bible
+from app.style.composer import compose_prompt
 from app.models import Project, Scene, Variation
 from app.quality import gate
 
@@ -223,11 +225,14 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
         s.flush()
         chars = load_characters(s, scene_id)
         assets = load_assets(s, scene_id)
+        style = bible.active(s, project_id)
         camera = scene.camera or {}
         spec = dict(scene.prompt_spec or {})
-        # Kadroda olmayan kişi üretilmesin: "yalnızca listelenen karakterler" kısıtı (kadro görsel özette zaten var).
-        spec["prompt"], spec["negative"] = lint.constrain_prompt(spec.get("prompt", ""), spec.get("negative", ""),
-                                                                 [ch.name for ch in chars])
+        # Sağlayıcıya yalnızca bestecinin çıktısı gider: kılavuzun ışık ve hareket dili, çekim tarifi, varlıklar ve
+        # "yalnızca listelenen karakterler" kısıtı. Hepsi görsel özetteki girdilerden türer.
+        composed = compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""),
+                                   "camera": camera, "characters": [ch.name for ch in chars]}, assets, style)
+        spec["prompt"], spec["negative"] = composed.prompt, composed.negative
         # Yarım kalmış önceki çalıştırmanın asılı satırları: kimse üstünde çalışmıyor.
         for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id,
                                                    Variation.status.in_(("queued", "running", "generated")))):
@@ -236,8 +241,9 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
         return Ctx(
             project_id=project_id, scene_id=scene_id, run_id=run_id, provider=get_provider(scene.engine), cfg=cfg,
             duration=scene.duration_s, prompt_spec=spec, revision=scene.prompt_revision,
-            visual_hash=visual_fingerprint(scene, chars, assets),
+            visual_hash=visual_fingerprint(scene, chars, assets, style.version if style else None),
             render={"emotion": scene.emotion, "camera": camera, "characters": [ch.name for ch in chars],
+                    "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
                     "loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
                     "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger],

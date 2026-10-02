@@ -213,8 +213,23 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips .astatus button { background: none; border: 0; padding: 0 0 0 4px; color: var(--dust); }
 
+/* stil kılavuzu */
+.style-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap: var(--gap); align-items: start; }
+.style-form { display: grid; gap: 12px; }
+.style-form label, .impact label { display: grid; gap: 4px; font-size: 13px; color: var(--dust); }
+.style-form .rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.swatches { display: flex; gap: 4px; flex-wrap: wrap; }
+.swatch { width: 22px; height: 22px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; }
+.versions { margin: 0; padding: 0; list-style: none; }
+.versions li { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+.versions li.active { border-left: 3px solid var(--verdigris); }
+.versions .prefix { color: var(--dust); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.impact { padding: 14px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.impact label.check { display: flex; gap: 8px; align-items: center; color: var(--ash); font-size: 14px; }
+
 @media (max-width: 960px) {
-  .layout, .film { grid-template-columns: 1fr; }
+  .layout, .film, .style-grid { grid-template-columns: 1fr; }
+  .style-form .rules { grid-template-columns: 1fr; }
   .inspector { position: static; }
   .scene { grid-template-columns: 1fr auto; }
   .scene-head { grid-column: 1; } .scene .spend { grid-column: 2; grid-row: 1; }
@@ -278,6 +293,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
     <nav class="tabs" role="tablist" aria-label="Proje görünümü">
       <button class="tab" role="tab" id="tab-scenes" data-tab="scenes" aria-controls="pane-scenes" aria-selected="true" type="button">Sahneler</button>
       <button class="tab" role="tab" id="tab-assets" data-tab="assets" aria-controls="pane-assets" aria-selected="false" type="button">Varlıklar <span class="num muted" id="tab-assets-count"></span></button>
+      <button class="tab" role="tab" id="tab-style" data-tab="style" aria-controls="pane-style" aria-selected="false" type="button">Stil kılavuzu <span class="num muted" id="tab-style-version"></span></button>
     </nav>
     <div id="pane-scenes" role="tabpanel" aria-labelledby="tab-scenes">
     <div class="layout">
@@ -340,6 +356,38 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
     </div>
     </div>
 
+    <div id="pane-style" role="tabpanel" aria-labelledby="tab-style" hidden>
+      <div class="style-grid">
+        <section class="panel" aria-labelledby="style-edit-title">
+          <header><h2 id="style-edit-title">Yeni sürüm</h2><span class="spacer"></span><button class="btn small" id="style-example" type="button">Örnekle doldur</button></header>
+          <div class="body">
+            <p class="muted">Işık dili, hareket tarzı ve render kuralları her çekime aynı ifadeyle eklenir; çekim bazında stil yazılmaz. Kaydetmek hiçbir şeyi değiştirmez: önce etkisini önizle, sonra etkinleştir.</p>
+            <form class="style-form" id="style-form" style="margin-top:12px">
+              <label>Işık öneki<textarea id="st-lighting" rows="3" maxlength="2000" placeholder="ör. Late-afternoon golden-hour lighting, low warm sun, long dramatic shadows"></textarea></label>
+              <label>Hareket tarzı<textarea id="st-motion" rows="2" maxlength="2000" placeholder="ör. Cartoony motion, squash and stretch"></textarea></label>
+              <div class="rules">
+                <label>Karakterler<input type="text" id="st-rule-character" list="st-styles" maxlength="200"></label>
+                <label>Mekânlar<input type="text" id="st-rule-location" list="st-styles" maxlength="200"></label>
+                <label>Nesneler<input type="text" id="st-rule-prop" list="st-styles" maxlength="200"></label>
+              </div>
+              <datalist id="st-styles"><option value="clean_3d"><option value="painterly"><option value="stylized_2d"></datalist>
+              <label>Negatifler<input type="text" id="st-negative" maxlength="2000"></label>
+              <label>Palet (virgülle, #RRGGBB)<input type="text" id="st-palette" placeholder="#E4A23E, #2A2D31"></label>
+              <div class="swatches" id="st-swatches" aria-hidden="true"></div>
+              <label>Notlar<textarea id="st-notes" rows="2" maxlength="4000"></textarea></label>
+              <div><button class="btn primary" type="submit">Yeni sürüm olarak kaydet</button></div>
+            </form>
+            <div class="note" id="style-note" role="status" aria-live="polite" style="margin-top:12px"></div>
+          </div>
+        </section>
+        <section class="panel" aria-labelledby="style-versions-title">
+          <header><h2 id="style-versions-title">Sürümler</h2></header>
+          <ol class="versions" id="style-versions"></ol>
+          <div class="impact" id="style-impact" hidden></div>
+        </section>
+      </div>
+    </div>
+
     <div id="pane-assets" role="tabpanel" aria-labelledby="tab-assets" hidden>
       <section class="panel" aria-labelledby="assets-title">
         <header><h2 id="assets-title">Varlıklar</h2><span class="muted" id="assets-summary"></span><span class="spacer"></span><button class="btn small retry-blocked" type="button" hidden>Engellenen çekimleri yeniden dene</button></header>
@@ -387,7 +435,8 @@ const SHOT_TR = { extreme_wide: "çok geniş", wide: "geniş", pov: "öznel", me
 const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma", pan: "pan", tilt: "tilt", crane: "vinç", orbit: "yörünge", tracking: "takip", handheld: "el kamerası" };
 
 const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
-            offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null };
+            offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null,
+            style: null, impact: null, impactScroll: false, styleFormFor: null };
 let timer = null;
 
 /* ---------- yardımcılar ---------- */
@@ -700,6 +749,7 @@ function eventText(e, codes) {
     case "blocked": return { t: `${where}engellendi, eksik referans: ${(e.missing || []).join(", ")}`, c: "bad" };
     case "lint_warning": return { t: `${where}uyarı, onaysız referans: ${(e.missing || []).join(", ")}` };
     case "motion_test": return { t: `Hareket testi ${e.ok ? "temiz" : "kusurlu (" + (e.anomalies || []).join(", ") + ")"}`, c: e.ok ? "good" : "bad" };
+    case "style_activated": return { t: `Stil kılavuzu sürüm ${e.version} etkin (${e.affected} çekim etkilendi)`, c: "good" };
     case "asset_status": return { t: `${e.name}: ${ASTATUS_TR[e.status] || e.status}`, c: e.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
   }
@@ -710,8 +760,9 @@ function renderEvents() {
 }
 
 /* ---------- varlıklar ---------- */
+const TABS = ["scenes", "assets", "style"];
 function renderTabs() {
-  for (const t of ["scenes", "assets"]) {
+  for (const t of TABS) {
     const on = S.tab === t;
     patchAttr($("tab-" + t), "aria-selected", String(on));
     $("tab-" + t).tabIndex = on ? 0 : -1;
@@ -720,6 +771,7 @@ function renderTabs() {
   const c = (S.ov && S.ov.project.asset_counts) || {};
   const total = Object.values(c).reduce((x, y) => x + y, 0);
   setText($("tab-assets-count"), total ? `${c.locked || 0}/${total} kilitli` : "");
+  setText($("tab-style-version"), S.ov && S.ov.project.style_version ? `sürüm ${S.ov.project.style_version}` : "");
   const blocked = S.ov ? S.ov.scenes.filter((x) => x.status === "blocked").length : 0;
   document.querySelectorAll(".retry-blocked").forEach((b) => { b.hidden = !blocked; b.disabled = S.busy || (S.ov && S.ov.project.frozen); });
 }
@@ -828,6 +880,63 @@ const ASSET_ACTS = {
   },
 };
 
+/* ---------- stil kılavuzu ---------- */
+const RULE_TYPES = ["character", "location", "prop"];
+const swatches = (colors) => (colors || []).map((c) => `<span class="swatch" style="background:${esc(c)}" title="${esc(c)}"></span>`).join("");
+const paletteOf = (raw) => raw.split(",").map((x) => x.trim()).filter(Boolean);
+function fillStyleForm(src) {
+  $("st-lighting").value = src.lighting_prefix || "";
+  $("st-motion").value = src.motion_style || "";
+  for (const t of RULE_TYPES) $("st-rule-" + t).value = (src.rules && src.rules[t]) || "";
+  $("st-negative").value = src.negative || "";
+  $("st-palette").value = (src.palette || []).join(", ");
+  $("st-notes").value = src.notes || "";
+  setHTML($("st-swatches"), swatches(src.palette));
+}
+function impactText(i) {
+  const codes = i.affected.map((a) => a.scene_code);
+  let t = codes.length
+    ? `${codes.length} çekim yeniden üretilir: ${codes.join(", ")}. Tahmini sanal maliyet ${usd(i.expected_usd)} (en kötü durumda ${usd(i.worst_usd)}).`
+    : "Üretilmiş hiçbir çekim yeniden üretilmez.";
+  if (i.pending.length) t += ` Henüz üretilmemiş ${i.pending.length} çekim ilk üretiminde bu stili kullanır.`;
+  return t;
+}
+function renderStyle() {
+  if (S.tab !== "style" || !S.style) return;
+  const st = S.style;
+  const target = st.active || st.versions[0] || null;
+  const key = S.projectId + ":" + (target ? target.version : "-");
+  if (S.styleFormFor !== key && !$("style-form")._touched) { fillStyleForm(target || { rules: st.defaults }); S.styleFormFor = key; }
+  setHTML($("style-versions"), st.versions.length ? st.versions.map((v) => `
+    <li class="${v.is_active ? "active" : ""}">
+      <div class="card-head"><h3>Sürüm ${v.version}</h3><span class="muted">${v.created_at ? clock(v.created_at) : ""}</span><span class="spacer"></span>${v.is_active ? '<span class="astatus locked">Etkin</span>' : ""}</div>
+      <p class="prefix">${esc(v.prefix || "Işık öneki ve hareket tarzı yok.")}</p>
+      <p class="muted" style="font-size:13px">Karakter ${esc(v.rules.character)} · mekân ${esc(v.rules.location)} · nesne ${esc(v.rules.prop)}</p>
+      ${v.palette.length ? `<div class="swatches">${swatches(v.palette)}</div>` : ""}
+      <div class="actions-row">
+        ${v.is_active ? "" : `<button class="btn small" type="button" data-style-preview="${v.version}"${S.busy ? " disabled" : ""}>Etkisini önizle</button>`}
+        <button class="btn small" type="button" data-style-edit="${v.version}">Düzenlemeye al</button>
+      </div>
+    </li>`).join("") : '<li class="muted">Henüz stil kılavuzu yok. Soldan ilk sürümü kaydet.</li>');
+  const box = $("style-impact");
+  const i = S.impact;
+  box.hidden = !i;
+  if (i) {
+    const frozen = S.ov && S.ov.project.frozen;
+    setHTML(box, `
+      <h3>Sürüm ${i.version} etkinleşirse</h3>
+      <p>${esc(impactText(i))}</p>
+      ${i.affected.some((a) => !a.style_only) ? '<p class="muted">Bazı çekimlerin başka girdileri de değişmiş; onlar zaten yeniden üretilecekti.</p>' : ""}
+      <label class="check"><input type="checkbox" id="style-render" checked> Etkilenen çekimleri hemen yeniden üret</label>
+      <div class="actions-row"><button class="btn primary" type="button" id="style-activate" data-version="${i.version}"${S.busy || frozen ? " disabled" : ""}>Etkinleştir</button>
+      <button class="btn small" type="button" id="style-impact-close">Vazgeç</button></div>`);
+    if (S.impactScroll) {
+      S.impactScroll = false;
+      box.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+  }
+}
+
 /* ---------- not (her eylemden sonra) ---------- */
 function note(id, text, kind) {
   const el = $(id);
@@ -848,6 +957,7 @@ function renderAll() {
     renderFilm();
     renderEvents();
     renderAssets();
+    renderStyle();
   } else if (S.ov) {
     renderBudget();
   }
@@ -859,6 +969,7 @@ async function refresh(listToo) {
   if (!S.projectId && S.projects.length && !S.creating) S.projectId = S.projects[0].id;
   S.ov = S.projectId ? await api(`/projects/${S.projectId}/overview`) : null;
   if (S.ov && S.tab === "assets") S.assets = await api(`/projects/${S.projectId}/assets`);
+  if (S.ov && S.tab === "style") S.style = await api(`/projects/${S.projectId}/style`);
 }
 let ticks = 0;
 async function tick() {
@@ -889,7 +1000,26 @@ document.addEventListener("click", (ev) => {
     const id = S.sceneId;
     act(async () => { const r = await api(`/scenes/${id}/promote/${t.dataset.promote}`, "POST"); S.varId = null; note("insp-note", resultText(r), r.blocked ? "err" : "ok"); }, "insp-note");
   } else if (t.dataset.tab) {
-    if (S.tab !== t.dataset.tab) { S.tab = t.dataset.tab; S.assets = null; renderAll(); pollNow(); }
+    if (S.tab !== t.dataset.tab) { S.tab = t.dataset.tab; S.assets = null; S.style = null; renderAll(); pollNow(); }
+  } else if (t.dataset.stylePreview) {
+    const version = Number(t.dataset.stylePreview);
+    act(async () => { S.impact = await api(`/projects/${S.projectId}/style/preview`, "POST", { version }); S.impactScroll = true; note("style-note", ""); }, "style-note");
+  } else if (t.dataset.styleEdit) {
+    const v = S.style && S.style.versions.find((x) => x.version === Number(t.dataset.styleEdit));
+    if (v) { fillStyleForm(v); $("style-form")._touched = true; note("style-note", `Sürüm ${v.version} forma alındı; değiştirip yeni sürüm olarak kaydet.`, "ok"); }
+  } else if (t.id === "style-impact-close") {
+    S.impact = null; renderAll();
+  } else if (t.id === "style-activate") {
+    const version = Number(t.dataset.version), render = $("style-render").checked;
+    act(async () => {
+      const r = await api(`/projects/${S.projectId}/style/activate`, "POST", { version, render });
+      S.impact = null;
+      const started = render ? Object.entries(r.planned).filter(([, st]) => st.length).map(([code]) => code) : [];
+      const blocked = render ? Object.keys(r.blocked) : [];
+      note("style-note", `Sürüm ${version} etkin. ` + (render
+        ? (started.length ? `Üretime alındı: ${started.join(", ")}.` : "Üretime alınan çekim yok.") + (blocked.length ? ` Engelli: ${blocked.join(", ")}.` : "")
+        : "Etkilenen çekimler bir sonraki üretimde yeniden üretilecek."), blocked.length ? "err" : "ok");
+    }, "style-note");
   } else if (t.dataset.gotoAsset) {
     S.tab = "assets"; S.flash = t.dataset.gotoAsset; S.assets = null;
     $("asset-type-filter").value = ""; $("asset-status-filter").value = "";
@@ -917,8 +1047,25 @@ document.addEventListener("click", (ev) => {
 $("insp-back").addEventListener("click", () => { S.varId = null; renderAll(); });
 document.querySelector(".tabs").addEventListener("keydown", (e) => {     // sekmeler arasında ok tuşlarıyla gezinme
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-  const next = S.tab === "scenes" ? "assets" : "scenes";
-  S.tab = next; S.assets = null; renderAll(); $("tab-" + next).focus(); pollNow();
+  const next = TABS[(TABS.indexOf(S.tab) + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
+  S.tab = next; S.assets = null; S.style = null; renderAll(); $("tab-" + next).focus(); pollNow();
+});
+$("style-form").addEventListener("input", (e) => {
+  $("style-form")._touched = true;
+  if (e.target.id === "st-palette") setHTML($("st-swatches"), swatches(paletteOf(e.target.value).filter((c) => /^#[0-9a-f]{6}$/i.test(c))));
+});
+$("style-example").addEventListener("click", () => { if (S.style) { fillStyleForm(S.style.example); $("style-form")._touched = true; } });
+$("style-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const rules = {};
+  for (const t of RULE_TYPES) { const v = $("st-rule-" + t).value.trim(); if (v) rules[t] = v; }
+  const body = { lighting_prefix: $("st-lighting").value, motion_style: $("st-motion").value, rules,
+                 negative: $("st-negative").value, palette: paletteOf($("st-palette").value), notes: $("st-notes").value || null };
+  act(async () => {
+    const v = await api(`/projects/${S.projectId}/style`, "POST", body);
+    S.impact = await api(`/projects/${S.projectId}/style/preview`, "POST", { version: v.version }); S.impactScroll = true;
+    note("style-note", `Sürüm ${v.version} kaydedildi (etkin değil). Etkisi sağda; onaylarsan etkinleştir.`, "ok");
+  }, "style-note");
 });
 $("asset-type-filter").addEventListener("change", renderAll);
 $("asset-status-filter").addEventListener("change", renderAll);
@@ -951,7 +1098,7 @@ document.addEventListener("submit", (e) => {                              // ref
     note("assets-note", `${REF_TR[kind]} yüklendi: ${data.name}, sürüm ${data.version}, ${ASTATUS_TR[data.status].toLocaleLowerCase("tr")}.`, "ok");
   }, "assets-note");
 });
-$("project-select").addEventListener("change", (e) => { S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
+$("project-select").addEventListener("change", (e) => { $("style-form")._touched = false; S.styleFormFor = null; S.impact = null; S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
 $("new-project").addEventListener("click", () => { S.creating = true; renderAll(); $("f-title").focus(); });
 $("start-cancel").addEventListener("click", () => { S.creating = false; renderAll(); });
 $("f-script").addEventListener("input", (e) => { e.target._touched = true; });

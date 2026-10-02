@@ -5,6 +5,8 @@ Gerçek bir yapay zekâ modeli değildir; ama sahne parametrelerini görünür b
   kamera      -> çekim ölçeği (zoom) ve hareket (pan, dolly, tracking, el kamerası...)
   karakterler -> adlı siluetler; aksiyon yüksekse koşarlar
   seed        -> her varyasyonda farklı dekor, ışık ve kamera sapması
+  ışık öneki  -> stil kılavuzunun ışık dilindeki anahtar kelimeler: "golden-hour" sıcak ve alçak güneş, uzun gölgeler,
+                 ufka yakın sıcak parıltı; "night" ay ışığı; "overcast" yumuşak, soluk ışık
 Böylece Quality Gate, Rafine Havuz, montaj ve panel para harcamadan gerçek görüntülerle denenir.
 """
 import math
@@ -33,6 +35,19 @@ PALETTES = {  # (gökyüzü, ufuk, zemin, vurgu)
     "tension":  ((26, 26, 36), (168, 96, 40), (18, 18, 22), (240, 150, 70)),
 }
 EMBER_EMOTIONS = {"anger", "tension", "fear"}
+
+# Işık görünümleri: duygu paletinin üstüne `mix` oranında karışır. Böylece duygu korunur, ışık dili tüm filmde aynı kalır.
+LOOKS = {
+    "golden_hour": {"keywords": ("golden-hour", "golden hour", "altın saat", "gün batımı", "sunset"),
+                    "palette": ((228, 132, 70), (255, 202, 112), (104, 70, 40), (255, 226, 160)),
+                    "mix": 0.7, "sun": True, "shadow": 1.0, "glow": 150},
+    "night": {"keywords": ("night", "moonlight", "gece", "ay ışığı"),
+              "palette": ((10, 16, 40), (44, 62, 102), (12, 14, 22), (160, 190, 240)),
+              "mix": 0.65, "sun": False, "shadow": 0.0, "glow": 40},
+    "overcast": {"keywords": ("overcast", "bulutlu", "diffuse light", "soft light"),
+                 "palette": ((122, 128, 134), (172, 174, 172), (72, 74, 76), (212, 212, 206)),
+                 "mix": 0.55, "sun": False, "shadow": 0.0, "glow": 30},
+}
 
 SHOT_ZOOM = {"extreme_wide": 1.0, "wide": 1.15, "pov": 1.4, "medium": 1.55, "over_shoulder": 1.7,
              "close_up": 2.3, "extreme_close_up": 3.0}
@@ -69,6 +84,22 @@ def _ease(t):
     return 0.5 - 0.5 * math.cos(math.pi * t)
 
 
+def lighting_look(prefix: str | None) -> dict | None:
+    """Işık önekindeki ilk tanınan görünüm; tanınan kelime yoksa None (render, önek hiç yokmuş gibi çıkar)."""
+    low = (prefix or "").casefold()
+    for name, look in LOOKS.items():
+        if any(k in low for k in look["keywords"]):
+            return {"name": name, **look}
+    return None
+
+
+def apply_look(palette, look):
+    if not look:
+        return palette
+    return tuple(tuple(int(_lerp(c, t, look["mix"])) for c, t in zip(col, target))
+                 for col, target in zip(palette, look["palette"]))
+
+
 # ---------- dünya ----------
 
 @dataclass
@@ -78,9 +109,10 @@ class World:
     horizon_y: int
     width: int
     height: int
+    sun_x: float | None = None   # uzun gölge varsa güneşin dünya içindeki x konumu
 
 
-def _build_world(rng: random.Random, width: int, height: int, palette) -> World:
+def _build_world(rng: random.Random, width: int, height: int, palette, look: dict | None = None) -> World:
     sky, horizon, ground, light = palette
     horizon_y = int(height * rng.uniform(0.58, 0.68))
 
@@ -104,19 +136,24 @@ def _build_world(rng: random.Random, width: int, height: int, palette) -> World:
     glow_mask = Image.new("L", (width, height), 0)             # ufuk parıltısı
     gx = int(width * rng.uniform(0.2, 0.8))
     ImageDraw.Draw(glow_mask).ellipse([gx - height // 2, horizon_y - height // 3, gx + height // 2,
-                                       horizon_y + height // 4], fill=70)
+                                       horizon_y + height // 4], fill=look["glow"] if look else 70)
     back = Image.composite(Image.new("RGB", (width, height), light), back,
                            glow_mask.filter(ImageFilter.GaussianBlur(height // 8)))
+    if look and look["sun"]:                                   # alçak güneş: ufkun hemen üstünde
+        r = height // 16
+        ImageDraw.Draw(back).ellipse([gx - r, horizon_y - 3 * r, gx + r, horizon_y - r], fill=light)
 
     # Ön katman
     front = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     d = ImageDraw.Draw(front)
     steel = tuple(int(c * 0.6) for c in ground) + (255,)
     brace = max(2, height // 160)
+    pillars = []
     for _ in range(rng.randint(3, 6)):                         # kirişler: dikmeler ve çapraz bağlantılar
         px = rng.randint(0, width)
         pw = rng.randint(height // 30, height // 14)
         top = int(horizon_y - height * rng.uniform(0.25, 0.55))
+        pillars.append((px, pw))
         d.rectangle([px, top, px + pw, horizon_y + 10], fill=steel)
         for k in range(3):
             y0 = top + (horizon_y - top) * k // 3
@@ -131,11 +168,22 @@ def _build_world(rng: random.Random, width: int, height: int, palette) -> World:
     lines = tuple(int(c * 1.25) for c in ground) + (255,)
     for i in range(0, width, max(8, width // 24)):                              # perspektif çizgileri
         d.line([(i, horizon_y), (width // 2 + (i - width // 2) * 3, height)], fill=lines, width=2)
-    return World(back, front, horizon_y, width, height)
+    if look and look["shadow"]:                                # uzun gölgeler: güneşten uzağa, zemin üzerinde
+        shade = tuple(int(c * 0.45) for c in ground) + (255,)
+        for px, pw in pillars:
+            away = 1 if px + pw / 2 >= gx else -1
+            reach, drop = away * width * 0.22 * look["shadow"], height * 0.07
+            d.polygon([(px, horizon_y + 2), (px + pw, horizon_y + 2), (px + pw + reach, horizon_y + drop),
+                       (px + reach, horizon_y + drop)], fill=shade)
+    return World(back, front, horizon_y, width, height, gx if look and look["shadow"] else None)
 
 
-def _draw_figure(d, x, y, h, color, rim, name, font, phase):
+def _draw_figure(d, x, y, h, color, rim, name, font, phase, shadow_dir: int = 0, shadow_color=None):
     head, body_w = h * 0.16, h * 0.28
+    if shadow_dir:                                             # alçak güneşte figürün uzun gölgesi
+        reach, drop = shadow_dir * h * 1.6, h * 0.16
+        d.polygon([(x - body_w / 2, y), (x + body_w / 2, y), (x + body_w * 0.9 + reach, y + drop),
+                   (x - body_w * 0.1 + reach, y + drop)], fill=shadow_color)
     top = y - h + math.sin(phase) * h * 0.015
     d.rounded_rectangle([x - body_w / 2, top + head * 1.05, x + body_w / 2, y], radius=int(body_w / 2.2), fill=color)
     d.ellipse([x - head / 2, top, x + head / 2, top + head], fill=color)
@@ -202,14 +250,16 @@ def _encoder(out_path: str, width: int, height: int, fps: int):
 
 def render_clip(out_path: str, seed: int, width: int, height: int, duration: float = 5.0, fps: int = 24,
                 emotion: str = "neutral", camera: dict | None = None, characters: list[str] | None = None,
-                action: float = 0.0, label: str = "") -> str:
+                action: float = 0.0, label: str = "", lighting: str = "") -> str:
     width, height = width + width % 2, height + height % 2      # yuv420p çift boyut ister
     rng = random.Random(seed)
     camera = camera or {}
-    palette = tuple(_jitter(c, rng) for c in PALETTES.get(emotion, PALETTES["neutral"]))
+    look = lighting_look(lighting)
+    # Işık görünümü rastgele sayı tüketmez: aynı seed'le önek olmadan render, Faz 13 öncesiyle birebir aynıdır.
+    palette = apply_look(tuple(_jitter(c, rng) for c in PALETTES.get(emotion, PALETTES["neutral"])), look)
     wh = int(height * WORLD_SCALE)
     ww = int(wh * width / height * 1.7)                        # pan ve takip için görüş alanından geniş
-    world = _build_world(rng, ww, wh, palette)
+    world = _build_world(rng, ww, wh, palette, look)
 
     names = list(characters or [])[:4]
     fig_h = wh * 0.42
@@ -263,9 +313,10 @@ def render_clip(out_path: str, seed: int, width: int, height: int, duration: flo
             color = tuple(int(c * 0.35) for c in palette[2])
             for i, (slot, name) in enumerate(zip(slots, names)):
                 wx = slot + base["run"] * t + math.sin(t * 6 + i) * ww * 0.004
+                shadow_dir = (1 if wx >= world.sun_x else -1) if world.sun_x is not None else 0
                 _draw_figure(d, (wx - fx) * scale, (world.horizon_y + fig_h * 0.05 - fy) * scale, fig_h * scale,
                              color, palette[3], name, _font(max(12, int(name_size * scale / WORLD_SCALE))),
-                             t * 18 * (1 + 2 * action) + i)
+                             t * 18 * (1 + 2 * action) + i, shadow_dir, tuple(int(c * 0.45) for c in palette[2]))
             r = max(1, height // 260)
             for ex, ey, speed in embers:
                 yy = ((ey - t * speed * 0.6) % 1.0) * height

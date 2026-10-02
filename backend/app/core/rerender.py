@@ -26,17 +26,17 @@ class Fingerprints:
     bed: str         # müzik, sfx ve ambiyans
 
 
-def fingerprints(scene, characters, tracks, assets=()) -> Fingerprints:
+def fingerprints(scene, characters, tracks, assets=(), style_version=None) -> Fingerprints:
     return Fingerprints(
-        visual=visual_fingerprint(scene, characters, assets),
+        visual=visual_fingerprint(scene, characters, assets, style_version),
         dialogue=audio_fingerprint([t for t in tracks if t.kind == "dialogue"]),
         bed=audio_fingerprint([t for t in tracks if t.kind != "dialogue"]),
     )
 
 
-def plan_rerender(scene, characters, tracks, assets=()) -> tuple[Stage, Fingerprints]:
+def plan_rerender(scene, characters, tracks, assets=(), style_version=None) -> tuple[Stage, Fingerprints]:
     """Hangi aşamaların çalışacağını ve güncel özetleri döndürür (özetleri saklamak çağıranın işidir)."""
-    fp = fingerprints(scene, characters, tracks, assets)
+    fp = fingerprints(scene, characters, tracks, assets, style_version)
     if scene.visual_hash is None or fp.visual != scene.visual_hash:
         return ALL, fp
     if scene.lipsync_video_key is None or fp.dialogue != scene.dialogue_hash:

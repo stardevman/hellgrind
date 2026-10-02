@@ -17,8 +17,9 @@ def seed_for(*parts) -> int:
     return int(stable_hash(list(parts))[:8], 16) & 0x7FFFFFFF
 
 
-def visual_fingerprint(scene, characters, assets=()) -> str:
-    """Görüntüyü belirleyen her şey: istem, kamera, motor, süre, karakterlerin kimliği ve bağlı varlıkların sürümü.
+def visual_fingerprint(scene, characters, assets=(), style_version: int | None = None) -> str:
+    """Görüntüyü belirleyen her şey: istem, kamera, motor, süre, karakterlerin kimliği, bağlı varlıkların sürümü ve
+    projenin etkin stil kılavuzu sürümü.
 
     prompt_revision bilinçli olarak dahil değil: düzeltme döngüsünün kendi istem değişiklikleri yönetmenin
     girdisi sayılmaz, yeniden render tetiklememelidir.
@@ -28,6 +29,7 @@ def visual_fingerprint(scene, characters, assets=()) -> str:
 
     Varlıklar (Faz 12) yalnızca varsa özete girer: bağlı varlığı olmayan sahnenin özeti öncekiyle aynı kalır ve
     yeniden render tetiklenmez. Varlığın durumu (onay, kilit) değil, sürümü girer: referans değişince sürüm artar.
+    Stil kılavuzu (Faz 13) da aynı biçimde yalnızca etkin bir sürüm varsa girer; sürümler değişmez olduğu için numara yeter.
     """
     payload = {
         "prompt": scene.prompt_spec,
@@ -40,6 +42,8 @@ def visual_fingerprint(scene, characters, assets=()) -> str:
     }
     if assets:
         payload["assets"] = sorted([str(a.id), a.version] for a in assets)
+    if style_version is not None:
+        payload["style"] = style_version
     return stable_hash(payload)
 
 

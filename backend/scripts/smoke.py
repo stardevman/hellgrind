@@ -6,12 +6,15 @@ Kontroller:
   R. Referans eksiksizliği (Faz 12): varlıkları kilitlenmemiş çekimler `blocked` olur ve hiçbir şey harcanmaz; dönüş
      videosundan kareler örneklenir; hareket testi onaylanmadan varlık kilitlenemez; kilitlenen varlıkların çekimleri
      üretilir, panelden bağlanan taslak nesneyi içeren çekim kilitlenene dek engelli kalır
+  Y. Stil kılavuzu (Faz 13): film altın saat sürümüyle üretilir; çekimlerin promptları aynı öneki taşır
   2. Örnek senaryo preview ön ayarıyla 4 sahneye ayrılır, hepsi `done` olur; her sahnede rafine havuz 1-3 klip,
      siyah ve donmuş klipler elenmiştir (kusur gerçeği ile kapının bulduğu karşılaştırılır)
   3. Yalnızca müzik değişince planda yalnızca MUX vardır ve harcama değişmez
   4. Küratör seçimi yalnızca LIPSYNC ve MUX çalıştırır
   5. Değişiklik yoksa plan boştur
   6. Film 4 sahneyle birleşir
+  S. Stil değişikliği: önizleme 4 çekimi ve sanal maliyeti listeler, onay olmadan hiçbir şey üretilmez; etkinleştirince
+     çekimler yeni önekle yeniden üretilir
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
 """
@@ -26,7 +29,7 @@ c = httpx.Client(base_url=API, timeout=60)
 FAILS: list[str] = []
 TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked"}
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
-BUDGET = 100.0
+BUDGET = 200.0       # film + stil değişikliğiyle yeniden üretim ~50 sanal USD; hız bekçisi bütçenin yarısı
 
 
 def check(cond: bool, msg: str) -> None:
@@ -104,6 +107,11 @@ def main() -> int:
     ov = overview(pid)
     check(all(s["status"] == "blocked" for s in ov["scenes"]) and spent(pid) == 0, "çekimler blocked, harcama 0")
     check(all(s["last_error"].startswith("Üretim engellendi") for s in ov["scenes"]), "eksikler Türkçe yazıldı: " + ov["scenes"][0]["last_error"][:90])
+    style = c.get(f"/projects/{pid}/style").json()
+    v1 = c.post(f"/projects/{pid}/style", json=style["example"]).json()["version"]
+    impact = c.post(f"/projects/{pid}/style/preview", json={"version": v1}).json()
+    check(impact["affected"] == [] and impact["pending"] == CODES, "henüz üretilmemiş çekimler için stil önizlemesi yeniden üretim göstermiyor")
+    c.post(f"/projects/{pid}/style/activate", json={"version": v1}).raise_for_status()
     assets = {a["name"]: a for a in c.get(f"/projects/{pid}/assets").json()}
     check(sorted(assets) == sorted(["Kerem", "Ayşe", "Terk Edilmiş Dökümhane", "Çöken Köprü"]), f"varlıklar taslak olarak oluştu: {sorted(assets)}")
     prepare_assets(assets)
@@ -131,6 +139,8 @@ def main() -> int:
     check_defects(pid)
     spend_after_film = spent(pid)
     check(spend_after_film > 0, f"sanal harcama kaydedildi: ${spend_after_film:.2f}")
+    prefix = c.get(f"/projects/{pid}/style").json()["active"]["prefix"]
+    check(style_prefixes(pid, ["S001_SH01", "S002_SH01"]) == {prefix}, "iki farklı çekimin promptları aynı stil önekini taşıyor")
 
     print("3) Stateless Re-render: yalnızca müzik değişir")
     sid = scenes["S001_SH01"]["id"]
@@ -168,6 +178,24 @@ def main() -> int:
     clips = film["cut"]["clips"] if film and film["cut"] else []
     check([x["scene_code"] for x in clips] == CODES, f"film {len(clips)} sahneyle birleşti, {film['cut']['duration_s'] if film and film['cut'] else '?'} sn")
 
+    print("S) Stil değişikliği: önce önizleme, onay olmadan üretim yok")
+    v2 = c.post(f"/projects/{pid}/style", json={**c.get(f"/projects/{pid}/style").json()["example"],
+                                                "lighting_prefix": "Cold moonlight night, deep blue shadows."}).json()["version"]
+    before = (spent(pid), variation_count(pid))
+    impact = c.post(f"/projects/{pid}/style/preview", json={"version": v2}).json()
+    check([a["scene_code"] for a in impact["affected"]] == CODES and impact["expected_usd"] > 0,
+          f"önizleme 4 çekimi listeledi, tahmini sanal maliyet ${impact['expected_usd']:.2f} (en kötü ${impact['worst_usd']:.2f})")
+    time.sleep(3)
+    check((spent(pid), variation_count(pid)) == before and c.get(f"/projects/{pid}/style").json()["active"]["version"] == v1,
+          "önizlemeden sonra harcama ve varyasyon sayısı değişmedi, etkin sürüm aynı")
+    r = c.post(f"/projects/{pid}/style/activate", json={"version": v2, "render": True}).json()
+    check(all(r["planned"][k] == ["VISUAL", "LIPSYNC", "MUX"] for k in CODES), "etkinleştirince 4 çekim yeniden üretime girdi")
+    ov = wait_scenes(pid)
+    check(all(sc["status"] == "done" for sc in ov["scenes"]) and spent(pid) > before[0], "çekimler yeni stille yeniden üretildi")
+    prefix = c.get(f"/projects/{pid}/style").json()["active"]["prefix"]
+    check(prefix.startswith("Cold moonlight") and style_prefixes(pid, CODES, latest=True) == {prefix},
+          "yeni varyasyonların hepsi yeni stil önekini taşıyor")
+
     print("7) Kill-Switch: 1 USD'lik proje")
     tiny = new_project("duman-testi-kucuk-butce", 1.0, lint_strictness="off")     # yalnızca bütçe sınanır
     c.post(f"/projects/{tiny}/script", json={"text": meta["sample_script"]}).raise_for_status()
@@ -185,6 +213,25 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+def variation_count(pid: str) -> int:
+    return sum(len(sc["variations"]) for sc in overview(pid)["scenes"])
+
+
+def style_prefixes(pid: str, codes: list[str], latest: bool = False) -> set[str]:
+    """Çekimlerin sağlayıcıya giden promptlarının, etkin stil önekiyle aynı uzunluktaki başları (hepsi aynıysa tek eleman).
+    latest: yalnızca rafine havuzdaki (en son üretilen) varyasyonlar."""
+    from sqlalchemy import text
+
+    from app.db import session_scope
+    with session_scope() as s:
+        prompts = s.execute(text("""SELECT v.params->>'prompt' FROM variations v JOIN scenes sc ON sc.id = v.scene_id
+                                    WHERE sc.project_id = :p AND sc.scene_code = ANY(:c)
+                                      AND (NOT :latest OR v.refined_rank IS NOT NULL)"""),
+                            {"p": pid, "c": codes, "latest": latest}).scalars().all()
+    prefix = c.get(f"/projects/{pid}/style").json()["active"]["prefix"]
+    return {p[:len(prefix)] for p in prompts}
 
 
 def lock_asset(asset: dict, upload: str | None = None) -> dict:

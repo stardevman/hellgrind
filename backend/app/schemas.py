@@ -1,4 +1,5 @@
 """API girdi şemaları ve doğrulama kuralları."""
+import re
 from typing import Literal
 from uuid import UUID
 
@@ -87,6 +88,14 @@ class PromptSpecIn(BaseModel):
     model_config = ConfigDict(extra="allow")      # düzeltme turlarının eklediği anahtarlar korunur
     prompt: str = ""
     negative: str = ""
+
+    @model_validator(mode="after")
+    def _no_style(self):
+        """Stil tek yerden yönetilir (değişmez kural 6): ışık ve hareket dili çekim bazında yazılmaz."""
+        styled = sorted(set(self.model_extra or {}) & {"style", "lighting", "lighting_prefix", "motion_style", "palette"})
+        if styled:
+            raise ValueError(f"Stil çekim bazında yazılmaz ({', '.join(styled)}); stil kılavuzunu kullan.")
+        return self
 
 
 class SceneIn(BaseModel):
@@ -182,3 +191,45 @@ class SceneAssetIn(BaseModel):
         if not self.asset_id and not (self.name or "").strip():
             raise ValueError("asset_id ya da name gerekli")
         return self
+
+
+# ---------- stil kılavuzu (Faz 13) ----------
+
+HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+class StyleIn(BaseModel):
+    """Stil kılavuzunun yeni sürümü. Etkinleştirilene dek hiçbir çekimi etkilemez."""
+    lighting_prefix: str = Field("", max_length=2000)
+    motion_style: str = Field("", max_length=2000)
+    rules: dict[str, str] = {}                       # varlık türü -> render stili (clean_3d | painterly | stylized_2d | serbest)
+    negative: str = Field("", max_length=2000)
+    palette: list[str] = Field([], max_length=12)
+    notes: str | None = Field(None, max_length=4000)
+
+    @field_validator("rules")
+    @classmethod
+    def _rules(cls, v: dict) -> dict:
+        unknown = set(v) - set(AssetType.__args__)
+        if unknown:
+            raise ValueError(f"Bilinmeyen varlık türü: {', '.join(sorted(unknown))} (geçerli: character, location, prop)")
+        clean = {k: " ".join(style.split()) for k, style in v.items()}
+        if any(not style or len(style) > 200 for style in clean.values()):
+            raise ValueError("Render stili boş olamaz ve en çok 200 karakter olabilir")
+        return clean
+
+    @field_validator("palette")
+    @classmethod
+    def _palette(cls, v: list) -> list:
+        bad = [c for c in v if not HEX_COLOR.match(c)]
+        if bad:
+            raise ValueError(f"Palet renkleri #RRGGBB biçiminde olmalı: {', '.join(bad)}")
+        return [c.upper() for c in v]
+
+
+class StyleVersionIn(BaseModel):
+    version: int = Field(ge=1)
+
+
+class StyleActivateIn(StyleVersionIn):
+    render: bool = False                             # etkilenen çekimleri hemen yeniden üret

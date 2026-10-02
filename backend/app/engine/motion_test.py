@@ -15,7 +15,8 @@ from app.core.hashing import seed_for
 from app.db import session_scope
 from app.engine.iteration import make_thumb
 from app.engine.providers import GenRequest, TransientError, get_provider
-from app.hermes import lint
+from app.style import bible
+from app.style.composer import compose_prompt
 from app.models import Asset, Variation
 from app.quality.anomaly import detect_anomalies
 
@@ -36,20 +37,24 @@ ACTION_TEXT = {
 }
 
 
-def prompt_for(asset) -> str:
-    base = f"{asset.name}. {asset.description}" if asset.description else asset.name
-    prompt, _ = lint.constrain_prompt(f"Motion test: {base}. {ACTION_TEXT[asset.type]}",
-                                      "", [asset.name] if asset.type == "character" else [])
-    return prompt
+def compose_for(asset, style):
+    """Testin prompt'u da besteciden geçer: varlık, filmdeki ışık ve hareket diliyle sınanır."""
+    camera, _ = RENDER[asset.type]
+    return compose_prompt({"prompt": f"Motion test: {ACTION_TEXT[asset.type]}", "camera": camera,
+                           "characters": [asset.name] if asset.type == "character" else []}, [asset], style)
 
 
 def create(s, asset: Asset, cfg: dict) -> Variation:
     """Sıradaki testin varyasyon satırı (queued). Her test yeni bir seed alır; varlığın en son testi olarak işaretlenir."""
     n = s.scalar(select(func.count()).select_from(Variation).where(Variation.asset_id == asset.id)) or 0
+    style = bible.active(s, asset.project_id)
+    composed = compose_for(asset, style)
     v = Variation(asset_id=asset.id, scene_id=None, tier="probe", wave_no=n, engine=ENGINE,
                   seed=seed_for(str(asset.id), asset.version, "motion", n), prompt_revision=0, status="queued",
                   params={"kind": "motion_test", "asset_version": asset.version, "resolution": cfg["probe_resolution"],
-                          "duration_s": MOTION_TEST_S, "prompt": prompt_for(asset)})
+                          "duration_s": MOTION_TEST_S, "prompt": composed.prompt, "negative": composed.negative,
+                          "style_version": style.version if style else None,
+                          "lighting": style.lighting_prefix if style else ""})
     s.add(v)
     s.flush()
     asset.motion_test_variation_id = v.id
@@ -71,9 +76,10 @@ def run(project_id: str, variation_id: str) -> str:
         if v.status not in ("queued", "running"):
             return v.status                                   # tekrar teslim edilen görev: iş zaten bitti
         camera, action = RENDER[asset.type]
-        req = GenRequest(prompt=v.params["prompt"], seed=v.seed, resolution=v.params["resolution"],
-                         duration_s=v.params["duration_s"],
+        req = GenRequest(prompt=v.params["prompt"], negative=v.params.get("negative", ""), seed=v.seed,
+                         resolution=v.params["resolution"], duration_s=v.params["duration_s"],
                          extra={"emotion": "neutral", "camera": camera, "action": action,
+                                "lighting": v.params.get("lighting", ""),
                                 "characters": [asset.name] if asset.type == "character" else [],
                                 "label": f"{asset.name} · hareket testi #{v.wave_no + 1}"})
         asset_id = str(asset.id)

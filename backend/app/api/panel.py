@@ -9,13 +9,14 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
-from app.api.plan import Blocked, Busy, plan_and_dispatch
+from app.api.plan import dispatch_all
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
 from app.hermes import lint
+from app.style import bible
 from app.models import Asset, AudioTrack, Character, Scene, SceneAsset, SceneCharacter, Variation
 from app.schemas import ScriptIn
 
@@ -36,26 +37,6 @@ def meta():
             "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS, "sample_script": SAMPLE_SCRIPT}
 
 
-def _dispatch_all(s: Session, project_id: str) -> dict:
-    """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); eksik
-    referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
-    kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin."""
-    planned, busy, blocked, frozen = {}, [], {}, False
-    for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
-        if frozen or killswitch.is_frozen(project_id):
-            frozen, planned[sc.scene_code] = True, []
-            continue
-        try:
-            planned[sc.scene_code] = plan_and_dispatch(s, sc)
-        except Busy:
-            planned[sc.scene_code] = []
-            busy.append(sc.scene_code)
-        except Blocked as e:
-            planned[sc.scene_code] = []
-            blocked[sc.scene_code] = [m["name"] for m in e.payload()["missing"]]
-    return {"planned": planned, "busy": busy, "blocked": blocked, "frozen": frozen}
-
-
 @router.post("/projects/{project_id}/script")
 def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
@@ -67,7 +48,7 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
     result = {"planned": {}, "busy": [], "blocked": {}, "frozen": False}
     if body.auto_render:
         s.expire_all()
-        result = _dispatch_all(s, project_id)
+        result = dispatch_all(s, project_id)
     return {**summary, **result}
 
 
@@ -75,7 +56,7 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
 def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
-    return _dispatch_all(s, project_id)
+    return dispatch_all(s, project_id)
 
 
 def _media(key: str | None) -> str | None:
@@ -147,7 +128,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "budget_limit_usd": float(p.budget_limit_usd), "spent_usd": float(p.spent_usd),
                     "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(project_id),
                     "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
-                    "dry_run": settings.dry_run,
+                    "dry_run": settings.dry_run, "style_version": bible.active_version(s, project_id),
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "events": events, "timeline": timeline,

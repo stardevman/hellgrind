@@ -95,7 +95,7 @@ def check_scene(s, scene_id, cfg: dict) -> LintResult:
     return result
 
 
-# ---------- prompt kısıtı ----------
+# ---------- prompt kısıtı (style/composer.py kullanır) ----------
 
 def cast_constraint(names: list[str]) -> str:
     """Kadroda olmayan kişilerin üretilmemesi için prompt'a eklenen kısıt (sağlayıcılar İngilizce istemi daha iyi izler)."""
@@ -103,10 +103,3 @@ def cast_constraint(names: list[str]) -> str:
         return "No people or characters appear in this shot."
     return f"Only the listed characters appear: {', '.join(names)}. No other people or figures."
 
-
-def constrain_prompt(prompt: str, negative: str, names: list[str]) -> tuple[str, str]:
-    """(prompt, negatif) -> kadro kısıtı eklenmiş hali. Deterministiktir: kadro görsel özette zaten vardır."""
-    base = (prompt or "").strip().rstrip(".")
-    prompt = f"{base}. {cast_constraint(names)}" if base else cast_constraint(names)
-    negative = ", ".join(x for x in ((negative or "").strip(" ,"), CAST_NEGATIVE) if x)
-    return prompt, negative

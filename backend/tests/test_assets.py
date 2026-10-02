@@ -20,6 +20,8 @@ from app.engine.iteration import run_tiered_generation
 from app.hermes import lint, rules
 from app.hermes.ingest import ingest
 from app.models import Asset, Character, Scene, SceneAsset, Variation
+from app.style import bible
+from app.style.composer import compose_prompt
 from tests.media_utils import make_tone, make_video
 from tests.scene_utils import plans
 
@@ -90,10 +92,10 @@ def test_the_lint_message_is_turkish_and_names_what_is_missing():
 
 
 def test_the_prompt_says_only_the_listed_characters_appear():
-    prompt, negative = lint.constrain_prompt("Köprü. Kerem koşar.", "bulanık", ["Kerem", "Ayşe"])
-    assert prompt == "Köprü. Kerem koşar. Only the listed characters appear: Kerem, Ayşe. No other people or figures."
-    assert negative == "bulanık, " + lint.CAST_NEGATIVE
-    assert lint.constrain_prompt("Boş yol.", "", [])[0] == "Boş yol. No people or characters appear in this shot."
+    c = compose_prompt({"prompt": "Köprü. Kerem koşar.", "negative": "bulanık", "characters": ["Kerem", "Ayşe"]}, [], None)
+    assert c.prompt == "Köprü. Kerem koşar. Only the listed characters appear: Kerem, Ayşe. No other people or figures."
+    assert c.negative == "bulanık, " + lint.CAST_NEGATIVE
+    assert compose_prompt({"prompt": "Boş yol."}, [], None).prompt == "Boş yol. No people or characters appear in this shot."
 
 
 # ---------- görsel özet (veritabanı gerekmez) ----------
@@ -183,8 +185,9 @@ def test_ingest_creates_draft_assets_and_links_them(mk_project):
     with session_scope() as s:
         assets = {(a.type, a.name): a for a in s.scalars(select(Asset).where(Asset.project_id == pid))}
         assert {a.status for a in assets.values()} == {"draft"} and {a.version for a in assets.values()} == {1}
-        assert assets[("location", "Terk Edilmiş Dökümhane")].render_style == "painterly"
-        assert assets[("prop", "Fener")].render_style == "clean_3d"
+        assert {a.render_style for a in assets.values()} == {None}                 # stil kılavuzunun tür kuralını izler
+        assert bible.effective_style(assets[("location", "Terk Edilmiş Dökümhane")], None) == "painterly"
+        assert bible.effective_style(assets[("prop", "Fener")], None) == "clean_3d"
         chars = {c.name: c for c in s.scalars(select(Character).where(Character.project_id == pid))}
         assert chars["Kerem"].asset_id == assets[("character", "Kerem")].id
         links = {(sc.scene_code, a.name, l.role, l.source) for sc, a, l in s.execute(
@@ -318,7 +321,8 @@ def prop(api, api_project, fast):
 
 def test_creating_an_asset_normalizes_the_name_and_refuses_duplicates(api, prop):
     pid, a = prop
-    assert (a["name"], a["status"], a["version"], a["render_style"]) == ("Sarı Taksi", "draft", 1, "clean_3d")
+    assert (a["name"], a["status"], a["version"], a["render_style"], a["effective_style"]) == (
+        "Sarı Taksi", "draft", 1, None, "clean_3d")
     r = api.post(f"/api/projects/{pid}/assets", json={"type": "prop", "name": "SARI TAKSİ"})
     assert r.status_code == 409
 

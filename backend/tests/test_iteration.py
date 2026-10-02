@@ -15,6 +15,7 @@ from app.budget import killswitch as ks
 from app.config import settings
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
+from app.style import bible
 from app.db import session_scope
 from app.engine import iteration
 from app.engine.iteration import run_tiered_generation
@@ -74,7 +75,8 @@ def test_a_scene_goes_through_probe_and_full_round_and_ends_refined(scene):
 
     sc, rows = scene_row(sid), variations(sid)
     with session_scope() as s:
-        assert sc.visual_hash == visual_fingerprint(s.get(Scene, sid), load_characters(s, sid), load_assets(s, sid))
+        assert sc.visual_hash == visual_fingerprint(s.get(Scene, sid), load_characters(s, sid), load_assets(s, sid),
+                                                    bible.active_version(s, pid))
     assert (sc.status, sc.last_error, sc.correction_count) == ("refined", None, 0)
     assert len(by(rows, tier="probe")) == 3                          # probe_n
     assert len(by(rows, tier="full")) == 3                           # CLIP 0.95 > 0.92: ilk dalgada refined_k bulundu, durdu
