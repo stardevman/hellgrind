@@ -405,7 +405,7 @@ def test_a_dialogue_without_replaces_adds_a_line(sample, api):
     assert [t.text for t in track_rows(sid) if t.kind == "dialogue"][-1] == "Bir de ben." and len([t for t in track_rows(sid) if t.kind == "dialogue"]) == 2
 
 
-def test_uploaded_audio_needs_an_existing_file(sample, api, tmp_path):
+def test_uploaded_audio_needs_an_existing_file(sample, api, tmp_path, s3):
     _, ids = sample
     sid = ids["S001_SH01"]
     body = {"kind": "sfx", "source": "upload", "file_key": f"uploads/{sid}/boom.wav"}
@@ -559,7 +559,7 @@ def test_overview_feeds_the_whole_panel_in_one_call(pool, api):
     assert [e["kind"] for e in body["events"]] == ["probe_wave"] and body["timeline"] is None
 
 
-def test_overview_includes_the_film_and_its_cut_list(sample, api, tmp_path):
+def test_overview_includes_the_film_and_its_cut_list(sample, api, tmp_path, s3):
     pid, _ = sample
     key, cut = f"timeline/{pid}/abc.mp4", f"timeline/{pid}/abc.json"
     (tmp_path / "c.json").write_text(json.dumps({"duration_s": 3, "clips": [{"scene_code": "S001_SH01", "in_s": 0, "out_s": 3}]}))
@@ -608,7 +608,7 @@ def put(tmp_path, key, content: bytes, content_type="application/octet-stream"):
     storage.put_file(str(path), key, content_type)
 
 
-def test_small_files_are_served_directly_with_an_immutable_cache(api, tmp_path):
+def test_small_files_are_served_directly_with_an_immutable_cache(api, tmp_path, s3):
     put(tmp_path, "thumbs/x/a.jpg", b"\xff\xd8\xff jpeg", "image/jpeg")
     put(tmp_path, "timeline/x/h.json", b'{"a": 1}', "application/json")
     img, doc = api.get("/api/media?key=thumbs/x/a.jpg"), api.get("/api/media?key=timeline/x/h.json")
@@ -617,7 +617,7 @@ def test_small_files_are_served_directly_with_an_immutable_cache(api, tmp_path):
     assert "immutable" in img.headers["cache-control"] and "max-age=31536000" in img.headers["cache-control"]
 
 
-def test_videos_redirect_to_a_signed_url_for_the_address_the_browser_uses(api, tmp_path):
+def test_videos_redirect_to_a_signed_url_for_the_address_the_browser_uses(api, tmp_path, s3):
     put(tmp_path, "final/x/v.mp4", b"0123456789" * 100, "video/mp4")
     r = api.get("/api/media?key=final/x/v.mp4", follow_redirects=False)
     assert r.status_code == 307
@@ -625,7 +625,7 @@ def test_videos_redirect_to_a_signed_url_for_the_address_the_browser_uses(api, t
     assert f"{target.scheme}://{target.netloc}" == settings.s3_public_endpoint_url and "X-Amz-Signature=" in target.query
 
 
-def test_the_signed_url_works_for_the_browser_host_and_supports_ranges(api, tmp_path):
+def test_the_signed_url_works_for_the_browser_host_and_supports_ranges(api, tmp_path, s3):
     """SigV4 imzası Host'a bağlıdır: tarayıcı localhost:9000'e gider, imza da o adrese göre atılmalı."""
     put(tmp_path, "final/x/v.mp4", b"0123456789" * 100, "video/mp4")
     target = urlsplit(api.get("/api/media?key=final/x/v.mp4", follow_redirects=False).headers["location"])
@@ -636,7 +636,7 @@ def test_the_signed_url_works_for_the_browser_host_and_supports_ranges(api, tmp_
     assert full.status_code == 200 and len(full.content) == 1000 and part.status_code == 206 and part.content == b"0123456789"
 
 
-def test_a_url_signed_for_the_internal_host_is_rejected_for_the_browser_host(tmp_path):
+def test_a_url_signed_for_the_internal_host_is_rejected_for_the_browser_host(tmp_path, s3):
     """Neden ayrı bir "genel" istemci gerekiyor: dahili adresle imzalanan URL tarayıcıda 403 verir."""
     put(tmp_path, "final/x/v.mp4", b"abc", "video/mp4")
     internal = storage.client().generate_presigned_url("get_object", Params={"Bucket": settings.s3_bucket, "Key": "final/x/v.mp4"}, ExpiresIn=60)
@@ -649,7 +649,7 @@ def test_media_refuses_keys_outside_the_known_prefixes_or_with_path_tricks(api, 
     assert api.get("/api/media", params={"key": key}).status_code == 400
 
 
-def test_missing_media_is_404_not_a_dead_redirect(api):
+def test_missing_media_is_404_not_a_dead_redirect(api, s3):
     assert api.get("/api/media?key=thumbs/none/none.jpg").status_code == 404
     assert api.get("/api/media?key=final/none/none.mp4", follow_redirects=False).status_code == 404
     assert api.get("/api/media").status_code == 422

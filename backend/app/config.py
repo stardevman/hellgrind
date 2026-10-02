@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     pricing_file: str = "/app/pricing.yaml"
 
     dry_run: bool = True
-    dry_run_latency_s: float = 0.3
     dry_run_fail_rate: float = 0.0
     dry_run_score_mean: float = 0.89
     dry_run_score_sd: float = 0.05

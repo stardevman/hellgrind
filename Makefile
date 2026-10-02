@@ -6,8 +6,8 @@ up:        ## Tüm servisleri derle ve başlat
 smoke:     ## Uçtan uca duman testi
 	docker compose exec api python -m scripts.smoke
 
-test:      ## Testler (db/ klasörü bağlanır: servisler varsa DB/depo testleri ayrı hellgrind_test veritabanında koşar)
-	docker compose run --rm -v "$(CURDIR)/db:/db:ro" api python -m pytest -q
+test:      ## Tam test paketi (db/ ve depo kökündeki iki dosya bağlanır; DB/depo testleri ayrı hellgrind_test veritabanında koşar)
+	docker compose run --rm -v "$(CURDIR)/db:/db:ro" -v "$(CURDIR)/.gitignore:/.gitignore:ro" -v "$(CURDIR)/.env.example:/.env.example:ro" api python -m pytest -q
 
 panel:     ## Paneli tarayıcıda aç (macOS/Linux)
 	@python3 -m webbrowser http://localhost:8000 || true
