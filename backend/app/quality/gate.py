@@ -115,6 +115,22 @@ def finalize_draft(scene_id, variation_id: str, scene_update: dict) -> None:
     purge_files(retire)
 
 
+def set_single_winner(scene_id, variation_id: str, scene_update: dict) -> None:
+    """Tek bir varyasyonu rank 1 yapar (dış çekim, previs rehberi). Önceki havuz silinmez: `passed` olarak geri çekilir;
+    yöntem değişip üretime dönülürse klipler yeniden kullanılabilir."""
+    with session_scope() as s:
+        s.execute(update(Variation).where(Variation.scene_id == scene_id).values(refined_rank=None))
+        s.flush()
+        for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id, Variation.status == "refined")):
+            if str(v.id) != str(variation_id):
+                v.status = "passed"
+        winner = s.get(Variation, variation_id)
+        winner.refined_rank, winner.status = 1, "refined"
+        scene = s.get(Scene, scene_id)
+        for field, value in scene_update.items():
+            setattr(scene, field, value)
+
+
 def purge_files(items: list[tuple]) -> None:
     """[(variation_id, video_key, neden)]: dosyayı karantinaya taşır (hard modda siler), satırı günceller."""
     for vid, key, reason in items:

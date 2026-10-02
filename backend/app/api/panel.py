@@ -17,9 +17,10 @@ from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
+from app.engine.methods import suggest_method
 from app.hermes import lint
 from app.style import bible
-from app.models import Asset, AudioTrack, Character, Scene, SceneAsset, SceneCharacter, Variation
+from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
 from app.schemas import ScriptIn
 
 router = APIRouter(tags=["panel"])
@@ -29,7 +30,7 @@ PRESETS = {
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
 }
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
-                  "assets/", "motion/", "storyboard/")
+                  "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/")
 EVENT_LIMIT = 30
 
 
@@ -83,11 +84,16 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     ids = [sc.id for sc in scenes]
     cfg = project_settings(p.settings)
     variations, tracks, cast, items = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
+    revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
         for v in s.scalars(select(Variation).where(Variation.scene_id.in_(ids))
                            .order_by(Variation.tier, Variation.wave_no, Variation.created_at)):
             variations[v.scene_id].append(v)
+        all_vids = [v.id for vs in variations.values() for v in vs]
+        if all_vids:
+            for r in s.scalars(select(Revision).where(Revision.variation_id.in_(all_vids))):
+                revisions[r.variation_id][r.id] = r.version
         for t in s.scalars(select(AudioTrack).where(AudioTrack.scene_id.in_(ids), AudioTrack.is_active)
                            .order_by(AudioTrack.start_offset_s, AudioTrack.kind)):
             tracks[t.scene_id].append(t)
@@ -110,6 +116,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
+        "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
+        "guide_url": _media(sc.guide_key),
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
         "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
@@ -127,6 +135,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "anomalies": sorted({a["type"] for a in (v.anomalies or [])}),
             "reason": (v.params or {}).get("purge_reason"), "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
+            "source": (v.params or {}).get("source", "generate"), "revisions": len(revisions[v.id]),
+            "revision": revisions[v.id].get(v.revision_id) if v.revision_id else None,   # etkin revizyonun sürümü
         } for v in variations[sc.id]],
     } for sc in scenes]
 

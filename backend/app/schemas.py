@@ -289,3 +289,13 @@ class ProjectPatch(BaseModel):
     settings: dict = {}
 
     _settings = field_validator("settings")(ProjectIn._settings.__func__)
+
+
+# ---------- üretim yöntemi ve elle düzeltme (Faz 15) ----------
+
+class MethodIn(BaseModel):
+    method: Literal["generate", "previs_guide", "external"]
+
+
+class RevisionActiveIn(BaseModel):
+    revision_id: UUID | None = None          # null: orijinal üretime dön

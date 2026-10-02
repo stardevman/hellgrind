@@ -19,6 +19,7 @@ Kontroller:
   M. Sekans müziği değişince hiçbir sahne yeniden üretilmez, yalnızca film yeniden birleştirilir (Faz 11)
   S. Stil değişikliği: önizleme 4 çekimi ve sanal maliyeti listeler, onay olmadan hiçbir şey üretilmez; etkinleştirince
      çekimler yeni önekle yeniden üretilir
+  D. Dış çekim üretim harcaması olmadan `done` olur; rafine #1'in elle düzeltmesi yalnızca LIPSYNC ve MUX çalıştırır (Faz 15)
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
@@ -266,6 +267,39 @@ def main() -> int:
     prefix = c.get(f"/projects/{pid}/style").json()["active"]["prefix"]
     check(prefix.startswith("Cold moonlight") and style_prefixes(pid, CODES, latest=True) == {prefix},
           "yeni varyasyonların hepsi yeni stil önekini taşıyor")
+
+    print("D) Dış çekim ve elle düzeltme")
+    import tempfile
+
+    from app.engine.procedural import render_clip
+    ids = {s["scene_code"]: s["id"] for s in overview(pid)["scenes"]}
+    before_spent = spent(pid)
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = render_clip(os.path.join(tmp, "dis_cekim.mp4"), 11, 640, 360, 3.0, 12, emotion="fear",
+                           camera={"shot": "wide", "movement": "tracking"}, characters=["Ayşe", "Kerem"], label="dış çekim")
+        with open(clip, "rb") as f:
+            data = f.read()
+    r = c.post(f"/scenes/{ids['S002_SH02']}/external", params={"filename": "dis_cekim.mp4"}, content=data,
+               headers={"content-type": "video/mp4"}).json()
+    check(r.get("stages") == ["LIPSYNC", "MUX"], f"dış çekim yüklendi, görüntü üretilmiyor: {r.get('stages')}")
+    sc = wait_scene(ids["S002_SH02"])
+    check(sc["status"] == "done" and sc["method"] == "external" and spent(pid) == before_spent,
+          "dış çekim üretim harcaması olmadan done oldu")
+    winner = next(v for v in next(x for x in overview(pid)["scenes"] if x["scene_code"] == "S001_SH01")["variations"]
+                  if v["rank"] == 1)
+    before_final = c.get(f"/scenes/{ids['S001_SH01']}").json()["final_video_key"]
+    with tempfile.TemporaryDirectory() as tmp:
+        edit = render_clip(os.path.join(tmp, "duzeltme.mp4"), 12, 640, 360, 3.0, 12, emotion="tension",
+                           camera={"shot": "wide", "movement": "pan"}, characters=["Kerem"], label="elle düzeltme")
+        with open(edit, "rb") as f:
+            data = f.read()
+    r = c.post(f"/variations/{winner['id']}/revisions", params={"filename": "duzeltme.mp4", "note": "renk düzeltmesi"},
+               content=data, headers={"content-type": "video/mp4"}).json()
+    check(r.get("stages") == ["LIPSYNC", "MUX"] and r["revision"]["version"] == 1,
+          f"rafine #1'in revizyonu yalnızca LIPSYNC + MUX çalıştırıyor: {r.get('stages')}")
+    sc = wait_scene(ids["S001_SH01"], before_final)
+    check(f"_r{r['revision']['id']}_" in sc["lipsync_video_key"] and spent(pid) == before_spent,
+          "dudak senkronu revizyonla yeniden yapıldı, harcama değişmedi")
 
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")

@@ -30,7 +30,13 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     Varlıklar (Faz 12) yalnızca varsa özete girer: bağlı varlığı olmayan sahnenin özeti öncekiyle aynı kalır ve
     yeniden render tetiklenmez. Varlığın durumu (onay, kilit) değil, sürümü girer: referans değişince sürüm artar.
     Stil kılavuzu (Faz 13) da aynı biçimde yalnızca etkin bir sürüm varsa girer; sürümler değişmez olduğu için numara yeter.
+
+    Yöntem (Faz 15): dış çekimin görüntüsünü yalnızca yüklenen dosya belirler (özeti, dosyanın içerik özetidir);
+    previs rehberli çekimde rehber dosyanın özeti de girer.
     """
+    method = getattr(scene, "method", None) or "generate"
+    if method == "external":
+        return stable_hash({"external": scene.external_hash})
     payload = {
         "prompt": scene.prompt_spec,
         "camera": scene.camera,
@@ -44,6 +50,8 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
         payload["assets"] = sorted([str(a.id), a.version] for a in assets)
     if style_version is not None:
         payload["style"] = style_version
+    if method == "previs_guide":
+        payload["guide"] = scene.guide_hash
     return stable_hash(payload)
 
 

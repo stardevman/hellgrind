@@ -24,6 +24,7 @@ body {
 h1, h2, h3 { margin: 0; font-stretch: 118%; font-weight: 800; letter-spacing: -.01em; }
 h2 { font-size: 18px; } h3 { font-size: 15px; font-stretch: 112%; }
 p { margin: 0; }
+a, a:visited { color: var(--steel); }
 button, select, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 3px; }
@@ -198,6 +199,13 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .seg button { background: none; border: 0; padding: 5px 12px; color: var(--dust); font-weight: 600; }
 .seg button[aria-pressed="true"] { background: var(--sunk); color: var(--ash); }
+
+/* yöntem ve elle düzeltme */
+.hint { padding: 8px 12px; border-left: 3px solid var(--ember); background: var(--sunk); border-radius: 0 4px 4px 0; font-size: 13px; }
+.revs { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.revs li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 10px; background: var(--sunk); border-radius: 4px; }
+.revs li.active { outline: 1px solid var(--verdigris); }
+.tile .rev { position: absolute; left: 0; top: 0; padding: 0 3px; font-size: 10px; font-weight: 800; line-height: 13px; background: var(--steel); color: #11181d; }
 
 /* sekmeler */
 .tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -376,6 +384,33 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
               <button class="btn small" type="submit">Yükle</button>
             </form>
           </div>
+          <div>
+            <h3>Yöntem</h3>
+            <p class="hint" id="method-hint" style="margin-top:8px" hidden></p>
+            <form class="form-row" id="method-form" style="margin-top:8px">
+              <label>Üretim yöntemi<select id="method-select"><option value="generate">Yapay zekâ üretimi</option><option value="previs_guide">Previs rehberi</option><option value="external">Dış çekim</option></select></label>
+              <button class="btn small" type="submit">Uygula</button>
+            </form>
+            <p class="muted" id="method-files" style="margin-top:6px;font-size:13px"></p>
+            <form class="form-row upload-scene" data-target="guide" style="margin-top:8px">
+              <label>Previs rehberi yükle<input type="file" accept="video/*" required></label>
+              <button class="btn small" type="submit">Yükle</button>
+            </form>
+            <form class="form-row upload-scene" data-target="external" style="margin-top:8px">
+              <label>Dış çekim yükle<input type="file" accept="video/*" required></label>
+              <button class="btn small" type="submit">Yükle</button>
+            </form>
+          </div>
+          <div>
+            <h3 id="rev-title">Elle düzeltme</h3>
+            <ul class="revs" id="rev-list"></ul>
+            <form class="form-row" id="rev-form" style="margin-top:8px">
+              <label>Tür<select id="rev-kind"><option value="video">Düzenlenmiş video</option><option value="first_frame">Düzenlenmiş ilk kare</option></select></label>
+              <label>Dosya<input type="file" id="rev-file" accept="video/*" required></label>
+              <label>Not<input type="text" id="rev-note" maxlength="2000" placeholder="ör. renk ve kalem çizgileri"></label>
+              <button class="btn small" type="submit">Revizyon yükle</button>
+            </form>
+          </div>
           <div class="form-row"><button class="btn" id="regen" type="button">Bu sahneyi baştan üret</button></div>
           <div class="note" id="insp-note" role="status" aria-live="polite"></div>
         </div>
@@ -502,7 +537,8 @@ const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma
 
 const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
             offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null,
-            style: null, impact: null, impactScroll: false, styleFormFor: null, filmKind: "final" };
+            style: null, impact: null, impactScroll: false, styleFormFor: null, filmKind: "final", revs: {} };
+const METHOD_TR = { generate: "Yapay zekâ üretimi", previs_guide: "Previs rehberi", external: "Dış çekim" };
 let timer = null;
 
 /* ---------- yardımcılar ---------- */
@@ -619,7 +655,9 @@ function tileSpec(v, prev) {
   const selected = S.varId === v.id;
   if (selected) cls.push("selected");
   const score = v.score != null ? ` · skor ${v.score.toFixed(3)}` : "";
-  return { cls: cls.join(" "), selected, thumb: v.thumb_url || "", rank: v.rank || 0,
+  if (v.revision) fate += `, elle düzeltilmiş (revizyon ${v.revision})`;
+  if (v.source !== "generate") fate += v.source === "external" ? ", dış çekim" : ", previs rehberinden";
+  return { cls: cls.join(" "), selected, thumb: v.thumb_url || "", rank: v.rank || 0, rev: v.revision || 0,
            label: `${v.tier === "probe" ? "Test turu" : "Tam tur"} ${v.wave_no + 1}. dalga${score} · ${fate}` };
 }
 function missingLinks(list) {
@@ -645,6 +683,9 @@ function patchStrip(strip, vars, sceneId) {
       if (!img) { img = new Image(); img.alt = ""; img.loading = "lazy"; img.decoding = "async"; el.prepend(img); }
       if (img.getAttribute("src") !== t.thumb) img.src = t.thumb;
     } else if (img) img.remove();
+    let rev = el.querySelector(".rev");
+    if (t.rev) { if (!rev) { rev = document.createElement("span"); rev.className = "rev"; el.append(rev); } setText(rev, "R" + t.rev); }
+    else if (rev) rev.remove();
     let rank = el.querySelector(".rank");
     if (t.rank) { if (!rank) { rank = document.createElement("span"); rank.className = "rank"; el.append(rank); } setText(rank, String(t.rank)); }
     else if (rank) rank.remove();
@@ -810,6 +851,17 @@ function renderInspector() {
       : '<li class="muted">Bu sekansta film düzeyinde kanal yok.</li>');
   }
 
+  // yöntem
+  const hint = $("method-hint");
+  hint.hidden = !sc.method_hint;
+  if (sc.method_hint) setText(hint, "Bu çekimde aksiyon çok yoğun ve hareket özel: tarif ederek üretmek zor. Previs rehberi önerilir; karar senin.");
+  const msel = $("method-select");
+  if (msel.dataset.sig !== sc.id + ":" + sc.method) { msel.dataset.sig = sc.id + ":" + sc.method; msel.value = sc.method; }
+  setHTML($("method-files"), `Şu an: ${esc(METHOD_TR[sc.method] || sc.method)}`
+    + (sc.guide_url ? ` · <a href="${esc(sc.guide_url)}" target="_blank" rel="noopener">rehber video</a>` : "")
+    + (sc.external_url ? ` · <a href="${esc(sc.external_url)}" target="_blank" rel="noopener">dış çekim videosu</a>` : ""));
+  renderRevisions(sc);
+
   const scope = q ? $("music-scope").value : "scene";
   const music = scope === "sequence" ? q.tracks.find((t) => t.kind === "music" && t.source === "procedural")
                                      : sc.tracks.find((t) => t.kind === "music");
@@ -824,6 +876,34 @@ function renderInspector() {
   $("music-scope").disabled = !q;
   const busy = S.busy || (S.ov && S.ov.project.frozen);
   $("music-submit").disabled = busy; $("regen").disabled = busy;
+}
+
+/* ---------- elle düzeltme ---------- */
+function revTarget(sc) {
+  return (S.varId && sc.variations.find((v) => v.id === S.varId)) || sc.variations.find((v) => v.rank === 1) || null;
+}
+function renderRevisions(sc) {
+  const v = revTarget(sc);
+  $("rev-form").hidden = !v || !v.video_url || v.video_url.includes("quarantine");
+  if (!v) { setText($("rev-title"), "Elle düzeltme"); setHTML($("rev-list"), '<li class="muted">Düzeltilecek bir klip yok.</li>'); return; }
+  setText($("rev-title"), `Elle düzeltme · ${v.rank ? v.rank + ". sıradaki klip" : "seçili klip"}`);
+  const sig = `${v.revisions}:${v.revision}`;
+  const cached = S.revs[v.id];
+  if (!cached || cached.sig !== sig) {
+    if (!cached || !cached.loading) {
+      S.revs[v.id] = { ...(cached || {}), loading: true, sig: cached ? cached.sig : null };
+      api(`/variations/${v.id}/revisions`).then((d) => { S.revs[v.id] = { sig, data: d }; renderAll(); })
+        .catch(() => { S.revs[v.id] = { sig }; });
+    }
+    if (!cached || !cached.data) { setHTML($("rev-list"), '<li class="muted">Yükleniyor…</li>'); return; }
+  }
+  const d = S.revs[v.id].data, dis = S.busy ? " disabled" : "";
+  const original = `<li class="${d.active ? "" : "active"}"><b>Orijinal</b>${d.original_url ? ` <a href="${esc(d.original_url)}" target="_blank" rel="noopener">izle</a>` : ""}
+    ${d.active ? `<button class="btn small" type="button" data-rev-activate="" data-var="${v.id}" data-revs="1"${dis}>Orijinale dön</button>` : '<span class="muted">kullanımda</span>'}</li>`;
+  setHTML($("rev-list"), d.revisions.map((r) => `<li class="${r.id === d.active ? "active" : ""}"><b>Revizyon ${r.version}</b>
+      <span class="muted">${r.kind === "video" ? "video" : "ilk kare"}${r.note ? " · " + esc(r.note) : ""}</span>
+      <a href="${esc(r.video_url)}" target="_blank" rel="noopener">izle</a>
+      ${r.id === d.active ? '<span class="muted">kullanımda</span>' : `<button class="btn small" type="button" data-rev-activate="${r.id}" data-var="${v.id}" data-revs="1"${dis}>Bunu kullan</button>`}</li>`).join("") + original);
 }
 
 /* ---------- film ve olaylar ---------- */
@@ -1229,6 +1309,12 @@ document.addEventListener("click", (ev) => {
   } else if (t.dataset.act) {
     const run = ASSET_ACTS[t.dataset.act], id = t.dataset.asset;
     act(async () => note("assets-note", await run(id), "ok"), "assets-note");
+  } else if (t.dataset.revs) {
+    const vid = t.dataset.var, rid = t.dataset.revActivate || null;
+    act(async () => {
+      const r = await api(`/variations/${vid}/revisions/active`, "POST", { revision_id: rid });
+      note("insp-note", (rid ? "Revizyon kullanılıyor. " : "Orijinale dönüldü. ") + (r.hint || resultText(r)), "ok");
+    }, "insp-note");
   } else if (t.dataset.film) {
     S.filmKind = t.dataset.film; renderAll();
   } else if (t.dataset.upgrade) {
@@ -1350,6 +1436,49 @@ $("music-form").addEventListener("submit", (e) => {
   }, "insp-note");
 });
 $("music-scope").addEventListener("change", renderAll);
+$("method-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = S.sceneId, method = $("method-select").value;
+  act(async () => {
+    const r = await api(`/scenes/${id}/method`, "POST", { method });
+    note("insp-note", `Yöntem: ${METHOD_TR[r.method]}. ` + resultText(r), r.blocked ? "err" : "ok");
+  }, "insp-note");
+});
+async function uploadRaw(url, file) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* gövde yok */ }
+  if (!res.ok) throw new Error(detailOf(data) || `Yükleme başarısız (${res.status})`);
+  return data;
+}
+document.addEventListener("submit", (e) => {                              // dış çekim ve rehber yükleme
+  const form = e.target.closest("form.upload-scene");
+  if (!form) return;
+  e.preventDefault();
+  const file = form.querySelector("input[type=file]").files[0], id = S.sceneId, target = form.dataset.target;
+  if (!file) return;
+  act(async () => {
+    const q = `filename=${encodeURIComponent(file.name)}`;
+    const r = target === "external" ? await uploadRaw(`/api/scenes/${id}/external?${q}`, file)
+                                    : await uploadRaw(`/api/scenes/${id}/guide?${q}`, file);
+    form.reset();
+    note("insp-note", (target === "external" ? "Dış çekim yüklendi; görüntü üretilmeyecek. " : "Previs rehberi yüklendi. ") + resultText(r),
+         r.blocked ? "err" : "ok");
+  }, "insp-note");
+});
+$("rev-kind").addEventListener("change", (e) => { $("rev-file").accept = e.target.value === "video" ? "video/*" : "image/*"; });
+$("rev-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const sc = curScene(), v = sc && revTarget(sc), file = $("rev-file").files[0];
+  if (!v || !file) return;
+  const params = new URLSearchParams({ kind: $("rev-kind").value, filename: file.name });
+  if ($("rev-note").value.trim()) params.set("note", $("rev-note").value.trim());
+  act(async () => {
+    const r = await uploadRaw(`/api/variations/${v.id}/revisions?${params}`, file);
+    $("rev-file").value = ""; $("rev-note").value = "";
+    note("insp-note", `Revizyon ${r.revision.version} yüklendi, orijinal korunuyor. ` + (r.hint || resultText(r)), "ok");
+  }, "insp-note");
+});
 $("board-require").addEventListener("change", (e) => {
   const on = e.target.checked;
   act(async () => { await api(`/projects/${S.projectId}`, "PATCH", { settings: { require_board_approval: on } }); note("board-note", on ? "Onaylanmamış karesi olan çekimde görüntü üretilmez." : "Kare onayı artık zorunlu değil.", "ok"); }, "board-note");

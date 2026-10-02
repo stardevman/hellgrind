@@ -303,6 +303,19 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
         return "blocked"
     if board_blocks(project_id, scene_id):
         return "board_review"
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        method = scene.method or "generate"
+        if method == "previs_guide":
+            style = bible.active(s, project_id)
+            visual_hash = visual_fingerprint(scene, load_characters(s, scene_id), load_assets(s, scene_id),
+                                             style.version if style else None)
+            s.expunge_all()
+    if method == "external":                              # planlayıcı planlamaz; görüntü yüklenirken kaydedildi
+        return "external"
+    if method == "previs_guide":                          # yönlendirici: rehberli çekim üretilmez, rehberden çıkar
+        from app.engine.methods import run_guide
+        return run_guide(project_id, scene_id, visual_hash, style)
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 

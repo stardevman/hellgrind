@@ -247,3 +247,19 @@ def test_the_storyboard_tab_and_the_rough_cut_use_their_endpoints():
         assert needed in calls, needed
     assert "storyboard.pdf" in SCRIPT and "?kind=draft" in SCRIPT and "draft_timeline" in SCRIPT
     assert {"pending", "approved", "changes_requested"} <= js_object_keys("BOARD_TR")
+
+
+# ---------- yöntem ve elle düzeltme (Faz 15) ----------
+
+def test_the_method_and_revision_tools_use_their_endpoints():
+    for text in ("Yöntem", "Previs rehberi", "Dış çekim", "Previs rehberi yükle", "Dış çekim yükle", "Elle düzeltme",
+                 "Revizyon yükle", "Orijinale dön", "Düzenlenmiş ilk kare"):
+        assert text in HTML, text
+    calls = api_calls()
+    for needed in (("post", "/api/scenes/{}/method"), ("post", "/api/variations/{}/revisions/active"),
+                   ("get", "/api/variations/{}/revisions")):
+        assert needed in calls, needed
+    known = {re.sub(r"\{[^}]*\}", "{}", p) for p, ops in app.openapi()["paths"].items() if "post" in ops}
+    for raw in re.findall(r"uploadRaw\(`/api([^`?]+)\?", SCRIPT):                         # ham gövdeyle yüklemeler
+        assert "/api" + re.sub(r"\$\{[^}]*\}", "{}", raw) in known, raw
+    assert len(re.findall(r"uploadRaw\(`/api", SCRIPT)) == 3

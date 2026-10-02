@@ -45,7 +45,9 @@ def plan_rerender(scene, characters, tracks, assets=(), style_version=None) -> t
     """Hangi aşamaların çalışacağını ve güncel özetleri döndürür (özetleri saklamak çağıranın işidir).
     STORYBOARD yalnızca görüntü yeniden üretilecekse ve kare eskiyse planlanır: bitmiş bir sahne için kare istenmez."""
     fp = fingerprints(scene, characters, tracks, assets, style_version)
-    if scene.visual_hash is None or fp.visual != scene.visual_hash:
+    external = (getattr(scene, "method", None) or "generate") == "external"
+    # Dış çekim: storyboard ve görüntü üretimi yok; klip yüklenirken rafine #1 olarak kaydedilir (api/methods.py).
+    if not external and (scene.visual_hash is None or fp.visual != scene.visual_hash):
         return (ALL if board_stale(scene, fp) else PRODUCTION), fp
     if scene.lipsync_video_key is None or fp.dialogue != scene.dialogue_hash:
         return Stage.LIPSYNC | Stage.MUX, fp      # görüntü motoru çağrılmaz

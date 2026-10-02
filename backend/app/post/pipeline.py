@@ -4,7 +4,7 @@
 Çıktılar içerik-adreslidir; aynı girdi aynı anahtarı üretir ve dosya zaten varsa iş atlanır:
   audio/{motor}/{content_hash}.wav          diyalog sesi (aynı replik sahneler arasında paylaşılır)
   audio/music/{duygu}_{süre}s.wav           prosedürel müzik
-  lipsync/{sahne}/{variation_id}_{dialogue_hash}.mp4
+  lipsync/{sahne}/{variation_id}[_r{revizyon}]_{dialogue_hash}.mp4   (rafine #1 elle düzeltildiyse revizyon kimliğiyle)
   final/{sahne}/{mux_hash}.mp4
 """
 import logging
@@ -24,7 +24,7 @@ from app.core.rerender import Fingerprints, fingerprints
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine.providers import TransientError
-from app.models import AudioTrack, Character, Project, Scene, Variation
+from app.models import AudioTrack, Character, Project, Revision, Scene, Variation
 from app.post.audio import synthesize, synthesize_music
 from app.post.mux import AudioInput, mix_audio, mux
 from app.quality.anomaly import probe_duration
@@ -66,9 +66,14 @@ def _snapshot(scene_id: str) -> Snapshot:
 
 
 def _rank_one(scene_id: str) -> tuple[str, str] | None:
+    """Rafine #1: (kaynak kimliği, video anahtarı). Etkin bir elle düzeltme varsa onun videosu kullanılır ve kimlik
+    revizyonu da içerir; böylece revizyon yeni bir dudak senkronu (ve montaj) anahtarı üretir."""
     with session_scope() as s:
         v = s.scalars(select(Variation).where(Variation.scene_id == scene_id, Variation.refined_rank == 1)).first()
-        return (str(v.id), v.video_key) if v else None
+        if v is None:
+            return None
+        rev = s.get(Revision, v.revision_id) if v.revision_id else None
+        return (f"{v.id}_r{rev.id}", rev.video_key) if rev else (str(v.id), v.video_key)
 
 
 def _set_track(track_id, **fields) -> None:

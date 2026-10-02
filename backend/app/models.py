@@ -134,6 +134,11 @@ class Scene(Base):
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     cut_tier: Mapped[str | None] = mapped_column(Text)                     # draft | final
     draft_video_key: Mapped[str | None] = mapped_column(Text)
+    method: Mapped[str] = mapped_column(Text, default="generate")          # generate | previs_guide | external
+    external_key: Mapped[str | None] = mapped_column(Text)
+    external_hash: Mapped[str | None] = mapped_column(Text)
+    guide_key: Mapped[str | None] = mapped_column(Text)
+    guide_hash: Mapped[str | None] = mapped_column(Text)
     spent_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -210,6 +215,23 @@ class Variation(Base):
     anomalies: Mapped[list] = mapped_column(JSONB, default=list)
     refined_rank: Mapped[int | None] = mapped_column(SmallInteger)
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=0)
+    revision_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))   # etkin elle düzeltme; boşsa orijinal
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Revision(Base):
+    """Varyasyonun elle düzeltilmiş sürümü (video ya da ilk kare). Orijinal varyasyon dokunulmadan kalır."""
+    __tablename__ = "revisions"
+    id: Mapped[uuid.UUID] = PK()
+    variation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("variations.id"))
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(Text)                                 # video | first_frame
+    source_key: Mapped[str] = mapped_column(Text)
+    video_key: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    anomalies: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
