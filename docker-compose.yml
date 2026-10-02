@@ -2,8 +2,6 @@
 x-backend: &backend
   build: ./backend
   env_file: .env
-  volumes:
-    - ./samples:/samples
   depends_on:
     postgres: { condition: service_healthy }
     redis:    { condition: service_healthy }

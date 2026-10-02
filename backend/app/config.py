@@ -20,11 +20,22 @@ class Settings(BaseSettings):
     dry_run: bool = True
     dry_run_latency_s: float = 0.3
     dry_run_fail_rate: float = 0.0
-    dry_run_score_mean: float = 0.87
+    dry_run_score_mean: float = 0.89
     dry_run_score_sd: float = 0.05
+    dry_run_defect_rate: float = 0.12     # bilerek bozuk (siyah/donmuş) klip oranı
+    local_render_fps: int = 24
+    tts_engine: str = "espeak"            # espeak (ücretsiz, Türkçe) | tone
+    hermes_mode: str = "rules"            # rules (ücretsiz) | llm (ücretli, ANTHROPIC_API_KEY ister)
+
+    # Kademe 2 anahtarları: DRY_RUN=1 iken hiçbiri okunmaz
+    fal_key: str = ""
+    anthropic_api_key: str = ""
+    elevenlabs_api_key: str = ""
+    hermes_model: str = "claude-sonnet-5-5"
+    s3_public_endpoint_url: str | None = "http://localhost:9000"   # tarayıcının MinIO'ya eriştiği adres
 
     purge_mode: str = "quarantine"   # hard | quarantine
-    gen_concurrency: int = 5
+    gen_concurrency: int = 3
 
 
 settings = Settings()
