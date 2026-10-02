@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
+from app.engine.providers import route_engine
 from app.hermes import rules
 from app.models import AudioTrack, Character, Project, Scene, SceneCharacter
 
@@ -69,12 +70,14 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             prompt = {"prompt": shot["visual_prompt"], "lang": "tr"}
             if sc is None:
                 sc = Scene(project_id=project_id, scene_code=shot["scene_id"], prompt_spec=prompt, **fields)
+                sc.engine = route_engine(sc)     # görsel özet motoru içerir: baştan yazılır, sonradan değişip render tetiklemez
                 s.add(sc)
                 created.append(shot["scene_id"])
             else:
                 for key, value in fields.items():
                     setattr(sc, key, value)
                 sc.prompt_spec = {**(sc.prompt_spec or {}), **prompt}    # düzeltme turlarının eklediği anahtarlar kalır
+                sc.engine = route_engine(sc)
                 updated.append(shot["scene_id"])
             s.flush()
             _write_cast(s, sc, shot, chars)

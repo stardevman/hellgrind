@@ -65,7 +65,8 @@ def test_sample_script_creates_cast_scenes_links_and_tracks(mk_project):
     scenes = load_scenes(pid)
     assert list(scenes) == result["created"]
     assert [sc.seq_order for sc, _, _ in scenes.values()] == [1, 2, 3, 4]
-    assert all(sc.status == "pending" and sc.engine is None for sc, _, _ in scenes.values())
+    assert all(sc.status == "pending" for sc, _, _ in scenes.values())
+    assert [sc.engine for sc, _, _ in scenes.values()] == ["fal_wan", "fal_wan", "seedance", "seedance"]
     assert [{c.name for c in chars} for _, chars, _ in scenes.values()] == [
         {"Kerem"}, {"Ayşe"}, {"Kerem", "Ayşe"}, {"Kerem", "Ayşe"}]
 
@@ -88,6 +89,18 @@ def test_characters_get_their_own_vector_namespace_and_default_identity(mk_proje
         chars = list(s.scalars(select(Character).where(Character.project_id == pid)))
     assert {c.name for c in chars} == {"Kerem", "Ayşe"}
     assert all(c.pinecone_namespace == str(c.id) and c.embedding_version == 1 and c.lora_url is None for c in chars)
+
+
+def test_engine_is_routed_from_action_complexity_at_ingest_so_the_visual_fingerprint_is_stable(mk_project):
+    pid = mk_project()
+    ingest(pid, rules.SAMPLE_SCRIPT)
+    mark_all_done(pid)
+    ingest(pid, rules.SAMPLE_SCRIPT)
+    assert set(plans(pid).values()) == {Stage.NONE}
+    with session_scope() as s:                                     # yönetmen motoru elle değiştirirse yeniden render gerekir
+        s.execute(text("UPDATE scenes SET engine = 'higgsfield' WHERE project_id = :p AND scene_code = 'S001_SH01'"),
+                  {"p": pid})
+    assert plans(pid)["S001_SH01"] == Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
 
 
 def test_script_source_and_scene_text_are_stored(mk_project):
