@@ -10,7 +10,7 @@ from app.post import audio
 from app.post.audio import (CHORDS, EMOTION_VOICE, VOICE_VARIANTS, speech_duration, synthesize, synthesize_dry,
                             synthesize_music)
 from app.quality.anomaly import probe_duration
-from tests.media_utils import SR, pcm, probe, rms, tone_amp
+from tests.media_utils import SR, band_spectrum, pcm, probe, rms, tone_amp
 
 needs_espeak = pytest.mark.skipif(not shutil.which("espeak-ng"), reason="espeak-ng kurulu değil")
 
@@ -146,10 +146,14 @@ def test_real_espeak_sad_is_slower_than_fearful(tmp_path):
 
 @needs_espeak
 def test_real_espeak_voice_is_stable_per_seed_and_differs_between_seeds(tmp_path):
-    def speak(name, seed):
-        synthesize("Merhaba", str(tmp_path / name), voice_seed=seed)
-        return open(tmp_path / name, "rb").read()
-    assert speak("a.wav", 7) == speak("b.wav", 7) != speak("c.wav", 8)
+    """espeak-ng çıktısı bayt düzeyinde deterministik değildir (aynı girdiyle her çağrıda ince gürültü farkı çıkar);
+    bu yüzden baytlar değil sesin spektral rengi karşılaştırılır."""
+    def voice(name, seed):
+        synthesize("Merhaba dünya, nasılsın bugün", str(tmp_path / name), voice_seed=seed)
+        return band_spectrum(pcm(tmp_path / name))
+    first, again, other = voice("a.wav", 7), voice("b.wav", 7), voice("c.wav", 8)
+    assert float(first @ again) > 0.999
+    assert float(first @ other) < 0.95
 
 
 # ---------- müzik ----------
