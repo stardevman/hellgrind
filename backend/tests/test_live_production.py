@@ -2,8 +2,8 @@
 
 Sahte fal gerçek medya döndürür: Flux kareleri gerçek görseldir (istenen sayıda kare bilerek siyahtır), videolar
 prosedürel motorla çizilir. Hiçbir test gerçek servise istek göndermez (`no_network`); kilit yalnızca bellekteki ayar
-nesnesinde açılır. Gerçek kalite skorlayıcısı henüz yoktur (Faz 18'in sonraki adımları): ücretli üretim onsuz para
-harcamadan durur; burada sahte skor yerine geçer.
+nesnesinde açılır. Üretim testlerinde gerçek kalite skorlayıcısının yerine seed'e bağlı sahte skor kullanılır (gerçek
+skorlayıcının kendi testleri: test_scorer.py); skorlayıcı kullanılamıyorsa ücretli üretim para harcamadan durur.
 """
 import sys
 from types import SimpleNamespace
@@ -102,6 +102,12 @@ def go_paid(monkeypatch):
         monkeypatch.setattr(settings, name, f"test-{name}")
 
 
+def fake_scorer(monkeypatch):
+    """Gerçek skorlayıcının yerine seed'e bağlı sahte skor (yalnızca testte; uygulama ücretli modda bunu reddeder)."""
+    monkeypatch.setattr(settings, "quality_scorer", "dry")
+    monkeypatch.setattr(gate, "ensure_scorer", lambda: None)
+
+
 def ledger(pid):
     with session_scope() as s:
         rows = s.execute(text("SELECT provider, kind, amount_usd FROM cost_ledger WHERE project_id = :p ORDER BY id"),
@@ -140,7 +146,7 @@ def test_paid_generation_judges_each_first_frame_before_paying_for_its_video(sam
     pid, codes = sample_scene(probe_n=4, full_n=4, wave_size=4, refined_k=2, max_correction_rounds=0)
     sid = codes["S001_SH01"]
     go_paid(monkeypatch)
-    monkeypatch.setattr(gate, "ensure_scorer", lambda: None)       # gerçek skorlayıcının yerine sahte skor
+    fake_scorer(monkeypatch)
     studio.black_frames = 2
     assert run_tiered_generation(pid, sid) == "refined"
 
@@ -174,7 +180,7 @@ def test_a_video_that_keeps_failing_returns_its_reservations_but_keeps_the_paid_
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]
     go_paid(monkeypatch)
-    monkeypatch.setattr(gate, "ensure_scorer", lambda: None)
+    fake_scorer(monkeypatch)
     studio.behaviour[fal_video.WAN] = studio.behaviour[fal_video.SEEDANCE] = lambda args: HTTPError(503)
     assert run_tiered_generation(pid, sid) == "needs_review"
     rows = variations(sid)
@@ -189,11 +195,29 @@ def test_a_video_that_keeps_failing_returns_its_reservations_but_keeps_the_paid_
 
 
 def test_without_a_real_scorer_paid_generation_stops_before_any_spend(sample_scene, studio, monkeypatch):
+    from app.quality import scorer
     pid, codes = sample_scene()
     go_paid(monkeypatch)
+    monkeypatch.setattr(scorer, "unavailable", lambda: "model dosyası yok")
     with pytest.raises(NotImplementedError, match="kalite skoru"):
         run_tiered_generation(pid, codes["S001_SH01"])
     assert studio.calls == [] and ledger(pid) == [] and variations(codes["S001_SH01"]) == []
+
+
+def test_with_the_real_scorer_noise_frames_are_rejected_before_any_video_is_paid_for(sample_scene, studio, monkeypatch):
+    from app.quality import scorer
+    if scorer.unavailable():
+        pytest.skip(f"gerçek skorlayıcı yok: {scorer.unavailable()}")
+    pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
+    sid = codes["S001_SH01"]
+    go_paid(monkeypatch)                                          # QUALITY_SCORER=auto: ücretli modda gerçek skor
+    assert run_tiered_generation(pid, sid) == "needs_review"     # sahte fal'ın kareleri gürültü
+    rows = variations(sid)
+    assert len(rows) == 2 and all(v.params.get("stage") == "first_frame" for v in rows)
+    assert all("low_clip" in [a["type"] for a in v.anomalies] for v in rows)
+    assert all(v.params["frame_score_detail"]["scorer"] == scorer.SCORER_ID for v in rows)
+    assert not [app for app, _, _ in studio.calls if app in VIDEO_APPS]       # hiçbir video ödenmedi
+    assert {p for p, k, _ in ledger(pid) if k == "commit"} == {"flux_lora:first_frame:480p"}
 
 
 # ---------- storyboard ----------

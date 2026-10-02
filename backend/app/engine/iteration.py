@@ -38,7 +38,7 @@ from app.hermes import lint
 from app.style import bible
 from app.style.composer import Composed, compose_prompt
 from app.models import Project, Scene, Variation
-from app.quality import gate
+from app.quality import gate, scorer
 
 log = logging.getLogger("hellgrind.iteration")
 
@@ -65,6 +65,7 @@ class Ctx:
     revision: int
     visual_hash: str
     render: dict
+    target: object = None          # gerçek kalite skorunun ölçütü (scorer.Target)
 
 
 # ---------- yardımcılar ----------
@@ -177,14 +178,14 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
             key = f"variations/{c.scene_id}/{vid}.mp4"                                 # 5. Depo ve küçük resim
             storage.put_file(result.local_path, key)
             thumb_key = make_thumb(result.local_path, f"thumbs/{c.scene_id}/{vid}.jpg")
-            score = gate.score_video(result.local_path, seed, c.cfg)                   # 6. Skorlama
+            score = gate.score_video(result.local_path, seed, c.cfg, c.target)         # 6. Skorlama
         finally:
             os.remove(result.local_path)
     except BaseException:
         _set_variation(vid, status="failed")                                           # "running" satırı asılı kalmasın
         raise
 
-    extra = {"provider_meta": result.meta}
+    extra = {"provider_meta": result.meta, **({"score_detail": score.detail} if score.detail else {})}
     if score.passed:
         fields = dict(status="passed", video_key=key)
     else:                                                                              # 7. Anında imha
@@ -214,10 +215,11 @@ def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
     try:
         storage.put_file(frame.local_path, key, "image/jpeg")
         thumb = make_thumb(frame.local_path, f"thumbs/{c.scene_id}/{vid}.jpg")
-        score = gate.score_frame(frame.local_path, seed, c.cfg)
+        score = gate.score_frame(frame.local_path, seed, c.cfg, c.target)
     finally:
         os.remove(frame.local_path)
-    extra = {"first_frame_key": key, "first_frame_request_id": frame.request_id, "frame_score": score.composite}
+    extra = {"first_frame_key": key, "first_frame_request_id": frame.request_id, "frame_score": score.composite,
+             **({"frame_score_detail": score.detail} if score.detail else {})}
     if score.passed:
         _merge_params(vid, **extra)
         return frame.url, frame.cost_usd
@@ -312,7 +314,8 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
                     **loras_of(chars),
-                    "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"})
+                    "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
+            target=scorer.target_for(scene, chars, style))
 
 
 def _finish_draft(c: Ctx, first: VarResult) -> str:

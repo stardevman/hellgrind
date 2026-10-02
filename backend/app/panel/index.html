@@ -315,6 +315,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
   <select id="project-select" aria-label="Proje seçici"></select>
   <button class="btn" id="new-project" type="button">Yeni proje</button>
   <span class="spacer"></span>
+  <span class="chip" id="score-chip" hidden></span>
   <span class="chip" id="mode-chip">Mod yükleniyor…</span>
 </header>
 
@@ -713,6 +714,12 @@ function renderTop() {
   if (S.meta) {
     chip.className = "chip " + (S.meta.dry_run ? "free" : "paid");
     setText(chip, S.meta.dry_run ? "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" : "Ücretli mod açık: gerçek harcama yapılır");
+    const q = S.meta.quality || {}, scoreChip = $("score-chip");
+    scoreChip.hidden = !S.meta.quality;
+    scoreChip.className = "chip" + (q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid");
+    setText(scoreChip, q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
+      : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor");
+    patchAttr(scoreChip, "title", q.reason || "");
   }
 }
 function renderBudget() {
@@ -742,6 +749,14 @@ function renderBudget() {
 /* ---------- sahne satırları ---------- */
 /* Satırlar ve kareler yerinde yamalanır, yeniden yazılmaz: üretim sürerken 2 saniyelik yoklama, kullanıcı tam bir kareye
    basarken düğümü değiştirirse tıklama kaybolurdu; <img> de her seferinde yeniden yüklenirdi. */
+const num2 = (x) => x.toFixed(2).replace(".", ",");
+function measureText(m) {
+  if (!m) return "";
+  const parts = Object.entries(m.alignment).map(([k, x]) => `${{ style: "stil", content: "tarif", generic: "genel" }[k] || k} ${num2(x)}`);
+  parts.push(...Object.entries(m.identity).map(([who, x]) => `${who} yüzü ${num2(x)}`));
+  if (!Object.keys(m.identity).length && m.faces_seen) parts.push(`${m.faces_seen} yüz görüldü`);
+  return " (" + parts.join(", ") + ")";
+}
 function tileSpec(v, prev) {
   const cls = ["tile"];
   const working = ["queued", "running", "generated"].includes(v.status);
@@ -755,7 +770,7 @@ function tileSpec(v, prev) {
   if (v.tier === "full" && (!prev || prev.tier !== "full")) cls.push("tier-start");
   const selected = S.varId === v.id;
   if (selected) cls.push("selected");
-  const score = v.score != null ? ` · skor ${v.score.toFixed(3)}` : "";
+  const score = (v.score != null ? ` · skor ${v.score.toFixed(3)}` : "") + measureText(v.measure);
   if (v.revision) fate += `, elle düzeltilmiş (revizyon ${v.revision})`;
   if (v.source !== "generate") fate += v.source === "external" ? ", dış çekim" : ", previs rehberinden";
   return { cls: cls.join(" "), selected, thumb: v.thumb_url || "", rank: v.rank || 0, rev: v.revision || 0,

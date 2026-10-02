@@ -1,0 +1,11 @@
+# Gerçek kalite skorlayıcısı (ücretsiz, yerel modeller): OpenCLIP stil ve istem uyumu, YuNet + SFace yüz kimliği.
+# torch ve torchvision önce CPU dizininden kurulur (CUDA'lı dev paketler inmesin), Dockerfile'a bakın:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+# Model dosyaları: scripts/fetch_models.py. CI bunları kurmaz; gerçek modelli testler kendiliğinden atlanır.
+-r requirements.txt
+torch>=2.4
+torchvision>=0.19
+open_clip_torch>=2.26
+transformers>=4.44
+sentencepiece>=0.2
+opencv-python-headless>=4.10

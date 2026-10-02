@@ -535,8 +535,10 @@ def test_a_scene_without_an_engine_gets_one_before_its_fingerprint_is_taken(mk_p
 
 
 def test_paid_mode_stops_before_any_spend_or_variation_row(scene, monkeypatch):
+    from app.quality import scorer
     pid, sid = scene
     monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(scorer, "unavailable", lambda: "model dosyası yok")    # gerçek skorlayıcı yok
     with pytest.raises(NotImplementedError):
         run_tiered_generation(pid, sid)
     assert variations(sid) == [] and ledger(pid)[0] == {"reserve": 0, "commit": 0, "release": 0}

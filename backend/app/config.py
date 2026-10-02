@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     purge_mode: str = "quarantine"   # hard | quarantine
     gen_concurrency: int = 3
 
+    # Kalite skoru: auto = ücretsiz modda sahte (seed'e bağlı), ücretli modda gerçek (OpenCLIP + YuNet/SFace);
+    # dry = her zaman sahte (ücretli modda üretim başlatılmaz); real = her zaman gerçek (ücretsiz modda da denenebilir)
+    quality_scorer: str = "auto"
+    quality_model_dir: str = "/models"
+    score_face_weight: float = 0.4   # birleşik skorda yüz kimliğinin payı (yüz görünüyorsa)
+
 
 settings = Settings()
 

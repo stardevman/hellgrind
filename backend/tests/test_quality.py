@@ -120,8 +120,17 @@ def test_threshold_comes_from_the_project_settings(tmp_path, monkeypatch):
 # ---------- ücretli modda sahte skor kullanılmaz ----------
 
 def test_paid_mode_refuses_to_run_without_a_real_scorer(monkeypatch):
+    from app.quality import scorer
     monkeypatch.setattr(settings, "dry_run", False)
-    with pytest.raises(NotImplementedError, match="kalite skoru"):
+    monkeypatch.setattr(scorer, "unavailable", lambda: "torch paketi kurulu değil")
+    with pytest.raises(NotImplementedError, match="kalite skoru kullanılamıyor: torch"):
+        gate.ensure_scorer()
+
+
+def test_paid_mode_never_accepts_the_fake_scorer_even_when_asked(monkeypatch):
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "quality_scorer", "dry")
+    with pytest.raises(NotImplementedError, match="Sahte kalite skoru"):
         gate.ensure_scorer()
 
 

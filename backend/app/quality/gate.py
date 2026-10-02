@@ -1,11 +1,12 @@
 """Quality Gate: skorlama, eşik ve Rafine Havuz.
 
-Ücretsiz modda CLIP skoru yerine seed'e bağlı tekrarlanabilir, Gauss dağılımlı sahte skor kullanılır; anomali
-tespiti ise gerçektir (FFmpeg). Gerçek skor (OpenCLIP stil + InsightFace yüz) Faz 18'in sonraki adımlarındadır.
+Ücretsiz modda CLIP skoru yerine seed'e bağlı tekrarlanabilir, Gauss dağılımlı sahte skor kullanılır; ücretli modda gerçek
+skor (app/quality/scorer.py: OpenCLIP stil ve istem uyumu, YuNet + SFace yüz kimliği). Anomali tespiti her iki modda da
+gerçektir (FFmpeg). Hangi skorun kullanılacağını `settings.quality_scorer` belirler (auto | dry | real).
 """
 import logging
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select, update
 
@@ -25,14 +26,29 @@ class Score:
     composite: float
     anomalies: list[dict]
     passed: bool
+    detail: dict = field(default_factory=dict)       # gerçek skorun dökümü (variations.params.score_detail)
+
+
+def scorer_mode() -> str:
+    """"dry" (sahte) ya da "real" (gerçek modeller)."""
+    mode = settings.quality_scorer
+    if mode == "auto":
+        return "dry" if settings.dry_run else "real"
+    if mode not in ("dry", "real"):
+        raise ValueError(f"Bilinmeyen QUALITY_SCORER: {mode!r} (auto | dry | real)")
+    return mode
 
 
 def ensure_scorer() -> None:
-    """Sahte skor yalnızca ücretsiz modda geçerlidir. Ücretli modda gerçek bir skorlayıcı yoksa üretim başlamadan,
-    yani para harcanmadan durur; yoksa rastgele skorlar ücretli klipleri sessizce onaylar ya da reddederdi."""
-    if not settings.dry_run:
-        raise NotImplementedError("Gerçek kalite skoru (OpenCLIP/InsightFace) henüz yok: ücretli modda üretim "
-                                  "başlatılamaz. Ücretsiz modda sahte skor kullanılır.")
+    """Para harcanmadan önce. Sahte skor yalnızca ücretsiz modda geçerlidir: ücretli modda rastgele skorlar ücretli
+    klipleri sessizce onaylar ya da reddederdi. Gerçek skorlayıcı kullanılamıyorsa (paket ya da model dosyası yok)
+    üretim başlamaz."""
+    if scorer_mode() == "dry":
+        if not settings.dry_run:
+            raise NotImplementedError("Sahte kalite skoru ücretli modda kullanılamaz: QUALITY_SCORER=auto ya da real olmalı.")
+        return
+    from app.quality import scorer                  # torch ve modeller yalnızca burada yüklenir
+    scorer.ensure_ready()
 
 
 def clip_score_dry(seed: int) -> float:
@@ -40,23 +56,40 @@ def clip_score_dry(seed: int) -> float:
     return round(min(max(rng.gauss(settings.dry_run_score_mean, settings.dry_run_score_sd), 0.0), 1.0), 4)
 
 
-def score_video(path: str, seed: int, cfg: dict) -> Score:
-    """Birleşik skor + anomaliler. Eşik altı CLIP skoru da `low_clip` anomalisi sayılır; geçmek = anomali yok."""
-    clip = clip_score_dry(seed)
+def _judge(measured, seed: int, anomalies: list[dict], cfg: dict) -> Score:
+    """Birleşik skor + anomaliler. Eşik altı birleşik skor da `low_clip` anomalisi sayılır; geçmek = anomali yok.
+    measured: gerçek ölçüm (scorer.Result), okunamayan medyada None; sahte modda kullanılmaz."""
+    if scorer_mode() == "dry":
+        clip = clip_score_dry(seed)
+        face, composite, detail = None, clip, {}
+    elif measured is None:
+        clip, face, composite, detail = 0.0, None, 0.0, {"scorer": "real", "error": "kare okunamadı"}
+    else:
+        clip, face, composite, detail = measured.clip, measured.face, measured.composite, measured.detail
+    if composite < cfg["clip_threshold"]:
+        anomalies.append({"type": "low_clip", "score": composite, "threshold": cfg["clip_threshold"]})
+    return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
+
+
+def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
+    """target: scorer.Target (stil metni, çekim tarifi, karakter referansları); yalnızca gerçek skorda kullanılır."""
     anomalies = detect_anomalies(path)
-    if clip < cfg["clip_threshold"]:
-        anomalies.append({"type": "low_clip", "score": clip, "threshold": cfg["clip_threshold"]})
-    return Score(clip=clip, face=None, composite=clip, anomalies=anomalies, passed=not anomalies)
+    measured = None
+    if scorer_mode() == "real":
+        from app.quality import scorer
+        measured = scorer.score_video(path, target or scorer.Target())
+    return _judge(measured, seed, anomalies, cfg)
 
 
-def score_frame(path: str, seed: int, cfg: dict) -> Score:
-    """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle puanlanır; geçemeyen kare için video hiç üretilmez.
-    Skor, videonun skoruyla aynı kaynaktan gelir (ücretsiz modda seed'e bağlı sahte skor)."""
-    clip = clip_score_dry(seed)
+def score_frame(path: str, seed: int, cfg: dict, target=None) -> Score:
+    """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
+    video hiç üretilmez."""
     anomalies = detect_frame_anomalies(path)
-    if clip < cfg["clip_threshold"]:
-        anomalies.append({"type": "low_clip", "score": clip, "threshold": cfg["clip_threshold"]})
-    return Score(clip=clip, face=None, composite=clip, anomalies=anomalies, passed=not anomalies)
+    measured = None
+    if scorer_mode() == "real":
+        from app.quality import scorer
+        measured = scorer.score_image(path, target or scorer.Target())
+    return _judge(measured, seed, anomalies, cfg)
 
 
 # ---------- Rafine Havuz ----------

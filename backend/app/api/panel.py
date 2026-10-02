@@ -36,10 +36,31 @@ MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/",
 EVENT_LIMIT = 30
 
 
+def quality_meta() -> dict:
+    """Hangi kalite skoru kullanılıyor; gerçekse kurulu mu (modeller yüklenmez)."""
+    from app.quality import gate, scorer
+    try:
+        mode = gate.scorer_mode()
+    except ValueError:
+        return {"mode": "invalid", "ready": False, "reason": f"Bilinmeyen QUALITY_SCORER: {settings.quality_scorer}"}
+    reason = scorer.unavailable() if mode == "real" else None
+    return {"mode": mode, "ready": reason is None, "reason": reason}
+
+
+def measure_of(params: dict | None) -> dict | None:
+    """Gerçek skorun panel için özeti: stil ve tarif uyumu, karakter başına yüz benzerliği."""
+    p = params or {}
+    detail = p.get("frame_score_detail") if p.get("stage") == "first_frame" else p.get("score_detail")
+    if not detail or "alignment" not in detail:
+        return None
+    return {"alignment": detail["alignment"], "identity": detail.get("identity", {}), "faces_seen": detail.get("faces_seen", 0)}
+
+
 @router.get("/meta")
 def meta():
     return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
-            "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS, "sample_script": SAMPLE_SCRIPT}
+            "quality": quality_meta(), "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS,
+            "sample_script": SAMPLE_SCRIPT}
 
 
 @router.post("/projects/{project_id}/script")
@@ -139,6 +160,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "score": v.composite_score, "rank": v.refined_rank, "cost_usd": float(v.cost_usd),
             "anomalies": sorted({a["type"] for a in (v.anomalies or [])}),
             "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
+            "measure": measure_of(v.params),
             "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
             "source": (v.params or {}).get("source", "generate"), "revisions": len(revisions[v.id]),

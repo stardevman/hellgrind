@@ -38,7 +38,9 @@ Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır
 - Docker ve Docker Compose
 - Boş portlar: `8000` (panel ve API), `9000` ve `9001` (MinIO), `5555` (Flower), `5433` (PostgreSQL), `6379` (Redis)
 
-FFmpeg, espeak-ng ve yazı tipleri Docker imajının içindedir; makinenize bir şey kurmanız gerekmez.
+FFmpeg, espeak-ng, yazı tipleri ve kalite skorlayıcısının modelleri Docker imajının içindedir; makinenize bir şey kurmanız
+gerekmez. İmaj, gerçek kalite skorlayıcısı (CPU'luk torch ve ~1,5 GB model) yüzünden ~3,4 GB'tır; ilk kurulum modelleri
+indirir. Skorlayıcısız hafif imaj (~0,9 GB; yalnızca sahte skorla ücretsiz mod): `docker compose build --build-arg QUALITY=0`.
 
 ## Kurulum
 
@@ -124,7 +126,7 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 ```
 
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin.
-- **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi yoktur; altyapı gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir.
+- **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi ve kalite skorlayıcısının modelleri yoktur; altyapı ya da gerçek model gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir (imajda modeller hazırdır).
 - **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
@@ -190,6 +192,19 @@ Rekabet avantajı aynı kaliteye daha az üretimle ulaşmak ve yönetmenin zevki
   - `otio`: OpenTimelineIO JSON (`Timeline.1`; görüntü ve ses izleri, renk sıçraması olan çekimlerde işaretçi).
   - `package`: zip; `film.edl`, `film.otio`, `kesme_listesi.json`, `kurasyon.jsonl` ve her çekim için `NNN_KOD/` klasörü: `final.mp4`, `rafine/` (havuzdaki adaylar, revizyonlar dahil), `stems/dialogue.wav`, `music.wav`, `sfx.wav` (48 kHz, çekim süresinde; sekans müziği çekime düşen dilimiyle) ve `cekim.json`. EDL ile birlikte açıldığında stem'ler çekimlerin yerine oturur.
 
+## Kalite skoru
+
+Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla** ve gerçek anomali tespitiyle (FFmpeg: siyah, donmuş, okunamayan) yargılar. Skor iki türlüdür; panelin üst bandı hangisinin kullanıldığını gösterir:
+
+- **Sahte** (ücretsiz modun varsayılanı): seed'e bağlı, tekrarlanabilir Gauss dağılımlı skor. Yerel prosedürel klipler gerçek bir sahneye benzemediği için ücretsiz akış (duman testi dahil) bununla çalışır.
+- **Gerçek** (`app/quality/scorer.py`; ücretli modun varsayılanı, `QUALITY_SCORER=real` ile ücretsiz modda da): yerel modellerle ve ücretsizdir, ağ kullanmaz.
+  - **Stil ve istem uyumu** (OpenCLIP, çok dilli XLM-RoBERTa ViT-B-32): klipten eşit aralıkla 4 kare alınır; her kare stil kılavuzunun ışık ve hareket diliyle ve çekimin (Türkçe) tarifiyle karşılaştırılır. Rakip metinler kusur tarifleri (bulanık, bozuk, siyah, tek renk, gürültü, yazı) ve genel altyazılardır ("an image", "a photo"): tarif görüntüyü genel bir altyazıdan daha iyi açıklamalıdır. Olumlu metnin softmax olasılığı alınır (0–1).
+  - **Yüz kimliği** (YuNet yüz bulucu + SFace): karakterlerin onaylı referans görsellerindeki yüzler, karelerde bulunan yüzlerle karşılaştırılır; OpenCV'nin aynı kişi eşiği (kosinüs 0,363) çevresinde 0–1'e çevrilir. Karede yüz yoksa (geniş plan, arkası dönük) skoru düşürmez.
+  - **Birleşik skor** = stil ve istem uyumu; yüz görünüyorsa %60 uyum + %40 kimlik (`SCORE_FACE_WEIGHT`). Eşikler proje ayarlarındaki `clip_threshold` (0,85) ve `excellent_threshold` (0,92) değerleridir.
+  - Ölçüm dökümü varyasyonla saklanır (`params.score_detail`) ve panelde kare açıklamasında görünür: ör. "stil 0,91, tarif 0,97, Kerem yüzü 0,66".
+- Ölçümler: altın saat stilindeki kareler 0,81–0,98, aynı sahnenin başka paletli kareleri çoğunlukla 0,25'in altında; bir portre kendi Türkçe tarifiyle 1,00, ilgisiz bir tarifle 0,005; siyah, tek renk ve gürültü ~0; aynı kişinin beş yıl arayla çekilmiş iki fotoğrafı kimlikte 0,997, başka biri 0,005. **Kalibrasyon gerçek üretimle henüz sınanmadı**: ilk ücretli partide eşikler, rakip metinler ve yüz payı gözden geçirilmeli; kürasyon kayıtları bunun verisidir. Yüz modelleri insan yüzüyle eğitilmiştir; çok stilize karakterlerde kimlik ölçümü zayıf kalabilir.
+- **Lisanslar**: OpenCLIP modeli (LAION) ve YuNet MIT, SFace Apache 2.0; ticari kullanıma açıktır. Spesifikasyonda adı geçen InsightFace'in hazır modelleri (buffalo_l) yalnızca ticari olmayan araştırma lisanslı olduğu için kullanılmadı. Model dosyaları sürüme ve SHA-256 özetine sabitlenmiştir (`scripts/fetch_models.py`).
+
 ## Stil kılavuzu
 
 Çekimlerin aynı filme ait görünmesini en çok tutarlı ışık dili sağlar. Profesyonel ekipler bir formül bulup (ör. suluboya mekân + altın saat ışığı) her çekimde aynı ifadeyle tekrarlar. Bu yüzden:
@@ -242,7 +257,7 @@ Bilinmesi gerekenler:
 
 - fal yanıtı fatura tutarı döndürmez; harcama `pricing.yaml` tahminidir. `tts_per_1k_chars` ve `llm_per_million_tokens` kalemleri doğrulanmış değildir: ücretli moda geçmeden önce kendi planınıza göre güncelleyin.
 - Seedance en az 4 sn üretir ve tohum kabul etmez; 3 sn'lik bir çekim 4 sn faturalanır. Wan 17–161 kare (16 fps) üretir.
-- **Ücretli modda kademeli üretim henüz başlatılamaz**: gerçek kalite skorlayıcı (OpenCLIP stil, InsightFace yüz) Faz 18'in sonraki adımlarındadır ve sahte skor ücretli kareleri ve klipleri sessizce onaylayabileceğinden, kademeli üretim para harcanmadan önce durur. Skor kullanmayan yollar (storyboard karesi, previs aktarımı, referans üretimi, hareket testi, ilk kare düzeltmesi, ses ve dudak senkronu) yazılıdır. Sırada: gerçek skorlayıcı, düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek, kürasyon kayıtlarından projeye özel kalite modeli.
+- **Ücretli modda kalite kapısı gerçek skorlayıcıyı kullanır** (bkz. *Kalite skoru*). Sahte skor ücretli modda hiçbir koşulda kabul edilmez; gerçek skorlayıcı kullanılamıyorsa (paket ya da model dosyası yok) kademeli üretim para harcanmadan önce durur. Sırada: düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek, kürasyon kayıtlarından projeye özel kalite modeli.
 - Ücretli entegrasyonları denemek için ayrıca `pip install -r backend/requirements-live.txt` gerekir. Bunu açık onay olmadan yapmayın; `DRY_RUN=0` ile hiçbir şeyi açık onay olmadan çalıştırmayın.
 
 ## Ayarlar
@@ -258,6 +273,8 @@ Bilinmesi gerekenler:
 | `GEN_CONCURRENCY` | `3` | Bir dalgada eşzamanlı üretim sayısı |
 | `PURGE_MODE` | `quarantine` | `quarantine`: elenenler `quarantine/` önekine taşınır; `hard`: silinir |
 | `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
+| `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
+| `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
 
 Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
@@ -279,7 +296,8 @@ backend/
                  paid (ücretli çağrıların ortak yolu: kilit, rezervasyon, yeniden deneme)
     style/       bible (sürümler, etkin sürüm, etki önizlemesi), composer (prompt bestecisi)
     curation.py  kürasyon kaydı (@curated: her durum değiştiren uç bir olay yazar)
-    quality/     anomaly (FFmpeg), gate (skor, rafine havuz), consistency (renk sıçraması, öneri), metrics (verimlilik)
+    quality/     anomaly (FFmpeg), gate (skor, rafine havuz), scorer (gerçek skor: OpenCLIP, YuNet + SFace),
+                 consistency (renk sıçraması, öneri), metrics (verimlilik)
     post/        audio, mux, grade (LUT ve renk ayarı), pipeline (LIPSYNC, GRADE, MUX), timeline (film ve sekans müziği),
                  export (EDL, OpenTimelineIO, çekim paketi)
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, panel, plan, deps, uploads
@@ -287,7 +305,8 @@ backend/
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
     panel/       index.html (tek sayfa, build adımı yok)
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
-  scripts/smoke.py
+  requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
+  scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama
   tests/
 ```
 
