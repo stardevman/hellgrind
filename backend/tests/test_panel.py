@@ -231,3 +231,19 @@ def test_scenes_are_grouped_under_sequences_and_the_sequence_tools_use_their_end
                    ("delete", "/api/timeline-tracks/{}")):
         assert needed in calls, needed
     assert re.search(r"fetch\(`/api/sequences/\$\{q\.id\}/tracks\?", SCRIPT)                     # stem: ham gövde
+
+
+# ---------- storyboard ve taslak geçiş (Faz 14) ----------
+
+def test_the_storyboard_tab_and_the_rough_cut_use_their_endpoints():
+    for text in ("Storyboard", "Kareleri hazırla", "PDF indir", "Onayla", "Değişiklik iste", "Taslak geçişi başlat",
+                 "İyileştirme geçişi", "İyileştir", "Kaba kurgu", "Final", "kare onayı zorunlu"):
+        assert text in HTML, text
+    calls = api_calls()
+    for needed in (("post", "/api/projects/{}/storyboard"), ("post", "/api/scenes/{}/board"),
+                   ("post", "/api/scenes/{}/upgrade"), ("post", "/api/projects/{}/draft-pass"),
+                   ("post", "/api/projects/{}/upgrade-pass"), ("patch", "/api/projects/{}"),
+                   ("post", "/api/projects/{}/assemble")):
+        assert needed in calls, needed
+    assert "storyboard.pdf" in SCRIPT and "?kind=draft" in SCRIPT and "draft_timeline" in SCRIPT
+    assert {"pending", "approved", "changes_requested"} <= js_object_keys("BOARD_TR")

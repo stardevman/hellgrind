@@ -11,12 +11,14 @@ from app.core.hashing import audio_fingerprint, visual_fingerprint
 
 class Stage(Flag):
     NONE = 0
+    STORYBOARD = auto()  # çekimin storyboard karesi (ücretsiz modda yerel; ücretli modda tek bir Flux karesi)
     VISUAL = auto()    # video üretimi + Quality Gate (en pahalı aşama)
     LIPSYNC = auto()   # diyalog sesi + dudak senkronu
     MUX = auto()       # FFmpeg miks ve muksing (yalnızca yerel işlem)
 
 
-ALL = Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
+ALL = Stage.STORYBOARD | Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
+PRODUCTION = Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
 
 
 @dataclass(frozen=True)
@@ -34,11 +36,17 @@ def fingerprints(scene, characters, tracks, assets=(), style_version=None) -> Fi
     )
 
 
+def board_stale(scene, fp: Fingerprints) -> bool:
+    """Storyboard karesi yok ya da başka bir görsel özet için çizilmiş."""
+    return getattr(scene, "board_key", None) is None or getattr(scene, "board_hash", None) != fp.visual
+
+
 def plan_rerender(scene, characters, tracks, assets=(), style_version=None) -> tuple[Stage, Fingerprints]:
-    """Hangi aşamaların çalışacağını ve güncel özetleri döndürür (özetleri saklamak çağıranın işidir)."""
+    """Hangi aşamaların çalışacağını ve güncel özetleri döndürür (özetleri saklamak çağıranın işidir).
+    STORYBOARD yalnızca görüntü yeniden üretilecekse ve kare eskiyse planlanır: bitmiş bir sahne için kare istenmez."""
     fp = fingerprints(scene, characters, tracks, assets, style_version)
     if scene.visual_hash is None or fp.visual != scene.visual_hash:
-        return ALL, fp
+        return (ALL if board_stale(scene, fp) else PRODUCTION), fp
     if scene.lipsync_video_key is None or fp.dialogue != scene.dialogue_hash:
         return Stage.LIPSYNC | Stage.MUX, fp      # görüntü motoru çağrılmaz
     if scene.final_video_key is None or fp.bed != scene.bed_hash:
@@ -47,4 +55,4 @@ def plan_rerender(scene, characters, tracks, assets=(), style_version=None) -> t
 
 
 def stage_names(stages: Stage) -> list[str]:
-    return [s.name for s in (Stage.VISUAL, Stage.LIPSYNC, Stage.MUX) if s in stages]
+    return [s.name for s in (Stage.STORYBOARD, Stage.VISUAL, Stage.LIPSYNC, Stage.MUX) if s in stages]

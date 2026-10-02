@@ -17,7 +17,7 @@ from tests.conftest import BOLUM_A
 from tests.media_utils import make_av
 from tests.scene_utils import add_scene_music, add_variation, load_scenes, mark_finished, scene_row, track_rows
 
-FULL = ["VISUAL", "LIPSYNC", "MUX"]
+FULL = ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]       # kare henüz yok: önce storyboard
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
 
 

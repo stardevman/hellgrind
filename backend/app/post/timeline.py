@@ -109,17 +109,25 @@ def _track_file(t: dict, work: str) -> str:
     return storage.download(t["file_key"], path)
 
 
-def assemble(project_id: str) -> dict:
-    """Tamamlanan (done) sahneleri seq_order sırasıyla filme çevirir ve film düzeyindeki kanalları ekler. Henüz tamamlanan
-    yoksa {"error": ...} döner."""
+def _clip_of(sc: Scene, kind: str) -> str | None:
+    """Filme girecek klip. final: tamamlanmış (done) sahnenin montajı; yeniden üretilen ya da başarısız bir sahnenin
+    eski videosu girmez. draft (kaba kurgu): taslak geçişin klibi; taslağı olmayan tamamlanmış sahnenin montajı."""
+    if kind == "draft" and sc.draft_video_key:
+        return sc.draft_video_key
+    return sc.final_video_key if sc.status == "done" else None
+
+
+def assemble(project_id: str, kind: str = "final") -> dict:
+    """Sahneleri seq_order sırasıyla filme çevirir ve film düzeyindeki kanalları ekler. kind="draft": kaba kurgu
+    (projenin draft_timeline_key alanına yazılır). Filme girecek sahne yoksa {"error": ...} döner."""
     with session_scope() as s:
-        # "Tamamlanan" = done: yeniden üretilen ya da başarısız bir sahnenin eski videosu filme girmez
-        scenes = s.scalars(select(Scene).where(Scene.project_id == project_id, Scene.status == "done",
-                                               Scene.final_video_key.is_not(None))
-                           .order_by(Scene.seq_order, Scene.scene_code)).all()
+        scenes = [(sc, clip) for sc in s.scalars(select(Scene).where(Scene.project_id == project_id)
+                                                 .order_by(Scene.seq_order, Scene.scene_code))
+                  if (clip := _clip_of(sc, kind))]
         sequences = {q.id: q for q in s.scalars(select(Sequence).where(Sequence.project_id == project_id))}
-        items = [(sc.scene_code, sc.final_video_key, sc.description, sc.emotion,
-                  sequences[sc.sequence_id].code if sc.sequence_id in sequences else None) for sc in scenes]
+        items = [(sc.scene_code, clip, sc.description, sc.emotion,
+                  sequences[sc.sequence_id].code if sc.sequence_id in sequences else None) for sc, clip in scenes]
+        tiers = {sc.scene_code: ("draft" if clip == sc.draft_video_key else sc.cut_tier or "final") for sc, clip in scenes}
         titles = {q.code: q.title for q in sequences.values()}
         rows = s.scalars(select(TimelineTrack).where(TimelineTrack.project_id == project_id, TimelineTrack.is_active)
                          .order_by(TimelineTrack.created_at, TimelineTrack.id)).all()
@@ -133,7 +141,7 @@ def assemble(project_id: str) -> dict:
         return {"error": "Henüz tamamlanmış sahne yok"}
 
     # Kesme listesinin içeriği anahtarla her zaman tutarlı. Kanal yoksa (Faz 11 öncesi) yalnızca sahneler özetlenir.
-    basis = [[WIDTH, HEIGHT, FPS], items, titles]
+    basis = [[WIDTH, HEIGHT, FPS], items, titles] + ([kind] if kind != "final" else [])
     if tracks:
         basis.append(sorted(t["spec"] for t in tracks) + [loudness])
     digest = stable_hash(basis)
@@ -148,7 +156,8 @@ def assemble(project_id: str) -> dict:
                 path = normalize(src, os.path.join(work, f"n{i:04d}.mp4"))
                 duration = probe_duration(path)
                 clips.append({"scene_code": code, "sequence": seq, "in_s": round(t, 3), "out_s": round(t + duration, 3),
-                              "description": description, "emotion": emotion, "source": video_key})
+                              "description": description, "emotion": emotion, "source": video_key,
+                              "tier": tiers[code]})
                 if seq:
                     spans.setdefault(seq, [t, t + duration])[1] = t + duration
                 normalized.append(path)
@@ -161,7 +170,7 @@ def assemble(project_id: str) -> dict:
                 film = mux(film, [AudioInput(film)], beds, os.path.join(work, "film.mp4"), loudness)
             cutlist = os.path.join(work, "cut.json")
             with open(cutlist, "w") as f:
-                json.dump({"duration_s": round(t, 3), "clips": clips,
+                json.dump({"kind": kind, "duration_s": round(t, 3), "clips": clips,
                            "sequences": [{"code": c, "title": titles.get(c, c), "in_s": round(a, 3), "out_s": round(b, 3)}
                                          for c, (a, b) in spans.items()],
                            "tracks": [{"id": p["id"], "sequence": p["sequence"], "kind": p["kind"], "source": p["source"],
@@ -173,5 +182,9 @@ def assemble(project_id: str) -> dict:
             storage.put_file(cutlist, cutlist_key, "application/json")      # kesme listesi, film yüklendikten sonra
 
     with session_scope() as s:
-        s.get(Project, project_id).timeline_key = key
+        project = s.get(Project, project_id)
+        if kind == "draft":
+            project.draft_timeline_key = key
+        else:
+            project.timeline_key = key
     return {"key": key, "cutlist_key": cutlist_key, "scenes": len(items)}

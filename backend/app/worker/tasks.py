@@ -52,13 +52,21 @@ def _guard(task, project_id: str, scene_id: str, work):
 
 # ---------- sahne aşamaları ----------
 
+@celery.task(bind=True, name="hg.storyboard_scene")
+def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False):
+    def work():
+        from app.engine.storyboard import make_board
+        return make_board(project_id, scene_id, standalone=standalone)
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.generate_scene")
-def generate_scene(self, project_id: str, scene_id: str):
+def generate_scene(self, project_id: str, scene_id: str, mode: str = "full"):
     release_dispatch(scene_id)          # kuyruk aralığı bitti: sahne artık durum ve görev kaydıyla korunur
 
     def work():
         from app.engine.iteration import run_tiered_generation
-        return run_tiered_generation(project_id, scene_id)
+        return run_tiered_generation(project_id, scene_id, mode)
     return _guard(self, project_id, scene_id, work)
 
 
@@ -75,21 +83,39 @@ def mux_scene(self, project_id: str, scene_id: str):
     def work():
         from app.post import pipeline
         return pipeline.mux_scene(scene_id)
-    return _guard(self, project_id, scene_id, work)
+    result = _guard(self, project_id, scene_id, work)
+    maybe_assemble_draft(project_id, scene_id)
+    return result
+
+
+IN_FLIGHT = ("pending", "storyboard", "probing", "generating", "correcting", "refined", "audio", "lipsync", "muxing")
+
+
+def maybe_assemble_draft(project_id: str, scene_id: str) -> None:
+    """Taslak geçişin son çekimi bitince kaba kurgu (animatik) kendiliğinden birleştirilir. Ücretsizdir."""
+    from sqlalchemy import func, select
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        if scene is None or scene.cut_tier != "draft" or scene.status != "done":
+            return
+        busy = s.scalar(select(func.count()).select_from(Scene).where(Scene.project_id == project_id,
+                                                                      Scene.status.in_(IN_FLIGHT)))
+    if not busy:
+        assemble_timeline.delay(project_id, "draft")
 
 
 @celery.task(name="hg.assemble_timeline")
-def assemble_timeline(project_id: str):
+def assemble_timeline(project_id: str, kind: str = "final"):
     from app.post.timeline import assemble
     try:
-        result = assemble(project_id)
+        result = assemble(project_id, kind)
     except Exception as e:
-        killswitch.event(project_id, "timeline_failed", error=f"{type(e).__name__}: {e}")
+        killswitch.event(project_id, "timeline_failed", error=f"{type(e).__name__}: {e}", cut=kind)
         raise
     if "error" in result:                                  # tamamlanmış sahne yok: başarı olayı yazılmaz
-        killswitch.event(project_id, "timeline_failed", error=result["error"])
+        killswitch.event(project_id, "timeline_failed", error=result["error"], cut=kind)
     else:
-        killswitch.event(project_id, "timeline", **{k: v for k, v in result.items() if k != "cutlist_key"})
+        killswitch.event(project_id, "timeline", cut=kind, **{k: v for k, v in result.items() if k != "cutlist_key"})
     return result
 
 

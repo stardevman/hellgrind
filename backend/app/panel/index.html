@@ -52,6 +52,7 @@ button { cursor: pointer; }
   font-weight: 600; transition: background .15s, border-color .15s;
 }
 .btn:hover:not(:disabled) { border-color: var(--dust); }
+a.btn { color: var(--ash); text-decoration: none; display: inline-flex; align-items: center; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.primary { background: var(--ember); color: #24201a; border-color: var(--ember); }
 .btn.primary:hover:not(:disabled) { background: #f0b350; }
@@ -182,6 +183,22 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .seqbar { display: flex; gap: 2px; margin-top: 10px; }
 .seqbar span { padding: 3px 6px; border-radius: 3px; background: var(--sunk); border: 1px solid var(--line); font-size: 12px; color: var(--dust); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
+/* storyboard */
+.boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); margin-top: 12px; }
+.board { background: var(--sunk); border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+.board img, .board .ph { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 3px; background: #1d1f22; display: grid; place-items: center; color: var(--dust); }
+.board textarea { min-height: 54px; font-size: 13px; }
+.bstatus.approved { color: var(--verdigris); } .bstatus.changes_requested { color: #f0a091; } .bstatus.pending { color: var(--dust); }
+.seq-title { margin-top: 18px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.toolbar label.check { display: flex; gap: 8px; align-items: center; }
+.tier { font-size: 12px; color: var(--dust); }
+.tier.draft { color: var(--ember); }
+.upgrade-btn[aria-pressed="true"] { border-color: var(--ember); color: var(--ember); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 5px 12px; color: var(--dust); font-weight: 600; }
+.seg button[aria-pressed="true"] { background: var(--sunk); color: var(--ash); }
+
 /* sekmeler */
 .tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 700; font-stretch: 112%; color: var(--dust); }
@@ -301,6 +318,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
     <nav class="tabs" role="tablist" aria-label="Proje görünümü">
       <button class="tab" role="tab" id="tab-scenes" data-tab="scenes" aria-controls="pane-scenes" aria-selected="true" type="button">Sahneler</button>
       <button class="tab" role="tab" id="tab-assets" data-tab="assets" aria-controls="pane-assets" aria-selected="false" type="button">Varlıklar <span class="num muted" id="tab-assets-count"></span></button>
+      <button class="tab" role="tab" id="tab-board" data-tab="board" aria-controls="pane-board" aria-selected="false" type="button">Storyboard <span class="num muted" id="tab-board-count"></span></button>
       <button class="tab" role="tab" id="tab-style" data-tab="style" aria-controls="pane-style" aria-selected="false" type="button">Stil kılavuzu <span class="num muted" id="tab-style-version"></span></button>
     </nav>
     <div id="pane-scenes" role="tabpanel" aria-labelledby="tab-scenes">
@@ -366,7 +384,9 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 
     <div class="film">
       <section class="panel" aria-labelledby="film-title">
-        <header><h2 id="film-title">Film</h2><span class="spacer"></span><button class="btn primary" id="assemble" type="button">Tamamlanan sahneleri birleştir</button></header>
+        <header><h2 id="film-title">Film</h2>
+          <div class="seg" role="group" aria-label="Film türü"><button type="button" data-film="draft" aria-pressed="false">Kaba kurgu</button><button type="button" data-film="final" aria-pressed="true">Final</button></div>
+          <span class="spacer"></span><button class="btn primary" id="assemble" type="button">Tamamlanan sahneleri birleştir</button></header>
         <div class="body">
           <div class="media" id="film-media"><p class="none">Henüz film yok. Sahneler tamamlanınca birleştirin.</p></div>
           <div class="seqbar" id="seqbar" aria-label="Sekanslar"></div>
@@ -379,6 +399,25 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
         <ol class="events" id="events"></ol>
       </section>
     </div>
+    </div>
+
+    <div id="pane-board" role="tabpanel" aria-labelledby="tab-board" hidden>
+      <section class="panel" aria-labelledby="board-title">
+        <header><h2 id="board-title">Storyboard</h2><span class="muted" id="board-summary"></span></header>
+        <div class="body">
+          <p class="muted">Revizyonu en ucuz aşamada yap: her çekimin karesini onayla ya da not bırakıp değişiklik iste. Sonra taslak geçiş yalnızca test turuyla kaba kurguyu çıkarır; zayıf çekimleri "İyileştir" ile işaretleyip yalnızca onları tam turla üretirsin.</p>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn" id="board-prepare" type="button">Kareleri hazırla</button>
+            <a class="btn" id="board-pdf" href="#" download="storyboard.pdf">PDF indir</a>
+            <label class="check"><input type="checkbox" id="board-require"> Görüntü üretimi için kare onayı zorunlu</label>
+            <span class="spacer"></span>
+            <button class="btn primary" id="draft-pass" type="button">Taslak geçişi başlat</button>
+            <button class="btn" id="upgrade-pass" type="button">İyileştirme geçişi</button>
+          </div>
+          <div class="note" id="board-note" role="status" aria-live="polite" style="margin-top:12px"></div>
+          <div id="board-grid"></div>
+        </div>
+      </section>
     </div>
 
     <div id="pane-style" role="tabpanel" aria-labelledby="tab-style" hidden>
@@ -443,6 +482,7 @@ const STATUS_TR = {
   pending: "Sırada", parsed: "Ayrıştırıldı", probing: "Test turu", generating: "Tam tur", correcting: "Düzeltme",
   refined: "Rafine", needs_review: "İnceleme gerekli", audio: "Ses", lipsync: "Dudak senkronu", muxing: "Montaj",
   done: "Hazır", failed: "Hata", frozen: "Donduruldu", blocked: "Engellendi",
+  storyboard: "Storyboard", board_review: "Kare onay bekliyor",
 };
 const TYPE_TR = { character: "Karakter", location: "Mekân", prop: "Nesne" };
 const ASTATUS_TR = { draft: "Taslak", still_approved: "Durağan onaylı", motion_tested: "Hareket testi onaylı", locked: "Kilitli" };
@@ -452,7 +492,8 @@ const REF_KINDS = { character: ["turnaround", "still", "expressions", "voice_sam
 const REF_ACCEPT = { still: "image/*", expressions: "image/*", turnaround: "video/*", voice_sample: "audio/*" };
 const TEST_TR = { queued: "Hareket testi sırada…", running: "Hareket testi üretiliyor…", passed: "Kusur bulunmadı: izleyip onaylayabilirsin.", rejected: "Kusurlu", failed: "Üretilemedi" };
 const PROJECT_STATUS_TR = { draft: "Taslak", parsing: "Ayrıştırılıyor", producing: "Üretimde", paused: "Durduruldu", killed: "İptal edildi", completed: "Tamamlandı" };
-const WORKING = new Set(["probing", "generating", "correcting", "audio", "lipsync", "muxing"]);
+const WORKING = new Set(["storyboard", "probing", "generating", "correcting", "audio", "lipsync", "muxing"]);
+const BOARD_TR = { pending: "Onay bekliyor", approved: "Onaylı", changes_requested: "Değişiklik istendi" };
 const EMOTION_TR = { neutral: "Nötr", joy: "Sevinç", anger: "Öfke", fear: "Korku", sadness: "Hüzün", surprise: "Şaşkınlık", disgust: "Tiksinti", tension: "Gerilim" };
 const EMOTION_COLOR = { neutral: "#A39E95", joy: "#E4A23E", anger: "#C2573F", fear: "#86A5B8", sadness: "#6F8CA0", surprise: "#D9B77A", disgust: "#8FA66A", tension: "#C9895A" };
 const ANOMALY_TR = { black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya", unreadable: "okunamayan dosya" };
@@ -461,7 +502,7 @@ const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma
 
 const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
             offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null,
-            style: null, impact: null, impactScroll: false, styleFormFor: null };
+            style: null, impact: null, impactScroll: false, styleFormFor: null, filmKind: "final" };
 let timer = null;
 
 /* ---------- yardımcılar ---------- */
@@ -615,7 +656,8 @@ function makeRow(id) {
   const el = document.createElement("article");
   el.className = "scene"; el.dataset.id = id;
   el.innerHTML = `
-    <div class="scene-head"><button type="button" class="scene-pick"></button><span class="status"></span></div>
+    <div class="scene-head"><button type="button" class="scene-pick"></button><span class="status"></span><span class="tier"></span>
+      <button type="button" class="btn small upgrade-btn" hidden>İyileştir</button></div>
     <div class="scene-info"><p class="desc"></p><p class="head"></p></div>
     <div class="spend num muted" title="Sahne harcaması"></div>
     <div class="strip"></div>`;
@@ -628,6 +670,15 @@ function patchRow(el, sc) {
   const cls = "status " + (WORKING.has(sc.status) ? "work" : sc.status);
   if (st.className !== cls) st.className = cls;
   setText(st, STATUS_TR[sc.status] || sc.status);
+  const tier = el.querySelector(".tier");
+  const tierCls = "tier " + (sc.cut_tier || "");
+  if (tier.className !== tierCls) tier.className = tierCls;
+  setText(tier, sc.cut_tier === "draft" ? "Taslak" : sc.cut_tier === "final" ? "Final" : "");
+  const up = el.querySelector(".upgrade-btn");
+  up.hidden = !(sc.cut_tier === "draft" || sc.upgrade_requested);
+  up.dataset.upgrade = sc.id;
+  patchAttr(up, "aria-pressed", String(!!sc.upgrade_requested));
+  setText(up, sc.upgrade_requested ? "İyileştirilecek" : "İyileştir");
   setText(el.querySelector(".desc"), sc.description || "");
   const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
   const missing = sc.status === "blocked" && sc.missing.length
@@ -777,14 +828,17 @@ function renderInspector() {
 
 /* ---------- film ve olaylar ---------- */
 function renderFilm() {
-  const done = S.ov.scenes.filter((s) => s.status === "done").length;
-  const t = S.ov.timeline;
+  const draft = S.filmKind === "draft";
+  document.querySelectorAll("[data-film]").forEach((b) => patchAttr(b, "aria-pressed", String(b.dataset.film === S.filmKind)));
+  const done = draft ? S.ov.scenes.filter((s) => s.draft_url || s.status === "done").length
+                     : S.ov.scenes.filter((s) => s.status === "done").length;
+  const t = draft ? S.ov.draft_timeline : S.ov.timeline;
   if (S.assembling && t && t.url !== S.assembling.before) S.assembling = null;           // yeni film geldi
   else if (S.assembling && Date.now() - S.assembling.at > 90000) S.assembling = null;    // sonsuza dek beklemesin
   const b = $("assemble");
-  setText(b, S.assembling ? "Birleştiriliyor…" : `Tamamlanan ${done} sahneyi birleştir`);
+  setText(b, S.assembling ? "Birleştiriliyor…" : draft ? `Kaba kurguyu birleştir (${done} sahne)` : `Tamamlanan ${done} sahneyi birleştir`);
   b.disabled = done === 0 || !!S.assembling;
-  const media = t ? { src: t.url, label: "Film" } : null;
+  const media = t ? { src: t.url, label: draft ? "Kaba kurgu" : "Film" } : null;
   const host = $("film-media");
   if (host.dataset.src !== (media ? media.src : "")) {
     host.dataset.src = media ? media.src : "";
@@ -816,7 +870,7 @@ function eventText(e, codes) {
     case "soft_limit_stop": return { t: `${where}yumuşak limit: yeni dalga başlatılmadı` };
     case "frozen": return { t: `Üretim donduruldu${e.reason ? ": " + e.reason : ""}`, c: "bad" };
     case "resumed": return { t: "Üretime devam edildi", c: "good" };
-    case "timeline": return { t: `Film birleştirildi: ${e.scenes} sahne`, c: "good" };
+    case "timeline": return { t: `${e.cut === "draft" ? "Kaba kurgu" : "Film"} birleştirildi: ${e.scenes} sahne`, c: "good" };
     case "timeline_failed": return { t: `Film birleştirilemedi: ${e.error}`, c: "bad" };
     case "blocked": return { t: `${where}engellendi, eksik referans: ${(e.missing || []).join(", ")}`, c: "bad" };
     case "lint_warning": return { t: `${where}uyarı, onaysız referans: ${(e.missing || []).join(", ")}` };
@@ -824,6 +878,12 @@ function eventText(e, codes) {
     case "sequence_capped": return { t: `${e.code} sekansı bütçe tavanına ulaştı (${usd(e.spent)} / ${usd(e.cap)}); diğer sekanslar sürüyor`, c: "bad" };
     case "sequence_reopened": return { t: `${e.code} sekansı yeniden açıldı`, c: "good" };
     case "track_changed": return { t: `Film kanalı ${e.removed ? "kaldırıldı" : "değişti"}; hiçbir çekim yeniden üretilmedi, film yeniden birleştiriliyor` };
+    case "board_ready": return { t: `${e.code}: storyboard karesi hazır` };
+    case "board_status": return { t: `${e.code}: kare ${(BOARD_TR[e.status] || e.status).toLocaleLowerCase("tr")}`, c: e.status === "approved" ? "good" : e.status === "changes_requested" ? "bad" : "" };
+    case "board_required": return { t: `${where}kare onaylanmadan görüntü üretilmez` };
+    case "storyboard_queued": return { t: `${e.queued} storyboard karesi hazırlanıyor` };
+    case "draft_pass": return { t: `Taslak geçiş: ${e.shots} çekim yalnızca test turuyla` };
+    case "upgrade_pass": return { t: `İyileştirme geçişi: ${e.shots} çekim tam tura alındı` };
     case "style_activated": return { t: `Stil kılavuzu sürüm ${e.version} etkin (${e.affected} çekim etkilendi)`, c: "good" };
     case "asset_status": return { t: `${e.name}: ${ASTATUS_TR[e.status] || e.status}`, c: e.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
@@ -835,7 +895,7 @@ function renderEvents() {
 }
 
 /* ---------- varlıklar ---------- */
-const TABS = ["scenes", "assets", "style"];
+const TABS = ["scenes", "assets", "board", "style"];
 function renderTabs() {
   for (const t of TABS) {
     const on = S.tab === t;
@@ -846,6 +906,8 @@ function renderTabs() {
   const c = (S.ov && S.ov.project.asset_counts) || {};
   const total = Object.values(c).reduce((x, y) => x + y, 0);
   setText($("tab-assets-count"), total ? `${c.locked || 0}/${total} kilitli` : "");
+  const approved = S.ov ? S.ov.scenes.filter((x) => x.board_status === "approved").length : 0;
+  setText($("tab-board-count"), S.ov && S.ov.scenes.length ? `${approved}/${S.ov.scenes.length} onaylı` : "");
   setText($("tab-style-version"), S.ov && S.ov.project.style_version ? `sürüm ${S.ov.project.style_version}` : "");
   const blocked = S.ov ? S.ov.scenes.filter((x) => x.status === "blocked").length : 0;
   document.querySelectorAll(".retry-blocked").forEach((b) => { b.hidden = !blocked; b.disabled = S.busy || (S.ov && S.ov.project.frozen); });
@@ -955,6 +1017,70 @@ const ASSET_ACTS = {
   },
 };
 
+/* ---------- storyboard ---------- */
+function boardCard(sc) {
+  const lines = sc.tracks.filter((t) => t.kind === "dialogue");
+  const cam = sc.camera || {};
+  const dis = S.busy ? " disabled" : "";
+  const frame = sc.board_url ? `<img src="${esc(sc.board_url)}" alt="${esc(sc.scene_code)} storyboard karesi" loading="lazy">` : '<div class="ph">Kare yok</div>';
+  const said = lines.length ? lines.map((t) => `${esc(t.character || "Anlatıcı")}: ${esc(t.text)}`).join("<br>") : "Diyalog yok.";
+  return `
+    ${frame}
+    <div class="card-head"><h3>${esc(sc.scene_code)}</h3><span class="muted">${SHOT_TR[cam.shot] || esc(cam.shot || "")}, ${MOVE_TR[cam.movement] || esc(cam.movement || "")} · ${Number(sc.duration_s).toFixed(1)} sn</span><span class="spacer"></span><b class="bstatus ${esc(sc.board_status)}">${BOARD_TR[sc.board_status] || esc(sc.board_status)}</b></div>
+    <p class="muted" style="font-size:13px">${said}</p>
+    <label class="muted" style="font-size:13px;display:grid;gap:4px">Not<textarea data-board-note="${sc.id}" maxlength="2000">${esc(sc.board_note || "")}</textarea></label>
+    <div class="actions-row">
+      <button class="btn small good" type="button" data-board="approved" data-scene="${sc.id}"${sc.board_url ? dis : " disabled"}>Onayla</button>
+      <button class="btn small danger" type="button" data-board="changes_requested" data-scene="${sc.id}"${dis}>Değişiklik iste</button>
+      ${sc.board_status !== "pending" ? `<button class="btn small" type="button" data-board="pending" data-scene="${sc.id}"${dis}>Geri al</button>` : ""}
+    </div>`;
+}
+function renderBoards() {
+  if (S.tab !== "board" || !S.ov) return;
+  const scenes = S.ov.scenes, seqs = S.ov.sequences || [];
+  const approved = scenes.filter((x) => x.board_status === "approved").length, flagged = scenes.filter((x) => x.upgrade_requested).length;
+  setText($("board-summary"), `${approved}/${scenes.length} kare onaylı · ${scenes.filter((x) => x.cut_tier === "draft").length} taslak çekim · ${flagged} iyileştirilecek`);
+  $("board-pdf").href = `/api/projects/${S.projectId}/storyboard.pdf`;
+  const req = $("board-require");
+  if (document.activeElement !== req) req.checked = !!S.ov.project.settings.require_board_approval;
+  const frozen = S.ov.project.frozen;
+  $("board-prepare").disabled = $("draft-pass").disabled = S.busy || frozen;
+  $("upgrade-pass").disabled = S.busy || frozen || !flagged;
+  setText($("upgrade-pass"), flagged ? `İyileştirme geçişi (${flagged} çekim)` : "İyileştirme geçişi");
+  const host = $("board-grid");
+  const groups = seqs.map((q) => ({ id: q.id, title: `${q.code} · ${q.title}`, scenes: scenes.filter((x) => x.sequence_id === q.id) }));
+  const loose = scenes.filter((x) => !seqs.some((q) => q.id === x.sequence_id));
+  if (loose.length) groups.push({ id: "none", title: "Sekanssız", scenes: loose });
+  const existing = new Map([...host.querySelectorAll(".board")].map((el) => [el.dataset.id, el]));
+  const sections = new Map([...host.querySelectorAll(".board-seq")].map((el) => [el.dataset.seq, el]));
+  groups.filter((g) => g.scenes.length).forEach((g, gi) => {
+    let sec = sections.get(g.id);
+    sections.delete(g.id);
+    if (!sec) { sec = document.createElement("section"); sec.className = "board-seq"; sec.dataset.seq = g.id; sec.innerHTML = '<h3 class="seq-title"></h3><div class="boards"></div>'; }
+    setText(sec.querySelector("h3"), g.title);
+    const box = sec.querySelector(".boards");
+    g.scenes.forEach((sc, i) => {
+      let el = existing.get(sc.id);
+      existing.delete(sc.id);
+      if (!el) { el = document.createElement("article"); el.className = "board"; el.dataset.id = sc.id; }
+      const note = el.querySelector("textarea");
+      if (!(note && document.activeElement === note)) setHTML(el, boardCard(sc));   // yazılan not ezilmesin
+      if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+    });
+    if (host.children[gi] !== sec) host.insertBefore(sec, host.children[gi] || null);
+  });
+  existing.forEach((el) => el.remove());
+  sections.forEach((el) => el.remove());
+}
+const passText = (r, kind) => {
+  const started = Object.entries(r.planned).filter(([, st]) => st.includes("VISUAL")).map(([code]) => code);
+  const parts = [started.length ? `${kind}: ${started.join(", ")}.` : `${kind} için üretilecek çekim yok.`];
+  if (r.awaiting_board && r.awaiting_board.length) parts.push(`Kare onayı bekleyen: ${r.awaiting_board.join(", ")}.`);
+  if (r.blocked && Object.keys(r.blocked).length) parts.push(`Eksik referans: ${Object.keys(r.blocked).join(", ")}.`);
+  if (r.capped && r.capped.length) parts.push(`Sekans tavanında: ${r.capped.join(", ")}.`);
+  return parts.join(" ");
+};
+
 /* ---------- stil kılavuzu ---------- */
 const RULE_TYPES = ["character", "location", "prop"];
 const swatches = (colors) => (colors || []).map((c) => `<span class="swatch" style="background:${esc(c)}" title="${esc(c)}"></span>`).join("");
@@ -1032,6 +1158,7 @@ function renderAll() {
     renderFilm();
     renderEvents();
     renderAssets();
+    renderBoards();
     renderStyle();
   } else if (S.ov) {
     renderBudget();
@@ -1102,6 +1229,23 @@ document.addEventListener("click", (ev) => {
   } else if (t.dataset.act) {
     const run = ASSET_ACTS[t.dataset.act], id = t.dataset.asset;
     act(async () => note("assets-note", await run(id), "ok"), "assets-note");
+  } else if (t.dataset.film) {
+    S.filmKind = t.dataset.film; renderAll();
+  } else if (t.dataset.upgrade) {
+    const sc = S.ov.scenes.find((x) => x.id === t.dataset.upgrade);
+    act(async () => { const r = await api(`/scenes/${t.dataset.upgrade}/upgrade`, "POST", { requested: !sc.upgrade_requested }); note("insp-note", r.upgrade_requested ? `${sc.scene_code} iyileştirme geçişine alınacak.` : `${sc.scene_code} işareti kaldırıldı.`, "ok"); }, "insp-note");
+  } else if (t.dataset.board) {
+    const id = t.dataset.scene, area = document.querySelector(`textarea[data-board-note="${id}"]`);
+    act(async () => {
+      const r = await api(`/scenes/${id}/board`, "POST", { status: t.dataset.board, note: area ? area.value : null });
+      note("board-note", `${BOARD_TR[r.board_status]}${r.board_note ? ": " + r.board_note : ""}`, r.board_status === "changes_requested" ? "err" : "ok");
+    }, "board-note");
+  } else if (t.id === "board-prepare") {
+    act(async () => { const r = await api(`/projects/${S.projectId}/storyboard`, "POST"); note("board-note", r.queued.length ? `Kareler hazırlanıyor: ${r.queued.join(", ")}.` : "Bütün kareler güncel.", "ok"); }, "board-note");
+  } else if (t.id === "draft-pass") {
+    act(async () => { const r = await api(`/projects/${S.projectId}/draft-pass`, "POST"); note("board-note", passText(r, "Taslak geçiş") + " Son çekim bitince kaba kurgu kendiliğinden birleşir.", "ok"); }, "board-note");
+  } else if (t.id === "upgrade-pass") {
+    act(async () => { const r = await api(`/projects/${S.projectId}/upgrade-pass`, "POST"); note("board-note", passText(r, "Tam tura alınan"), "ok"); }, "board-note");
   } else if (t.dataset.trackRemove) {
     act(async () => { const r = await api(`/timeline-tracks/${t.dataset.trackRemove}`, "DELETE"); note("insp-note", "Kanal kaldırıldı." + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok"); }, "insp-note");
   } else if (t.dataset.unlink) {
@@ -1206,6 +1350,10 @@ $("music-form").addEventListener("submit", (e) => {
   }, "insp-note");
 });
 $("music-scope").addEventListener("change", renderAll);
+$("board-require").addEventListener("change", (e) => {
+  const on = e.target.checked;
+  act(async () => { await api(`/projects/${S.projectId}`, "PATCH", { settings: { require_board_approval: on } }); note("board-note", on ? "Onaylanmamış karesi olan çekimde görüntü üretilmez." : "Kare onayı artık zorunlu değil.", "ok"); }, "board-note");
+});
 $("cap-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const q = curSequence(curScene()), raw = $("cap-value").value.trim();
@@ -1232,8 +1380,14 @@ $("stem-form").addEventListener("submit", (e) => {
   }, "insp-note");
 });
 $("assemble").addEventListener("click", () => {
-  const before = S.ov.timeline && S.ov.timeline.url;
-  act(async () => { await api(`/projects/${S.projectId}/assemble`, "POST"); S.assembling = { before, at: Date.now() }; note("film-note", "Film birleştirmeye alındı.", "ok"); }, "film-note");
+  const draft = S.filmKind === "draft", film = draft ? S.ov.draft_timeline : S.ov.timeline;
+  const before = film && film.url;
+  act(async () => {
+    if (draft) await api(`/projects/${S.projectId}/assemble?kind=draft`, "POST");
+    else await api(`/projects/${S.projectId}/assemble`, "POST");
+    S.assembling = { before, at: Date.now() };
+    note("film-note", draft ? "Kaba kurgu birleştirmeye alındı." : "Film birleştirmeye alındı.", "ok");
+  }, "film-note");
 });
 
 $("start-form").addEventListener("submit", async (e) => {

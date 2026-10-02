@@ -94,7 +94,7 @@ def freeze(project_id: str, reason: str) -> None:
         s.execute(text("UPDATE projects SET status = 'paused' WHERE id = :p AND status NOT IN ('killed','completed')"),
                   {"p": project_id})
         s.execute(text("""UPDATE scenes SET status = 'frozen'
-                          WHERE project_id = :p AND status IN ('pending','probing','generating','correcting',
+                          WHERE project_id = :p AND status IN ('pending','storyboard','probing','generating','correcting',
                                                                'audio','lipsync','muxing')"""),
                   {"p": project_id})
     task_ids = list(r().smembers(TASKS.format(project_id)))
@@ -113,7 +113,7 @@ def cap_sequence(project_id: str, sequence_id, reason: str) -> None:
         if row is None:
             return                                          # zaten durmuş: olay bir kez yazılır
         s.execute(text("""UPDATE scenes SET status = 'frozen'
-                          WHERE sequence_id = :q AND status IN ('pending','probing','generating','correcting',
+                          WHERE sequence_id = :q AND status IN ('pending','storyboard','probing','generating','correcting',
                                                                 'audio','lipsync','muxing')"""), {"q": sequence_id})
     event(project_id, "sequence_capped", sequence_id=str(sequence_id), code=row[0], reason=reason,
           spent=float(row[1]), cap=float(row[3]) if row[3] is not None else None)

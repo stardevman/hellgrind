@@ -258,12 +258,12 @@ def test_locking_the_assets_lets_the_scene_render(strict, api, dispatched, fast,
         drive_to_locked(api, assets[key]["id"])
     sid = scene_ids(pid)["S001_SH01"]                                    # Kerem + dökümhane: hepsi kilitli
     r = api.post(f"/api/scenes/{sid}/render")
-    assert r.json() == {"stages": ["VISUAL", "LIPSYNC", "MUX"]}
+    assert r.json() == {"stages": ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]}
     still = api.post(f"/api/scenes/{scene_ids(pid)['S001_SH02']}/render").json()   # fener hâlâ taslak
     assert still["stages"] == [] and [m["name"] for m in still["blocked"]["missing"]] == ["Fener"]
     unblocked = drive_to_locked(api, assets[("prop", "Fener")]["id"])["unblocked"]
     assert unblocked == ["S001_SH02"]
-    assert api.post(f"/api/scenes/{scene_ids(pid)['S001_SH02']}/render").json()["stages"] == ["VISUAL", "LIPSYNC", "MUX"]
+    assert api.post(f"/api/scenes/{scene_ids(pid)['S001_SH02']}/render").json()["stages"] == ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]
 
 
 def test_production_starts_end_to_end_once_assets_are_locked(api, api_project, fast, eager):
@@ -278,7 +278,7 @@ def test_production_starts_end_to_end_once_assets_are_locked(api, api_project, f
     motion_spend = api.get(f"/api/projects/{pid}/budget").json()["spent"]
     assert motion_spend > spent_before                                   # referans ve testler sanal bütçeden düştü
     r = api.post(f"/api/projects/{pid}/render-all").json()
-    assert r["planned"]["S001_SH01"] == ["VISUAL", "LIPSYNC", "MUX"] and r["blocked"] == {}
+    assert r["planned"]["S001_SH01"] == ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"] and r["blocked"] == {}
     sc = next(x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"])
     assert sc["status"] == "done" and sc["missing"] == []
     with session_scope() as s:
@@ -305,7 +305,7 @@ def test_still_approved_is_enough_when_the_project_says_so(strict, api, dispatch
     for a in api.get(f"/api/projects/{pid}/assets").json():
         assert api.post(f"/api/assets/{a['id']}/references/placeholder").status_code == 201
         api.post(f"/api/assets/{a['id']}/approve-still")
-    assert all(stages == ["VISUAL", "LIPSYNC", "MUX"]
+    assert all(stages == ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]
                for stages in api.post(f"/api/projects/{pid}/render-all").json()["planned"].values())
 
 

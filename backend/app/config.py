@@ -56,6 +56,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "loudness_lufs": -23.0,
     "lint_strictness": "block",    # üretim öncesi referans kontrolü: off | warn | block
     "asset_min_status": "locked",  # çekimdeki varlıkların ulaşması gereken en az durum (still_approved | motion_tested | locked)
+    "require_board_approval": False,   # açıksa storyboard karesi onaylanmadan görüntü üretilmez
 }
 
 

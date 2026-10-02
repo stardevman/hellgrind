@@ -6,6 +6,10 @@
    bulununca durur; yumuşak bütçe limiti bayrağı varken yeni dalga başlamaz.
 3. Rafine Havuz: yalnızca tam turda geçenlerden en iyi `refined_k` kalır, gerisi imha edilir.
 
+Taslak geçiş (mode="draft", Faz 14): yalnızca test turu çalışır; geçen ilk varyasyon tek başına havuza girer ve kaba
+kurguda kullanılır. Tam tur hiç çalışmaz. Sonraki iyileştirme geçişi aynı seed'lerle başladığı için test turu klipleri
+yeniden kullanılır (yeniden üretilmez, yeniden ücretlendirilmez).
+
 Seed'ler girdilerden türetildiği için çalıştırma tekrarlanabilir: bir kesintiden (Kill-Switch, çökme) sonra aynı girdiyle
 yeniden başlayan çalıştırma, tamamlanmış varyasyonları yeniden üretmez ve bütçeden yeniden düşmez.
 """
@@ -93,17 +97,19 @@ def _merge_params(vid, **extra) -> None:
 
 def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None:
     """Aynı seed ile daha önce tamamlanmış varyasyon: videosu hâlâ depoda duran geçen ya da kalite kapısında elenen.
-    Artık havuzdan emekli edilmiş (superseded / not_top_k) ya da hata vermiş olanlar yeniden kullanılmaz."""
+    Taslak geçişte havuza giren test klibi de (yalnızca test turunda) yeniden kullanılır: iyileştirme geçişi onu yeniden
+    üretmez. Havuzdan emekli edilmiş (superseded / not_top_k) ya da hata vermiş olanlar yeniden kullanılmaz."""
+    usable = ("passed", "refined") if tier == "probe" else ("passed",)
     with session_scope() as s:
         v = s.scalars(select(Variation).where(
             Variation.scene_id == c.scene_id, Variation.seed == seed, Variation.tier == tier,
             Variation.params["resolution"].astext == resolution,
-            or_(Variation.status == "passed",
+            or_(Variation.status.in_(usable),
                 and_(Variation.status == "purged", Variation.params["purge_reason"].astext == "quality_gate")),
         ).order_by(Variation.created_at.desc()).limit(1)).first()
         if v is None:
             return None
-        if v.status == "passed" and not (v.video_key and storage.exists(v.video_key)):
+        if v.status != "purged" and not (v.video_key and storage.exists(v.video_key)):
             return None
         s.expunge(v)
         return v
@@ -120,7 +126,7 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
     done = _reusable(c, seed, tier, resolution)
     if done is not None:
         _merge_params(done.id, run=c.run_id)
-        return VarResult(str(done.id), done.status == "passed", done.composite_score)
+        return VarResult(str(done.id), done.status in ("passed", "refined"), done.composite_score)
 
     label = f"{c.render.get('label', '')}  {tier} {resolution} #{seed % 10000}"
     req = GenRequest(prompt=c.prompt_spec.get("prompt", ""), negative=c.prompt_spec.get("negative", ""), seed=seed,
@@ -250,6 +256,16 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"})
 
 
+def _finish_draft(c: Ctx, first: VarResult) -> str:
+    """Taslak: test turunda geçen ilk varyasyon tek başına havuza girer. Diğer geçenler yerinde kalır (iyileştirme
+    geçişi onları yeniden kullanır)."""
+    gate.finalize_draft(c.scene_id, first.id, {
+        "status": "refined", "visual_hash": c.visual_hash, "lipsync_video_key": None, "final_video_key": None,
+        "last_error": None, "cut_tier": "draft"})
+    killswitch.event(c.project_id, "refined", scene_id=c.scene_id, pool=1, draft=True)
+    return "refined"
+
+
 def lint_blocks(project_id: str, scene_id: str) -> bool:
     """Worker tarafındaki üretim öncesi kontrol: dispatch ile görev başlangıcı arasında bir varlığın kilidi açılmış
     olabilir. Engellerse sahneyi `blocked` yapar; hiçbir şey harcanmaz."""
@@ -262,20 +278,43 @@ def lint_blocks(project_id: str, scene_id: str) -> bool:
     return True
 
 
-def run_tiered_generation(project_id: str, scene_id: str) -> str:
-    """Sahnenin görsel aşamasını baştan sona yürütür. Dönen değer: "refined", "needs_review" ya da "blocked"."""
+def board_blocks(project_id: str, scene_id: str) -> bool:
+    """Onay zorunluyken storyboard karesi bu görsel girdiler için onaylanmamışsa görüntü üretilmez (worker tarafı)."""
+    from app.engine.storyboard import board_ready
+    with session_scope() as s:
+        cfg = project_settings(s.get(Project, project_id).settings)
+        if not cfg["require_board_approval"]:
+            return False
+        scene = s.get(Scene, scene_id)
+        style = bible.active_version(s, project_id)
+        ready = board_ready(scene, visual_fingerprint(scene, load_characters(s, scene_id), load_assets(s, scene_id), style))
+    if ready:
+        return False
+    advance_scene(project_id, scene_id, status="board_review")
+    killswitch.event(project_id, "board_required", scene_id=scene_id)
+    return True
+
+
+def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") -> str:
+    """Sahnenin görsel aşamasını yürütür. mode="draft": yalnızca test turu, geçen ilk varyasyon havuza girer.
+    Dönen değer: "refined", "needs_review", "blocked" ya da "board_review"."""
     gate.ensure_scorer()                                  # para harcanmadan önce
     if lint_blocks(project_id, scene_id):
         return "blocked"
+    if board_blocks(project_id, scene_id):
+        return "board_review"
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 
     # 1) Test turu, gerekirse yeni seed'lerle yeniden denemeler
     for round_no in range(max(0, int(cfg["max_correction_rounds"])) + 1):
-        report = summarize(run_wave(ctx, "probe", round_no, cfg["probe_n"], cfg["probe_resolution"]))
+        results = run_wave(ctx, "probe", round_no, cfg["probe_n"], cfg["probe_resolution"])
+        report = summarize(results)
         log.info("scene=%s test turu %d: %s", scene_id, round_no, report)
         killswitch.event(project_id, "probe_wave", scene_id=scene_id, round=round_no, **report)
-        if report["mean_composite"] >= cfg["clip_threshold"] and report["pass_rate"] >= cfg["min_pass_rate"]:
+        if mode == "draft" and (first := next((r for r in results if r.passed), None)):
+            return _finish_draft(ctx, first)
+        if mode != "draft" and report["mean_composite"] >= cfg["clip_threshold"] and report["pass_rate"] >= cfg["min_pass_rate"]:
             break
         with session_scope() as s:
             scene = s.get(Scene, scene_id)
@@ -305,7 +344,7 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
     # 3) Rafine Havuz. Video değişti: eski dudak senkronu ve final video artık geçersiz, plan yeniden çalıştırsın.
     winners = gate.finalize_refined_pool(scene_id, ctx.run_id, cfg["refined_k"], {
         "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
-        "last_error": None})
+        "last_error": None, "cut_tier": "final", "upgrade_requested": False})
     if not winners:
         advance_scene(project_id, scene_id, status="needs_review", last_error="tam turda eşiği geçen varyasyon yok")
         return "needs_review"

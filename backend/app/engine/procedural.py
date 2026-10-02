@@ -241,6 +241,7 @@ def _encoder(out_path: str, width: int, height: int, fps: int):
         except BrokenPipeError:
             pass
         err = proc.stderr.read().decode(errors="replace").strip()
+        proc.stderr.close()
         code = proc.wait()
     if code != 0:
         raise RuntimeError(f"ffmpeg kodlama hatası: {err[-300:]}")

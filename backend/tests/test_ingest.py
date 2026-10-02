@@ -75,7 +75,7 @@ def test_engine_is_routed_from_action_complexity_at_ingest_so_the_visual_fingerp
     with session_scope() as s:                                     # yönetmen motoru elle değiştirirse yeniden render gerekir
         s.execute(text("UPDATE scenes SET engine = 'higgsfield' WHERE project_id = :p AND scene_code = 'S001_SH01'"),
                   {"p": pid})
-    assert plans(pid)["S001_SH01"] == Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
+    assert plans(pid)["S001_SH01"] == Stage.STORYBOARD | Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
 
 
 def test_script_source_and_scene_text_are_stored(mk_project):

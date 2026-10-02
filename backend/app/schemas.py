@@ -38,6 +38,7 @@ SETTING_RULES = {
     "max_spend_per_10min": (_num(0, 1e7, open_low=True), "sıfırdan büyük bir sayı"),
     "loudness_lufs": (_num(-70, -5), "-70 ile -5 arasında bir sayı"),
     "lint_strictness": (lambda v: v in ("off", "warn", "block"), "off, warn ya da block"),
+    "require_board_approval": (lambda v: type(v) is bool, "true ya da false"),
     "asset_min_status": (lambda v: v in ("still_approved", "motion_tested", "locked"),
                          "still_approved, motion_tested ya da locked"),
 }
@@ -269,3 +270,22 @@ class TrackPatch(BaseModel):
     gain_db: float | None = Field(None, ge=-60, le=20)
     fade_in_s: float | None = Field(None, ge=0, le=60)
     fade_out_s: float | None = Field(None, ge=0, le=60)
+
+
+# ---------- storyboard ve taslak geçiş (Faz 14) ----------
+
+class BoardIn(BaseModel):
+    status: Literal["approved", "changes_requested", "pending"]
+    note: str | None = Field(None, max_length=2000)
+
+
+class UpgradeIn(BaseModel):
+    requested: bool = True
+
+
+class ProjectPatch(BaseModel):
+    """Proje adı ve ayarları; verilen ayarlar mevcutlarla birleştirilir (ProjectIn ile aynı doğrulama)."""
+    title: str | None = Field(None, min_length=1, max_length=200)
+    settings: dict = {}
+
+    _settings = field_validator("settings")(ProjectIn._settings.__func__)

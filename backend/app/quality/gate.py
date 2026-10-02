@@ -95,6 +95,26 @@ def finalize_refined_pool(scene_id, run_id: str, k: int, scene_update: dict) -> 
     return ranked
 
 
+def finalize_draft(scene_id, variation_id: str, scene_update: dict) -> None:
+    """Taslak geçiş: verilen (test turunda geçen ilk) varyasyon tek başına rank 1 olur. Önceki havuz emekli edilir;
+    bu çalıştırmanın geçen diğer test klipleri `passed` olarak yerinde kalır ki iyileştirme geçişi yeniden kullansın."""
+    with session_scope() as s:
+        s.execute(update(Variation).where(Variation.scene_id == scene_id).values(refined_rank=None))
+        s.flush()
+        retire = []
+        for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id, Variation.status == "refined")):
+            if str(v.id) != str(variation_id):
+                retire.append((v.id, v.video_key, "superseded"))
+                v.status = "purged"
+                v.params = {**(v.params or {}), "purge_reason": "superseded"}
+        winner = s.get(Variation, variation_id)
+        winner.refined_rank, winner.status = 1, "refined"
+        scene = s.get(Scene, scene_id)
+        for field, value in scene_update.items():
+            setattr(scene, field, value)
+    purge_files(retire)
+
+
 def purge_files(items: list[tuple]) -> None:
     """[(variation_id, video_key, neden)]: dosyayı karantinaya taşır (hard modda siler), satırı günceller."""
     for vid, key, reason in items:

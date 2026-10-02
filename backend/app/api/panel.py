@@ -1,5 +1,6 @@
 """Kontrol panelini besleyen uç noktalar: ön ayarlar, senaryo yükleme, toplu görünüm, medya, film."""
 import json
+from typing import Literal
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +29,7 @@ PRESETS = {
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
 }
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
-                  "assets/", "motion/")
+                  "assets/", "motion/", "storyboard/")
 EVENT_LIMIT = 30
 
 
@@ -46,7 +47,7 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
         summary = ingest(project_id, body.text, auto_music=body.auto_music)
     except killswitch.ProjectFrozen:                  # LLM modunda ayrıştırma sırasında bütçe dolabilir
         raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
-    result = {"planned": {}, "busy": [], "blocked": {}, "capped": [], "frozen": False}
+    result = {"planned": {}, "busy": [], "blocked": {}, "capped": [], "awaiting_board": [], "frozen": False}
     if body.auto_render:
         s.expire_all()
         result = dispatch_all(s, project_id)
@@ -62,6 +63,16 @@ def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
 
 def _media(key: str | None) -> str | None:
     return f"/api/media?key={key}" if key else None
+
+
+def _film(key: str | None) -> dict | None:
+    if not key:
+        return None
+    try:
+        cut = json.loads(storage.read_bytes(key.rsplit(".", 1)[0] + ".json"))
+    except Exception:                                 # kesme listesi henüz yok ya da okunamıyor
+        cut = None
+    return {"url": _media(key), "cut": cut}
 
 
 @router.get("/projects/{project_id}/overview")
@@ -97,6 +108,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
+        "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
+        "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
         "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
@@ -118,13 +131,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     } for sc in scenes]
 
     events = [json.loads(e) for e in killswitch.r().lrange(killswitch.EVENTS.format(project_id), 0, EVENT_LIMIT - 1)]
-    timeline = None
-    if p.timeline_key:
-        try:
-            cut = json.loads(storage.read_bytes(p.timeline_key.rsplit(".", 1)[0] + ".json"))
-        except Exception:                             # kesme listesi henüz yok ya da okunamıyor
-            cut = None
-        timeline = {"url": _media(p.timeline_key), "cut": cut}
+    timeline, draft_timeline = _film(p.timeline_key), _film(p.draft_timeline_key)
     return {
         "project": {"id": str(p.id), "title": p.title, "status": p.status,
                     "budget_limit_usd": float(p.budget_limit_usd), "spent_usd": float(p.spent_usd),
@@ -134,6 +141,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
+        "draft_timeline": draft_timeline,
     }
 
 
@@ -156,13 +164,19 @@ def media(key: str = Query(min_length=1, max_length=512)):
 
 
 @router.post("/projects/{project_id}/assemble")
-def assemble(project_id: ProjectId, s: Session = Depends(get_session)):
-    """Tamamlanan sahneleri tek filmde birleştirir. Para harcamaz: donmuş projede de çalışır."""
+def assemble(project_id: ProjectId, kind: Literal["final", "draft"] = "final", s: Session = Depends(get_session)):
+    """Tamamlanan sahneleri tek filmde birleştirir; kind=draft kaba kurguyu (taslak geçişin klipleri) birleştirir.
+    Para harcamaz: donmuş projede de çalışır."""
     project_or_404(s, project_id)
-    done = s.scalars(select(Scene.id).where(Scene.project_id == project_id, Scene.status == "done",
-                                            Scene.final_video_key.is_not(None))).all()
-    if not done:
+    rows = s.execute(select(Scene.status, Scene.final_video_key, Scene.draft_video_key)
+                     .where(Scene.project_id == project_id)).all()
+    count = sum(1 for st, final, draft in rows
+                if (st == "done" and final) or (kind == "draft" and draft))
+    if not count:
         raise HTTPException(409, "Henüz tamamlanmış sahne yok")
     from app.worker.tasks import assemble_timeline
-    assemble_timeline.delay(project_id)
-    return {"queued": True, "scenes": len(done)}
+    if kind == "draft":
+        assemble_timeline.delay(project_id, "draft")
+    else:
+        assemble_timeline.delay(project_id)
+    return {"queued": True, "scenes": count, **({"kind": kind} if kind == "draft" else {})}

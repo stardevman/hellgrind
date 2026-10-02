@@ -223,7 +223,7 @@ def test_activating_with_render_queues_exactly_the_affected_shots(api, produced,
     pid = produced
     r = api.post(f"/api/projects/{pid}/style/activate", json={"version": new_version(api, pid), "render": True})
     assert r.status_code == 200, r.text
-    assert sorted(code for code, stages in r.json()["planned"].items() if stages == ["VISUAL", "LIPSYNC", "MUX"]) == CODES
+    assert sorted(code for code, stages in r.json()["planned"].items() if stages == ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]) == CODES
     assert len(dispatched) == 4
 
 

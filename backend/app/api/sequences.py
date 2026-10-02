@@ -25,7 +25,7 @@ from app.core.hashing import stable_hash
 from app.db import get_session, session_scope
 from app.engine.references import EXTENSIONS, MAX_UPLOAD_BYTES, sha_of, streams
 from app.hermes.ingest import music_hash
-from app.models import Scene, Sequence, TimelineTrack
+from app.models import Project, Scene, Sequence, TimelineTrack
 from app.quality.anomaly import probe_duration
 from app.schemas import SequencePatch, TrackIn, TrackPatch
 
@@ -78,10 +78,13 @@ def reassemble(project_id: str) -> list[str]:
     with session_scope() as s:
         done = s.scalar(select(func.count()).select_from(Scene).where(
             Scene.project_id == project_id, Scene.status == "done", Scene.final_video_key.is_not(None)))
+        has_draft = s.get(Project, project_id).draft_timeline_key is not None
     if not done:
         return []
     from app.worker.tasks import assemble_timeline         # tasks -> celery_app döngüsünü önlemek için geç import
     assemble_timeline.delay(project_id)
+    if has_draft:                                           # kaba kurgu da aynı müziği çalsın
+        assemble_timeline.delay(project_id, "draft")
     return ["ASSEMBLE"]
 
 

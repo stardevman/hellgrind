@@ -209,5 +209,5 @@ def test_plan_returns_the_current_fingerprints_for_the_caller_to_store():
 
 
 def test_stage_names_are_in_pipeline_order():
-    assert stage_names(ALL) == ["VISUAL", "LIPSYNC", "MUX"]
+    assert stage_names(ALL) == ["STORYBOARD", "VISUAL", "LIPSYNC", "MUX"]
     assert stage_names(Stage.NONE) == []

@@ -7,6 +7,9 @@ Kontroller:
      videosundan kareler örneklenir; hareket testi onaylanmadan varlık kilitlenemez; kilitlenen varlıkların çekimleri
      üretilir, panelden bağlanan taslak nesneyi içeren çekim kilitlenene dek engelli kalır
   Y. Stil kılavuzu (Faz 13): film altın saat sürümüyle üretilir; çekimlerin promptları aynı öneki taşır
+  B. Storyboard (Faz 14): kare onayı zorunluyken onaysız çekimde hiçbir varyasyon üretilmez; PDF tüm çekimleri sırayla
+     içerir; taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir; iyileştirme geçişi
+     yalnızca işaretli çekimi tam tura alır
   2. Örnek senaryo preview ön ayarıyla 4 sahneye ayrılır, hepsi `done` olur; her sahnede rafine havuz 1-3 klip,
      siyah ve donmuş klipler elenmiştir (kusur gerçeği ile kapının bulduğu karşılaştırılır)
   3. Yalnızca müzik değişince planda yalnızca MUX vardır ve harcama değişmez
@@ -29,7 +32,7 @@ import httpx
 API = os.environ.get("SMOKE_API", "http://localhost:8000/api")
 c = httpx.Client(base_url=API, timeout=60)
 FAILS: list[str] = []
-TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked"}
+TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked", "board_review"}
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
 BUDGET = 200.0       # film + stil değişikliğiyle yeniden üretim ~50 sanal USD; hız bekçisi bütçenin yarısı
 
@@ -100,7 +103,7 @@ def main() -> int:
     check(blocked == len(PAID_KEYS), f"ücretli çağrıların hepsi engelli ({blocked}/{len(PAID_KEYS)} anahtar)")
 
     print("R) Referans eksiksizliği: varlıklar kilitlenmeden üretim yok")
-    pid = new_project("duman-testi", BUDGET)
+    pid = new_project("duman-testi", BUDGET, require_board_approval=True)
     check(c.get(f"/projects/{pid}").json()["settings"]["lint_strictness"] == "block", "yeni proje eksik referansta üretimi engeller")
     r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]})
     r.raise_for_status()
@@ -121,15 +124,51 @@ def main() -> int:
     ids = {s["scene_code"]: s["id"] for s in overview(pid)["scenes"]}
     fener = c.post(f"/scenes/{ids['S001_SH02']}/assets", json={"name": "Fener"}).json()["asset"]
     r = c.post(f"/projects/{pid}/render-all").json()
-    check(r["blocked"] == {"S001_SH02": ["Fener"]} and all(r["planned"][k] for k in CODES if k != "S001_SH02"),
-          f"kilitli varlıklı 3 çekim üretime girdi, taslak fenerli çekim engelli: {r['blocked']}")
+    check(r["blocked"] == {"S001_SH02": ["Fener"]} and r["awaiting_board"] == ["S001_SH01", "S002_SH01", "S002_SH02"],
+          f"kilitli varlıklı 3 çekimin storyboard karesi çiziliyor, taslak fenerli çekim engelli: {r['blocked']}")
     ov = wait_scenes(pid)
     blocked = next(s for s in ov["scenes"] if s["scene_code"] == "S001_SH02")
     check(blocked["status"] == "blocked" and blocked["spent_usd"] == 0 and not blocked["variations"],
           "referansı eksik nesneli çekim blocked, hiçbir harcama ve varyasyon yok")
     lock_asset(fener)
     r = c.post(f"/scenes/{ids['S001_SH02']}/render").json()
-    check(r["stages"] == ["VISUAL", "LIPSYNC", "MUX"], f"fener kilitlenince çekim üretime girdi: {r}")
+    check(r == {"stages": ["STORYBOARD"], "awaiting_board": True}, f"fener kilitlenince çekimin karesi çiziliyor: {r}")
+
+    print("B) Storyboard onayı, taslak geçiş ve kaba kurgu")
+    ov = wait_scenes(pid)
+    check(all(s["status"] == "board_review" and s["board_url"] for s in ov["scenes"]),
+          "dört çekimin karesi çizildi, hepsi yönetmen onayı bekliyor")
+    check(variation_count(pid) == 0, "onaysız çekimlerde hiçbir varyasyon üretilmedi")
+    pdf = c.get(f"/projects/{pid}/storyboard.pdf")
+    check(pdf.headers["content-type"] == "application/pdf" and pdf_subject(pdf.content) == CODES,
+          f"storyboard PDF'i dört çekimi sırayla içeriyor ({pdf_pages(pdf.content)} sayfa, sekans başına bir sayfa)")
+    c.post(f"/scenes/{ids['S001_SH02']}/board", json={"status": "changes_requested", "note": "Fener daha parlak"})
+    r = c.post(f"/projects/{pid}/draft-pass").json()
+    check(r["drafted"] == [] and len(r["awaiting_board"]) == 4, "onaylanmadan taslak geçiş de görüntü üretmedi")
+    for sid in ids.values():
+        c.post(f"/scenes/{sid}/board", json={"status": "approved"}).raise_for_status()
+    r = c.post(f"/projects/{pid}/draft-pass").json()
+    check(r["drafted"] == CODES, f"onaylanan dört çekim taslak geçişe girdi: {r['drafted']}")
+    ov = wait_scenes(pid)
+    tiers = {v["tier"] for s in ov["scenes"] for v in s["variations"]}
+    check(all(s["status"] == "done" and s["cut_tier"] == "draft" for s in ov["scenes"]) and tiers == {"probe"},
+          f"taslak geçişte tam tur hiç çalışmadı (varyasyon katmanları: {sorted(tiers)})")
+    rough = None
+    for _ in range(60):
+        rough = overview(pid)["draft_timeline"]
+        if rough and rough["cut"]:
+            break
+        time.sleep(1)
+    check(bool(rough and rough["cut"]) and [x["scene_code"] for x in rough["cut"]["clips"]] == CODES,
+          "kaba kurgu kendiliğinden birleştirildi")
+    c.post(f"/scenes/{ids['S002_SH01']}/upgrade", json={"requested": True}).raise_for_status()
+    r = c.post(f"/projects/{pid}/upgrade-pass").json()
+    check(r["planned"] == {"S002_SH01": ["VISUAL", "LIPSYNC", "MUX"]}, f"iyileştirme geçişi yalnızca işaretli çekimi aldı: {r['planned']}")
+    ov = wait_scenes(pid)
+    full = sorted({s["scene_code"] for s in ov["scenes"] for v in s["variations"] if v["tier"] == "full"})
+    upgraded = next(s for s in ov["scenes"] if s["scene_code"] == "S002_SH01")
+    check(full == ["S002_SH01"] and upgraded["cut_tier"] == "final" and upgraded["draft_url"],
+          "yalnızca işaretli çekim tam tura girdi; taslak klibi kaba kurgu için korundu")
 
     print("2) Senaryo -> sahneler -> varyasyonlar -> Quality Gate -> Rafine Havuz -> ses -> montaj")
     ov = wait_scenes(pid)
@@ -214,7 +253,14 @@ def main() -> int:
     check((spent(pid), variation_count(pid)) == before and c.get(f"/projects/{pid}/style").json()["active"]["version"] == v1,
           "önizlemeden sonra harcama ve varyasyon sayısı değişmedi, etkin sürüm aynı")
     r = c.post(f"/projects/{pid}/style/activate", json={"version": v2, "render": True}).json()
-    check(all(r["planned"][k] == ["VISUAL", "LIPSYNC", "MUX"] for k in CODES), "etkinleştirince 4 çekim yeniden üretime girdi")
+    check(all(r["planned"][k] == ["STORYBOARD"] for k in CODES) and r["awaiting_board"] == CODES,
+          "etkinleştirince 4 çekimin yeni stille karesi çizildi; görüntü yeniden onay bekliyor")
+    wait_scenes(pid)
+    for sc in overview(pid)["scenes"]:
+        check(sc["board_status"] == "pending", f"{sc['scene_code']}: yeni kare yeniden onay istiyor")
+        c.post(f"/scenes/{sc['id']}/board", json={"status": "approved"}).raise_for_status()
+    r = c.post(f"/projects/{pid}/render-all").json()
+    check(all(r["planned"][k] == ["VISUAL", "LIPSYNC", "MUX"] for k in CODES), "onaydan sonra 4 çekim yeni stille üretime girdi")
     ov = wait_scenes(pid)
     check(all(sc["status"] == "done" for sc in ov["scenes"]) and spent(pid) > before[0], "çekimler yeni stille yeniden üretildi")
     prefix = c.get(f"/projects/{pid}/style").json()["active"]["prefix"]
@@ -285,6 +331,19 @@ def audio_db_around(url: str | None, at: float) -> float:
     samples = np.frombuffer(raw, dtype=np.float32)
     rms_value = float(np.sqrt(np.mean(samples ** 2))) if len(samples) else 0.0
     return 20 * np.log10(rms_value) if rms_value > 0 else float("-inf")
+
+
+def pdf_subject(data: bytes) -> list[str]:
+    """PDF'in Subject alanındaki çekim kodları (Pillow ASCII dışı karakterde UTF-16BE + BOM yazar)."""
+    import re
+    raw = re.search(rb"/Subject\s*\((.*?)(?<!\\)\)", data, re.S).group(1)
+    raw = re.sub(rb"\\(.)", rb"\1", raw)
+    return (raw[2:].decode("utf-16-be") if raw.startswith(b"\xfe\xff") else raw.decode("latin-1")).split(",")
+
+
+def pdf_pages(data: bytes) -> int:
+    import re
+    return len(re.findall(rb"/Type\s*/Page\b", data))
 
 
 def variation_count(pid: str) -> int:

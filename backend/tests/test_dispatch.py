@@ -11,7 +11,8 @@ def names(chain):
 
 
 def test_full_plan_chains_all_stages_in_pipeline_order():
-    assert names(build_chain("p", "s", ALL)) == ["hg.generate_scene", "hg.lipsync_scene", "hg.mux_scene"]
+    assert names(build_chain("p", "s", ALL)) == ["hg.storyboard_scene", "hg.generate_scene", "hg.lipsync_scene",
+                                                 "hg.mux_scene"]
 
 
 @pytest.mark.parametrize("stages,expected", [

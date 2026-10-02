@@ -247,5 +247,7 @@ def mux_scene(scene_id: str) -> str:
                     bed.append(AudioInput(ensure_bed_audio(t, scene, tmp), t.start_offset_s, t.gain_db))
             out = mux(video, dialogue, bed, os.path.join(tmp, "final.mp4"), snap.cfg["loudness_lufs"])
             storage.put_file(out, out_key)
-    advance_scene(project_id, scene_id, final_video_key=out_key, bed_hash=snap.fp.bed, mux_hash=mux_hash, status="done")
+    draft = {"draft_video_key": out_key} if scene.cut_tier == "draft" else {}       # kaba kurgu bu klibi kullanır
+    advance_scene(project_id, scene_id, final_video_key=out_key, bed_hash=snap.fp.bed, mux_hash=mux_hash, status="done",
+                  **draft)
     return out_key

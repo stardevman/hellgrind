@@ -107,7 +107,7 @@ def test_stage_tasks_pass_only_ids_to_the_work_modules(monkeypatch, mk_project, 
     sid = mk_scene(pid)
     calls = []
     iteration = types.ModuleType("app.engine.iteration")
-    iteration.run_tiered_generation = lambda p, s: calls.append(("generate", p, s)) or "generated"
+    iteration.run_tiered_generation = lambda p, s, mode="full": calls.append(("generate", p, s)) or "generated"
     pipeline = types.ModuleType("app.post.pipeline")
     pipeline.voice_and_lipsync = lambda s: calls.append(("lipsync", s)) or "lipsynced"
     pipeline.mux_scene = lambda s: calls.append(("mux", s)) or "muxed"

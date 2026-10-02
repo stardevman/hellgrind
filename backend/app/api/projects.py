@@ -10,7 +10,7 @@ from app.db import get_session
 from app.engine.providers import route_engine
 from app.hermes.ingest import AssetBook, ensure_character
 from app.models import Character, Project, Scene, SceneCharacter, Sequence
-from app.schemas import CharacterIn, ProjectIn, SceneIn
+from app.schemas import CharacterIn, ProjectIn, ProjectPatch, SceneIn
 
 router = APIRouter(tags=["projects"])
 
@@ -46,6 +46,18 @@ def create_project(body: ProjectIn, s: Session = Depends(get_session)):
 @router.get("/projects/{project_id}")
 def get_project(project_id: ProjectId, s: Session = Depends(get_session)):
     return project_out(project_or_404(s, project_id), s)
+
+
+@router.patch("/projects/{project_id}")
+def patch_project(project_id: ProjectId, body: ProjectPatch, s: Session = Depends(get_session)):
+    """Proje adı ve ayarları (ör. {"settings": {"require_board_approval": true}}). Ayarlar birleştirilir."""
+    p = project_or_404(s, project_id)
+    if body.title is not None:
+        p.title = body.title.strip() or p.title
+    if body.settings:
+        p.settings = {**(p.settings or {}), **body.settings}
+    s.commit()
+    return project_out(p, s)
 
 
 @router.post("/projects/{project_id}/characters", status_code=201)

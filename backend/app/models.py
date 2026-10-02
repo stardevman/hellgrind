@@ -14,7 +14,8 @@ def pg_enum(name: str, *values: str) -> ENUM:
 
 ProjectStatus = pg_enum("project_status", "draft", "parsing", "producing", "paused", "killed", "completed")
 SceneStatus = pg_enum("scene_status", "pending", "parsed", "probing", "generating", "correcting", "refined",
-                      "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked")
+                      "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked",
+                      "storyboard", "board_review")
 EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield")
 VariationTier = pg_enum("variation_tier", "probe", "full")
 VariationStatus = pg_enum("variation_status", "queued", "running", "generated", "passed", "rejected",
@@ -42,6 +43,7 @@ class Project(Base):
     reserved_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
     timeline_key: Mapped[str | None] = mapped_column(Text)
+    draft_timeline_key: Mapped[str | None] = mapped_column(Text)
     script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -125,6 +127,13 @@ class Scene(Base):
     mux_hash: Mapped[str | None] = mapped_column(Text)
     lipsync_video_key: Mapped[str | None] = mapped_column(Text)
     final_video_key: Mapped[str | None] = mapped_column(Text)
+    board_status: Mapped[str] = mapped_column(Text, default="pending")     # pending | approved | changes_requested
+    board_note: Mapped[str | None] = mapped_column(Text)
+    board_key: Mapped[str | None] = mapped_column(Text)
+    board_hash: Mapped[str | None] = mapped_column(Text)
+    upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    cut_tier: Mapped[str | None] = mapped_column(Text)                     # draft | final
+    draft_video_key: Mapped[str | None] = mapped_column(Text)
     spent_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

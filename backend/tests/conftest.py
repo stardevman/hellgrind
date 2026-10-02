@@ -187,16 +187,22 @@ def dispatched(monkeypatch):
     Testler geliştirme worker'ının kuyruğuna görev bırakmaz."""
     from app.core.rerender import stage_names
 
-    jobs = []
+    class Jobs(list):
+        modes: dict = {}                  # sahne -> son zincirin modu (yalnızca taslak/tam ayrımı gereken testler için)
+
+    jobs = Jobs()
+    jobs.modes = {}
 
     class Job:
-        def __init__(self, pid, sid, stages):
-            self.record = (pid, sid, stage_names(stages))
+        def __init__(self, pid, sid, stages, mode):
+            self.record, self.mode = (pid, sid, stage_names(stages)), mode
 
         def apply_async(self):
             jobs.append(self.record)
+            jobs.modes[self.record[1]] = self.mode
 
-    monkeypatch.setattr("app.api.plan.build_chain", lambda pid, sid, stages: Job(pid, sid, stages) if stages else None)
+    monkeypatch.setattr("app.api.plan.build_chain",
+                        lambda pid, sid, stages, mode="full": Job(pid, sid, stages, mode) if stages else None)
     monkeypatch.setattr("app.worker.tasks.assemble_timeline.delay", lambda pid: jobs.append((pid, None, ["ASSEMBLE"])))
     return jobs
 

@@ -17,17 +17,21 @@ def release_dispatch(scene_id) -> None:
     killswitch.r().delete(DISPATCH_LOCK.format(scene_id))
 
 
-def build_chain(project_id: str, scene_id: str, stages: Stage):
+def build_chain(project_id: str, scene_id: str, stages: Stage, mode: str = "full"):
     """Planlanan aşamaların görevlerini sırayla zincirler; çalışacak aşama yoksa None.
 
     Halkalar `.si()` (immutable): önceki görevin dönüş değeri sonrakine geçmez, her görev girdisini
-    veritabanından ve nesne deposundan okur.
+    veritabanından ve nesne deposundan okur. mode="draft": görsel aşama yalnızca test turunu çalıştırır (taslak geçiş).
+    Zincirde yalnızca STORYBOARD varsa sahne kareyle birlikte onaya (`board_review`) bırakılır.
     """
     from app.worker import tasks  # tasks -> celery_app döngüsünü önlemek için geç import
     kwargs = {"project_id": project_id, "scene_id": scene_id}
     signatures = []
+    if Stage.STORYBOARD in stages:
+        standalone = not (stages & (Stage.VISUAL | Stage.LIPSYNC | Stage.MUX))
+        signatures.append(tasks.storyboard_scene.si(**kwargs, **({"standalone": True} if standalone else {})))
     if Stage.VISUAL in stages:
-        signatures.append(tasks.generate_scene.si(**kwargs))
+        signatures.append(tasks.generate_scene.si(**kwargs, **({"mode": mode} if mode != "full" else {})))
     if Stage.LIPSYNC in stages:
         signatures.append(tasks.lipsync_scene.si(**kwargs))
     if Stage.MUX in stages:
