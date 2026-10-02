@@ -96,3 +96,15 @@ def make_tone(path, freq: float = 440.0, seconds: float = 1.0, channels: int = 1
                     f"sine=frequency={freq}:sample_rate={rate}:duration={seconds}", "-ac", str(channels), str(path)],
                    check=True)
     return str(path)
+
+
+def make_av(path, color="red", freq: float | None = 440.0, seconds: float = 2.0, size="160x90", fps=12,
+            audio_seconds: float | None = None):
+    """Düz renkli video + (freq verilirse) sabit tonlu ses, mp4. audio_seconds: sesi görüntüden farklı uzunlukta yapar."""
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={color}:size={size}:rate={fps}:d={seconds}"]
+    if freq:
+        cmd += ["-f", "lavfi", "-i", f"sine=frequency={freq}:duration={audio_seconds or seconds}",
+                "-c:a", "aac", "-b:a", "128k"]
+    cmd += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(cmd, check=True)
+    return str(path)

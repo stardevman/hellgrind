@@ -83,7 +83,10 @@ def assemble_timeline(project_id: str):
     except Exception as e:
         killswitch.event(project_id, "timeline_failed", error=f"{type(e).__name__}: {e}")
         raise
-    killswitch.event(project_id, "timeline", **{k: v for k, v in result.items() if k != "cutlist_key"})
+    if "error" in result:                                  # tamamlanmış sahne yok: başarı olayı yazılmaz
+        killswitch.event(project_id, "timeline_failed", error=result["error"])
+    else:
+        killswitch.event(project_id, "timeline", **{k: v for k, v in result.items() if k != "cutlist_key"})
     return result
 
 
