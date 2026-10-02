@@ -56,3 +56,8 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "max_spend_per_10min": 20.0,   # hız bekçisi: 10 dakikada bundan fazla harcanırsa dondur
     "loudness_lufs": -23.0,
 }
+
+
+def project_settings(raw: dict | None) -> dict:
+    """Projenin kendi ayarları, verilmeyenler için varsayılanlarla birleştirilmiş."""
+    return {**DEFAULT_PROJECT_SETTINGS, **(raw or {})}

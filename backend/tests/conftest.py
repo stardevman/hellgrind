@@ -127,3 +127,38 @@ def mk_scene(pg):
         return sid
 
     return make
+
+
+@pytest.fixture
+def fast(monkeypatch, tmp_path, s3):
+    """Gerçek render hattı, ama küçük kareler: her klip ~0.1 sn. Varsayılan: kusur yok, CLIP 0.95 (hepsi geçer)."""
+    from app.engine import providers
+
+    monkeypatch.setattr(providers, "RESOLUTIONS", {"480p": (160, 90), "720p": (160, 90)})
+    for name, value in dict(local_render_fps=8, work_dir=str(tmp_path), dry_run_defect_rate=0.0,
+                            dry_run_fail_rate=0.0, dry_run_score_mean=0.95, dry_run_score_sd=0.0,
+                            gen_concurrency=2, purge_mode="quarantine").items():
+        monkeypatch.setattr(settings, name, value)
+
+
+@pytest.fixture
+def sample_scene(mk_project, fast):
+    """Örnek senaryodan ingest edilmiş bir proje; (proje, sahne kodu -> sahne kimliği) döndüren üretici.
+    Ayarlar küçük tutulur: probe 3, tam tur 6 (dalga 3), havuz 2."""
+    from sqlalchemy import select
+
+    from app.db import session_scope
+    from app.hermes import rules
+    from app.hermes.ingest import ingest
+    from app.models import Scene
+
+    def make(limit: float = 1000.0, **cfg):
+        settings_ = {**dict(probe_n=3, full_n=6, wave_size=3, refined_k=2, max_correction_rounds=1,
+                            max_spend_per_10min=10_000.0), **cfg}
+        pid = mk_project(limit, **settings_)
+        ingest(pid, rules.SAMPLE_SCRIPT)
+        with session_scope() as s:
+            codes = {sc.scene_code: str(sc.id) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
+        return pid, codes
+
+    return make

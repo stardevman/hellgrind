@@ -155,8 +155,9 @@ def test_black_defect_is_detected_as_black(tmp_path):
     assert probe(path)["duration"] == pytest.approx(3.0, abs=0.1)
 
 
-def test_freeze_defect_is_detected_as_frozen_but_not_black(tmp_path):
-    path = render_defect(str(tmp_path / "f.mp4"), "freeze", 1, 160, 90, 3.0, 12)
+@pytest.mark.parametrize("seed", range(12))
+def test_freeze_defect_is_detected_as_frozen_but_never_as_black(tmp_path, seed):
+    path = render_defect(str(tmp_path / "f.mp4"), "freeze", seed, 160, 90, 3.0, 12)
     assert anomalies(path) == {"black": False, "freeze": True}
 
 

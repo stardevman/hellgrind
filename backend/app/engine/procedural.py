@@ -285,7 +285,8 @@ def render_defect(out_path: str, kind: str, seed: int, width: int, height: int, 
     if kind == "black":
         source = f"color=c=black:size={width}x{height}:rate={fps}"
     elif kind == "freeze":
-        source = f"color=c=0x{random.Random(seed).randint(0x303030, 0x707070):06x}:size={width}x{height}:rate={fps}"
+        grey = random.Random(seed).randint(0x60, 0xA0)         # orta gri: siyah eşiğinin güvenle üstünde
+        source = f"color=c=0x{grey:02x}{grey:02x}{grey:02x}:size={width}x{height}:rate={fps}"
     else:
         raise ValueError(f"bilinmeyen kusur türü: {kind}")
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", source,

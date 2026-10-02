@@ -46,3 +46,17 @@ def make_video(path, seconds=3.0, size="160x90", fps=12, color=None):
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", source, "-t", str(seconds), "-an",
                     "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)], check=True)
     return str(path)
+
+
+def make_mixed(path, parts, size="160x90", fps=12):
+    """Parçalardan oluşan video: [("black", 0.3), ("moving", 2.7), ("flat", 1.5)] (lavfi + concat)."""
+    sources = {"black": f"color=c=black:size={size}:rate={fps}", "flat": f"color=c=0x808080:size={size}:rate={fps}",
+               "moving": f"testsrc2=size={size}:rate={fps}"}
+    cmd = ["ffmpeg", "-y", "-v", "error"]
+    for kind, seconds in parts:
+        cmd += ["-f", "lavfi", "-t", str(seconds), "-i", sources[kind]]
+    inputs = "".join(f"[{i}:v]" for i in range(len(parts)))
+    cmd += ["-filter_complex", f"{inputs}concat=n={len(parts)}:v=1:a=0[v]", "-map", "[v]", "-an",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(cmd, check=True)
+    return str(path)
