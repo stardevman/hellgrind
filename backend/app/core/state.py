@@ -3,13 +3,21 @@ from sqlalchemy import select
 
 from app.budget import killswitch
 from app.db import session_scope
-from app.models import Character, Scene, SceneCharacter
+from app.models import Asset, Character, Scene, SceneAsset, SceneCharacter
 
 
 def load_characters(s, scene_id):
     """Sahnedeki karakterler, ada göre sıralı."""
     return s.scalars(select(Character).join(SceneCharacter, SceneCharacter.character_id == Character.id)
                      .where(SceneCharacter.scene_id == scene_id).order_by(Character.name)).all()
+
+
+def load_assets(s, scene_id):
+    """Sahnenin görüntüsünü belirleyen varlıklar: bağlı mekân ve nesneler ile kadrodaki karakterlerin varlıkları."""
+    linked = select(SceneAsset.asset_id).where(SceneAsset.scene_id == scene_id)
+    cast = (select(Character.asset_id).join(SceneCharacter, SceneCharacter.character_id == Character.id)
+            .where(SceneCharacter.scene_id == scene_id, Character.asset_id.is_not(None)))
+    return s.scalars(select(Asset).where(Asset.id.in_(linked.union(cast))).order_by(Asset.id)).all()
 
 
 def advance_scene(project_id: str, scene_id: str, **fields) -> None:

@@ -216,19 +216,27 @@ def assemble(state: State) -> dict:
             scenes.append([{**s, "heading": s["heading"]} for s in rules.parse(chunk)["shots"]])
             continue
         shots = []
+        location = rules.location_name(heading)
         for shot in draft.shots:
             dialogue = [{"character": l.character, "line": l.line.strip(), "emotion": l.emotion or shot.emotion} for l in shot.dialogue]
             speakers = [l["character"] for l in dialogue]
             characters = list(dict.fromkeys([*shot.characters, *speakers]))
             camera, complexity = rules.camera_for(shot.kind, shot.emotion)
-            draft_shot = {"kind": shot.kind, "characters": characters, "description": shot.description.strip()}
+            description, props = rules.take_props(shot.description.strip())
+            draft_shot = {"kind": shot.kind, "characters": characters, "description": description}
             shots.append({
-                "heading": heading, "description": draft_shot["description"],
+                "heading": heading, "location": location, "props": props, "description": draft_shot["description"],
                 "visual_prompt": shot.visual_prompt.strip() or rules.visual_prompt_for(heading, draft_shot),
                 "camera": camera, "emotion": shot.emotion, "characters": characters, "dialogue": dialogue,
                 "duration_s": rules.shot_duration(draft_shot["description"], dialogue, shot.kind != "dialogue"),
                 "action_complexity": complexity,
             })
+        # Senaryodaki [NESNE: ...] işaretleri kod tarafından okunur: LLM'in hiçbir çekime koymadığı nesne, kural tabanlı
+        # ayrıştırıcıdaki gibi sahnenin tüm çekimlerine bağlanır (eksik referans sessizce kaybolmasın).
+        placed = {p for shot in shots for p in shot["props"]}
+        leftover = [p for s in rules.parse(chunk)["shots"] for p in s["props"] if p not in placed]
+        for shot in shots:
+            shot["props"] += [p for p in dict.fromkeys(leftover) if p not in shot["props"]]
         scenes.append(shots)
     shots_out = []
     for scene_no, shots in enumerate((s for s in scenes if s), start=1):

@@ -16,6 +16,7 @@ celery.conf.update(
     task_default_queue="control",
     task_routes={
         "hg.generate_scene": {"queue": "gen"},
+        "hg.motion_test": {"queue": "gen"},
         "hg.lipsync_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},
         "hg.assemble_timeline": {"queue": "post"},

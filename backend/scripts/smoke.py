@@ -3,6 +3,9 @@
 Kullanım: docker compose exec api python -m scripts.smoke
 Kontroller:
   1. DRY_RUN açık ve ücretli çağrılar engelli
+  R. Referans eksiksizliği (Faz 12): varlıkları kilitlenmemiş çekimler `blocked` olur ve hiçbir şey harcanmaz; dönüş
+     videosundan kareler örneklenir; hareket testi onaylanmadan varlık kilitlenemez; kilitlenen varlıkların çekimleri
+     üretilir, panelden bağlanan taslak nesneyi içeren çekim kilitlenene dek engelli kalır
   2. Örnek senaryo preview ön ayarıyla 4 sahneye ayrılır, hepsi `done` olur; her sahnede rafine havuz 1-3 klip,
      siyah ve donmuş klipler elenmiştir (kusur gerçeği ile kapının bulduğu karşılaştırılır)
   3. Yalnızca müzik değişince planda yalnızca MUX vardır ve harcama değişmez
@@ -21,7 +24,7 @@ import httpx
 API = os.environ.get("SMOKE_API", "http://localhost:8000/api")
 c = httpx.Client(base_url=API, timeout=60)
 FAILS: list[str] = []
-TERMINAL = {"done", "needs_review", "failed", "frozen"}
+TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked"}
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
 BUDGET = 100.0
 
@@ -66,12 +69,12 @@ def spent(pid: str) -> float:
     return c.get(f"/projects/{pid}/budget").json()["spent"]
 
 
-def new_project(title: str, budget: float) -> str:
+def new_project(title: str, budget: float, **cfg) -> str:
     preset = c.get("/meta").json()["presets"]["preview"]
     # Panelin formundaki gibi: hız bekçisi bütçenin yarısı. Örnek film saniyeler içinde ~22 sanal USD harcar ve
     # varsayılan 20 USD / 10 dk sınırı filmi ortasında dondururdu.
     r = c.post("/projects", json={"title": f"{title} {int(time.time())}", "budget_limit_usd": budget,
-                                  "settings": {**preset, "max_spend_per_10min": budget / 2}})
+                                  "settings": {**preset, "max_spend_per_10min": budget / 2, **cfg}})
     r.raise_for_status()
     return r.json()["id"]
 
@@ -91,11 +94,33 @@ def main() -> int:
             blocked += 1
     check(blocked == len(PAID_KEYS), f"ücretli çağrıların hepsi engelli ({blocked}/{len(PAID_KEYS)} anahtar)")
 
-    print("2) Senaryo -> sahneler -> varyasyonlar -> Quality Gate -> Rafine Havuz -> ses -> montaj")
+    print("R) Referans eksiksizliği: varlıklar kilitlenmeden üretim yok")
     pid = new_project("duman-testi", BUDGET)
+    check(c.get(f"/projects/{pid}").json()["settings"]["lint_strictness"] == "block", "yeni proje eksik referansta üretimi engeller")
     r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]})
     r.raise_for_status()
     check(r.json()["shots"] == 4 and r.json()["cast"] == ["Kerem", "Ayşe"], f"senaryo 4 çekime ve {r.json()['cast']} kadrosuna ayrıldı")
+    check(sorted(r.json()["blocked"]) == CODES, f"4 çekimin hepsi engellendi: {r.json()['blocked']}")
+    ov = overview(pid)
+    check(all(s["status"] == "blocked" for s in ov["scenes"]) and spent(pid) == 0, "çekimler blocked, harcama 0")
+    check(all(s["last_error"].startswith("Üretim engellendi") for s in ov["scenes"]), "eksikler Türkçe yazıldı: " + ov["scenes"][0]["last_error"][:90])
+    assets = {a["name"]: a for a in c.get(f"/projects/{pid}/assets").json()}
+    check(sorted(assets) == sorted(["Kerem", "Ayşe", "Terk Edilmiş Dökümhane", "Çöken Köprü"]), f"varlıklar taslak olarak oluştu: {sorted(assets)}")
+    prepare_assets(assets)
+    ids = {s["scene_code"]: s["id"] for s in overview(pid)["scenes"]}
+    fener = c.post(f"/scenes/{ids['S001_SH02']}/assets", json={"name": "Fener"}).json()["asset"]
+    r = c.post(f"/projects/{pid}/render-all").json()
+    check(r["blocked"] == {"S001_SH02": ["Fener"]} and all(r["planned"][k] for k in CODES if k != "S001_SH02"),
+          f"kilitli varlıklı 3 çekim üretime girdi, taslak fenerli çekim engelli: {r['blocked']}")
+    ov = wait_scenes(pid)
+    blocked = next(s for s in ov["scenes"] if s["scene_code"] == "S001_SH02")
+    check(blocked["status"] == "blocked" and blocked["spent_usd"] == 0 and not blocked["variations"],
+          "referansı eksik nesneli çekim blocked, hiçbir harcama ve varyasyon yok")
+    lock_asset(fener)
+    r = c.post(f"/scenes/{ids['S001_SH02']}/render").json()
+    check(r["stages"] == ["VISUAL", "LIPSYNC", "MUX"], f"fener kilitlenince çekim üretime girdi: {r}")
+
+    print("2) Senaryo -> sahneler -> varyasyonlar -> Quality Gate -> Rafine Havuz -> ses -> montaj")
     ov = wait_scenes(pid)
     scenes = {s["scene_code"]: s for s in ov["scenes"]}
     check(list(scenes) == CODES, f"sahneler: {list(scenes)}")
@@ -144,7 +169,7 @@ def main() -> int:
     check([x["scene_code"] for x in clips] == CODES, f"film {len(clips)} sahneyle birleşti, {film['cut']['duration_s'] if film and film['cut'] else '?'} sn")
 
     print("7) Kill-Switch: 1 USD'lik proje")
-    tiny = new_project("duman-testi-kucuk-butce", 1.0)
+    tiny = new_project("duman-testi-kucuk-butce", 1.0, lint_strictness="off")     # yalnızca bütçe sınanır
     c.post(f"/projects/{tiny}/script", json={"text": meta["sample_script"]}).raise_for_status()
     ov = wait_scenes(tiny, timeout=300)
     project = ov["project"]
@@ -160,6 +185,53 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+def lock_asset(asset: dict, upload: str | None = None) -> dict:
+    """Varlığı onay akışından geçirir: referans (verilirse gerçek yükleme, yoksa yerel taslak), durağan onay, hareket
+    testi (kusurluysa yeniden), test onayı, kilit."""
+    aid = asset["id"]
+    if upload:
+        with open(upload, "rb") as f:
+            r = c.post(f"/assets/{aid}/references", params={"kind": "turnaround", "filename": os.path.basename(upload)},
+                       content=f.read(), headers={"content-type": "video/mp4"})
+    else:
+        r = c.post(f"/assets/{aid}/references/placeholder")
+    r.raise_for_status()
+    c.post(f"/assets/{aid}/approve-still").raise_for_status()
+    for _ in range(4):                                         # ~%12 kusur oranı: kusurlu test yenilenir
+        c.post(f"/assets/{aid}/motion-test").raise_for_status()
+        t0 = time.time()
+        while (test := c.get(f"/assets/{aid}").json()["motion_test"])["status"] in ("queued", "running"):
+            if time.time() - t0 > 120:
+                raise TimeoutError(f"{asset['name']} hareket testi bitmedi")
+            time.sleep(1)
+        if test["status"] == "passed":
+            break
+    c.post(f"/assets/{aid}/approve-motion").raise_for_status()
+    r = c.post(f"/assets/{aid}/lock")
+    r.raise_for_status()
+    return r.json()
+
+
+def prepare_assets(assets: dict) -> None:
+    import tempfile
+
+    from app.engine.procedural import render_clip
+    kerem = assets["Kerem"]
+    r = c.post(f"/assets/{kerem['id']}/lock")
+    check(r.status_code == 409 and "hareket testi onaylanmadan" in r.json()["detail"], "taslak varlık kilitlenemedi (409)")
+    with tempfile.TemporaryDirectory() as tmp:                  # gerçek bir dosya yüklemesi: yönetmenin dönüş videosu
+        video = render_clip(os.path.join(tmp, "kerem_donus.mp4"), 7, 640, 360, 4.0, 12,
+                            camera={"shot": "medium", "movement": "orbit"}, characters=["Kerem"], label="Kerem 360")
+        locked = lock_asset(kerem, upload=video)
+    ref = locked["references"]["turnaround"]
+    check(len(ref["frames"]) == 8 and ref["face_ref"] == ref["frames"][0] and ref["vector_dims"] == 48,
+          f"dönüş videosundan {len(ref['frames'])} kare örneklendi, ilki yüz referansı, {ref['vector_dims']} boyutlu vektör")
+    for name in ("Ayşe", "Terk Edilmiş Dökümhane", "Çöken Köprü"):
+        lock_asset(assets[name])
+    statuses = {a["name"]: a["status"] for a in c.get(f"/projects/{kerem['project_id']}/assets").json()}
+    check(set(statuses.values()) == {"locked"}, f"tüm varlıklar hareket testinden geçip kilitlendi: {statuses}")
 
 
 def check_defects(pid: str) -> None:

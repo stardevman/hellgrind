@@ -21,7 +21,7 @@ from app.budget import killswitch, pricing
 from app.config import project_settings, settings
 from app.core.hashing import stable_hash
 from app.core.rerender import Fingerprints, fingerprints
-from app.core.state import advance_scene, load_characters
+from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine.providers import TransientError
 from app.models import AudioTrack, Character, Project, Scene, Variation
@@ -32,7 +32,7 @@ from app.quality.anomaly import probe_duration
 log = logging.getLogger("hellgrind.post")
 
 MAX_PAID_ATTEMPTS = 3                          # geçici sağlayıcı hatalarında ücretli çağrı başına deneme
-SKIP_STATUSES = ("frozen", "needs_review")     # bu durumdaki sahnede post aşaması çalışmaz
+SKIP_STATUSES = ("frozen", "needs_review", "blocked")     # bu durumdaki sahnede post aşaması çalışmaz
 MUSIC_BUCKET_S = 5                             # müzik dosyası bu adımlarla yuvarlanır: sahneler arasında paylaşılır
 
 
@@ -57,7 +57,7 @@ def _snapshot(scene_id: str) -> Snapshot:
         scene = s.get(Scene, scene_id)
         tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene_id, AudioTrack.is_active)
                                 .order_by(AudioTrack.start_offset_s, AudioTrack.kind)))
-        fp = fingerprints(scene, load_characters(s, scene_id), tracks)
+        fp = fingerprints(scene, load_characters(s, scene_id), tracks, load_assets(s, scene_id))
         cfg = project_settings(s.get(Project, scene.project_id).settings)
         s.expunge_all()
         return Snapshot(scene, tracks, fp, cfg)

@@ -7,17 +7,18 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 ## Neler yapar
 
 1. **Senaryoyu okur.** Standart senaryo biçimini (sahne başlığı, konuşan karakter, aksiyon) kural tabanlı ayrıştırıcıyla çekimlere böler. Her çekim için kamera, duygu, süre ve aksiyon yoğunluğu çıkarır.
-2. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir.
-3. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
-4. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), duyguya göre fon müziği, diyalog altında müziğin kısılması, ses seviyesi dengeleme.
-5. **Filmi birleştirir.** Hazır sahneleri sırayla tek videoda toplar ve tıklanabilir bir kesme listesi üretir.
-6. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
+2. **Eksik referansla üretmez.** Model eksik bilgiyi uydurur: çekimde geçen her karakter, mekân ve nesnenin onaylı ve kilitli bir referansı yoksa o çekim *engellenir* ve hiçbir şey harcanmaz. Referanslar *Varlıklar* sekmesinde yüklenir, kısa bir hareket testinden geçer ve yönetmen onayıyla kilitlenir.
+3. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir.
+4. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
+5. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), duyguya göre fon müziği, diyalog altında müziğin kısılması, ses seviyesi dengeleme.
+6. **Filmi birleştirir.** Hazır sahneleri sırayla tek videoda toplar ve tıklanabilir bir kesme listesi üretir.
+7. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
 
 Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır:
 
 | Değişen girdi | Yeniden çalışanlar | Görüntü motoru |
 |---|---|---|
-| İstem, kamera, motor, süre ya da karakter sürümü | Görüntü, ses, montaj | çağrılır |
+| İstem, kamera, motor, süre, karakter sürümü ya da bir varlığın referansı | Görüntü, ses, montaj | çağrılır |
 | Bir diyalog satırı | Ses ve montaj | çağrılmaz |
 | Küratör rafine havuzdan başka bir klip seçer | Ses ve montaj | çağrılmaz |
 | Yalnızca müzik ya da müzik seviyesi | Yalnızca montaj | çağrılmaz |
@@ -52,19 +53,26 @@ Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veri
 1. Paneli açın. Henüz proje yoksa karşınıza **Yeni proje** formu gelir: proje adı, sanal bütçe, üretim yoğunluğu ve örnek senaryo hazır dolu olarak.
    - *Önizleme*: en çok 4 test ve 8 tam klip (örnek film için yeterli, hızlı).
    - *Brifing*: 10 test ve en çok 50 tam klip.
-2. **Senaryoyu işle ve üret**'e basın. Sahneler satırlar halinde belirir; her satırdaki *film şeridi* o sahnenin klipleridir:
+2. **Senaryoyu işle ve üret**'e basın. Sahneler satırlar halinde belirir, ama ilk seferde hepsi **Engellendi** durumundadır: senaryodaki karakterlerin (Kerem, Ayşe) ve mekânların (Terk Edilmiş Dökümhane, Çöken Köprü) henüz onaylı referansı yoktur. Satırdaki *Eksik referans* bağlantıları sizi ilgili varlığa götürür.
+3. **Varlıklar** sekmesinde her varlık için:
+   1. Referans yükleyin (karakter için 360° dönüş videosu, ifade sayfası ya da ses örneği; mekân ve nesne için durağan görsel). Elinizde dosya yoksa **Yerel taslak üret** prosedürel motordan bir taslak referans çıkarır.
+   2. **Durağanı onayla**.
+   3. **Hareket testi üret**: kısa, düşük çözünürlüklü bir klip. Durağanda iyi görünen bir varlık hareket halinde bozulabilir; testi izleyin. Kusurlu (siyah ya da donmuş) test onaylanamaz, **Hareket testini yenile** ile yenisini üretin.
+   4. **Hareket testini onayla**, sonra **Kilitle**. Hareket testi onaylanmadan varlık kilitlenemez.
+4. Hepsi kilitlenince **Engellenen çekimleri yeniden dene**'ye basın. Üretim başlar; her satırdaki *film şeridi* o sahnenin klipleridir:
    - yeşil çerçeveli ve numaralı: rafine havuzda
    - gri ve kırmızı çapraz çizgili: kalite kontrolünde elendi
    - soluk: havuza giremedi
    - amber ve nefes alan: üretiliyor
-3. Bir sahneye ya da bir kareye tıklayın. **Denetçi** sonuç videosunu, rafine havuzu, çekim bilgilerini ve diyaloğu gösterir. Elenen klipler de (karantinadakiler dahil) önizlenir.
-4. Denetçiden:
+5. Bir sahneye ya da bir kareye tıklayın. **Denetçi** sonuç videosunu, rafine havuzu, çekim bilgilerini ve diyaloğu gösterir. Elenen klipler de (karantinadakiler dahil) önizlenir.
+6. Denetçiden:
    - **Bunu kullan**: havuzdan başka bir klip seçer; yalnızca ses ve montaj yeniden çalışır.
    - **Müziği değiştir**: duygu ve seviye; yalnızca montaj yeniden çalışır.
    - **Bu sahneyi baştan üret**: görüntüyü yeni klip adaylarıyla yeniden üretir.
+   - **Nesne bağla**: çekime bir nesne ekler (ör. "Taksi"); nesne taslak olarak oluşur ve kilitlenene dek çekimi engeller.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
-5. **Tamamlanan N sahneyi birleştir** filmi üretir. Kesme şeridindeki bir sahneye tıklamak oynatıcıyı oraya götürür.
-6. Bütçe rayındaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et** kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
+7. **Tamamlanan N sahneyi birleştir** filmi üretir. Kesme şeridindeki bir sahneye tıklamak oynatıcıyı oraya götürür.
+8. Bütçe rayındaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et** kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
 
 API'yi doğrudan da kullanabilirsiniz:
 
@@ -81,11 +89,14 @@ curl -s localhost:8000/api/projects/<id>/overview | jq .scenes[0].status
 İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE          ← sahne başlığı (İÇ., DIŞ., İÇ/DIŞ., INT., EXT.)
 
 Kızıl bir ışık kazanların arasından süzülüyor.   ← aksiyon: her paragraf yeni bir çekim
+Kerem bir taksiye biner. [NESNE: Taksi]          ← nesne: yalnızca bu çekime bağlanır
 
 KEREM                                       ← konuşan karakter: büyük harfli, en çok 4 kelime
 (tedirgin)                                  ← parantez: duygu ipucu
 Burada kimse yok mu?
 ```
+
+Mekân sahne başlığından çıkar, gün zamanı atılır: `İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE` → *Terk Edilmiş Dökümhane*. `[NESNE: Taksi, Bavul]` işareti bir paragrafın içindeyse o çekime, tek başına bir satırdaysa sahnenin bütün çekimlerine bağlanır; işaret metinden ve replikten silinir. Karakter, mekân ve nesneler ilk görüldüklerinde *taslak* varlık olarak oluşur.
 
 Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök sözlüğünden çıkarılır (korku, öfke, gerilim...). Aksiyon kelimeleri (koş, atla, patla, düş, kop, sarsıl...) çekimi geniş açı ve yüksek aksiyon yoğunluğuna çevirir. Yoğun aksiyon (≥ 0,7) Seedance'e, gerisi Wan'a yönlenir (ücretsiz modda yalnızca sanal fiyatı değiştirir).
 
@@ -95,12 +106,24 @@ Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök s�
 
 ```bash
 make test    # tam paket: Docker içinde, PostgreSQL, Redis ve MinIO ile (~4 dk)
-make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~30 sn)
+make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~1 dk)
 ```
 
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin.
 - **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi yoktur; altyapı gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir.
-- **`make smoke`** şunları denetler: ücretli çağrılar engelli; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
+- **`make smoke`** şunları denetler: ücretli çağrılar engelli; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
+
+## Varlık kütüphanesi ve referans eksiksizliği
+
+Referans verilmeyen bir taksiye model rastgele yolcular ekler. Bu yüzden:
+
+- Her karakter, mekân ve nesne bir **varlıktır**. Durum akışı: `draft` (taslak) → `still_approved` (durağan onaylı) → `motion_tested` (hareket testi onaylı) → `locked` (kilitli).
+- **Üretim öncesi kontrol** (`hermes/lint.py`): görüntü üretimi planlanan bir çekimde gereken durumun altında bir varlık varsa çekim `blocked` olur, `last_error` alanına neyin eksik olduğu Türkçe yazılır ve hiçbir rezervasyon yapılmaz. Kontrol hem kuyruğa vermeden önce hem de worker'da üretim başlamadan önce yapılır.
+- Prompt'a her zaman "yalnızca listelenen karakterler" kısıtı eklenir; negatif prompt'a kalabalık ve fazladan kişiler yazılır.
+- **Karakter referans paketi:** 360° dönüş videosu, ifade sayfası, ses örneği ve `voice_id`. Dönüş videosundan eşit aralıkla 8 kare örneklenir; ilki yüz referansıdır. Vektörler ücretsiz modda karelerin HSV histogramlarından yerel olarak hesaplanır (gerçek yüz vektörleri ücretli aşamadadır). Ses kimliği karakterde kalır.
+- Görsel bir referans değişince varlığın **sürümü** artar ve varlık taslağa döner; sürüm görsel özete girdiği için o varlığı kullanan çekimler yeniden üretilir. Onay ve kilit durumu özete girmez: kilitlemek tek başına yeniden üretim tetiklemez. Aynı dosyayı yeniden yüklemek hiçbir şeyi değiştirmez. Kilitli varlık değiştirilemez; önce kilidi açılır.
+- **Hareket testi** her üretim gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal, Wan 480p fiyatıyla) ve gerçek anomali tespitinden geçer. Test varlığın sürümüne bağlıdır: referans ya da tarif değişince eski test onaylanamaz.
+- API: `GET/POST /api/projects/{id}/assets`, `GET/PATCH /api/assets/{id}`, `POST /api/assets/{id}/references?kind=still|turnaround|expressions|voice_sample&filename=...` (dosya istek gövdesinde), `POST /api/assets/{id}/references/placeholder`, `POST /api/assets/{id}/approve-still`, `/motion-test`, `/approve-motion`, `/lock`, `/unlock`, `POST /api/scenes/{id}/assets` ve `DELETE /api/scenes/{id}/assets/{asset_id}`.
 
 ## Bütçe ve Kill-Switch
 
@@ -150,7 +173,7 @@ Bilinmesi gerekenler:
 | `PURGE_MODE` | `quarantine` | `quarantine`: elenenler `quarantine/` önekine taşınır; `hard`: silinir |
 | `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
 
-Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23.
+Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
 ## Depo yapısı
 
@@ -163,11 +186,12 @@ backend/
     config.py db.py models.py schemas.py storage.py migrate.py main.py
     budget/      killswitch (rezervasyon, dondurma, bekçiler), pricing
     core/        hashing, rerender (Stateless Re-render planlayıcısı), state
-    hermes/      rules (ayrıştırıcı), ingest (veritabanına yazma)
-    engine/      procedural (yerel render), providers, iteration (kademeli üretim)
+    hermes/      rules (ayrıştırıcı), ingest (veritabanına yazma), lint (üretim öncesi referans kontrolü)
+    engine/      procedural (yerel render), providers, iteration (kademeli üretim),
+                 references (kare örnekleme, vektör, yerel taslak), motion_test (hareket testi)
     quality/     anomaly (FFmpeg), gate (skor, rafine havuz)
     post/        audio, mux, pipeline (LIPSYNC ve MUX aşamaları), timeline (film)
-    api/         projects, scenes, budget, panel, plan, deps
+    api/         projects, scenes, assets, budget, panel, plan, deps
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
     panel/       index.html (tek sayfa, build adımı yok)
@@ -179,6 +203,7 @@ backend/
 ## Sorun giderme
 
 - **Panel boş ya da "Sunucuya ulaşılamıyor" diyor:** `docker compose ps` ile servisleri, `docker compose logs api worker` ile günlükleri kontrol edin.
+- **Sahneler "Engellendi" diyor:** çekimdeki bir varlık henüz kilitli değil. Satırdaki eksik referans bağlantısına tıklayıp varlığı onay akışından geçirin, sonra *Engellenen çekimleri yeniden dene*'ye basın. Referans kontrolünü bir proje için kapatmak isterseniz proje ayarlarında `lint_strictness: "off"` verin.
 - **Üretim başlamıyor:** worker çalışıyor mu? Proje dondurulmuş olabilir (bütçe rayındaki uyarı bandı); *Üretime devam et*'e basın.
 - **Sıfırdan başlamak:** `make reset` veritabanı ve MinIO dahil **her şeyi siler**; çalıştırmadan önce emin olun.
 - **Yazı tipi yüklenmiyor:** panel Archivo'yu Google Fonts'tan alır; çevrimdışıyken sistem yazı tipine düşer, işlev etkilenmez.

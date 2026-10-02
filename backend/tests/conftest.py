@@ -24,6 +24,10 @@ settings.s3_bucket = "hellgrind-test"
 if not pathlib.Path(settings.pricing_file).exists():
     settings.pricing_file = str(pathlib.Path(__file__).resolve().parents[1] / "pricing.yaml")
 
+# Bölüm A testleri varlık kütüphanesinden (Faz 12) önceki davranışı sınar: üretim öncesi referans kontrolü kapalıdır.
+# Faz 12 testleri lint_strictness="block" (proje varsayılanı) ile açıkça çalışır.
+BOLUM_A = {"lint_strictness": "off"}
+
 INIT_SQL_CANDIDATES = (
     pathlib.Path(__file__).resolve().parents[2] / "db" / "init" / "001_core.sql",
     pathlib.Path("/db/init/001_core.sql"),
@@ -93,6 +97,7 @@ def mk_project(pg):
     created: list[str] = []
 
     def make(limit: float = 100.0, status: str = "producing", **cfg) -> str:
+        cfg = {**BOLUM_A, **cfg}
         pid = str(uuid.uuid4())
         with session_scope() as s:
             s.execute(text("""INSERT INTO projects (id, title, status, budget_limit_usd, settings)
@@ -214,6 +219,7 @@ def api_project(api, pg):
     created: list[str] = []
 
     def make(limit: float = 60.0, **cfg) -> str:
+        cfg = {**BOLUM_A, **cfg}
         r = api.post("/api/projects", json={"title": f"pytest-{uuid.uuid4().hex[:8]}", "budget_limit_usd": limit, "settings": cfg})
         assert r.status_code == 201, r.text
         created.append(r.json()["id"])

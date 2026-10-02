@@ -54,6 +54,8 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "soft_budget_ratio": 0.8,      # bu orana gelince yeni tam dalga başlatılmaz
     "max_spend_per_10min": 20.0,   # hız bekçisi: 10 dakikada bundan fazla harcanırsa dondur
     "loudness_lufs": -23.0,
+    "lint_strictness": "block",    # üretim öncesi referans kontrolü: off | warn | block
+    "asset_min_status": "locked",  # çekimdeki varlıkların ulaşması gereken en az durum (still_approved | motion_tested | locked)
 }
 
 

@@ -6,7 +6,7 @@ from sqlalchemy import select, text
 from app import storage
 from app.config import settings
 from app.core.rerender import plan_rerender
-from app.core.state import load_characters
+from app.core.state import load_assets, load_characters
 from app.db import session_scope
 from app.models import AudioTrack, Scene, Variation
 
@@ -23,14 +23,24 @@ def load_scenes(pid):
         return out
 
 
+def scene_assets(pid):
+    """{scene_code: varlıklar}: görsel özete giren bağlı varlıklar (üretim kodu da aynı yükleyiciyi kullanır)."""
+    with session_scope() as s:
+        out = {sc.scene_code: list(load_assets(s, sc.id)) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
+        s.expunge_all()
+        return out
+
+
 def plans(pid):
-    return {code: plan_rerender(sc, chars, tracks)[0] for code, (sc, chars, tracks) in load_scenes(pid).items()}
+    assets = scene_assets(pid)
+    return {code: plan_rerender(sc, chars, tracks, assets[code])[0] for code, (sc, chars, tracks) in load_scenes(pid).items()}
 
 
 def mark_finished(pid, status="done"):
     """Her sahneyi, şimdiki girdilerle başarıyla render edilmiş gibi işaretler (özetler ve anahtarlar yazılır)."""
+    assets = scene_assets(pid)
     for code, (sc, chars, tracks) in load_scenes(pid).items():
-        _, fp = plan_rerender(sc, chars, tracks)
+        _, fp = plan_rerender(sc, chars, tracks, assets[code])
         with session_scope() as s:
             s.execute(text("""UPDATE scenes SET visual_hash = :v, dialogue_hash = :d, bed_hash = :b, status = CAST(:st AS scene_status),
                               lipsync_video_key = 'l.mp4', final_video_key = 'f.mp4' WHERE id = :i"""),

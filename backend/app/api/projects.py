@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +8,7 @@ from app.budget import killswitch
 from app.config import project_settings
 from app.db import get_session
 from app.engine.providers import route_engine
+from app.hermes.ingest import AssetBook, ensure_character
 from app.models import Character, Project, Scene, SceneCharacter
 from app.schemas import CharacterIn, ProjectIn, SceneIn
 
@@ -51,15 +50,17 @@ def get_project(project_id: ProjectId, s: Session = Depends(get_session)):
 
 @router.post("/projects/{project_id}/characters", status_code=201)
 def create_character(project_id: ProjectId, body: CharacterIn, s: Session = Depends(get_session)):
+    """Karakter ve ona bağlı taslak karakter varlığı (referansları Varlıklar sekmesinden yüklenir)."""
     project_or_404(s, project_id)
-    cid = uuid.uuid4()
-    s.add(Character(id=cid, project_id=project_id, pinecone_namespace=str(cid), **body.model_dump()))
+    if s.scalar(select(Character.id).where(Character.project_id == project_id, Character.name == body.name)):
+        raise HTTPException(409, f"Bu projede '{body.name}' adlı bir karakter zaten var.")
+    ch = ensure_character(s, AssetBook(s, project_id), project_id, body.name, {}, **body.model_dump(exclude={"name"}))
     try:
         s.commit()
     except IntegrityError:
         s.rollback()
         raise HTTPException(409, f"Bu projede '{body.name}' adlı bir karakter zaten var.")
-    return {"id": str(cid), "name": body.name}
+    return {"id": str(ch.id), "name": body.name, "asset_id": str(ch.asset_id)}
 
 
 @router.post("/projects/{project_id}/scenes", status_code=201)

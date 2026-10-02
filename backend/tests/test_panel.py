@@ -176,3 +176,31 @@ def test_every_dynamic_text_that_reaches_html_is_escaped():
             if risky.search(expr) and not expr.startswith("esc("):
                 offenders.append(expr)
     assert offenders == []
+
+
+# ---------- varlıklar (Faz 12) ----------
+
+def test_the_assets_tab_has_its_workflow_and_maps_every_asset_value():
+    from app.engine.references import REFERENCE_KINDS
+    from app.models import AssetStatus, AssetType
+    for text in ("Varlıklar", "Durağanı onayla", "Hareket testi üret", "Hareket testini onayla", "Kilitle", "Kilidi aç",
+                 "Yerel taslak üret", "Eksik referans", "Engellenen çekimleri yeniden dene", "Nesne bağla"):
+        assert text in HTML, text
+    assert set(AssetStatus.enums) <= js_object_keys("ASTATUS_TR") and set(AssetType.enums) <= js_object_keys("TYPE_TR")
+    assert set(REFERENCE_KINDS) <= js_object_keys("REF_TR") and set(REFERENCE_KINDS) <= js_object_keys("REF_ACCEPT")
+
+
+def test_the_panel_uses_the_asset_endpoints():
+    paths = {p for _, p in api_calls()}
+    for needed in ("/api/projects/{}/assets", "/api/assets/{}/approve-still", "/api/assets/{}/motion-test",
+                   "/api/assets/{}/approve-motion", "/api/assets/{}/lock", "/api/assets/{}/unlock",
+                   "/api/assets/{}/references/placeholder", "/api/scenes/{}/assets", "/api/scenes/{}/assets/{}",
+                   "/api/projects/{}/render-all"):
+        assert needed in paths, needed
+    upload = re.search(r"fetch\(`/api(/assets/\$\{id\}/references)\?", SCRIPT)                # ham gövdeyle yükleme
+    known = {re.sub(r"\{[^}]*\}", "{}", p) for p, ops in app.openapi()["paths"].items() if "post" in ops}
+    assert upload and "/api" + re.sub(r"\$\{[^}]*\}", "{}", upload.group(1)) in known
+
+
+def test_blocked_scenes_link_to_their_missing_assets():
+    assert "data-goto-asset" in SCRIPT and "sc.missing" in SCRIPT and ".status.blocked" in STYLE

@@ -93,6 +93,21 @@ def assemble_timeline(project_id: str):
     return result
 
 
+# ---------- varlıklar ----------
+
+@celery.task(bind=True, name="hg.motion_test")
+def motion_test(self, project_id: str, variation_id: str):
+    """Varlığın hareket testi. Dondurulmuş projede başlamaz; test satırı `failed` olur."""
+    killswitch.register_task(project_id, self.request.id)
+    try:
+        from app.engine.motion_test import run
+        return run(project_id, variation_id)
+    except killswitch.ProjectFrozen:
+        return "frozen"
+    finally:
+        killswitch.unregister_task(project_id, self.request.id)
+
+
 # ---------- Kill-Switch bekçileri (Celery beat) ----------
 
 @celery.task(name="hg.watchdog")

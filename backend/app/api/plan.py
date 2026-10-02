@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ensure_not_frozen
 from app.budget import killswitch
+from app.config import project_settings
 from app.core.rerender import ALL, Stage, plan_rerender, stage_names
-from app.core.state import load_characters
-from app.models import AudioTrack, Scene
+from app.core.state import load_assets, load_characters
+from app.hermes import lint
+from app.models import AudioTrack, Project, Scene
 from app.worker.dispatch import build_chain, claim_dispatch, release_dispatch
 
 # Bu durumlardaki sahne bir worker tarafından işleniyor olabilir.
@@ -17,6 +19,35 @@ ACTIVE_STATUSES = ("probing", "generating", "correcting", "audio", "lipsync", "m
 class Busy(HTTPException):
     def __init__(self, detail: str):
         super().__init__(409, detail)
+
+
+class Blocked(Exception):
+    """Üretim öncesi kontrol: çekimde onaylı referansı olmayan varlık var; sahne `blocked` oldu, hiçbir şey harcanmadı."""
+
+    def __init__(self, scene_code: str, result: lint.LintResult):
+        super().__init__(result.message())
+        self.scene_code, self.result = scene_code, result
+
+    def payload(self) -> dict:
+        return {"message": self.result.message(),
+                "missing": [{"asset_id": m.asset_id, "type": m.type, "name": m.name, "status": m.status}
+                            for m in self.result.missing]}
+
+
+def lint_gate(s: Session, sc: Scene) -> None:
+    """Görüntü üretimi planlandıysa referans eksiksizliğini denetler. block modunda sahneyi `blocked` yapar ve Blocked
+    fırlatır; warn modunda yalnızca olay yazar."""
+    pid = str(sc.project_id)
+    result = lint.check_scene(s, sc.id, project_settings(s.get(Project, sc.project_id).settings))
+    if result.ok:
+        return
+    missing = [m.name for m in result.missing]
+    if result.blocks:
+        sc.status, sc.last_error = "blocked", result.message()
+        s.commit()
+        killswitch.event(pid, "blocked", scene_id=str(sc.id), missing=missing)
+        raise Blocked(sc.scene_code, result)
+    killswitch.event(pid, "lint_warning", scene_id=str(sc.id), missing=missing)
 
 
 def ensure_idle(sc: Scene) -> None:
@@ -34,12 +65,14 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False) -> l
     pid = str(sc.project_id)
     ensure_not_frozen(pid)
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
-    stages, _ = plan_rerender(sc, load_characters(s, sc.id), tracks)
+    stages, _ = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id))
     if force_visual:
         stages = ALL
     if stages == Stage.NONE:
         return []
     ensure_idle(sc)
+    if Stage.VISUAL in stages:
+        lint_gate(s, sc)                     # para harcanmadan önce: eksik referansla görüntü üretilmez
     locked = Stage.VISUAL in stages
     if locked and not claim_dispatch(sc.id):
         raise Busy(f"{sc.scene_code} için üretim zaten sıraya alındı; birkaç saniye sonra yeniden dene.")
@@ -54,3 +87,11 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False) -> l
             release_dispatch(sc.id)
         raise
     return stage_names(stages)
+
+
+def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
+    """Uç noktaların ortak yanıtı: {"stages": [...]} ya da engellendiyse {"stages": [], "blocked": {...}}."""
+    try:
+        return {"stages": plan_and_dispatch(s, sc, **kwargs)}
+    except Blocked as e:
+        return {"stages": [], "blocked": e.payload()}

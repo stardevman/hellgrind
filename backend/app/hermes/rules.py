@@ -5,6 +5,9 @@ Standart senaryo biçimini okur:
   BÜYÜK HARFLİ kısa satır (hemen ardından replik)      -> konuşan karakter, uzantılar (D.S.) atılır
   (parantez içi satır)                                  -> duygu ipucu
   diğer paragraflar                                     -> aksiyon, her biri yeni bir çekim
+  [NESNE: Taksi] işareti                                -> nesne varlığı; paragraf içindeyse o çekime, tek başına
+                                                           bir satırdaysa sahnenin tüm çekimlerine bağlanır
+Mekân, sahne başlığından çıkar ("İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE" -> "Terk Edilmiş Dökümhane").
 
 Çıktı, LLM modunun üreteceği şemayla aynıdır. Bu modül hiçbir dış servise ve yapılandırmaya bağlı değildir.
 """
@@ -45,6 +48,8 @@ TRANSITION_WORDS = ("kesme", "geçiş", "kararma", "açılış", "cut to", "fade
 SLUG_TR = ("iç/dış.", "iç.", "dış.")
 SLUG_EN = ("int/ext.", "int.", "ext.")
 PAREN = re.compile(r"\([^)]*\)")
+PROP_MARKER = re.compile(r"\[\s*NESNE\s*:\s*([^\]]*)\]", re.IGNORECASE)
+TIME_OF_DAY_SEP = re.compile(r"\s+[-–—]\s+")
 
 
 # ---------- Türkçe büyük/küçük harf ----------
@@ -135,6 +140,27 @@ def is_action(text: str, names=()) -> bool:
     return any(re.search(r"(?<!\w)" + stem, low) for stem in ACTION_STEMS)
 
 
+def take_props(text: str) -> tuple[str, list[str]]:
+    """[NESNE: Taksi, Bavul] işaretlerini metinden çıkarır: (temiz metin, nesne adları). Adlar Türkçe başlık biçimindedir,
+    böylece "taksi" ile "Taksi" aynı varlık olur."""
+    props: list[str] = []
+    for m in PROP_MARKER.finditer(text):
+        for raw in m.group(1).split(","):
+            name = tr_title(" ".join(raw.split()))
+            if name and name not in props:
+                props.append(name)
+    clean = re.sub(r"\s+([.,;:!?…])", r"\1", re.sub(r"\s{2,}", " ", PROP_MARKER.sub(" ", text))).strip()
+    return clean, props
+
+
+def location_name(heading: str) -> str | None:
+    """Sahne başlığındaki mekân, gün zamanı eki atılarak: "DIŞ. ÇÖKEN KÖPRÜ - ŞAFAK" -> "Çöken Köprü". Başlık yoksa None."""
+    if not is_slug(heading):
+        return None
+    place = TIME_OF_DAY_SEP.split(_location(heading))[0].strip(" -–—.")
+    return tr_title(place) if place else None
+
+
 def mentions(text: str, cast: list[str]) -> list[str]:
     low = tr_lower(text)
     return [c for c in cast if re.search(r"(?<!\w)" + re.escape(tr_lower(c)), low)]
@@ -211,32 +237,39 @@ def tokenize(text: str) -> list[dict]:
 # ---------- 2. geçiş: bloklardan çekimlere ----------
 
 def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
-    """Çekimleri olan sahneler: [{heading, shots: [{description, characters, dialogue, emotion, kind}]}]."""
+    """Çekimleri olan sahneler: [{heading, props, shots: [{description, characters, dialogue, emotion, kind, props}]}].
+    Sahnenin `props` listesi, tek başına bir satırda duran nesne işaretleridir (sahnenin tüm çekimlerine uygulanır)."""
     scenes: list[dict] = []
 
     def scene():
         if not scenes:
-            scenes.append({"heading": "SAHNE", "shots": []})
+            scenes.append({"heading": "SAHNE", "props": [], "shots": []})
         return scenes[-1]
 
     for block in blocks:
         if block["type"] == "slug":
-            scenes.append({"heading": block["heading"], "shots": []})
+            scenes.append({"heading": block["heading"], "props": [], "shots": []})
             continue
         sc = scene()
         shots = sc["shots"]
         previous_emotion = shots[-1]["emotion"] if shots else "neutral"
+        text, props = take_props(block["text"])
 
         if block["type"] == "action":
-            text = block["text"]
+            if not text:                                   # yalnızca işaret: sahne düzeyinde nesne
+                sc["props"] += [p for p in props if p not in sc["props"]]
+                continue
             kind = "action" if is_action(text, cast) else "establish" if not shots else "beat"
             shots.append({"description": text, "characters": mentions(text, cast), "dialogue": [],
-                          "emotion": emotion_of(text, default=previous_emotion, names=cast), "kind": kind})
+                          "emotion": emotion_of(text, default=previous_emotion, names=cast), "kind": kind,
+                          "props": props})
             continue
 
+        if not text:
+            continue
         name = block["name"]
-        emotion = emotion_of(block["hint"], block["text"], default=previous_emotion, names=cast)
-        for part in _split_long_speech(block["text"]):
+        emotion = emotion_of(block["hint"], text, default=previous_emotion, names=cast)
+        for part in _split_long_speech(text):
             line = {"character": name, "line": part, "emotion": emotion}
             last = shots[-1] if shots else None
             fits = (last is not None and name in last["characters"] and len(last["dialogue"]) < MAX_LINES_PER_SHOT
@@ -244,9 +277,10 @@ def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
             if fits:
                 last["dialogue"].append(line)
                 last["emotion"] = emotion
+                last["props"] += [p for p in props if p not in last["props"]]
             else:
                 shots.append({"description": f"{name} konuşuyor: {part[:80]}", "characters": [name],
-                              "dialogue": [line], "emotion": emotion, "kind": "dialogue"})
+                              "dialogue": [line], "emotion": emotion, "kind": "dialogue", "props": list(props)})
     return [sc for sc in scenes if sc["shots"]]
 
 
@@ -309,11 +343,14 @@ def parse(text: str) -> dict:
 
     shots = []
     for scene_no, sc in enumerate(_build_scenes(blocks, cast), start=1):
+        location = location_name(sc["heading"])
         for shot_no, shot in enumerate(sc["shots"], start=1):
             camera, complexity = _camera(shot["kind"], shot["emotion"])
             shots.append({
                 "scene_id": f"S{scene_no:03d}_SH{shot_no:02d}",
                 "heading": sc["heading"],
+                "location": location,
+                "props": shot["props"] + [p for p in sc["props"] if p not in shot["props"]],
                 "description": shot["description"],
                 "visual_prompt": _visual_prompt(sc["heading"], shot),
                 "camera": camera,

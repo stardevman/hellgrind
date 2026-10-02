@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import SceneId, VariationId, ensure_not_frozen, scene_or_404
-from app.api.plan import ensure_idle, plan_and_dispatch
+from app.api.plan import dispatch_result, ensure_idle
 from app.core.hashing import stable_hash
 from app.db import get_session
 from app.engine.providers import route_engine
@@ -39,7 +39,7 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
 @router.post("/scenes/{scene_id}/render")
 def render(scene_id: SceneId, force_visual: bool = False, s: Session = Depends(get_session)):
     """Yalnızca değişen girdilerin aşamalarını çalıştırır; force_visual görüntüyü baştan üretir."""
-    return {"stages": plan_and_dispatch(s, scene_or_404(s, scene_id), force_visual=force_visual)}
+    return dispatch_result(s, scene_or_404(s, scene_id), force_visual=force_visual)
 
 
 def _content_hash(body: AudioIn, mood: str | None, emotion: str | None) -> str:
@@ -86,7 +86,7 @@ def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_ses
                        start_offset_s=body.start_offset_s, gain_db=body.gain_db, is_active=True, version=version)
     s.add(track)
     s.commit()
-    return {"version": version, "track_id": str(track.id), "stages": plan_and_dispatch(s, sc)}
+    return {"version": version, "track_id": str(track.id), **dispatch_result(s, sc)}
 
 
 @router.get("/scenes/{scene_id}/variations")
@@ -121,4 +121,4 @@ def promote(scene_id: SceneId, variation_id: VariationId, s: Session = Depends(g
         v.refined_rank = 1
         sc.lipsync_video_key = None                 # Stateless Re-render: LIPSYNC + MUX planlanır, VISUAL değil
         s.commit()
-    return {"stages": plan_and_dispatch(s, sc)}
+    return dispatch_result(s, sc)

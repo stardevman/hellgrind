@@ -17,16 +17,19 @@ def seed_for(*parts) -> int:
     return int(stable_hash(list(parts))[:8], 16) & 0x7FFFFFFF
 
 
-def visual_fingerprint(scene, characters) -> str:
-    """Görüntüyü belirleyen her şey: istem, kamera, motor, süre ve karakterlerin kimliği.
+def visual_fingerprint(scene, characters, assets=()) -> str:
+    """Görüntüyü belirleyen her şey: istem, kamera, motor, süre, karakterlerin kimliği ve bağlı varlıkların sürümü.
 
     prompt_revision bilinçli olarak dahil değil: düzeltme döngüsünün kendi istem değişiklikleri yönetmenin
     girdisi sayılmaz, yeniden render tetiklememelidir.
 
     Özetler her zaman veritabanından okunan satırlarla hesaplanmalı: REAL sütunlar (duration_s, lora_scale)
     4 baytlık kesinlikle saklanır, yazmadan önceki Python değeriyle hesaplanan özet farklı çıkabilir.
+
+    Varlıklar (Faz 12) yalnızca varsa özete girer: bağlı varlığı olmayan sahnenin özeti öncekiyle aynı kalır ve
+    yeniden render tetiklenmez. Varlığın durumu (onay, kilit) değil, sürümü girer: referans değişince sürüm artar.
     """
-    return stable_hash({
+    payload = {
         "prompt": scene.prompt_spec,
         "camera": scene.camera,
         "engine": scene.engine,
@@ -34,7 +37,10 @@ def visual_fingerprint(scene, characters) -> str:
         "characters": sorted(
             [str(c.id), c.embedding_version, c.lora_url, c.lora_scale] for c in characters
         ),
-    })
+    }
+    if assets:
+        payload["assets"] = sorted([str(a.id), a.version] for a in assets)
+    return stable_hash(payload)
 
 
 def audio_fingerprint(tracks) -> str:

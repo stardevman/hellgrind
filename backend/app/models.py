@@ -14,7 +14,7 @@ def pg_enum(name: str, *values: str) -> ENUM:
 
 ProjectStatus = pg_enum("project_status", "draft", "parsing", "producing", "paused", "killed", "completed")
 SceneStatus = pg_enum("scene_status", "pending", "parsed", "probing", "generating", "correcting", "refined",
-                      "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen")
+                      "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked")
 EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield")
 VariationTier = pg_enum("variation_tier", "probe", "full")
 VariationStatus = pg_enum("variation_status", "queued", "running", "generated", "passed", "rejected",
@@ -22,6 +22,8 @@ VariationStatus = pg_enum("variation_status", "queued", "running", "generated", 
 AudioKind = pg_enum("audio_kind", "dialogue", "music", "sfx", "ambience")
 EmotionTag = pg_enum("emotion_tag", "neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension")
 LedgerKind = pg_enum("ledger_kind", "reserve", "commit", "release")
+AssetType = pg_enum("asset_type", "character", "location", "prop")
+AssetStatus = pg_enum("asset_status", "draft", "still_approved", "motion_tested", "locked")
 
 PK = lambda: mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # noqa: E731
 
@@ -59,6 +61,7 @@ class Character(Base):
     pinecone_namespace: Mapped[str] = mapped_column(Text)
     embedding_version: Mapped[int] = mapped_column(Integer, default=1)
     style_constraints: Mapped[dict] = mapped_column(JSONB, default=dict)
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"))
 
 
 class Scene(Base):
@@ -98,10 +101,36 @@ class SceneCharacter(Base):
     dialogue: Mapped[list] = mapped_column(JSONB, default=list)
 
 
+class Asset(Base):
+    """Karakter, mekân ya da nesne. Durum akışı: draft -> still_approved -> motion_tested -> locked."""
+    __tablename__ = "assets"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    type: Mapped[str] = mapped_column(AssetType)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    render_style: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(AssetStatus, default="draft")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    references: Mapped[dict] = mapped_column("references", JSONB, default=dict)
+    motion_test_variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SceneAsset(Base):
+    __tablename__ = "scene_assets"
+    scene_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"), primary_key=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"), primary_key=True)
+    role: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, default="manual")     # script | manual
+
+
 class Variation(Base):
     __tablename__ = "variations"
     id: Mapped[uuid.UUID] = PK()
-    scene_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"))   # hareket testi
     tier: Mapped[str] = mapped_column(VariationTier)
     wave_no: Mapped[int] = mapped_column(Integer, default=0)
     engine: Mapped[str] = mapped_column(EngineKind)

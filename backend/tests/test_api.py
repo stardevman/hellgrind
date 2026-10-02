@@ -13,6 +13,7 @@ from app.db import engine, session_scope
 from app.hermes import rules
 from app.hermes.ingest import dialogue_hash, music_hash
 from app.models import AudioTrack, Scene, Variation
+from tests.conftest import BOLUM_A
 from tests.media_utils import make_av
 from tests.scene_utils import add_variation, load_scenes, mark_finished, scene_row, track_rows
 
@@ -64,7 +65,7 @@ def test_create_project_returns_defaults_merged_and_starts_as_draft(api, api_pro
     pid = api_project(25.0, probe_n=4)
     body = api.get(f"/api/projects/{pid}").json()
     assert body["status"] == "draft" and body["budget_limit_usd"] == 25.0 and body["spent_usd"] == 0
-    assert body["settings"] == {**DEFAULT_PROJECT_SETTINGS, "probe_n": 4}
+    assert body["settings"] == {**DEFAULT_PROJECT_SETTINGS, **BOLUM_A, "probe_n": 4}
     assert body["frozen"] is False and body["soft_limited"] is False and body["scene_status_counts"] == {}
 
 

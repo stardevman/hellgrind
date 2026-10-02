@@ -23,9 +23,10 @@ from app import storage
 from app.budget import killswitch
 from app.config import project_settings, settings
 from app.core.hashing import seed_for, visual_fingerprint
-from app.core.state import advance_scene, load_characters
+from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine.providers import GenRequest, TransientError, get_provider, route_engine
+from app.hermes import lint
 from app.models import Project, Scene, Variation
 from app.quality import gate
 
@@ -221,7 +222,12 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
             project.status = "producing"
         s.flush()
         chars = load_characters(s, scene_id)
+        assets = load_assets(s, scene_id)
         camera = scene.camera or {}
+        spec = dict(scene.prompt_spec or {})
+        # Kadroda olmayan kişi üretilmesin: "yalnızca listelenen karakterler" kısıtı (kadro görsel özette zaten var).
+        spec["prompt"], spec["negative"] = lint.constrain_prompt(spec.get("prompt", ""), spec.get("negative", ""),
+                                                                 [ch.name for ch in chars])
         # Yarım kalmış önceki çalıştırmanın asılı satırları: kimse üstünde çalışmıyor.
         for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id,
                                                    Variation.status.in_(("queued", "running", "generated")))):
@@ -229,8 +235,8 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
             v.params = {**(v.params or {}), "purge_reason": "interrupted"}
         return Ctx(
             project_id=project_id, scene_id=scene_id, run_id=run_id, provider=get_provider(scene.engine), cfg=cfg,
-            duration=scene.duration_s, prompt_spec=dict(scene.prompt_spec or {}), revision=scene.prompt_revision,
-            visual_hash=visual_fingerprint(scene, chars),
+            duration=scene.duration_s, prompt_spec=spec, revision=scene.prompt_revision,
+            visual_hash=visual_fingerprint(scene, chars, assets),
             render={"emotion": scene.emotion, "camera": camera, "characters": [ch.name for ch in chars],
                     "action": scene.action_complexity,
                     "loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
@@ -238,9 +244,23 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"})
 
 
+def lint_blocks(project_id: str, scene_id: str) -> bool:
+    """Worker tarafındaki üretim öncesi kontrol: dispatch ile görev başlangıcı arasında bir varlığın kilidi açılmış
+    olabilir. Engellerse sahneyi `blocked` yapar; hiçbir şey harcanmaz."""
+    with session_scope() as s:
+        result = lint.check_scene(s, scene_id, project_settings(s.get(Project, project_id).settings))
+    if not result.blocks:
+        return False
+    advance_scene(project_id, scene_id, status="blocked", last_error=result.message())
+    killswitch.event(project_id, "blocked", scene_id=scene_id, missing=[m.name for m in result.missing])
+    return True
+
+
 def run_tiered_generation(project_id: str, scene_id: str) -> str:
-    """Sahnenin görsel aşamasını baştan sona yürütür. Dönen değer: "refined" ya da "needs_review"."""
+    """Sahnenin görsel aşamasını baştan sona yürütür. Dönen değer: "refined", "needs_review" ya da "blocked"."""
     gate.ensure_scorer()                                  # para harcanmadan önce
+    if lint_blocks(project_id, scene_id):
+        return "blocked"
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 

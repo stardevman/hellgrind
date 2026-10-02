@@ -1,4 +1,8 @@
-"""Ayrıştırılmış senaryoyu veritabanına yazar: karakterler, sahneler, diyalog ve müzik kanalları.
+"""Ayrıştırılmış senaryoyu veritabanına yazar: karakterler, varlıklar, sahneler, diyalog ve müzik kanalları.
+
+Kadrodaki her karakter, başlıktaki her mekân ve [NESNE: ...] ile işaretlenen her nesne için bir varlık yoksa `draft`
+durumunda oluşturulur ve çekime bağlanır. Taslak varlıkla üretim başlamaz (hermes/lint.py); yönetmen referansları
+onaylayıp kilitleyince başlar.
 
 Aynı senaryoyu yeniden yüklemek hiçbir şeyi değiştirmemeli: sahne alanları aynı değerlerle yazılır ve içeriği
 değişmeyen ses kanalları korunur; böylece Stateless Re-render planı boş çıkar ve para harcanmaz.
@@ -7,18 +11,21 @@ import logging
 import uuid
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
 from app.engine.providers import route_engine
 from app.hermes import rules
-from app.models import AudioTrack, Character, Project, Scene, SceneCharacter
+from app.models import Asset, AudioTrack, Character, Project, Scene, SceneAsset, SceneCharacter
 
 log = logging.getLogger("hellgrind.hermes")
 
 DIALOGUE_START_S = 0.4      # ilk replik klibin başından bu kadar sonra başlar
 MUSIC_GAIN_DB = -8.0
+# Hareket eden şeyler temiz 3D, çevre boyalı: yoğun boyalı doku hareket halinde bozulur (Faz 13 stil kuralları bunu ezer).
+DEFAULT_RENDER_STYLE = {"character": "clean_3d", "prop": "clean_3d", "location": "painterly"}
 
 
 def parse_script(text: str, project_id: str) -> dict:
@@ -45,6 +52,44 @@ def script_text(shot: dict) -> str:
     return f"{shot['heading']}\n{shot['description']}{said}"
 
 
+class AssetBook:
+    """Projenin varlıkları (tür, ad) -> satır; olmayanı `draft` olarak oluşturur."""
+
+    def __init__(self, s, project_id: str):
+        self.s, self.project_id, self.created = s, project_id, []
+        self.rows = {(a.type, a.name): a for a in s.scalars(select(Asset).where(Asset.project_id == project_id))}
+
+    def get(self, type_: str, name: str, description: str | None = None) -> Asset:
+        row = self.rows.get((type_, name))
+        if row is None:
+            row = Asset(id=uuid.uuid4(), project_id=self.project_id, type=type_, name=name, description=description,
+                        render_style=DEFAULT_RENDER_STYLE[type_], status="draft", version=1, references={})
+            self.s.add(row)
+            self.rows[(type_, name)] = row
+            self.created.append(f"{name} ({type_})")
+        return row
+
+
+def ensure_character(s, book: AssetBook, project_id: str, name: str, chars: dict, **fields) -> Character:
+    """Karakteri ve ona bağlı karakter varlığını hazırlar (ses alanları karakterde kalır)."""
+    ch = chars.get(name)
+    if ch is None:
+        cid = uuid.uuid4()
+        ch = Character(id=cid, project_id=project_id, name=name, pinecone_namespace=str(cid), **fields)
+        s.add(ch)
+        chars[name] = ch
+    if ch.asset_id is None:
+        ch.asset_id = book.get("character", name, ch.description).id
+    return ch
+
+
+def shot_assets(shot: dict) -> tuple[str | None, list[str]]:
+    """(mekân, nesneler). LLM modu bu alanları vermeyebilir: başlıktan ve açıklamadaki işaretlerden çıkarılır."""
+    location = shot.get("location") or rules.location_name(shot.get("heading", ""))
+    props = shot.get("props") or rules.take_props(shot.get("description", ""))[1]
+    return location, list(props)
+
+
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     parsed = parse_script(text, project_id)     # DB işleminin dışında: LLM modunda uzun sürebilir
     created, updated = [], []
@@ -53,12 +98,10 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
         project = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
         project.script_source = text
 
+        book = AssetBook(s, project_id)
         chars = {c.name: c for c in s.scalars(select(Character).where(Character.project_id == project_id))}
         for name in parsed["cast"]:
-            if name not in chars:
-                cid = uuid.uuid4()
-                chars[name] = Character(id=cid, project_id=project_id, name=name, pinecone_namespace=str(cid))
-                s.add(chars[name])
+            ensure_character(s, book, project_id, name, chars)
         s.flush()
 
         existing = {sc.scene_code: sc for sc in s.scalars(select(Scene).where(Scene.project_id == project_id))}
@@ -81,13 +124,14 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                 updated.append(shot["scene_id"])
             s.flush()
             _write_cast(s, sc, shot, chars)
+            _write_assets(s, sc, shot, book)
             _write_tracks(s, sc, shot, chars, auto_music)
 
     orphaned = sorted(set(existing) - {shot["scene_id"] for shot in parsed["shots"]})
     if orphaned:
         log.warning("senaryoda artık olmayan sahneler korunuyor (silinmedi): %s", orphaned)
     return {"cast": parsed["cast"], "shots": len(parsed["shots"]), "created": created, "updated": updated,
-            "orphaned": orphaned}
+            "orphaned": orphaned, "assets_created": book.created}
 
 
 def _write_cast(s, sc: Scene, shot: dict, chars: dict) -> None:
@@ -96,6 +140,18 @@ def _write_cast(s, sc: Scene, shot: dict, chars: dict) -> None:
         if name in chars:
             s.add(SceneCharacter(scene_id=sc.id, character_id=chars[name].id, role="primary",
                                  dialogue=[d for d in shot["dialogue"] if d["character"] == name]))
+
+
+def _write_assets(s, sc: Scene, shot: dict, book: AssetBook) -> None:
+    """Senaryodan gelen mekân ve nesne bağlarını yeniler; panelden elle eklenen bağlar (source=manual) korunur."""
+    s.execute(delete(SceneAsset).where(SceneAsset.scene_id == sc.id, SceneAsset.source == "script"))
+    location, props = shot_assets(shot)
+    links = ([("location", book.get("location", location))] if location else []) + \
+            [("prop", book.get("prop", name)) for name in props]
+    s.flush()
+    for role, asset in links:
+        s.execute(insert(SceneAsset).values(scene_id=sc.id, asset_id=asset.id, role=role, source="script")
+                  .on_conflict_do_nothing(index_elements=["scene_id", "asset_id"]))
 
 
 def _write_tracks(s, sc: Scene, shot: dict, chars: dict, auto_music: bool) -> None:

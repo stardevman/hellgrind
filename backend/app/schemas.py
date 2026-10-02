@@ -36,6 +36,9 @@ SETTING_RULES = {
     "soft_budget_ratio": (_num(0, 1, open_low=True), "0 ile 1 arasında (0 hariç) bir sayı"),
     "max_spend_per_10min": (_num(0, 1e7, open_low=True), "sıfırdan büyük bir sayı"),
     "loudness_lufs": (_num(-70, -5), "-70 ile -5 arasında bir sayı"),
+    "lint_strictness": (lambda v: v in ("off", "warn", "block"), "off, warn ya da block"),
+    "asset_min_status": (lambda v: v in ("still_approved", "motion_tested", "locked"),
+                         "still_approved, motion_tested ya da locked"),
 }
 
 
@@ -148,3 +151,34 @@ class ScriptIn(BaseModel):
     text: str = Field(min_length=10, max_length=200_000)
     auto_render: bool = True
     auto_music: bool = True
+
+
+# ---------- varlıklar (Faz 12) ----------
+
+AssetType = Literal["character", "location", "prop"]
+
+
+class AssetIn(BaseModel):
+    type: AssetType
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=2000)
+    render_style: str | None = Field(None, max_length=200)     # clean_3d | painterly | stylized_2d | serbest metin
+
+
+class AssetPatch(BaseModel):
+    description: str | None = Field(None, max_length=2000)
+    render_style: str | None = Field(None, max_length=200)
+    voice_id: str | None = Field(None, max_length=200)         # yalnızca karakter: ses kimliği karakterde tutulur
+
+
+class SceneAssetIn(BaseModel):
+    """Sahneye mekân ya da nesne bağlar: mevcut bir varlık (`asset_id`) ya da adıyla (yoksa taslak olarak oluşturulur)."""
+    asset_id: UUID | None = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    type: Literal["location", "prop"] = "prop"
+
+    @model_validator(mode="after")
+    def _one(self):
+        if not self.asset_id and not (self.name or "").strip():
+            raise ValueError("asset_id ya da name gerekli")
+        return self

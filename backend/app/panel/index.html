@@ -174,6 +174,45 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 .choice small { display: block; color: var(--dust); }
 .empty { padding: 28px 16px; text-align: center; color: var(--dust); }
 
+/* sekmeler */
+.tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font-weight: 700; font-stretch: 112%; color: var(--dust); }
+.tab[aria-selected="true"] { color: var(--ash); border-bottom-color: var(--ember); }
+.tab:hover { color: var(--ash); }
+
+/* varlıklar */
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.filters label, .upload label { display: grid; gap: 4px; font-size: 13px; color: var(--dust); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--gap); margin-top: 14px; }
+.card { background: var(--sunk); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 10px; align-content: start; scroll-margin-top: 170px; }
+.card.flash { border-color: var(--ember); box-shadow: 0 0 0 2px rgba(228, 162, 62, .35); }
+.card-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.card-head h3 { font-size: 16px; }
+.astatus { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--slag); }
+.astatus::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dust); }
+.astatus.still_approved { color: var(--steel); } .astatus.still_approved::before { background: var(--steel); }
+.astatus.motion_tested { color: var(--ember); } .astatus.motion_tested::before { background: var(--ember); }
+.astatus.locked { color: var(--verdigris); } .astatus.locked::before { background: var(--verdigris); }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--dust); }
+.steps li { border-top: 3px solid var(--line); padding-top: 4px; }
+.steps li.done { border-top-color: var(--verdigris); color: var(--ash); }
+.refs { display: grid; gap: 8px; }
+.ref { display: grid; gap: 4px; font-size: 13px; }
+.ref img.thumb { width: 100%; max-height: 150px; object-fit: cover; border-radius: 3px; background: #1d1f22; }
+.frames { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.frames img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 2px; background: #1d1f22; }
+.frames img:first-child { outline: 2px solid var(--steel); outline-offset: -2px; }
+.ref audio { width: 100%; }
+.upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.upload input[type=file] { max-width: 100%; font-size: 13px; }
+.motion video { width: 100%; border-radius: 3px; background: #000; display: block; }
+.actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--ember); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+.linkbtn:hover { color: #f0b350; }
+.status.blocked { color: #f0a091; } .status.blocked::before { background: var(--oxide); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .astatus button { background: none; border: 0; padding: 0 0 0 4px; color: var(--dust); }
+
 @media (max-width: 960px) {
   .layout, .film { grid-template-columns: 1fr; }
   .inspector { position: static; }
@@ -227,7 +266,7 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
         <label>Senaryo<textarea id="f-script" rows="16" spellcheck="false" required minlength="10"></textarea></label>
         <div class="row" style="align-items:center">
           <button class="btn primary" id="start-submit" type="submit">Senaryoyu işle ve üret</button>
-          <span class="muted" id="start-hint">Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır.</span>
+          <span class="muted" id="start-hint">Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır. Çekimler, içlerindeki karakter, mekân ve nesneler Varlıklar sekmesinde kilitlenene dek engelli kalır.</span>
         </div>
         <div class="note" id="start-note" role="status" aria-live="polite"></div>
       </form>
@@ -236,9 +275,14 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
 
   <!-- proje görünümü -->
   <div id="view-project" hidden>
+    <nav class="tabs" role="tablist" aria-label="Proje görünümü">
+      <button class="tab" role="tab" id="tab-scenes" data-tab="scenes" aria-controls="pane-scenes" aria-selected="true" type="button">Sahneler</button>
+      <button class="tab" role="tab" id="tab-assets" data-tab="assets" aria-controls="pane-assets" aria-selected="false" type="button">Varlıklar <span class="num muted" id="tab-assets-count"></span></button>
+    </nav>
+    <div id="pane-scenes" role="tabpanel" aria-labelledby="tab-scenes">
     <div class="layout">
       <section class="panel" aria-labelledby="scenes-title">
-        <header><h2 id="scenes-title">Sahneler</h2><span class="muted num" id="scenes-count"></span></header>
+        <header><h2 id="scenes-title">Sahneler</h2><span class="muted num" id="scenes-count"></span><span class="spacer"></span><button class="btn small retry-blocked" type="button" hidden>Engellenen çekimleri yeniden dene</button></header>
         <div id="scenes"></div>
         <div class="legend" aria-label="Film şeridi göstergeleri">
           <span><i class="refined"></i>rafine havuzda</span>
@@ -258,6 +302,14 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
           <div><h3>Rafine havuz</h3><div class="pool" id="insp-pool" style="margin-top:8px"></div></div>
           <div><h3>Çekim bilgileri</h3><dl class="kv" id="insp-info" style="margin-top:8px"></dl></div>
           <div><h3>Diyalog</h3><ul class="lines" id="insp-lines" style="margin-top:8px"></ul></div>
+          <div>
+            <h3>Varlıklar</h3>
+            <div class="chips" id="insp-assets" style="margin-top:8px"></div>
+            <form class="form-row" id="link-form" style="margin-top:8px">
+              <label>Nesne bağla<input type="text" id="link-name" maxlength="100" placeholder="ör. Taksi" required></label>
+              <button class="btn small" type="submit">Bağla</button>
+            </form>
+          </div>
           <div>
             <h3>Müziği değiştir</h3>
             <form class="form-row" id="music-form" style="margin-top:8px" novalidate>
@@ -286,6 +338,28 @@ main { padding: var(--gap); max-width: 1500px; margin: 0 auto; }
         <ol class="events" id="events"></ol>
       </section>
     </div>
+    </div>
+
+    <div id="pane-assets" role="tabpanel" aria-labelledby="tab-assets" hidden>
+      <section class="panel" aria-labelledby="assets-title">
+        <header><h2 id="assets-title">Varlıklar</h2><span class="muted" id="assets-summary"></span><span class="spacer"></span><button class="btn small retry-blocked" type="button" hidden>Engellenen çekimleri yeniden dene</button></header>
+        <div class="body">
+          <p class="muted">Çekimde geçen her karakter, mekân ve nesnenin onaylı referansı olmadan görüntü üretilmez. Akış: referans yükle, durağanı onayla, hareket testi üret, testi onayla, kilitle.</p>
+          <div class="filters" style="margin-top:12px">
+            <label>Tür<select id="asset-type-filter"><option value="">Tümü</option><option value="character">Karakter</option><option value="location">Mekân</option><option value="prop">Nesne</option></select></label>
+            <label>Durum<select id="asset-status-filter"><option value="">Tümü</option><option value="draft">Taslak</option><option value="still_approved">Durağan onaylı</option><option value="motion_tested">Hareket testi onaylı</option><option value="locked">Kilitli</option></select></label>
+            <span class="spacer"></span>
+            <form class="filters" id="asset-new">
+              <label>Yeni varlık<select id="asset-new-type"><option value="prop">Nesne</option><option value="location">Mekân</option><option value="character">Karakter</option></select></label>
+              <label>Ad<input type="text" id="asset-new-name" maxlength="100" required></label>
+              <button class="btn" type="submit">Ekle</button>
+            </form>
+          </div>
+          <div class="note" id="assets-note" role="status" aria-live="polite" style="margin-top:12px"></div>
+          <div class="cards" id="asset-cards"></div>
+        </div>
+      </section>
+    </div>
   </div>
 </main>
 
@@ -295,8 +369,15 @@ const POLL_MS = 2000;
 const STATUS_TR = {
   pending: "Sırada", parsed: "Ayrıştırıldı", probing: "Test turu", generating: "Tam tur", correcting: "Düzeltme",
   refined: "Rafine", needs_review: "İnceleme gerekli", audio: "Ses", lipsync: "Dudak senkronu", muxing: "Montaj",
-  done: "Hazır", failed: "Hata", frozen: "Donduruldu",
+  done: "Hazır", failed: "Hata", frozen: "Donduruldu", blocked: "Engellendi",
 };
+const TYPE_TR = { character: "Karakter", location: "Mekân", prop: "Nesne" };
+const ASTATUS_TR = { draft: "Taslak", still_approved: "Durağan onaylı", motion_tested: "Hareket testi onaylı", locked: "Kilitli" };
+const ASTATUS_ORDER = ["draft", "still_approved", "motion_tested", "locked"];
+const REF_TR = { still: "Durağan görsel", turnaround: "Dönüş videosu (360°)", expressions: "İfade sayfası", voice_sample: "Ses örneği" };
+const REF_KINDS = { character: ["turnaround", "still", "expressions", "voice_sample"], location: ["still", "turnaround"], prop: ["still", "turnaround"] };
+const REF_ACCEPT = { still: "image/*", expressions: "image/*", turnaround: "video/*", voice_sample: "audio/*" };
+const TEST_TR = { queued: "Hareket testi sırada…", running: "Hareket testi üretiliyor…", passed: "Kusur bulunmadı: izleyip onaylayabilirsin.", rejected: "Kusurlu", failed: "Üretilemedi" };
 const PROJECT_STATUS_TR = { draft: "Taslak", parsing: "Ayrıştırılıyor", producing: "Üretimde", paused: "Durduruldu", killed: "İptal edildi", completed: "Tamamlandı" };
 const WORKING = new Set(["probing", "generating", "correcting", "audio", "lipsync", "muxing"]);
 const EMOTION_TR = { neutral: "Nötr", joy: "Sevinç", anger: "Öfke", fear: "Korku", sadness: "Hüzün", surprise: "Şaşkınlık", disgust: "Tiksinti", tension: "Gerilim" };
@@ -306,7 +387,7 @@ const SHOT_TR = { extreme_wide: "çok geniş", wide: "geniş", pov: "öznel", me
 const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma", pan: "pan", tilt: "tilt", crane: "vinç", orbit: "yörünge", tracking: "takip", handheld: "el kamerası" };
 
 const S = { meta: null, projects: [], projectId: null, ov: null, sceneId: null, varId: null, creating: false,
-            offline: false, busy: false, assembling: null };
+            offline: false, busy: false, assembling: null, tab: "scenes", assets: null, flash: null };
 let timer = null;
 
 /* ---------- yardımcılar ---------- */
@@ -335,6 +416,8 @@ function setHTML(el, html) { if (el._sig !== html) { el._sig = html; el.innerHTM
 function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
 
 const curScene = () => S.ov && S.ov.scenes.find((s) => s.id === S.sceneId);
+const blockedText = (b) => `Engellendi: ${b.missing.map((m) => m.name).join(", ")} için onaylı referans yok. Varlıklar sekmesinden kilitle, sonra yeniden üret.`;
+const resultText = (r) => (r.blocked ? blockedText(r.blocked) : stagesText(r.stages));
 const stagesText = (stages) => {
   const k = stages.join("+");
   return ({
@@ -424,6 +507,11 @@ function tileSpec(v, prev) {
   return { cls: cls.join(" "), selected, thumb: v.thumb_url || "", rank: v.rank || 0,
            label: `${v.tier === "probe" ? "Test turu" : "Tam tur"} ${v.wave_no + 1}. dalga${score} · ${fate}` };
 }
+function missingLinks(list) {
+  return list.map((m) => m.id
+    ? `<button type="button" class="linkbtn" data-goto-asset="${m.id}" title="${esc(TYPE_TR[m.type])} · ${esc(ASTATUS_TR[m.status] || "kaydı yok")}">${esc(m.name)}</button>`
+    : esc(m.name)).join(", ");
+}
 function patchAttr(el, name, value) { if (el.getAttribute(name) !== value) el.setAttribute(name, value); }
 function patchStrip(strip, vars, sceneId) {
   const have = new Map([...strip.querySelectorAll(".tile")].map((el) => [el.dataset.var, el]));
@@ -467,8 +555,10 @@ function patchRow(el, sc) {
   if (st.className !== cls) st.className = cls;
   setText(st, STATUS_TR[sc.status] || sc.status);
   setText(el.querySelector(".desc"), sc.description || "");
-  const error = sc.last_error && sc.status !== "done" ? sc.last_error.split("\n")[0] : "";
-  setHTML(el.querySelector(".head"), esc(sc.heading) + (error ? ` · <span style="color:#f3b5a8">${esc(error)}</span>` : ""));
+  const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
+  const missing = sc.status === "blocked" && sc.missing.length
+    ? ` · <span style="color:#f3b5a8">Eksik referans:</span> ${missingLinks(sc.missing)}` : "";
+  setHTML(el.querySelector(".head"), esc(sc.heading) + (error ? ` · <span style="color:#f3b5a8">${esc(error)}</span>` : "") + missing);
   setText(el.querySelector(".spend"), usd(sc.spent_usd));
   const strip = el.querySelector(".strip");
   patchAttr(strip, "aria-label", `${sc.scene_code} film şeridi`);
@@ -547,6 +637,12 @@ function renderInspector() {
   setHTML($("insp-lines"), lines.length ? lines.map((t) => `<li><span class="who">${esc(t.character || "Anlatıcı")}</span> · ${esc(t.text)}
       <span class="muted">(${EMOTION_TR[t.emotion] || "—"}, ${Number(t.start_offset_s).toFixed(1)} sn)</span></li>`).join("") : '<li class="muted">Bu çekimde diyalog yok.</li>');
 
+  setHTML($("insp-assets"), sc.assets.length ? sc.assets.map((a) => `<span class="astatus ${a.status || "draft"}">${a.id
+      ? `<button type="button" class="linkbtn" data-goto-asset="${a.id}" style="color:inherit">${esc(a.name)}</button>` : esc(a.name)}
+      <span class="muted">${esc(TYPE_TR[a.type])}</span>${a.type !== "character" && a.id
+      ? `<button type="button" data-unlink="${a.id}" aria-label="${esc(a.name)} bağını kaldır" title="Bağı kaldır">×</button>` : ""}</span>`).join("")
+    : '<span class="muted">Bu çekime bağlı varlık yok.</span>');
+
   const music = sc.tracks.find((t) => t.kind === "music");
   const form = $("music-form");
   const sig = sc.id + ":" + (music ? music.version : "-");
@@ -601,6 +697,10 @@ function eventText(e, codes) {
     case "resumed": return { t: "Üretime devam edildi", c: "good" };
     case "timeline": return { t: `Film birleştirildi: ${e.scenes} sahne`, c: "good" };
     case "timeline_failed": return { t: `Film birleştirilemedi: ${e.error}`, c: "bad" };
+    case "blocked": return { t: `${where}engellendi, eksik referans: ${(e.missing || []).join(", ")}`, c: "bad" };
+    case "lint_warning": return { t: `${where}uyarı, onaysız referans: ${(e.missing || []).join(", ")}` };
+    case "motion_test": return { t: `Hareket testi ${e.ok ? "temiz" : "kusurlu (" + (e.anomalies || []).join(", ") + ")"}`, c: e.ok ? "good" : "bad" };
+    case "asset_status": return { t: `${e.name}: ${ASTATUS_TR[e.status] || e.status}`, c: e.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
   }
 }
@@ -608,6 +708,125 @@ function renderEvents() {
   const codes = Object.fromEntries(S.ov.scenes.map((s) => [s.id, s.scene_code]));
   setHTML($("events"), S.ov.events.length ? S.ov.events.map((e) => { const x = eventText(e, codes); return `<li><time>${clock(e.ts)}</time><span class="${x.c || ""}">${esc(x.t)}</span></li>`; }).join("") : '<li><span class="muted"></span><span class="muted">Henüz olay yok.</span></li>');
 }
+
+/* ---------- varlıklar ---------- */
+function renderTabs() {
+  for (const t of ["scenes", "assets"]) {
+    const on = S.tab === t;
+    patchAttr($("tab-" + t), "aria-selected", String(on));
+    $("tab-" + t).tabIndex = on ? 0 : -1;
+    $("pane-" + t).hidden = !on;
+  }
+  const c = (S.ov && S.ov.project.asset_counts) || {};
+  const total = Object.values(c).reduce((x, y) => x + y, 0);
+  setText($("tab-assets-count"), total ? `${c.locked || 0}/${total} kilitli` : "");
+  const blocked = S.ov ? S.ov.scenes.filter((x) => x.status === "blocked").length : 0;
+  document.querySelectorAll(".retry-blocked").forEach((b) => { b.hidden = !blocked; b.disabled = S.busy || (S.ov && S.ov.project.frozen); });
+}
+function testBlock(a) {
+  const t = a.motion_test;
+  if (!t) return a.status === "draft" ? "" : '<p class="muted">Henüz hareket testi yok.</p>';
+  const bad = t.status === "rejected" || t.status === "failed";
+  const label = (t.status === "rejected" ? `Kusurlu: ${t.anomalies.map((x) => ANOMALY_TR[x] || x).join(", ")}. Yeniden üret.` : TEST_TR[t.status] || t.status)
+    + (t.current ? "" : " Bu test eski bir referansa ait.");
+  const video = t.video_url ? `<video controls preload="none" playsinline${t.thumb_url ? ` poster="${esc(t.thumb_url)}"` : ""} src="${esc(t.video_url)}"></video>` : "";
+  return `<div class="motion">${video}<p class="${bad ? "" : "muted"}" style="margin-top:6px${bad ? ";color:#f3b5a8" : ""}">${esc(label)}${t.cost_usd ? ` · ${usd(t.cost_usd)}` : ""}</p></div>`;
+}
+function refBlock(a) {
+  const refs = a.references || {};
+  const parts = REF_KINDS[a.type].filter((k) => refs[k]).map((k) => {
+    const r = refs[k];
+    if (k === "turnaround") return `<div class="ref"><span>${REF_TR[k]} · ${r.frames.length} kare, ilki yüz referansı</span><div class="frames">${r.frame_urls.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join("")}</div></div>`;
+    if (k === "voice_sample") return `<div class="ref"><span>${REF_TR[k]}</span><audio controls preload="none" src="${esc(r.url)}"></audio></div>`;
+    return `<div class="ref"><span>${REF_TR[k]}</span>${r.thumb_url ? `<img class="thumb" src="${esc(r.thumb_url)}" alt="${esc(a.name)}: ${REF_TR[k]}" loading="lazy">` : ""}</div>`;
+  });
+  return parts.length ? `<div class="refs">${parts.join("")}</div>` : '<p class="muted">Henüz referans yok.</p>';
+}
+function assetCard(a) {
+  const rank = ASTATUS_ORDER.indexOf(a.status);
+  const hasVisual = ["still", "turnaround", "expressions"].some((k) => a.references && a.references[k]);
+  const t = a.motion_test, locked = a.status === "locked";
+  const frozen = S.ov && S.ov.project.frozen;
+  const dis = (cond) => (cond || S.busy ? " disabled" : "");
+  const steps = [["Referans", hasVisual], ["Durağan", rank >= 1], ["Hareket", rank >= 2], ["Kilit", rank >= 3]]
+    .map(([label, done]) => `<li class="${done ? "done" : ""}">${label}</li>`).join("");
+  const acts = [];
+  if (a.status === "draft") acts.push(`<button class="btn small good" type="button" data-act="approve-still" data-asset="${a.id}"${dis(!hasVisual)}>Durağanı onayla</button>`);
+  if (a.status === "still_approved" || a.status === "motion_tested") {
+    const running = t && ["queued", "running"].includes(t.status);
+    acts.push(`<button class="btn small" type="button" data-act="motion-test" data-asset="${a.id}"${dis(frozen || running)}>${t ? "Hareket testini yenile" : "Hareket testi üret"}</button>`);
+  }
+  if (a.status === "still_approved" && t && t.status === "passed" && t.current) acts.push(`<button class="btn small good" type="button" data-act="approve-motion" data-asset="${a.id}"${dis(false)}>Hareket testini onayla</button>`);
+  if (a.status === "motion_tested") acts.push(`<button class="btn small primary" type="button" data-act="lock" data-asset="${a.id}"${dis(false)}>Kilitle</button>`);
+  if (locked) acts.push(`<button class="btn small" type="button" data-act="unlock" data-asset="${a.id}"${dis(false)}>Kilidi aç</button>`);
+  const kinds = REF_KINDS[a.type].map((k) => `<option value="${k}">${REF_TR[k]}</option>`).join("");
+  const upload = locked ? '<p class="muted">Kilitli varlık değiştirilemez; önce kilidi aç.</p>' : `
+    <form class="upload" data-asset="${a.id}">
+      <label>Referans türü<select name="kind">${kinds}</select></label>
+      <label>Dosya<input type="file" name="file" accept="${REF_ACCEPT[REF_KINDS[a.type][0]]}" required></label>
+      <button class="btn small" type="submit"${dis(false)}>Yükle</button>
+      ${S.meta && S.meta.dry_run ? `<button class="btn small" type="button" data-act="placeholder" data-asset="${a.id}"${dis(frozen)}>Yerel taslak üret</button>` : ""}
+    </form>`;
+  const used = a.scenes.length ? "Kullanıldığı çekimler: " + esc(a.scenes.join(", ")) : "Henüz bir çekimde kullanılmıyor.";
+  const voice = a.character && a.character.voice_id ? " · ses kimliği " + esc(a.character.voice_id) : "";
+  const about = a.description ? `<p>${esc(a.description)}</p>` : "";
+  return `
+    <div class="card-head"><h3>${esc(a.name)}</h3><span class="muted">${esc(TYPE_TR[a.type])} · sürüm ${a.version}</span><span class="spacer"></span><span class="astatus ${a.status}">${ASTATUS_TR[a.status]}</span></div>
+    <ol class="steps" aria-label="Onay adımları">${steps}</ol>
+    ${about}
+    ${refBlock(a)}
+    ${testBlock(a)}
+    ${acts.length ? `<div class="actions-row">${acts.join("")}</div>` : ""}
+    ${upload}
+    <p class="muted" style="font-size:13px">${used}${voice}</p>`;
+}
+function renderAssets() {
+  if (S.tab !== "assets" || !S.assets) return;
+  const type = $("asset-type-filter").value, status = $("asset-status-filter").value;
+  const list = S.assets.filter((a) => (!type || a.type === type) && (!status || a.status === status));
+  const need = S.ov ? S.ov.project.settings.asset_min_status : "locked";
+  const ready = S.assets.filter((a) => ASTATUS_ORDER.indexOf(a.status) >= ASTATUS_ORDER.indexOf(need)).length;
+  setText($("assets-summary"), `${ready}/${S.assets.length} hazır · gereken en az durum: ${ASTATUS_TR[need]}`);
+  const host = $("asset-cards");
+  const existing = new Map([...host.querySelectorAll(".card")].map((el) => [el.dataset.id, el]));
+  const empty = host.querySelector(".empty");
+  if (!list.length) { existing.forEach((el) => el.remove()); if (!empty) host.insertAdjacentHTML("beforeend", '<p class="empty">Bu filtreye uyan varlık yok.</p>'); return; }
+  if (empty) empty.remove();
+  list.forEach((a, i) => {
+    let el = existing.get(a.id);
+    existing.delete(a.id);
+    if (!el) { el = document.createElement("article"); el.className = "card"; el.dataset.id = a.id; el.id = "asset-" + a.id; el.setAttribute("aria-label", `${a.name} (${TYPE_TR[a.type]})`); }
+    setHTML(el, assetCard(a));
+    if (host.children[i] !== el) host.insertBefore(el, host.children[i] || null);
+  });
+  existing.forEach((el) => el.remove());
+  if (S.flash) {
+    const el = $("asset-" + S.flash);
+    if (el) {
+      el.classList.add("flash");
+      el.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      const button = el.querySelector("button:not([disabled])");
+      if (button) button.focus({ preventScroll: true });
+      setTimeout(() => el.classList.remove("flash"), 2400);
+    }
+    S.flash = null;
+  }
+}
+/* Kart düğmeleri: her eylem kendi uç noktasını çağırır ve kullanıcıya gösterilecek notu döndürür. */
+const ASSET_ACTS = {
+  "approve-still": async (id) => { await api(`/assets/${id}/approve-still`, "POST"); return "Durağan referans onaylandı. Sıradaki adım: hareket testi."; },
+  "motion-test": async (id) => { await api(`/assets/${id}/motion-test`, "POST"); return "Hareket testi kuyruğa alındı; bitince bu kartta izleyebilirsin."; },
+  "approve-motion": async (id) => { await api(`/assets/${id}/approve-motion`, "POST"); return "Hareket testi onaylandı. Artık kilitleyebilirsin."; },
+  lock: async (id) => {
+    const r = await api(`/assets/${id}/lock`, "POST");
+    return r.unblocked.length ? `Kilitlendi. Engeli kalkan çekimler: ${r.unblocked.join(", ")}. Üretmek için "Engellenen çekimleri yeniden dene"ye bas.` : "Kilitlendi.";
+  },
+  unlock: async (id) => { await api(`/assets/${id}/unlock`, "POST"); return "Kilit açıldı: referans değiştirilebilir."; },
+  placeholder: async (id) => {
+    const r = await api(`/assets/${id}/references/placeholder`, "POST");
+    return `Yerel taslak referans üretildi (sürüm ${r.version}). Varlık taslakta; durağanı onayla.`;
+  },
+};
 
 /* ---------- not (her eylemden sonra) ---------- */
 function note(id, text, kind) {
@@ -622,11 +841,13 @@ function renderAll() {
   showView();
   if (S.ov && !S.creating && S.ov.scenes.length) {
     renderBudget();
+    renderTabs();
     if (!curScene()) S.sceneId = S.ov.scenes[0].id;
     renderScenes();
     renderInspector();
     renderFilm();
     renderEvents();
+    renderAssets();
   } else if (S.ov) {
     renderBudget();
   }
@@ -637,6 +858,7 @@ async function refresh(listToo) {
   if (S.projectId && !S.projects.some((p) => p.id === S.projectId)) { S.projectId = null; S.ov = null; }
   if (!S.projectId && S.projects.length && !S.creating) S.projectId = S.projects[0].id;
   S.ov = S.projectId ? await api(`/projects/${S.projectId}/overview`) : null;
+  if (S.ov && S.tab === "assets") S.assets = await api(`/projects/${S.projectId}/assets`);
 }
 let ticks = 0;
 async function tick() {
@@ -665,13 +887,70 @@ document.addEventListener("click", (ev) => {
   else if (t.classList.contains("scene-pick")) { if (S.sceneId !== t.dataset.scene) { S.sceneId = t.dataset.scene; S.varId = null; note("insp-note", ""); } renderAll(); }
   else if (t.dataset.promote) {
     const id = S.sceneId;
-    act(async () => { const r = await api(`/scenes/${id}/promote/${t.dataset.promote}`, "POST"); S.varId = null; note("insp-note", stagesText(r.stages), "ok"); }, "insp-note");
+    act(async () => { const r = await api(`/scenes/${id}/promote/${t.dataset.promote}`, "POST"); S.varId = null; note("insp-note", resultText(r), r.blocked ? "err" : "ok"); }, "insp-note");
+  } else if (t.dataset.tab) {
+    if (S.tab !== t.dataset.tab) { S.tab = t.dataset.tab; S.assets = null; renderAll(); pollNow(); }
+  } else if (t.dataset.gotoAsset) {
+    S.tab = "assets"; S.flash = t.dataset.gotoAsset; S.assets = null;
+    $("asset-type-filter").value = ""; $("asset-status-filter").value = "";
+    renderAll(); pollNow();
+  } else if (t.dataset.act) {
+    const run = ASSET_ACTS[t.dataset.act], id = t.dataset.asset;
+    act(async () => note("assets-note", await run(id), "ok"), "assets-note");
+  } else if (t.dataset.unlink) {
+    const id = S.sceneId;
+    act(async () => { const r = await api(`/scenes/${id}/assets/${t.dataset.unlink}`, "DELETE"); note("insp-note", "Bağ kaldırıldı. " + r.hint, "ok"); }, "insp-note");
+  } else if (t.classList.contains("retry-blocked")) {
+    const target = S.tab === "assets" ? "assets-note" : "insp-note";
+    act(async () => {
+      const r = await api(`/projects/${S.projectId}/render-all`, "POST");
+      const started = Object.entries(r.planned).filter(([, st]) => st.length).map(([code]) => code);
+      const still = Object.keys(r.blocked);
+      note(target, (started.length ? `Üretime alındı: ${started.join(", ")}.` : "Üretime alınan çekim yok.")
+        + (still.length ? ` Hâlâ engelli: ${still.join(", ")}.` : ""), still.length ? "err" : "ok");
+    }, target);
   } else if (t.classList.contains("cut")) {
     const v = $("film-media").querySelector("video");
     if (v) { v.currentTime = +t.dataset.in + 0.05; v.play().catch(() => {}); markActiveCut(); }
   }
 });
 $("insp-back").addEventListener("click", () => { S.varId = null; renderAll(); });
+document.querySelector(".tabs").addEventListener("keydown", (e) => {     // sekmeler arasında ok tuşlarıyla gezinme
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const next = S.tab === "scenes" ? "assets" : "scenes";
+  S.tab = next; S.assets = null; renderAll(); $("tab-" + next).focus(); pollNow();
+});
+$("asset-type-filter").addEventListener("change", renderAll);
+$("asset-status-filter").addEventListener("change", renderAll);
+$("asset-new").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const type = $("asset-new-type").value, name = $("asset-new-name").value;
+  act(async () => { const a = await api(`/projects/${S.projectId}/assets`, "POST", { type, name }); $("asset-new-name").value = ""; S.flash = a.id; note("assets-note", `${a.name} eklendi (taslak).`, "ok"); }, "assets-note");
+});
+$("link-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = S.sceneId, name = $("link-name").value;
+  act(async () => { const r = await api(`/scenes/${id}/assets`, "POST", { name }); $("link-name").value = ""; note("insp-note", `${r.asset.name} bağlandı (${ASTATUS_TR[r.asset.status]}). ${r.hint}`, "ok"); }, "insp-note");
+});
+document.addEventListener("change", (e) => {                              // dosya seçici, seçilen referans türünü süzer
+  const kind = e.target.closest("form.upload select[name=kind]");
+  if (kind) kind.form.elements.file.accept = REF_ACCEPT[kind.value];
+});
+document.addEventListener("submit", (e) => {                              // referans yükleme (kart içindeki formlar)
+  const form = e.target.closest("form.upload");
+  if (!form) return;
+  e.preventDefault();
+  const file = form.elements.file.files[0], kind = form.elements.kind.value, id = form.dataset.asset;
+  if (!file) { note("assets-note", "Önce bir dosya seç.", "err"); return; }
+  act(async () => {
+    const res = await fetch(`/api/assets/${id}/references?kind=${encodeURIComponent(kind)}&filename=${encodeURIComponent(file.name)}`,
+                            { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* gövde yok */ }
+    if (!res.ok) throw new Error(detailOf(data) || `Yükleme başarısız (${res.status})`);
+    note("assets-note", `${REF_TR[kind]} yüklendi: ${data.name}, sürüm ${data.version}, ${ASTATUS_TR[data.status].toLocaleLowerCase("tr")}.`, "ok");
+  }, "assets-note");
+});
 $("project-select").addEventListener("change", (e) => { S.projectId = e.target.value || null; S.sceneId = null; S.varId = null; S.ov = null; S.creating = false; store("hg-project", S.projectId); note("insp-note", ""); pollNow(); });
 $("new-project").addEventListener("click", () => { S.creating = true; renderAll(); $("f-title").focus(); });
 $("start-cancel").addEventListener("click", () => { S.creating = false; renderAll(); });
@@ -682,7 +961,7 @@ $("resume").addEventListener("click", () => act(() => api(`/projects/${S.project
 
 $("regen").addEventListener("click", () => {
   const id = S.sceneId;
-  act(async () => { const r = await api(`/scenes/${id}/render?force_visual=true`, "POST"); S.varId = null; note("insp-note", stagesText(r.stages), "ok"); }, "insp-note");
+  act(async () => { const r = await api(`/scenes/${id}/render?force_visual=true`, "POST"); S.varId = null; note("insp-note", resultText(r), r.blocked ? "err" : "ok"); }, "insp-note");
 });
 $("music-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -690,7 +969,7 @@ $("music-form").addEventListener("submit", (e) => {
   if (!Number.isFinite(gain) || gain < -40 || gain > 0) { note("insp-note", "Seviye -40 ile 0 dB arasında olmalı.", "err"); return; }
   act(async () => {
     const r = await api(`/scenes/${id}/audio`, "PUT", { kind: "music", emotion, gain_db: gain, params: { mood: emotion } });
-    note("insp-note", stagesText(r.stages), "ok");
+    note("insp-note", resultText(r), r.blocked ? "err" : "ok");
   }, "insp-note");
 });
 $("assemble").addEventListener("click", () => {

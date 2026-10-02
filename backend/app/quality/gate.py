@@ -1,7 +1,7 @@
 """Quality Gate: skorlama, eşik ve Rafine Havuz.
 
 Ücretsiz modda CLIP skoru yerine seed'e bağlı tekrarlanabilir, Gauss dağılımlı sahte skor kullanılır; anomali
-tespiti ise gerçektir (FFmpeg). Gerçek skor (OpenCLIP stil + InsightFace yüz) Faz 11'in sonraki adımlarındadır.
+tespiti ise gerçektir (FFmpeg). Gerçek skor (OpenCLIP stil + InsightFace yüz) Faz 18'in sonraki adımlarındadır.
 """
 import logging
 import random

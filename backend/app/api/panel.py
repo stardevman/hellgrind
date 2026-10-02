@@ -4,18 +4,19 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
-from app.api.plan import Busy, plan_and_dispatch
+from app.api.plan import Blocked, Busy, plan_and_dispatch
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
-from app.models import AudioTrack, Character, Scene, SceneCharacter, Variation
+from app.hermes import lint
+from app.models import Asset, AudioTrack, Character, Scene, SceneAsset, SceneCharacter, Variation
 from app.schemas import ScriptIn
 
 router = APIRouter(tags=["panel"])
@@ -24,7 +25,8 @@ PRESETS = {
     "preview": {"probe_n": 4, "full_n": 8, "wave_size": 4, "max_correction_rounds": 2},
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
 }
-MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/")
+MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
+                  "assets/", "motion/")
 EVENT_LIMIT = 30
 
 
@@ -34,11 +36,11 @@ def meta():
             "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS, "sample_script": SAMPLE_SCRIPT}
 
 
-def _dispatch_all(s: Session, project_id: str) -> tuple[dict, list, bool]:
-    """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); üretim
-    sırasında proje donarsa (bütçe) kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi
-    görünmesin."""
-    planned, busy, frozen = {}, [], False
+def _dispatch_all(s: Session, project_id: str) -> dict:
+    """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); eksik
+    referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
+    kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin."""
+    planned, busy, blocked, frozen = {}, [], {}, False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
             frozen, planned[sc.scene_code] = True, []
@@ -48,7 +50,10 @@ def _dispatch_all(s: Session, project_id: str) -> tuple[dict, list, bool]:
         except Busy:
             planned[sc.scene_code] = []
             busy.append(sc.scene_code)
-    return planned, busy, frozen
+        except Blocked as e:
+            planned[sc.scene_code] = []
+            blocked[sc.scene_code] = [m["name"] for m in e.payload()["missing"]]
+    return {"planned": planned, "busy": busy, "blocked": blocked, "frozen": frozen}
 
 
 @router.post("/projects/{project_id}/script")
@@ -59,19 +64,18 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
         summary = ingest(project_id, body.text, auto_music=body.auto_music)
     except killswitch.ProjectFrozen:                  # LLM modunda ayrıştırma sırasında bütçe dolabilir
         raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
-    planned, busy, frozen = {}, [], False
+    result = {"planned": {}, "busy": [], "blocked": {}, "frozen": False}
     if body.auto_render:
         s.expire_all()
-        planned, busy, frozen = _dispatch_all(s, project_id)
-    return {**summary, "planned": planned, "busy": busy, "frozen": frozen}
+        result = _dispatch_all(s, project_id)
+    return {**summary, **result}
 
 
 @router.post("/projects/{project_id}/render-all")
 def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
-    planned, busy, frozen = _dispatch_all(s, project_id)
-    return {"planned": planned, "busy": busy, "frozen": frozen}
+    return _dispatch_all(s, project_id)
 
 
 def _media(key: str | None) -> str | None:
@@ -84,7 +88,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     p = project_or_404(s, project_id)
     scenes = s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order, Scene.scene_code)).all()
     ids = [sc.id for sc in scenes]
-    variations, tracks, cast = defaultdict(list), defaultdict(list), defaultdict(list)
+    cfg = project_settings(p.settings)
+    variations, tracks, cast, items = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
         for v in s.scalars(select(Variation).where(Variation.scene_id.in_(ids))
@@ -93,10 +98,19 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         for t in s.scalars(select(AudioTrack).where(AudioTrack.scene_id.in_(ids), AudioTrack.is_active)
                            .order_by(AudioTrack.start_offset_s, AudioTrack.kind)):
             tracks[t.scene_id].append(t)
-        for scene_id, name in s.execute(select(SceneCharacter.scene_id, Character.name)
-                                        .join(Character, Character.id == SceneCharacter.character_id)
-                                        .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
+        for scene_id, name, aid, status in s.execute(
+                select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status)
+                .join(Character, Character.id == SceneCharacter.character_id)
+                .outerjoin(Asset, Asset.id == Character.asset_id)
+                .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
             cast[scene_id].append(name)
+            items[scene_id].append((str(aid) if aid else None, "character", name, status))
+        for scene_id, aid, type_, name, status in s.execute(
+                select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status)
+                .join(Asset, Asset.id == SceneAsset.asset_id)
+                .where(SceneAsset.scene_id.in_(ids)).order_by(Asset.type, Asset.name)):
+            items[scene_id].append((str(aid), type_, name, status))
+    check = cfg["lint_strictness"] != "off"
 
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
@@ -104,6 +118,9 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
         "characters": cast[sc.id], "final_url": _media(sc.final_video_key),
+        "assets": [{"id": aid, "type": type_, "name": name, "status": status} for aid, type_, name, status in items[sc.id]],
+        "missing": [{"id": m.asset_id, "type": m.type, "name": m.name, "status": m.status}
+                    for m in (lint.find_missing(items[sc.id], cfg["asset_min_status"]) if check else [])],
         "tracks": [{"id": str(t.id), "kind": t.kind, "source": t.source, "text": t.text, "emotion": t.emotion,
                     "start_offset_s": t.start_offset_s, "gain_db": t.gain_db, "version": t.version,
                     "character_id": str(t.character_id) if t.character_id else None,
@@ -129,8 +146,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "project": {"id": str(p.id), "title": p.title, "status": p.status,
                     "budget_limit_usd": float(p.budget_limit_usd), "spent_usd": float(p.spent_usd),
                     "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(project_id),
-                    "soft_limited": killswitch.is_soft_limited(project_id), "settings": project_settings(p.settings),
-                    "dry_run": settings.dry_run},
+                    "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
+                    "dry_run": settings.dry_run,
+                    "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
+                                                   .group_by(Asset.status)).all())},
         "scenes": scenes_out, "events": events, "timeline": timeline,
     }
 
