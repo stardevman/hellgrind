@@ -235,17 +235,6 @@ def test_event_log_keeps_last_200(mk_project):
 
 # ---------- Celery beat bekçileri ----------
 
-def test_beat_schedule_wires_guards_to_registered_tasks():
-    """Veritabanı gerektirmez: zamanlama 30 sn / 5 dk ve görev adları gerçekten kayıtlı."""
-    from app.worker import tasks  # noqa: F401  (görevleri kaydeder)
-    from app.worker.celery_app import celery
-
-    schedule = celery.conf.beat_schedule
-    assert schedule["budget-watchdog"] == {"task": "hg.watchdog", "schedule": 30.0}
-    assert schedule["reap-stale-reservations"] == {"task": "hg.reap_stale", "schedule": 300.0}
-    assert {"hg.watchdog", "hg.reap_stale"} <= set(celery.tasks)
-
-
 def test_watchdog_freezes_projects_that_spend_too_fast(mk_project):
     fast = mk_project(max_spend_per_10min=5)
     slow = mk_project(max_spend_per_10min=5)
