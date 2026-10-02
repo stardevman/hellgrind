@@ -14,9 +14,10 @@ from app import storage
 from app.budget import killswitch as ks
 from app.config import settings
 from app.core.hashing import seed_for, visual_fingerprint
+from app.core.state import advance_scene, load_characters
 from app.db import session_scope
 from app.engine import iteration
-from app.engine.iteration import load_characters, run_tiered_generation
+from app.engine.iteration import run_tiered_generation
 from app.engine.providers import LocalProvider, TransientError
 from app.models import Scene, Variation
 from tests.media_utils import anomalies
@@ -508,7 +509,7 @@ def test_status_updates_are_not_written_for_a_frozen_project(scene, monkeypatch)
     pid, sid = scene
     ks.freeze(pid, "test")
     with pytest.raises(ks.ProjectFrozen):
-        iteration._advance(pid, sid, status="generating")
+        advance_scene(pid, sid, status="generating")
     assert scene_row(sid).status != "generating"
 
 

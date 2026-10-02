@@ -23,9 +23,10 @@ from app import storage
 from app.budget import killswitch
 from app.config import project_settings, settings
 from app.core.hashing import seed_for, visual_fingerprint
+from app.core.state import advance_scene, load_characters
 from app.db import session_scope
 from app.engine.providers import GenRequest, TransientError, get_provider, route_engine
-from app.models import Character, Project, Scene, SceneCharacter, Variation
+from app.models import Project, Scene, Variation
 from app.quality import gate
 
 log = logging.getLogger("hellgrind.iteration")
@@ -56,21 +57,6 @@ class Ctx:
 
 
 # ---------- yardımcılar ----------
-
-def load_characters(s, scene_id):
-    return s.scalars(select(Character).join(SceneCharacter, SceneCharacter.character_id == Character.id)
-                     .where(SceneCharacter.scene_id == scene_id).order_by(Character.name)).all()
-
-
-def _advance(project_id: str, scene_id: str, **fields) -> None:
-    """Sahne durumunu günceller; proje dondurulmuşsa yazmaz (freeze'in `frozen` damgasını ezmemek için) ve durur."""
-    if killswitch.is_frozen(project_id):
-        raise killswitch.ProjectFrozen(project_id)
-    with session_scope() as s:
-        scene = s.get(Scene, scene_id)
-        for key, value in fields.items():
-            setattr(scene, key, value)
-
 
 def make_thumb(video_path: str, key: str) -> str | None:
     """320 px genişliğinde jpg; 2. saniyeden, klip daha kısaysa ilk kareden. Başarısızlık üretimi durdurmaz."""
@@ -268,13 +254,13 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
         with session_scope() as s:
             scene = s.get(Scene, scene_id)
             scene.correction_count += 1
-        _advance(project_id, scene_id, status="correcting")
+        advance_scene(project_id, scene_id, status="correcting")
     else:
-        _advance(project_id, scene_id, status="needs_review", last_error="test turu eşiği geçilemedi")
+        advance_scene(project_id, scene_id, status="needs_review", last_error="test turu eşiği geçilemedi")
         return "needs_review"
 
     # 2) Tam tur: dalgalar halinde, erken durmalı
-    _advance(project_id, scene_id, status="generating")
+    advance_scene(project_id, scene_id, status="generating")
     produced, wave = 0, 0
     while produced < cfg["full_n"]:
         # İlk dalga her zaman çalışır: yoksa limite yakınken başlayan sahne hiç bitemezdi.
@@ -295,7 +281,7 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
         "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
         "last_error": None})
     if not winners:
-        _advance(project_id, scene_id, status="needs_review", last_error="tam turda eşiği geçen varyasyon yok")
+        advance_scene(project_id, scene_id, status="needs_review", last_error="tam turda eşiği geçen varyasyon yok")
         return "needs_review"
     killswitch.event(project_id, "refined", scene_id=scene_id, pool=len(winners))
     return "refined"

@@ -60,3 +60,39 @@ def make_mixed(path, parts, size="160x90", fps=12):
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path)]
     subprocess.run(cmd, check=True)
     return str(path)
+
+
+def pcm(path, rate: int = 16000) -> np.ndarray:
+    """Ses akışı, tek kanal float32 örnekler (-1..1)."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-vn", "-f", "f32le", "-ac", "1", "-ar", str(rate), "-"],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.float32)
+
+
+def band_db(samples: np.ndarray, rate: int, t0: float, t1: float, f0: float, f1: float) -> float:
+    """[t0, t1) saniye aralığında [f0, f1) Hz bandının enerjisi (dB, göreli). Ton ayrıştırmak için."""
+    seg = samples[int(t0 * rate):int(t1 * rate)]
+    spectrum = np.abs(np.fft.rfft(seg * np.hanning(len(seg)))) ** 2
+    freqs = np.fft.rfftfreq(len(seg), 1 / rate)
+    energy = spectrum[(freqs >= f0) & (freqs < f1)].sum()
+    return float(10 * np.log10(energy + 1e-12))
+
+
+def rms(samples: np.ndarray, rate: int, t0: float, t1: float) -> float:
+    seg = samples[int(t0 * rate):int(t1 * rate)]
+    return float(np.sqrt(np.mean(seg ** 2))) if len(seg) else 0.0
+
+
+def loudness_lufs(path) -> float:
+    """Birleşik (integrated) ses yüksekliği, EBU R128."""
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "ebur128", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    return float(re.findall(r"I:\s+(-?[\d.]+) LUFS", err)[-1])
+
+
+def make_tone(path, freq: float = 440.0, seconds: float = 1.0, channels: int = 1, rate: int = 44100):
+    """Sabit frekanslı test sesi (wav)."""
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    f"sine=frequency={freq}:sample_rate={rate}:duration={seconds}", "-ac", str(channels), str(path)],
+                   check=True)
+    return str(path)
