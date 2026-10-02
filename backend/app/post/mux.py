@@ -70,3 +70,15 @@ def build_command(video: str, dialogue: list[AudioInput], bed: list[AudioInput],
 def mux(video: str, dialogue: list[AudioInput], bed: list[AudioInput], out: str, loudness_lufs: float = -23.0) -> str:
     subprocess.run(build_command(video, dialogue, bed, out, loudness_lufs), check=True)
     return out
+
+
+def mix_audio(inputs: list[AudioInput], out: str, duration: float) -> str:
+    """Zamanlanmış kanalları tek bir wav dosyasında toplar (ses akışı, `duration` süresine eşit). Dudak senkronu,
+    videoyla birlikte tek bir ses dosyası ister."""
+    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
+    for a in inputs:
+        cmd += ["-i", a.path]
+    parts = [_channel(i, a, f"a{i}") for i, a in enumerate(inputs)]
+    parts.append(_mix([f"a{i}" for i in range(len(inputs))], "mix", duration))
+    subprocess.run(cmd + ["-filter_complex", ";".join(parts), "-map", "[mix]", "-t", f"{duration:.3f}", out], check=True)
+    return out

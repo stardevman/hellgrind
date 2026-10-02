@@ -225,3 +225,48 @@ def api_project(api, pg):
         ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
         with session_scope() as s:
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})
+
+
+@pytest.fixture
+def no_network(monkeypatch):
+    """Ücretli modül testlerinde yanlışlıkla genel internete bağlantı kurulursa test patlar (para harcanamaz).
+    Yerel/özel ağ (Postgres, Redis, MinIO: Docker ağı, loopback) serbesttir; bunlar ücretli servis değildir."""
+    import ipaddress
+    import socket
+
+    real_connect = socket.socket.connect
+
+    def refuse(self, address, *a, **k):
+        if isinstance(address, tuple):
+            host = address[0]
+            try:
+                ip = ipaddress.ip_address(host)
+                local = ip.is_private or ip.is_loopback or ip.is_link_local
+            except ValueError:                                  # ad: yalnızca bilinen yerel servis adları
+                local = host in {"postgres", "redis", "minio", "localhost"}
+            if not local:
+                raise AssertionError(f"Testte genel internete bağlantı denendi: {address}")
+        return real_connect(self, address, *a, **k)
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+
+
+@pytest.fixture
+def paid(monkeypatch, no_network):
+    """Ücretli modun kilidini YALNIZCA BELLEKTEKİ ayar nesnesinde açar ve sahte anahtarlar verir. Ortam değişkeni DRY_RUN=1
+    kalır, genel internete bağlantı yasaktır (no_network) ve ücretli sağlayıcı çağrıları testlerde sahtedir: gerçek servise
+    hiçbir istek gitmez."""
+    monkeypatch.setattr(settings, "dry_run", False)
+    for name in ("fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+        monkeypatch.setattr(settings, name, f"test-{name}")
+
+
+@pytest.fixture
+def refined(sample_scene):
+    """Köprü sahnesi (diyalog + müzik), görsel aşaması bitmiş: (proje, sahne)."""
+    from app.engine.iteration import run_tiered_generation
+
+    pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=2, max_correction_rounds=2)
+    sid = codes["S002_SH01"]
+    assert run_tiered_generation(pid, sid) == "refined"
+    return pid, sid

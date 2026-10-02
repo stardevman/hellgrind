@@ -22,14 +22,6 @@ BRIDGE = "S002_SH01"
 
 
 @pytest.fixture
-def refined(sample_scene):
-    pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=2, max_correction_rounds=2)
-    sid = codes[BRIDGE]
-    assert run_tiered_generation(pid, sid) == "refined"
-    return pid, sid
-
-
-@pytest.fixture
 def work(monkeypatch):
     """Ses üretimi ve montaj çağrılarını sayar (gerçek işi yine yapar)."""
     calls = {"speech": [], "music": [], "mux": []}
@@ -66,6 +58,11 @@ def rank_one(sid):
         v = s.scalars(select(Variation).where(Variation.scene_id == sid, Variation.refined_rank == 1)).one()
         s.expunge(v)
         return v
+
+
+def ledger_rows(pid):
+    with session_scope() as s:
+        return s.execute(text("SELECT count(*) FROM cost_ledger WHERE project_id = :p"), {"p": pid}).scalar()
 
 
 def finish(sid):
@@ -333,12 +330,18 @@ def test_a_frozen_project_stops_the_stage_without_overwriting_scene_status(refin
     assert scene_row(sid).status == "refined"
 
 
-def test_paid_mode_does_not_pretend_to_lipsync(refined, work, monkeypatch):
+def test_paid_mode_without_a_key_stops_before_any_reservation(refined, work, monkeypatch):
+    """Ücretli lipsync yolu bağlı; ama anahtar yoksa guard, rezervasyondan ÖNCE durdurur: deftere iz bile bırakmaz."""
+    from sqlalchemy import text
+
+    from app.live import PaidCallBlocked
     pid, sid = refined
     monkeypatch.setattr(settings, "dry_run", False)
-    with pytest.raises(NotImplementedError):
+    monkeypatch.setattr(settings, "fal_key", "")
+    before = ledger_rows(pid)
+    with pytest.raises(PaidCallBlocked, match="FAL_KEY"):
         voice_and_lipsync(sid)
-    assert scene_row(sid).lipsync_video_key is None
+    assert scene_row(sid).lipsync_video_key is None and ledger_rows(pid) == before
 
 
 def test_stages_leave_no_temporary_files_behind(refined, work):

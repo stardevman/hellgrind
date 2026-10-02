@@ -126,17 +126,21 @@ def test_the_rest_of_the_code_loads_the_live_package_only_inside_functions():
     assert offenders == []
 
 
-def test_secret_keys_are_read_only_through_the_guard():
-    """Anahtar değerleri yalnızca config.py'de tanımlanır ve guard() ile okunur; başka hiçbir yerde."""
-    allowed = {"config.py", "__init__.py"}
-    pattern = ("fal_key", "anthropic_api_key", "elevenlabs_api_key")
+def test_secret_key_values_are_read_only_through_the_guard():
+    """Anahtar DEĞERLERİ yalnızca config.py'de tanımlanır ve live/__init__.py'deki guard() ile okunur. Anahtar ADLARINI
+    guard()'a dize olarak vermek serbesttir; `settings.fal_key` gibi değer okumak ya da getattr ile almak değildir."""
+    allowed = {pathlib.Path("config.py"), pathlib.Path("live/__init__.py")}
     offenders = []
     for p in python_files():
         rel = p.relative_to(APP)
-        if rel.parts[0] == "live" and p.name in allowed or p.name == "config.py":
+        if rel in allowed:
             continue
-        text = p.read_text()
-        offenders += [f"{rel}: {k}" for k in pattern if k in text and rel.parts[0] != "live"]
+        for node in ast.walk(ast.parse(p.read_text())):
+            if isinstance(node, ast.Attribute) and node.attr in PAID_KEYS:
+                offenders.append(f"{rel}:{node.lineno} .{node.attr}")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" \
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and node.args[1].value in PAID_KEYS:
+                offenders.append(f"{rel}:{node.lineno} getattr({node.args[1].value})")
     assert offenders == []
 
 

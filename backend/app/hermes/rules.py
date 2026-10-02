@@ -278,6 +278,28 @@ def _visual_prompt(heading: str, shot: dict) -> str:
     return f"{where}. {body}" if where and where != "SAHNE" else body
 
 
+def camera_for(kind: str, emotion: str) -> tuple[dict, float]:
+    """Çekim türü ve duygudan kamera ile aksiyon karmaşıklığı (LLM modu da aynı kuralları kullanır)."""
+    return _camera(kind, emotion)
+
+
+def visual_prompt_for(heading: str, shot: dict) -> str:
+    return _visual_prompt(heading, shot)
+
+
+def split_scenes(text: str) -> list[str]:
+    """Metni sahne başlıklarından parçalara böler; her parça kendi başlığıyla başlar. Başlıktan önceki metin ayrı bir parçadır."""
+    chunks, current = [], []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if is_slug(line) and any(x.strip() for x in current):
+            chunks.append("\n".join(current))
+            current = []
+        current.append(line)
+    if any(x.strip() for x in current):
+        chunks.append("\n".join(current))
+    return chunks
+
+
 def parse(text: str) -> dict:
     blocks = tokenize(text)
     cast: list[str] = []

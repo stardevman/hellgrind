@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     dry_run_score_sd: float = 0.05
     dry_run_defect_rate: float = 0.12     # bilerek bozuk (siyah/donmuş) klip oranı
     local_render_fps: int = 24
-    tts_engine: str = "espeak"            # espeak (ücretsiz, Türkçe) | tone
+    tts_engine: str = "espeak"            # espeak (ücretsiz, Türkçe) | tone | elevenlabs (ücretli; ücretsiz modda espeak kullanılır)
     hermes_mode: str = "rules"            # rules (ücretsiz) | llm (ücretli, ANTHROPIC_API_KEY ister)
 
     # Kademe 2 anahtarları: DRY_RUN=1 iken hiçbiri okunmaz

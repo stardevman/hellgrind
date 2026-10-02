@@ -94,7 +94,7 @@ Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök s�
 İki katman vardır:
 
 ```bash
-make test    # tam paket: Docker içinde, PostgreSQL, Redis ve MinIO ile (~3 dk)
+make test    # tam paket: Docker içinde, PostgreSQL, Redis ve MinIO ile (~4 dk)
 make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~30 sn)
 ```
 
@@ -115,11 +115,26 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~30 sn)
 `DRY_RUN=1` varsayılandır. Bu modda anahtar tanımlı olsa bile hiçbir ücretli API çağrılmaz:
 
 - Ücretli kod yalnızca `backend/app/live/` altında durur ve yalnızca fonksiyon içinde yüklenir.
-- Her giriş noktası `guard(anahtar_adı)` çağırır; `DRY_RUN=1` ya da boş anahtar `PaidCallBlocked` fırlatır.
-- Testler bunu otomatik denetler: ücretli paketler `app/live` dışında import edilemez, anahtarlar `guard` dışında okunamaz, ücretsiz modda hiçbir ücretli paket yüklenmez.
+- Her giriş noktası `guard(anahtar_adı)` çağırır; `DRY_RUN=1` ya da boş anahtar `PaidCallBlocked` fırlatır. Kilit, bütçe rezervasyonundan **önce** çalışır; engellenen çağrı deftere iz bırakmaz.
+- Testler bunu otomatik denetler: ücretli paketler `app/live` dışında import edilemez, anahtar değerleri `guard` dışında okunamaz, ücretsiz modda hiçbir ücretli paket yüklenmez, her giriş noktası tuzaklı bir ortamda hiçbir şeye dokunmadan engellenir.
 - Gizli anahtarlar yalnızca `.env` içinde durur; `.env` commit'lenmez.
 
-Ücretli entegrasyonlar (fal.ai video, ElevenLabs ses, LLM ayrıştırıcı) bu aşamada **yazılmamıştır**; ücretli modda üretim, gerçek kalite skorlayıcı olmadığı için para harcanmadan önce durur. `DRY_RUN=0` ile hiçbir şeyi açık onay olmadan çalıştırmayın.
+### Ücretli entegrasyonlar: yazıldı, hiç çalıştırılmadı
+
+| Modül | Ne yapar |
+|---|---|
+| `live/fal_video.py` | Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Wan 2.2 (`fal-ai/wan/v2.2-a14b/image-to-video`) ya da Seedance (`bytedance/seedance-2.0/fast/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`. 429, 5xx ve zaman aşımı yeniden denenir. |
+| `live/elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. |
+| `live/hermes_llm.py` | LangGraph akışı: `Send` ile paralel çıkarma, doğrulama, en çok 2 tur onarım. Çıktı şeması kural tabanlı ayrıştırıcıyla aynı; replikler eksiltilemez ya da uydurulamaz. |
+
+Uç nokta kimlikleri ve parametreler fal.ai ve ElevenLabs belgelerinden doğrulandı (2 Ekim 2026), paket imzaları gerçek paketlerden denetlendi. Testler sahte `fal_client`, sahte `httpx` ve sahte LLM kullanır; genel internete bağlantı testlerde yasaktır. Hiçbir ücretli çağrı hiçbir zaman yapılmadı. Her ücretli çağrı bütçe rezervasyonundan geçer (LLM çağrıları belirteç tahminiyle, sesler karakter sayısıyla, video ve dudak senkronu fiyat tablosuyla).
+
+Bilinmesi gerekenler:
+
+- fal yanıtı fatura tutarı döndürmez; harcama `pricing.yaml` tahminidir. `tts_per_1k_chars` ve `llm_per_million_tokens` kalemleri doğrulanmış değildir: ücretli moda geçmeden önce kendi planınıza göre güncelleyin.
+- Seedance en az 4 sn üretir ve tohum kabul etmez; 3 sn'lik bir çekim 4 sn faturalanır. Wan 17–161 kare (16 fps) üretir.
+- **Ücretli modda üretim henüz başlatılamaz**: gerçek kalite skorlayıcı (OpenCLIP stil, InsightFace yüz) yazılmadı ve sahte skor ücretli klipleri sessizce onaylayabileceğinden, görsel üretim para harcanmadan önce durur. Ücretli mod için sırada: gerçek skorlayıcı, düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek.
+- Ücretli entegrasyonları denemek için ayrıca `pip install -r backend/requirements-live.txt` gerekir. Bunu açık onay olmadan yapmayın; `DRY_RUN=0` ile hiçbir şeyi açık onay olmadan çalıştırmayın.
 
 ## Ayarlar
 
@@ -133,7 +148,7 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~30 sn)
 | `DRY_RUN_FAIL_RATE` | `0` | Geçici hata oranı (yeniden deneme testi için) |
 | `GEN_CONCURRENCY` | `3` | Bir dalgada eşzamanlı üretim sayısı |
 | `PURGE_MODE` | `quarantine` | `quarantine`: elenenler `quarantine/` önekine taşınır; `hard`: silinir |
-| `TTS_ENGINE` | `espeak` | `espeak` ya da `tone` (yapay ton) |
+| `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
 
 Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23.
 
@@ -154,8 +169,9 @@ backend/
     post/        audio, mux, pipeline (LIPSYNC ve MUX aşamaları), timeline (film)
     api/         projects, scenes, budget, panel, plan, deps
     worker/      celery_app, tasks, dispatch
-    live/        ücretli kilit (guard)
+    live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
     panel/       index.html (tek sayfa, build adımı yok)
+  requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   scripts/smoke.py
   tests/
 ```
