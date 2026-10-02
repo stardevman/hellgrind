@@ -22,6 +22,9 @@ def visual_fingerprint(scene, characters) -> str:
 
     prompt_revision bilinçli olarak dahil değil: düzeltme döngüsünün kendi istem değişiklikleri yönetmenin
     girdisi sayılmaz, yeniden render tetiklememelidir.
+
+    Özetler her zaman veritabanından okunan satırlarla hesaplanmalı: REAL sütunlar (duration_s, lora_scale)
+    4 baytlık kesinlikle saklanır, yazmadan önceki Python değeriyle hesaplanan özet farklı çıkabilir.
     """
     return stable_hash({
         "prompt": scene.prompt_spec,
