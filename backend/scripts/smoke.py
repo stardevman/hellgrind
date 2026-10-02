@@ -1,11 +1,13 @@
-"""Kademe 1 uçtan uca duman testi (sıfır maliyet, DRY_RUN=1).
+"""Uçtan uca duman testi — tamamen ücretsiz (DRY_RUN=1).
 
 Kullanım: docker compose exec api python -m scripts.smoke
 Kontrol edilenler:
-  1. Sahne üretimi: test turu -> tam tur -> Quality Gate -> Rafine Havuz (en fazla 3)
-  2. Ses + muksing ile final video
-  3. Stateless Re-render: yalnızca müzik değişince sadece MUX çalışır, video harcaması artmaz
-  4. Kill-Switch: küçük bütçeli proje limitte donar, harcama limiti aşmaz
+  0. Ücretli çağrılar kod düzeyinde engelli
+  1. Senaryo -> sahneler -> varyasyonlar -> Quality Gate -> Rafine Havuz -> ses -> montaj
+  2. Stateless Re-render: müzik değişince yalnızca MUX, harcama değişmez
+  3. Küratör seçimi: rafine #2'yi kullan -> yalnızca ses + montaj
+  4. Film: tüm sahneler tek videoda birleşir
+  5. Kill-Switch: 1 USD bütçeli proje limitte donar
 """
 import sys
 import time
@@ -13,8 +15,9 @@ import time
 import httpx
 
 API = "http://localhost:8000/api"
-c = httpx.Client(base_url=API, timeout=30)
+c = httpx.Client(base_url=API, timeout=60)
 FAILS = []
+TERMINAL = {"done", "needs_review", "failed", "frozen"}
 
 
 def check(cond: bool, msg: str) -> None:
@@ -23,88 +26,107 @@ def check(cond: bool, msg: str) -> None:
         FAILS.append(msg)
 
 
-def wait_scene(scene_id: str, done: set[str], timeout: float = 300) -> dict:
+def overview(pid):
+    return c.get(f"/projects/{pid}/overview").json()
+
+
+def wait_all(pid: str, timeout: float = 1200) -> dict:
     t0, last = time.time(), None
     while time.time() - t0 < timeout:
-        sc = c.get(f"/scenes/{scene_id}").json()
-        if sc["status"] != last:
-            print(f"    durum: {sc['status']}")
-            last = sc["status"]
-        if sc["status"] in done:
+        ov = overview(pid)
+        states = " ".join(f"{s['scene_code']}:{s['status']}" for s in ov["scenes"])
+        if states != last:
+            print(f"    {states}")
+            last = states
+        if ov["scenes"] and all(s["status"] in TERMINAL for s in ov["scenes"]):
+            return ov
+        time.sleep(2)
+    raise TimeoutError(f"{timeout} sn içinde bitmedi")
+
+
+def wait_scene(sid: str, timeout: float = 300) -> dict:
+    t0 = time.time()
+    time.sleep(1)
+    while time.time() - t0 < timeout:
+        sc = c.get(f"/scenes/{sid}").json()
+        if sc["status"] in TERMINAL:
             return sc
         time.sleep(1)
-    raise TimeoutError(f"sahne {scene_id} {timeout} sn'de bitmedi (son durum: {last})")
-
-
-def new_project(title: str, budget: float, **settings) -> str:
-    r = c.post("/projects", json={"title": title, "budget_limit_usd": budget, "settings": settings})
-    r.raise_for_status()
-    return r.json()["id"]
-
-
-def new_scene(pid: str, code: str, **kw) -> str:
-    body = {"scene_code": code, "seq_order": int(code[1:4]) * 100 + int(code[-2:]),
-            "description": "Kerem çöken köprünün kenarında dengesini kaybeder.",
-            "emotion": "fear", "prompt_spec": {"prompt": "[CHAR:Kerem] stumbling on a collapsing bridge"}, **kw}
-    r = c.post(f"/projects/{pid}/scenes", json=body)
-    r.raise_for_status()
-    return r.json()["id"]
+    raise TimeoutError(sid)
 
 
 def main() -> int:
-    print("0) Sağlık kontrolü")
-    h = httpx.get("http://localhost:8000/healthz").json()
-    check(h["ok"] and h["dry_run"], "API ayakta ve DRY_RUN açık")
-    if not h["dry_run"]:
-        print("DRY_RUN kapalı! Para harcamamak için testi durduruyorum.")
+    print("0) Güvenlik")
+    meta = c.get("/meta").json()
+    check(meta["dry_run"], "DRY_RUN açık")
+    if not meta["dry_run"]:
+        print("DRY_RUN kapalı! Para harcamamak için test durduruldu.")
         return 1
+    from app.live import PaidCallBlocked, guard
+    for k in ("fal_key", "elevenlabs_api_key", "anthropic_api_key"):
+        try:
+            guard(k)
+            check(False, f"{k} engellenmedi")
+        except PaidCallBlocked:
+            check(True, f"{k} ile ücretli çağrı engelli")
 
-    print("\n1) Üretim: test turu -> tam tur -> Rafine Havuz")
-    pid = new_project("Smoke - ana", 25, full_n=20)
-    sid = new_scene(pid, "S001_SH01")
-    r = c.put(f"/scenes/{sid}/audio", json={"kind": "dialogue", "text": "Dayan! Bırakma elimi!", "emotion": "fear",
-                                             "start_offset_s": 0.5}).json()
-    check(r["stages"] == ["VISUAL", "LIPSYNC", "MUX"], f"ilk render tüm aşamaları planladı: {r['stages']}")
-    sc = wait_scene(sid, {"done", "needs_review", "failed", "frozen"})
-    check(sc["status"] == "done", f"sahne tamamlandı (durum: {sc['status']}, hata: {sc.get('last_error')})")
-    vs = c.get(f"/scenes/{sid}/variations").json()
-    refined = [v for v in vs if v["refined_rank"]]
-    purged = [v for v in vs if v["status"] == "purged"]
-    print(f"    varyasyon: {len(vs)} toplam, {len(refined)} rafine, {len(purged)} imha")
-    check(1 <= len(refined) <= 3, "Rafine Havuz 1-3 varyasyon içeriyor")
-    check(all(v["video_key"] is None for v in purged), "imha edilenlerin dosyası silindi")
-    check(any(a["type"] in ("black", "freeze") for v in vs for a in v["anomalies"]),
-          "anomali tespiti en az bir bozuk videoyu yakaladı")
-    spent_before = c.get(f"/projects/{pid}").json()["spent_usd"]
-    final_before = sc["final_video_key"]
-    print(f"    harcanan (sahte): {spent_before:.2f} USD")
+    print("\n1) Senaryodan film sahnelerine")
+    pid = c.post("/projects", json={"title": "Smoke", "budget_limit_usd": 60, "settings": meta["presets"]["preview"]}).json()["id"]
+    r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]}).json()
+    check(r["shots"] == 4 and r["cast"] == ["Kerem", "Ayşe"], f"4 çekim, 2 karakter: {r['shots']} / {r['cast']}")
+    ov = wait_all(pid)
+    for s in ov["scenes"]:
+        refined = [v for v in s["variations"] if v["rank"]]
+        check(s["status"] == "done", f"{s['scene_code']} tamamlandı ({s['status']}{', ' + (s['last_error'] or '')[:80] if s['status'] != 'done' else ''})")
+        check(1 <= len(refined) <= 3, f"{s['scene_code']} rafine havuz: {len(refined)}")
+        bad = [v for v in s["variations"] if set(v["anomalies"]) & {"black", "freeze"}]
+        check(all(v["status"] == "purged" for v in bad), f"{s['scene_code']} bozuk {len(bad)} klip elendi")
+    s0 = ov["scenes"][0]
+    spent0 = ov["project"]["spent_usd"]
+    print(f"    sanal harcama: {spent0:.2f} USD")
 
-    print("\n2) Stateless Re-render: yalnızca müzik değişiyor")
-    r = c.put(f"/scenes/{sid}/audio", json={"kind": "music", "source": "sample", "gain_db": -6}).json()
-    check(r["stages"] == ["MUX"], f"yalnızca MUX planlandı: {r['stages']}")
-    sc = wait_scene(sid, {"done", "failed", "frozen"})
-    spent_after = c.get(f"/projects/{pid}").json()["spent_usd"]
-    check(sc["final_video_key"] != final_before, "yeni final video üretildi")
-    check(abs(spent_after - spent_before) < 1e-6, "video motoru çağrılmadı (harcama değişmedi)")
-    print(f"    final video URL: {c.get(f'/scenes/{sid}/final-url').json()['url'][:90]}...")
+    print("\n2) Yalnızca müzik değişiyor")
+    r = c.put(f"/scenes/{s0['id']}/audio", json={"kind": "music", "source": "procedural", "params": {"mood": "sadness"}, "gain_db": -6}).json()
+    check(r["stages"] == ["MUX"], f"yalnızca MUX: {r['stages']}")
+    sc = wait_scene(s0["id"])
+    check(sc["final_video_key"] != s0["final_url"].split("key=")[-1], "yeni final video")
+    check(abs(overview(pid)["project"]["spent_usd"] - spent0) < 1e-6, "görüntü motoru çağrılmadı (harcama aynı)")
 
-    print("\n3) Aynı girdiyle tekrar render: hiçbir şey çalışmamalı")
-    r = c.post(f"/scenes/{sid}/render").json()
-    check(r["stages"] == [], f"plan boş: {r['stages']}")
+    print("\n3) Küratör seçimi")
+    second = next((v for v in s0["variations"] if v["rank"] == 2), None)
+    check(second is not None, "rafine havuzda 2. aday var")
+    if second:
+        r = c.post(f"/scenes/{s0['id']}/promote/{second['id']}").json()
+        check(r["stages"] == ["LIPSYNC", "MUX"], f"yalnızca ses + montaj: {r['stages']}")
+        wait_scene(s0["id"])
+        check(abs(overview(pid)["project"]["spent_usd"] - spent0) < 1e-6, "harcama aynı")
+    r = c.post(f"/scenes/{s0['id']}/render").json()
+    check(r["stages"] == [], f"değişiklik yoksa hiçbir şey çalışmaz: {r['stages']}")
 
-    print("\n4) Kill-Switch: 1 USD bütçeli proje")
-    pid2 = new_project("Smoke - killswitch", 1.0)
-    sid2 = new_scene(pid2, "S002_SH01")
+    print("\n4) Film")
+    c.post(f"/projects/{pid}/assemble")
+    for _ in range(120):
+        tl = overview(pid)["timeline"]
+        if tl:
+            break
+        time.sleep(2)
+    check(bool(tl) and len(tl["cut"]["clips"]) == 4, "4 sahne tek filmde birleşti")
+    if tl:
+        print(f"    film: {tl['cut']['duration_s']:.1f} sn, panelde 'Film' bölümünden izleyebilirsin")
+
+    print("\n5) Kill-Switch")
+    pid2 = c.post("/projects", json={"title": "Smoke Kill-Switch", "budget_limit_usd": 1.0}).json()["id"]
+    sid2 = c.post(f"/projects/{pid2}/scenes", json={"scene_code": "S001_SH01", "seq_order": 1}).json()["id"]
     c.post(f"/scenes/{sid2}/render")
-    sc2 = wait_scene(sid2, {"frozen", "done", "needs_review", "failed"})
+    sc2 = wait_scene(sid2)
     p2 = c.get(f"/projects/{pid2}").json()
-    check(sc2["status"] == "frozen", f"sahne donduruldu (durum: {sc2['status']})")
+    check(sc2["status"] == "frozen", f"sahne donduruldu ({sc2['status']})")
     check(p2["status"] == "paused" and p2["frozen"], "proje duraklatıldı")
-    check(p2["spent_usd"] <= 1.0 + 1e-6, f"harcama limiti aşmadı: {p2['spent_usd']:.2f} / 1.00 USD")
-    r = c.post(f"/scenes/{sid2}/render")
-    check(r.status_code == 423, "donmuş projede yeni render reddedildi (423)")
+    check(p2["spent_usd"] <= 1.0 + 1e-6, f"limit aşılmadı: {p2['spent_usd']:.2f} / 1.00")
+    check(c.post(f"/scenes/{sid2}/render").status_code == 423, "donmuş projede render reddedildi")
 
     print("\n" + ("TÜM KONTROLLER GEÇTİ ✅" if not FAILS else f"{len(FAILS)} KONTROL BAŞARISIZ ❌"))
+    print("Panel: http://localhost:8000")
     return 1 if FAILS else 0
 
 

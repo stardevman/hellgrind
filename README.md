@@ -2,121 +2,117 @@
 
 Yönetmenin "Sistem Küratörü" olduğu, otonom bir AI animasyon üretim hattı.
 
-Bu repo **Kademe 1** durumundadır: tüm altyapı bilgisayarında çalışır ve **hiçbir ücretli API çağrılmaz** (`DRY_RUN=1`). Video üretimi yerine hazır örnek videolar kullanılır, ama bütçe, kalite kontrolü, Stateless Re-render ve montaj mantığının tamamı gerçektir.
+![Kontrol paneli](docs/panel.png)
 
-## Kademe 1'de neler çalışıyor
+## Ücretsiz mod (varsayılan)
 
-| Bileşen | Durum |
-| --- | --- |
-| PostgreSQL şeması (projeler, karakterler, sahneler, varyasyonlar, ses kanalları, harcama defteri) | ✅ Gerçek |
-| FastAPI kontrol düzlemi + Celery kuyrukları (gen / post / control) | ✅ Gerçek |
-| Kill-Switch: atomik bütçe rezervasyonu, dondurma, görev iptali, hız bekçisi | ✅ Gerçek |
-| Kademeli İterasyon: test turu → tam tur dalgaları → erken durma | ✅ Gerçek |
-| Quality Gate: siyah/donmuş kare tespiti (FFmpeg), imha/karantina, en iyi 3 | ✅ Gerçek (CLIP skoru sahte) |
-| Stateless Re-render: yalnızca değişen aşama yeniden çalışır | ✅ Gerçek |
-| FFmpeg muksing: diyalog + müzik, müziği diyalog altında kısma, ses normalizasyonu | ✅ Gerçek |
-| Video üretimi (fal.ai / Seedance) | 🟡 Sahte (örnek videolar) |
-| Ses (ElevenLabs), dudak senkronu | 🟡 Sahte |
-| Senaryo ayrıştırma (LangGraph), Pinecone, Next.js paneli | ⏳ Kademe 2+ |
+`DRY_RUN=1` iken **hiçbir ücretli servis çağrılmaz**; API anahtarı girsen bile kullanılmaz. Ücretli kodun her giriş noktası `app/live/guard()` ile korunur ve bu koruma testlerle doğrulanır.
 
-## Gereksinimler
+| Parça | Ücretsiz modda | Ücretli modda (Kademe 2) |
+| --- | --- | --- |
+| Senaryo ayrıştırma | Kural tabanlı Türkçe ayrıştırıcı | LangGraph + Claude |
+| Görüntü üretimi | Yerel prosedürel render: duygu, kamera, karakterler ve seed'e göre değişen sahneler | fal.ai Flux LoRA → Wan 2.2 / Seedance |
+| Kalite kontrolü | Siyah ve donmuş kare tespiti (gerçek, FFmpeg) + sahte skor | + CLIP ve yüz benzerliği |
+| Diyalog sesi | espeak-ng ile Türkçe konuşma | ElevenLabs |
+| Müzik | Duyguya göre akor seçen prosedürel fon müziği | Lisanslı dosya |
+| Dudak senkronu | Atlanır | fal lip-sync |
+| Bütçe | Gerçek sağlayıcı fiyatlarıyla **sanal** muhasebe, Kill-Switch gerçek | Gerçek harcama |
+| Kademeli iterasyon, Rafine Havuz, Stateless Re-render, montaj, film birleştirme | Gerçek | Gerçek |
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, macOS veya Linux)
-- [Git](https://git-scm.com/downloads)
-- Bir GitHub hesabı
+Yerel render bir yapay zekâ modeli değildir; amacı, tüm hattı ve paneli gerçek görüntülerle, para harcamadan denemektir.
 
-## 1. GitHub'a yükle
+## Kurulum
 
-1. github.com'da sağ üstteki **+** → **New repository**.
-2. Ad: `hellgrind`, görünürlük: **Private**. README, .gitignore veya lisans **ekleme** (boş repo olsun).
-3. Bu klasörde terminal aç ve çalıştır (`KULLANICI_ADIN` kısmını değiştir):
+Gereksinimler: [Docker Desktop](https://www.docker.com/products/docker-desktop/) ve Git.
 
 ```bash
-git init
-git add .
-git commit -m "Kademe 1: yerel altyapı, Kill-Switch, Stateless Re-render"
-git branch -M main
-git remote add origin https://github.com/KULLANICI_ADIN/hellgrind.git
-git push -u origin main
-```
-
-Her push'ta GitHub Actions birim testleri otomatik çalıştırır (Actions sekmesi). Private repolarda aylık ücretsiz dakika kotası bu testler için fazlasıyla yeterli.
-
-## 2. Çalıştır
-
-```bash
+git clone https://github.com/stardevman/hellgrind.git
+cd hellgrind
 cp .env.example .env                 # Windows PowerShell: Copy-Item .env.example .env
-docker compose up -d --build         # ilk derleme birkaç dakika sürer
-docker compose run --rm api python -m scripts.make_samples   # örnek videolar (bir kez)
-docker compose exec api python -m scripts.smoke              # uçtan uca test
+docker compose up -d --build
 ```
 
-`make` kuruluysa kısaca: `make up`, `make samples`, `make smoke`.
+Tarayıcıda **http://localhost:8000** adresini aç. Panel örnek bir senaryoyla açılır; "Senaryoyu işle ve üret" düğmesine bas. Hızlı önizleme modunda 4 çekimlik örnek film birkaç dakikada hazır olur.
 
-Başarılı bir duman testinin sonu şöyle görünür:
+### Önceki sürümden güncelliyorsan
 
-```text
-TÜM KONTROLLER GEÇTİ ✅
+```bash
+cp .env.example .env                 # yeni ayarlar var; eski .env'i bununla değiştir
+docker compose up -d --build         # veritabanı silinmez, yeni sütunlar otomatik eklenir
 ```
 
-## 3. Ne nereye bakılır
+## Panelde neler var
+
+- **Film şeridi:** her sahne için üretilen tüm varyasyonlar. Küçük kareler test turu, büyükler tam tur. Yeşil çerçeveli ve numaralı olanlar Rafine Havuz; kırmızı çizgili olanlar kalite kontrolünde elendi; soluk olanlar havuza giremedi. Bir kareye tıklayınca o varyasyonu (elenmiş olsa bile, karantinadan) izlersin.
+- **Sonuç:** sesi ve müziği eklenmiş sahne.
+- **Rafine havuz:** "Bunu kullan" ile başka bir adayı seçersin. Yalnızca ses ve montaj yeniden yapılır.
+- **Müziği değiştir:** yalnızca montaj yeniden yapılır; görüntü motoru çağrılmaz ve bütçe değişmez. Stateless Re-render'ı burada canlı görürsün.
+- **Bütçe rayı ve "Üretimi durdur":** Kill-Switch. Sanal limit dolunca üretim kendiliğinden durur.
+- **Film:** tamamlanan sahneleri tek videoda birleştirir; alttaki renkli kesme şeridine tıklayınca o sahneye atlar.
+
+Kendi senaryonu yazarken standart biçimi kullan: `İÇ.` / `DIŞ.` ile başlayan sahne başlıkları, büyük harfle karakter adı, altında isteğe bağlı `(duygu)` ve replik.
+
+## Test
+
+```bash
+make test        # docker compose run --rm -v ./db:/db:ro api python -m pytest -q
+make smoke       # docker compose exec api python -m scripts.smoke  (çalışan yığına karşı, uçtan uca, ücretsiz)
+```
+
+`make test` iki katmanlıdır:
+
+- **Birim testleri** servis gerektirmez (FFmpeg ve espeak-ng yeter): yeniden render planlayıcısı, Türkçe ayrıştırıcı, prosedürel render, anomali tespiti, ses, müzik, miks, ücretli kilit.
+- **Entegrasyon testleri** PostgreSQL, Redis ve MinIO'yu kullanır: Kill-Switch, iterasyon, ses/montaj aşamaları, film birleştirme, API ve örnek filmin uçtan uca üretimi. Bu testler geliştirme verilerine **dokunmaz**: ayrı `hellgrind_test` veritabanını ve `hellgrind-test` kovasını kullanır (yoksa kendisi kurar), Celery kuyruğuna görev bırakmaz. Servisler yoksa (ör. GitHub Actions) atlanır.
+
+Duman testi; senaryodan filme tüm akışı, yalnızca müzik değişince görüntü motorunun çağrılmadığını, küratör seçimini, film birleştirmeyi, Kill-Switch'i ve ücretli çağrıların engellendiğini çalışan yığın üzerinde doğrular. Her çalıştırmada panelde "Smoke" adlı iki proje oluşur; istersen silebilirsin. GitHub Actions her push'ta servis gerektirmeyen testleri çalıştırır.
+
+## Adresler
 
 | Adres | Ne |
 | --- | --- |
-| http://localhost:8000/docs | API (tarayıcıdan tüm uç noktaları deneyebilirsin) |
-| http://localhost:5555 | Flower: Celery kuyrukları ve görevler |
-| http://localhost:9001 | MinIO konsolu (kullanıcı `minio`, şifre `minio12345`): üretilen videolar |
-| `docker compose logs -f worker` | Üretim günlüğü (test turu, dalgalar, Kill-Switch) |
+| http://localhost:8000 | Kontrol paneli |
+| http://localhost:8000/docs | API |
+| http://localhost:5555 | Flower: Celery kuyrukları |
+| http://localhost:9001 | MinIO (kullanıcı `minio`, şifre `minio12345`): tüm dosyalar |
 
-## 4. Elle deneme (API /docs üzerinden)
+## Ayarlar (.env)
 
-1. `POST /api/projects` → `{"title": "Deneme", "budget_limit_usd": 10}`
-2. `POST /api/projects/{id}/scenes` → `{"scene_code": "S001_SH01", "seq_order": 1}`
-3. `PUT /api/scenes/{id}/audio` → `{"kind": "dialogue", "text": "Merhaba"}` (render otomatik başlar)
-4. `GET /api/scenes/{id}` ile durumu izle; `done` olunca `GET /api/scenes/{id}/final-url`
-5. `GET /api/projects/{id}/budget` → harcama defteri ve olaylar
-6. `POST /api/projects/{id}/killswitch` → `{"action": "freeze"}` ile elle dondur, `"resume"` ile devam ettir
-
-Proje oluştururken `settings` ile varsayılanları değiştirebilirsin, örn. `{"full_n": 20, "clip_threshold": 0.88}`. Tüm ayarlar: `backend/app/config.py` → `DEFAULT_PROJECT_SETTINGS`.
-
-## Kademe 1 kontrol listesi
-
-- [ ] Docker ile tüm servisler ayakta (`docker compose ps`)
-- [ ] Örnek medya oluşturuldu (`samples/` klasörü)
-- [ ] Duman testi geçti
-- [ ] Kill-Switch'i elle denedim (dondur → render 423 döndü → devam ettir)
-- [ ] `DRY_RUN_FAIL_RATE=0.2` ile yeniden deneme mantığını gözlemledim
-- [ ] fal.ai, ElevenLabs ve diğer sağlayıcılarda hesap açıp **aylık harcama limitini** düşük ayarladım
-- [ ] Repo GitHub'da ve Actions testleri yeşil
+| Değişken | Etkisi |
+| --- | --- |
+| `DRY_RUN` | 1 = ücretsiz mod. Ücretli denemeye karar verene kadar değiştirme. |
+| `LOCAL_RENDER_FPS` | Düşürürsen (ör. 12) yerel render hızlanır |
+| `GEN_CONCURRENCY` | Aynı anda kaç varyasyon üretilir; bilgisayar zorlanırsa 2 yap |
+| `DRY_RUN_DEFECT_RATE` | Bilerek bozuk üretilen klip oranı (kalite kontrolünü görmek için) |
+| `TTS_ENGINE` | `espeak` Türkçe konuşma, `tone` yapay ton |
+| `PURGE_MODE` | `quarantine` elenenleri panelde izlenebilir tutar, `hard` siler |
 
 ## Proje yapısı
 
 ```text
-db/init/001_core.sql          PostgreSQL şeması (ilk açılışta otomatik uygulanır)
-backend/pricing.yaml          Sağlayıcı birim fiyatları (Kill-Switch tahminleri)
+db/init/001_core.sql        İlk şema (PostgreSQL ilk açılışta uygular)
+backend/migrations/         Sonraki şema değişiklikleri (API açılışta uygular)
+backend/pricing.yaml        Sağlayıcı birim fiyatları (sanal bütçe ve Kill-Switch)
 backend/app/
-  core/                       hashing + Stateless Re-render planlayıcısı
-  budget/                     Kill-Switch ve fiyatlandırma
-  engine/                     sağlayıcılar (dry-run) + Kademeli İterasyon
-  quality/                    Quality Gate + FFmpeg anomali tespiti
-  post/                       ses, dudak senkronu, FFmpeg muksing
-  api/                        FastAPI uç noktaları
-  worker/                     Celery uygulaması ve görevleri
-backend/scripts/              make_samples, smoke
-backend/tests/                birim testleri
+  hermes/                   Senaryo ayrıştırma (kural tabanlı) ve veritabanına yazma
+  engine/                   Yerel prosedürel render, sağlayıcı seçimi, kademeli iterasyon
+  quality/                  Quality Gate ve FFmpeg anomali tespiti
+  post/                     Ses, müzik, montaj, film birleştirme
+  budget/                   Kill-Switch ve fiyatlandırma
+  core/                     Stateless Re-render planlayıcısı
+  live/                     ÜCRETLİ entegrasyonlar (fal.ai, ElevenLabs, LangGraph); DRY_RUN=1 iken kilitli
+  api/                      FastAPI uç noktaları
+  panel/                    Kontrol paneli (tek sayfa)
+  worker/                   Celery görevleri
 ```
 
 ## Sorun giderme
 
-- **Şema değişikliği uygulanmadı:** PostgreSQL `db/init` dosyalarını yalnızca ilk açılışta çalıştırır. Her şeyi sıfırla: `docker compose down -v && docker compose up -d --build` (ardından `make_samples` adımını tekrarla).
-- **"Örnek video yok" hatası:** `make_samples` adımını çalıştırıp sahneyi yeniden render et.
-- **Port meşgul (5432, 6379, 8000...):** Bilgisayarında aynı portu kullanan bir servis var; onu durdur ya da `docker-compose.yml` içindeki sol taraftaki port numarasını değiştir.
-- **Sahne `needs_review` durumunda kaldı:** Sahte skorlar eşiği geçemedi; `GET /api/scenes/{id}/variations` ile skorlara bak. `DRY_RUN_SCORE_MEAN` değerini artırarak davranışı değiştirebilirsin.
+- **Üretim çok yavaş:** `.env` içinde `LOCAL_RENDER_FPS=12` ve `GEN_CONCURRENCY=2` yap, `docker compose up -d` ile yeniden başlat.
+- **Sahne "Yönetmen onayı gerekli" durumunda kaldı:** Sahte skorlar eşiği geçemedi. "Bu sahneyi baştan üret" ile yeni seed'lerle dene.
+- **Videolar panelde açılmıyor:** MinIO'nun 9000 portu açık olmalı (`docker compose ps`).
+- **Port meşgul:** `docker-compose.yml` içinde soldaki port numarasını değiştir.
+- **Her şeyi sıfırla:** `docker compose down -v && docker compose up -d --build`
 
-## Sonraki adım: Kademe 2 (yaklaşık 10–30 USD)
+## Kademe 2'ye geçiş (ücretli, henüz yapma)
 
-1. `engine/providers.py`: fal.ai Flux LoRA + Wan 2.2 sağlayıcısı
-2. `quality/gate.py`: gerçek CLIP (OpenCLIP) ve yüz (InsightFace) skorları
-3. `post/audio.py`: ElevenLabs; `post/pipeline.py`: fal lip-sync
-4. Tek karakter için LoRA eğitimi, 3–5 çekimlik mikro pilot
-5. Hermes: senaryo ayrıştırma (LangGraph)
+Kod hazır ama kilitli: `app/live/`. Geçerken `requirements-live.txt` kurulur, `.env` içinde anahtarlar girilir ve `DRY_RUN=0` yapılır. Önce sağlayıcı panellerinde aylık harcama limiti koy ve küçük bir sanal bütçeyle başla.
