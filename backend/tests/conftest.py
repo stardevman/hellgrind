@@ -16,6 +16,10 @@ TEST_DB = "hellgrind_test"
 # app.db içe aktarılmadan önce ayarlanmalı; bu yüzden conftest yüklenirken yapılır.
 settings.database_url = make_url(settings.database_url).set(database=TEST_DB).render_as_string(hide_password=False)
 
+# Konteyner dışında (ör. CI) varsayılan /app/pricing.yaml yoktur; repodaki dosyaya düş.
+if not pathlib.Path(settings.pricing_file).exists():
+    settings.pricing_file = str(pathlib.Path(__file__).resolve().parents[1] / "pricing.yaml")
+
 INIT_SQL_CANDIDATES = (
     pathlib.Path(__file__).resolve().parents[2] / "db" / "init" / "001_core.sql",
     pathlib.Path("/db/init/001_core.sql"),
