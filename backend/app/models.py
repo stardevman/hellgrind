@@ -39,6 +39,8 @@ class Project(Base):
     spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
     reserved_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    timeline_key: Mapped[str | None] = mapped_column(Text)
+    script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
