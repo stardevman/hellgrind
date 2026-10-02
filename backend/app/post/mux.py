@@ -18,10 +18,13 @@ def _chain(idx: int, a: AudioInput, label: str) -> str:
             f"adelay=delays={ms}:all=1,volume={a.gain_db}dB[{label}]")
 
 
-def _mix(labels: list[str], out: str) -> str:
+def _mix(labels: list[str], out: str, pad_s: float) -> str:
+    """Kanalları toplar ve video süresine kadar sessizlikle tamamlar. Tamamlama şart: sidechaincompress yan zincir
+    (diyalog) bitince çıktıyı keser; müzik son replikle susardı. Ses akışı da videodan kısa kalırdı."""
+    pad = f"apad=whole_dur={pad_s:.3f}"
     if len(labels) == 1:
-        return f"[{labels[0]}]anull[{out}]"
-    return "".join(f"[{l}]" for l in labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest[{out}]"
+        return f"[{labels[0]}]{pad}[{out}]"
+    return "".join(f"[{l}]" for l in labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,{pad}[{out}]"
 
 
 def build_command(video: str, dialogue: list[AudioInput], bed: list[AudioInput], out: str,
@@ -43,9 +46,9 @@ def build_command(video: str, dialogue: list[AudioInput], bed: list[AudioInput],
         parts.append(_chain(idx, a, f"b{j}")); b_labels.append(f"b{j}"); idx += 1
 
     if d_labels:
-        parts.append(_mix(d_labels, "dlg"))
+        parts.append(_mix(d_labels, "dlg", duration))
     if b_labels:
-        parts.append(_mix(b_labels, "bed"))
+        parts.append(_mix(b_labels, "bed", duration))
 
     if d_labels and b_labels:
         parts.append("[dlg]asplit=2[dlgA][dlgSC]")

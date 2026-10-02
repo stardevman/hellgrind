@@ -1,5 +1,5 @@
 """Senaryoyu veritabanına yazar: karakterler, sahneler, diyalog ve müzik kanalları."""
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from app.config import settings
 from app.core.hashing import stable_hash
@@ -68,14 +68,18 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                 wanted.append((body, cid))
                 t += len(d["line"].split()) / rules.WPS + GAP_S
             active = s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id, AudioTrack.is_active)).all()
-            act_dlg = {a.content_hash for a in active if a.kind == "dialogue"}
-            if {stable_hash(b) for b, _ in wanted} != act_dlg:
-                s.execute(update(AudioTrack).where(AudioTrack.scene_id == sc.id, AudioTrack.kind == "dialogue")
-                          .values(is_active=False))
-                for body, cid in wanted:
+            # kanal kanal karşılaştırılır: değişmeyen replik satırı ve sesi korunur, yalnızca eksilen pasifleşir,
+            # yalnızca yeni olan eklenir (aksi halde tek replik değişince hepsi yeniden seslendirilir/ücretlenir)
+            kept = {a.content_hash: a for a in active if a.kind == "dialogue"}
+            wanted_by_hash = {stable_hash(b): (b, cid) for b, cid in wanted}
+            for h, track in kept.items():
+                if h not in wanted_by_hash:
+                    track.is_active = False
+            for h, (body, cid) in wanted_by_hash.items():
+                if h not in kept:
                     s.add(AudioTrack(scene_id=sc.id, character_id=cid, kind="dialogue", source="local_tts",
                                      text=body["text"], emotion=body["emotion"], params={},
-                                     content_hash=stable_hash(body), start_offset_s=body["start_offset_s"],
+                                     content_hash=h, start_offset_s=body["start_offset_s"],
                                      gain_db=0.0, is_active=True, version=1))
             if auto_music and not any(a.kind == "music" for a in active):
                 body = {"kind": "music", "source": "procedural", "mood": shot["emotion"]}

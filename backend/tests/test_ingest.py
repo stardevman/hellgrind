@@ -110,6 +110,26 @@ def test_changed_dialogue_replaces_only_that_scenes_dialogue_tracks(mk_project):
     assert len(untouched) == len(before) - 1
 
 
+def test_changing_one_of_two_lines_keeps_the_unchanged_line_and_its_voice(mk_project):
+    """Regresyon: tek replik değişince sahnedeki tüm kanallar yeniden oluşturuluyor, hepsi yeniden seslendiriliyordu."""
+    script = "İÇ. ODA - GECE\n\nKerem oturur.\n\nKEREM\nBirinci replik.\n\nKEREM\nİkinci replik.\n"
+    pid = mk_project()
+    ingest(pid, script)
+    before = {t.text: t for t in tracks(pid) if t.kind == "dialogue"}
+    with session_scope() as s:                                      # ilk repliğin sesi zaten üretilmiş olsun
+        s.execute(text("UPDATE audio_tracks SET file_key = 'audio/x/ilk.wav' WHERE id = CAST(:i AS uuid)"),
+                  {"i": before["Birinci replik."].id})
+
+    ingest(pid, script.replace("İkinci replik.", "Üçüncü replik."))
+
+    after = {t.text: t for t in tracks(pid, active=False) if t.kind == "dialogue"}
+    active = {t.text: t for t in tracks(pid) if t.kind == "dialogue"}
+    assert set(active) == {"Birinci replik.", "Üçüncü replik."}
+    assert active["Birinci replik."].id == before["Birinci replik."].id          # aynı satır, yeniden oluşturulmadı
+    assert after["İkinci replik."].is_active is False                           # yalnızca eksilen pasifleşti
+    assert len([t for t in tracks(pid, active=False) if t.kind == "dialogue"]) == 3
+
+
 def test_existing_character_is_kept_with_its_identity_fields(mk_project):
     pid = mk_project()
     with session_scope() as s:
