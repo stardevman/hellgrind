@@ -71,7 +71,10 @@ def main() -> int:
             check(True, f"{k} ile ücretli çağrı engelli")
 
     print("\n1) Senaryodan film sahnelerine")
-    pid = c.post("/projects", json={"title": "Smoke", "budget_limit_usd": 60, "settings": meta["presets"]["preview"]}).json()["id"]
+    # Panelin yeni proje formuyla aynı ayar: hız bekçisi eşiği = bütçe / 2. Örnek film ~22 sanal USD'yi saniyeler içinde
+    # harcar; varsayılan 20 USD / 10 dk eşiği bekçi turunun zamanlamasına göre üretimi ortasında dondururdu.
+    pid = c.post("/projects", json={"title": "Smoke", "budget_limit_usd": 60,
+                                    "settings": {**meta["presets"]["preview"], "max_spend_per_10min": 30}}).json()["id"]
     r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]}).json()
     check(r["shots"] == 4 and r["cast"] == ["Kerem", "Ayşe"], f"4 çekim, 2 karakter: {r['shots']} / {r['cast']}")
     ov = wait_all(pid)

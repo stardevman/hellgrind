@@ -45,7 +45,10 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
     if not s.get(Project, project_id):
         raise HTTPException(404)
     ensure_not_frozen(project_id)
-    summary = ingest(project_id, body.text, auto_music=body.auto_music)
+    try:
+        summary = ingest(project_id, body.text, auto_music=body.auto_music)
+    except killswitch.ProjectFrozen:                  # LLM modunda ayrıştırma sırasında bütçe dolabilir
+        raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
     planned = {}
     if body.auto_render:
         s.expire_all()

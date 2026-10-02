@@ -12,3 +12,8 @@ video_per_second:
 image_per_megapixel:
   flux_lora: 0.035
 lipsync_per_minute: 5.0
+# Aşağıdaki iki kalem brifingdeki fal.ai fiyatları gibi doğrulanmış DEĞİL; ücretli moda geçmeden önce kendi planına göre güncelle.
+tts_per_1k_chars: 0.30         # ElevenLabs, tahmini (plana göre değişir)
+llm_per_million_tokens:        # Claude (Hermes LLM modu), tahmini
+  input: 3.0
+  output: 15.0

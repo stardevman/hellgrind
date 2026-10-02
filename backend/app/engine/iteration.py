@@ -198,6 +198,9 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
                   duration=scene.duration_s, prompt_spec=dict(scene.prompt_spec or {}), rev=scene.prompt_revision,
                   salt=fp, render={"emotion": scene.emotion, "camera": cam, "characters": [ch.name for ch in chars],
                                    "action": scene.action_complexity,
+                                   # ücretli Flux LoRA ilk karesi için (yerel render yok sayar)
+                                   "loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
+                                   "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger],
                                    "label": f"{scene.scene_code}  {cam.get('shot', '')} {cam.get('movement', '')}"})
 
     retire_previous_pool(scene_id)

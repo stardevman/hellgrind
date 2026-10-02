@@ -54,7 +54,7 @@ def _voice(t: AudioTrack, scene: Scene, out: str) -> float:
         from app.live.elevenlabs import tts
         with session_scope() as s:
             voice_id = s.get(Character, t.character_id).voice_id if t.character_id else None
-        with killswitch.spend(str(scene.project_id), 0.05, "elevenlabs", scene_id=scene.id):
+        with killswitch.spend(str(scene.project_id), pricing.estimate_tts(t.text), "elevenlabs", scene_id=scene.id):
             return tts(t.text or "", voice_id, t.emotion or scene.emotion, out)
     seed = int(stable_hash(str(t.character_id))[:6], 16) if t.character_id else 0
     return synthesize(t.text or "", out, emotion=t.emotion or scene.emotion, voice_seed=seed,

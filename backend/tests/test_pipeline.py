@@ -134,8 +134,9 @@ def test_free_mode_never_uses_the_paid_voice_even_if_the_track_asks_for_it(world
     with session_scope() as s:
         s.execute(text("UPDATE audio_tracks SET source = 'elevenlabs' WHERE scene_id = :s AND kind = 'dialogue'"),
                   {"s": world.sid})
+    before = "app.live.elevenlabs" in sys.modules
     pipeline.voice_and_lipsync(world.sid)
-    assert "app.live.elevenlabs" not in sys.modules
+    assert ("app.live.elevenlabs" in sys.modules) == before          # ücretli ses modülü bu çağrıyla yüklenmedi
     assert tracks(world.sid, "dialogue")[0].file_key.endswith(".wav")
 
 

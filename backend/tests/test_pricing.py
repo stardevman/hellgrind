@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-from app.budget.pricing import estimate_lipsync, estimate_video, table
+from app.budget.pricing import estimate_image, estimate_llm, estimate_lipsync, estimate_tts, estimate_video, table
 
 PRICING_FILE = str(pathlib.Path(__file__).resolve().parents[1] / "pricing.yaml")
 
@@ -37,3 +37,19 @@ def test_unknown_resolution_uses_most_expensive_price(prices):
 def test_lipsync_is_billed_per_minute(prices):
     assert estimate_lipsync(60, prices) == 5.0
     assert estimate_lipsync(30, prices) == 2.5
+
+
+def test_image_is_billed_per_started_megapixel(prices):
+    assert estimate_image(0.59, prices) == 0.035          # 1024x576 -> 1 MP'e yuvarlanır
+    assert estimate_image(1.0, prices) == 0.035
+    assert estimate_image(1.01, prices) == 0.07
+
+
+def test_tts_is_billed_per_character(prices):
+    assert estimate_tts("a" * 1000, prices) == 0.3
+    assert estimate_tts("", prices) == 0 and estimate_tts(None, prices) == 0
+
+
+def test_llm_is_billed_per_token(prices):
+    assert estimate_llm(1_000_000, 0, prices) == 3.0 and estimate_llm(0, 1_000_000, prices) == 15.0
+    assert estimate_llm(2000, 1000, prices) == 0.021

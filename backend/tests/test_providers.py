@@ -61,9 +61,10 @@ def test_dry_run_always_returns_the_free_provider(engine):
 
 
 def test_free_mode_never_imports_the_paid_module():
+    before = "app.live.fal_video" in sys.modules
     for engine in ("fal_wan", "seedance"):
         get_provider(engine)
-    assert "app.live.fal_video" not in sys.modules
+    assert ("app.live.fal_video" in sys.modules) == before        # başka bir test yüklemiş olabilir; burada yeni yükleme olmaz
 
 
 # ---------- sanal maliyet ----------

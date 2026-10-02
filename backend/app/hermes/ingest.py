@@ -10,15 +10,15 @@ from app.models import AudioTrack, Character, Project, Scene, SceneCharacter
 GAP_S = 0.35
 
 
-def parse_script(text: str) -> dict:
+def parse_script(text: str, project_id: str) -> dict:
     if settings.hermes_mode == "llm" and not settings.dry_run:
         from app.live.hermes_llm import parse_with_llm          # ücretli; yalnızca açıkça istenirse
-        return parse_with_llm(text)
+        return parse_with_llm(text, project_id)                  # LLM çağrıları proje bütçesinden rezerve edilir
     return rules.parse(text)
 
 
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
-    parsed = parse_script(text)
+    parsed = parse_script(text, project_id)
     created, updated = [], []
     with session_scope() as s:
         project = s.get(Project, project_id)

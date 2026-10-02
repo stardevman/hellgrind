@@ -58,7 +58,10 @@ def test_provider_factory_returns_the_free_provider(engine):
 
 
 def test_free_mode_never_loads_paid_modules_or_their_dependencies():
+    """Önce/sonra karşılaştırması: başka testler ücretli modülleri (ağsız) içe aktarmış olabilir; burada yeni yükleme olmamalı."""
+    watched = {"app.live.fal_video", "app.live.elevenlabs", "app.live.hermes_llm",
+               "fal_client", "langgraph", "langchain_anthropic", "anthropic"}
+    before = watched & set(sys.modules)
     for engine in ("fal_wan", "seedance"):
         get_provider(engine)
-    assert not {"app.live.fal_video", "app.live.elevenlabs", "app.live.hermes_llm"} & set(sys.modules)
-    assert not {"fal_client", "langgraph", "langchain_anthropic", "anthropic"} & set(sys.modules)
+    assert watched & set(sys.modules) == before

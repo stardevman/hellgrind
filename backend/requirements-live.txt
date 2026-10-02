@@ -1,0 +1,6 @@
+# ÜCRETLİ entegrasyonlar için ek bağımlılıklar (Kademe 2). Kademe 1'de kurmana gerek yok.
+# Alt sınırlar, kodun ve testlerin doğrulandığı sürümlerdir (fal-client 1.0.3, langgraph 1.2.12, langchain-anthropic 1.7.5).
+-r requirements.txt
+fal-client>=1.0
+langgraph>=1.0
+langchain-anthropic>=1.0

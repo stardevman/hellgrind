@@ -202,3 +202,27 @@ def api_project(api, pg):
         ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
         with session_scope() as s:
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})
+
+
+@pytest.fixture
+def no_network(monkeypatch):
+    """Ücretli modül testlerinde yanlışlıkla genel internete bağlantı kurulursa test patlar (para harcanamaz).
+    Yerel/özel ağ (Postgres, Redis, MinIO: Docker ağı, loopback) serbesttir; bunlar ücretli servis değildir."""
+    import ipaddress
+    import socket
+
+    real_connect = socket.socket.connect
+
+    def refuse(self, address, *a, **k):
+        if isinstance(address, tuple):
+            host = address[0]
+            try:
+                ip = ipaddress.ip_address(host)
+                local = ip.is_private or ip.is_loopback or ip.is_link_local
+            except ValueError:                                  # ad: yalnızca bilinen yerel servis adları
+                local = host in {"postgres", "redis", "minio", "localhost"}
+            if not local:
+                raise AssertionError(f"Testte genel internete bağlantı denendi: {address}")
+        return real_connect(self, address, *a, **k)
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)

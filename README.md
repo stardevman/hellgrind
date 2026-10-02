@@ -115,4 +115,16 @@ backend/app/
 
 ## Kademe 2'ye geçiş (ücretli, henüz yapma)
 
-Kod hazır ama kilitli: `app/live/`. Geçerken `requirements-live.txt` kurulur, `.env` içinde anahtarlar girilir ve `DRY_RUN=0` yapılır. Önce sağlayıcı panellerinde aylık harcama limiti koy ve küçük bir sanal bütçeyle başla.
+Kod yazıldı, sahte istemcilerle test edildi ve **hiç çalıştırılmadı**: `app/live/` altında `DRY_RUN=1` iken kilitli. Hiçbir modül ücretli paketi (`fal_client`, `langgraph`, `langchain_anthropic`) en üstte içe aktarmaz; bu bir testle korunur.
+
+| Modül | Ne yapar | Doğrulama |
+| --- | --- | --- |
+| `fal_video.py` | Flux LoRA ilk kare (karakter LoRA'ları ve tetik sözcükleri istekten gelir) → Wan 2.2 A14B ya da Seedance 2.0 Fast; `sync-lipsync/v2/pro` | Uç nokta kimlikleri ve parametreler fal.ai model sayfalarından kontrol edildi (2 Ekim 2026). Seedance süresi 4–15 sn'ye, Wan `num_frames` 17–161'e sıkıştırılır; 429/5xx `TransientError` olur; yeniden denemede ilk kare tekrar ücretlenmez |
+| `elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir | Başarısız istekler (429/5xx, ağ) üç kez denenir |
+| `hermes_llm.py` | LangGraph: `Send` ile paralel çıkarım → doğrulama (kadro, diyalog konuşmacıları, boş çekim) → en fazla 2 onarım turu | Çıktı şeması kural tabanlı ayrıştırıcıyla aynı |
+
+Her ücretli çağrı Kill-Switch rezervasyonundan geçer. **İki birim fiyat benim tahminim ve doğrulanmadı**: `pricing.yaml` içindeki `tts_per_1k_chars` (ElevenLabs, 0,30 USD) ve `llm_per_million_tokens` (Claude, 3 ve 15 USD). Geçmeden önce kendi planına göre düzelt.
+
+Geçerken: `pip install -r backend/requirements-live.txt`, `.env` içinde anahtarları gir ve `DRY_RUN=0` yap. Önce sağlayıcı panellerinde aylık harcama limiti koy ve küçük bir sanal bütçeyle başla. Ücretli modül testleri (`test_live_*.py`) bu paketler kuruluyken sözleşme kontrollerini de çalıştırır.
+
+Henüz yapılmayanlar (Faz 11 "sonraki adımlar"): promptu revize eden döngüsel düzeltme grafiği, OpenCLIP/ArcFace ile gerçek kalite skoru, Pinecone karakter vektörleri ve iki katmanlı önbellek.
