@@ -45,3 +45,27 @@ def detect_anomalies(path: str, black_min_s: float = BLACK_MIN_S, freeze_min_s: 
             item["end"] = ends[i]
         anomalies.append(item)
     return anomalies
+
+
+# ---------- tek kare (Faz 18: önce görsel, sonra video) ----------
+
+BLACK_FRAME_RATIO = 0.98       # blackdetect'in varsayılan pic_th'si: piksellerin bu kadarı karanlıksa kare siyahtır
+FLAT_STD = 0.02                # parlaklık sapması bunun altındaysa kare tek renktir (boş üretim)
+
+
+def detect_frame_anomalies(path: str) -> list[dict]:
+    """[{"type": "black", "ratio"} | {"type": "flat", "std"} | {"type": "unreadable"}]: videodaki ölçütlerin tek kare karşılığı."""
+    import numpy as np
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            luma = np.asarray(im.convert("L"), dtype=np.float32) / 255.0
+    except Exception as e:                                          # noqa: BLE001 — bozuk kare elensin, dalga çökmesin
+        return [{"type": "unreadable", "detail": str(e)[:200]}]
+    dark = float((luma < BLACK_PIXEL_THRESHOLD).mean())
+    if dark >= BLACK_FRAME_RATIO:
+        return [{"type": "black", "ratio": round(dark, 3)}]
+    std = float(luma.std())
+    if std < FLAT_STD:
+        return [{"type": "flat", "std": round(std, 4)}]
+    return []

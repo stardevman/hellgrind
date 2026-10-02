@@ -15,8 +15,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import AssetId, ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
-from app.budget import killswitch, pricing
+from app.api.deps import AssetId, ProjectId, SceneId, ensure_not_frozen, paid_errors, project_or_404, scene_or_404
+from app.budget import killswitch
 from app.config import project_settings, settings
 from app.curation import curated
 from app.db import get_session, session_scope
@@ -31,13 +31,6 @@ from app.style import bible
 router = APIRouter(tags=["assets"])
 
 STALE_TEST = dt.timedelta(minutes=10)      # bu kadar süredir "sırada" duran test, çöken bir worker'dan kalmıştır
-PLACEHOLDER_ESTIMATE = {   # yerel taslak referansın ücretli karşılığı (sanal): karakter dönüş videosu, diğerleri tek görsel
-    "character": lambda: ("fal_wan:480p:reference", pricing.estimate_video("fal_wan", "480p", 4.0)),
-    "location": lambda: ("flux_lora:reference", pricing.estimate_image(1.0)),
-    "prop": lambda: ("flux_lora:reference", pricing.estimate_image(1.0)),
-}
-
-
 def _media(key: str | None) -> str | None:
     return f"/api/media?key={key}" if key else None
 
@@ -259,25 +252,31 @@ async def upload_reference(asset_id: AssetId, request: Request, kind: str = Quer
 @router.post("/assets/{asset_id}/references/placeholder", status_code=201)
 @curated("asset_reference")
 def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
-    """Ücretsiz modda yerel taslak referans: karakter için dönüş videosu, mekân ve nesne için durağan görsel.
-    Ücretli karşılığının sanal fiyatı bütçeden düşer."""
-    if not settings.dry_run:
-        raise HTTPException(501, "Ücretli modda referans üretimi henüz yok (Faz 18); dosya yükleyin.")
+    """Referans üretir: karakter için dönüş videosu, mekân ve nesne için durağan görsel. Ücretsiz modda prosedürel
+    taslaktır ve ücretli karşılığının sanal fiyatı bütçeden düşer; ücretli modda Flux karesi ve (karakterde) yörünge
+    hareketli Wan videosudur (Faz 18)."""
     a = asset_or_404(s, asset_id)
     ensure_editable(a)
     pid = str(a.project_id)
     ensure_not_frozen(pid)
-    provider, estimate = PLACEHOLDER_ESTIMATE[a.type]()
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
-        try:
-            with killswitch.spend(pid, estimate, provider) as charge:
-                kind, path, filename = references.placeholder(a, tmp)
-                charge.actual = estimate
-        except killswitch.ProjectFrozen:
-            raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
+        if settings.dry_run:
+            label, estimate = references.reference_estimate(a.type)
+            try:
+                with killswitch.spend(pid, estimate, label) as charge:
+                    kind, path, filename = references.placeholder(a, tmp)
+                    charge.actual = estimate
+            except killswitch.ProjectFrozen:
+                raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
+        else:
+            ch = s.scalar(select(Character).where(Character.asset_id == a.id))
+            lora = {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale}], "lora_triggers": [ch.lora_trigger]} \
+                if ch is not None and ch.lora_url else {}
+            with paid_errors():
+                kind, path, filename = references.paid_reference(pid, a, bible.active(s, pid), lora, tmp)
         s.close()
-        content_type = "video/mp4" if kind == "turnaround" else "image/png"
+        content_type = "video/mp4" if kind == "turnaround" else ("image/jpeg" if filename.endswith(".jpg") else "image/png")
         return attach_reference(asset_id, kind, path, filename, content_type)
 
 

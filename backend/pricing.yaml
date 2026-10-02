@@ -7,6 +7,10 @@ video_per_second:
     "720p": 0.08
   seedance:           # Seedance 2.0 Fast, ~1.21 USD / 5 sn 720p
     "720p": 0.242
+  wan_v2v:            # Wan 2.2 A14B video-to-video (previs rehberi), 16 fps'deki saniye başına
+    "480p": 0.04
+    "580p": 0.06
+    "720p": 0.08
   higgsfield:         # henüz kullanılmıyor; tahmini
     "720p": 0.25
 image_per_megapixel:

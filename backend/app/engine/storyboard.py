@@ -1,8 +1,9 @@
 """Storyboard (Faz 14): her çekim için bir kare ve yönetmenin onayı; storyboard PDF'i.
 
 Revizyonu en ucuz aşamada yapmak maliyeti en çok düşüren adımdır: kare onaylanmadan (proje ayarı açıksa) görüntü
-üretilmez. Ücretsiz modda kare, prosedürel motorun çekim ortasındaki karesidir ve üzerine çekim bilgisi yazılır;
-ücretli modda tek bir Flux karesi olacaktır (Faz 18). Kare, ücretli karşılığının fiyatıyla sanal olarak bütçeden düşer.
+üretilmez. Ücretsiz modda kare, prosedürel motorun çekim ortasındaki karesidir; ücretli modda bestecinin prompt'uyla
+çizilen tek bir Flux karesidir (Faz 18). İkisinde de üzerine çekim bilgisi yazılır. Ücretsiz modda kare, ücretli
+karşılığının fiyatıyla sanal olarak bütçeden düşer.
 
 Kare içerik-adreslidir: storyboard/{sahne}/{görsel özet}.jpg. Görsel girdiler değişince yeni kare çizilir ve onay
 yeniden istenir (eski onay başka bir çekimi onaylamıştı).
@@ -57,8 +58,31 @@ def render_board(out_path: str, seed: int, render: dict, lines: list[str]) -> st
         frame = os.path.join(tmp, "mid.png")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", clip, "-vf", r"select=eq(n\,1)", "-frames:v", "1", frame],
                        check=True)
-        with Image.open(frame) as im:
-            img = im.convert("RGB")
+        return annotate(frame, lines, out_path)
+
+
+def paid_board(out_path: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict, lines: list[str]) -> str:
+    """Ücretli kare (Faz 18): bestecinin prompt'uyla tek bir Flux karesi, karakter LoRA'larıyla; alt bantta çekim bilgisi.
+    Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
+    from app.engine import paid
+    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
+    frame = paid.call(project_id, pricing.estimate_image(BOARD_MEGAPIXELS), "flux_lora:storyboard", "fal_key",
+                      lambda: fal_video.image(prompt, seed, extra.get("loras"), extra.get("lora_triggers")),
+                      scene_id=scene_id)
+    try:
+        with Image.open(frame.local_path) as im:
+            im.convert("RGB").resize((BOARD_W, BOARD_H)).save(frame.local_path + ".png")
+        return annotate(frame.local_path + ".png", lines, out_path)
+    finally:
+        for path in (frame.local_path, frame.local_path + ".png"):
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def annotate(frame_path: str, lines: list[str], out_path: str) -> str:
+    """Karenin alt bandına çekim bilgisini yazar."""
+    with Image.open(frame_path) as im:
+        img = im.convert("RGB")
     band_h = 26 + 24 * len(lines)
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay)
@@ -81,10 +105,12 @@ def dialogue_of(s, scene_id) -> list[tuple[str | None, str]]:
 
 def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
     """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır."""
+    from app.engine.iteration import compose_for_scene, loras_of
     with session_scope() as s:
         scene, project = s.get(Scene, scene_id), s.get(Project, project_id)
         chars, assets, style = load_characters(s, scene_id), load_assets(s, scene_id), bible.active(s, project_id)
         fp = visual_fingerprint(scene, chars, assets, style.version if style else None)
+        prompt, extra = compose_for_scene(scene, chars, assets, style).prompt, loras_of(chars)
         cfg = project_settings(project.settings)
         dialogue = dialogue_of(s, scene_id)
         info = dict(code=scene.scene_code, camera=dict(scene.camera or {}), duration=scene.duration_s,
@@ -95,20 +121,21 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
     key = f"storyboard/{scene_id}/{fp}.jpg"
     if not (info["board_hash"] == fp and info["board_key"] == key and storage.exists(key)):
         if not storage.exists(key):
-            if not settings.dry_run:        # para harcanmadan önce
-                raise NotImplementedError("Ücretli storyboard karesi (Flux) henüz yok (Faz 18); ücretsiz modda yerel kare "
-                                          "üretilir.")
             advance_scene(project_id, scene_id, status="storyboard")
             lines = [f"{info['code']} · {camera_text(info['camera'])} · {seconds_text(info['duration'])}"]
             lines += [textwrap.shorten(f"{(who or 'Anlatıcı').upper()}: {text}", 84, placeholder="…")
                       for who, text in dialogue[:2]]
             estimate = pricing.estimate_image(BOARD_MEGAPIXELS)
             os.makedirs(settings.work_dir, exist_ok=True)
+            seed = seed_for(scene_id, fp, "board")
             with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
-                with killswitch.spend(project_id, estimate, "flux_lora:storyboard", scene_id=scene_id) as charge:
-                    path = render_board(os.path.join(tmp, "board.jpg"), seed_for(scene_id, fp, "board"),
-                                        info["render"], lines)
-                    charge.actual = estimate
+                out = os.path.join(tmp, "board.jpg")
+                if settings.dry_run:
+                    with killswitch.spend(project_id, estimate, "flux_lora:storyboard", scene_id=scene_id) as charge:
+                        path = render_board(out, seed, info["render"], lines)
+                        charge.actual = estimate
+                else:
+                    path = paid_board(out, project_id, scene_id, seed, prompt, extra, lines)
                 storage.put_file(path, key, "image/jpeg")
         changed = info["board_hash"] is not None and info["board_hash"] != fp
         fields = {"board_key": key, "board_hash": fp}

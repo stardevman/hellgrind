@@ -37,11 +37,16 @@ ENTRY_POINTS = {
     "get_provider": lambda: get_provider("seedance"),
     "FalProvider.generate": lambda: fal_video.FalProvider("fal_wan").generate(REQ),
     "lipsync": lambda: fal_video.lipsync("v.mp4", "a.wav", "o.mp4"),
+    "FalProvider.first_frame": lambda: fal_video.FalProvider("fal_wan").first_frame(REQ),
+    "image": lambda: fal_video.image("storyboard", 1),
+    "upload": lambda: fal_video.upload("kare.png"),
+    "restyle": lambda: fal_video.restyle("previs.mp4", "p", "", 1, "720p", 3.0),
     "tts": lambda: elevenlabs.tts("merhaba", "voice-1", "joy", "o.mp3"),
     "parse_with_llm": lambda: hermes_llm.parse_with_llm("İÇ. ODA\n\nKerem bekler.", "proje"),
 }
 KEY_OF = {"get_live_provider": "fal_key", "get_provider": "fal_key", "FalProvider.generate": "fal_key",
-          "lipsync": "fal_key", "tts": "elevenlabs_api_key", "parse_with_llm": "anthropic_api_key"}
+          "lipsync": "fal_key", "tts": "elevenlabs_api_key", "parse_with_llm": "anthropic_api_key",
+          "FalProvider.first_frame": "fal_key", "image": "fal_key", "upload": "fal_key", "restyle": "fal_key"}
 
 
 @pytest.mark.parametrize("name", [n for n in ENTRY_POINTS if n != "get_provider"])   # get_provider ücretsiz modda yerel döner: aşağıda
@@ -89,7 +94,7 @@ def test_paid_packages_are_in_the_live_requirements_and_not_in_the_free_ones():
 def test_pricing_has_a_rate_for_every_paid_call_the_code_reserves():
     from app.budget import pricing
     table = pricing.table()
-    assert set(table["video_per_second"]) >= {"fal_wan", "seedance"} and table["image_per_megapixel"]["flux_lora"] > 0
+    assert set(table["video_per_second"]) >= {"fal_wan", "seedance", "wan_v2v"} and table["image_per_megapixel"]["flux_lora"] > 0
     assert table["lipsync_per_minute"] > 0 and table["tts_per_1k_chars"] > 0 and {"input", "output"} <= set(table["llm_per_million_tokens"])
 
 

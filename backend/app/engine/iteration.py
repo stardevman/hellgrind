@@ -10,6 +10,10 @@ Taslak geçiş (mode="draft", Faz 14): yalnızca test turu çalışır; geçen i
 kurguda kullanılır. Tam tur hiç çalışmaz. Sonraki iyileştirme geçişi aynı seed'lerle başladığı için test turu klipleri
 yeniden kullanılır (yeniden üretilmez, yeniden ücretlendirilmez).
 
+Önce görsel, sonra video (Faz 18): ücretli sağlayıcıda (`image_first`) her varyasyonun ilk karesi ayrı üretilir ve aynı
+eşikle puanlanır. Geçemeyen kare kalite kapısında elenir (`params.stage="first_frame"`) ve videosu hiç üretilmez; video
+yalnızca geçen kareden istenir. Ücretsiz modda yerel motor doğrudan video çizer.
+
 Seed'ler girdilerden türetildiği için çalıştırma tekrarlanabilir: bir kesintiden (Kill-Switch, çökme) sonra aynı girdiyle
 yeniden başlayan çalıştırma, tamamlanmış varyasyonları yeniden üretmez ve bütçeden yeniden düşmez.
 """
@@ -18,7 +22,7 @@ import os
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from statistics import mean
 
 from sqlalchemy import and_, or_, select
@@ -32,7 +36,7 @@ from app.db import session_scope
 from app.engine.providers import GenRequest, TransientError, get_provider, route_engine
 from app.hermes import lint
 from app.style import bible
-from app.style.composer import compose_prompt
+from app.style.composer import Composed, compose_prompt
 from app.models import Project, Scene, Variation
 from app.quality import gate
 
@@ -66,7 +70,8 @@ class Ctx:
 # ---------- yardımcılar ----------
 
 def make_thumb(video_path: str, key: str) -> str | None:
-    """320 px genişliğinde jpg; 2. saniyeden, klip daha kısaysa ilk kareden. Başarısızlık üretimi durdurmaz."""
+    """320 px genişliğinde jpg; 2. saniyeden, klip daha kısaysa (ya da tek kareyse) ilk kareden. Başarısızlık üretimi
+    durdurmaz."""
     thumb = video_path + ".jpg"
     for at in ("2", "0"):
         subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-ss", at, "-i", video_path,
@@ -115,6 +120,20 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
         return v
 
 
+def compose_for_scene(scene, chars, assets, style) -> Composed:
+    """Sağlayıcıya giden prompt: yalnızca bestecinin çıktısı (kılavuzun ışık ve hareket dili, çekim tarifi, varlıklar ve
+    "yalnızca listelenen karakterler" kısıtı). Görüntü, storyboard karesi, previs aktarımı ve ilk kare düzeltmesi aynı
+    fonksiyonu kullanır."""
+    spec = scene.prompt_spec or {}
+    return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""),
+                           "camera": scene.camera or {}, "characters": [ch.name for ch in chars]}, assets, style)
+
+
+def loras_of(chars) -> dict:
+    return {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
+            "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger]}
+
+
 # ---------- tek varyasyon ----------
 
 def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarResult:
@@ -134,17 +153,26 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
     with session_scope() as s:                                                         # 3. Variation satırı
         v = Variation(scene_id=c.scene_id, tier=tier, wave_no=wave_no, engine=c.provider.engine, seed=seed,
                       prompt_revision=c.revision, status="queued",
-                      params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt, "run": c.run_id})
+                      params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
+                              "negative": req.negative, "run": c.run_id})
         s.add(v)
         s.flush()
         vid = v.id
     try:
+        frame_cost = 0.0
+        if getattr(c.provider, "image_first", False):                                  # önce görsel, sonra video
+            frame = _first_frame(c, req, vid, seed)
+            if not isinstance(frame, tuple):
+                return frame                                                           # kare elendi ya da üretilemedi
+            url, frame_cost = frame
+            req = replace(req, image_url=url)
         result = _generate(c, req, vid)                                                # 4. spend() içinde üretim
         if result is None:
-            _set_variation(vid, status="failed")
+            _set_variation(vid, status="failed", cost_usd=frame_cost)                  # ödenmiş kare bedeli görünsün
             return VarResult(str(vid), False, None)
         # Ödeme yapıldı: kimlik ve maliyet, yükleme çökse bile denetim için hemen kaydedilir.
-        _set_variation(vid, status="generated", external_request_id=result.request_id, cost_usd=result.cost_usd)
+        _set_variation(vid, status="generated", external_request_id=result.request_id,
+                       cost_usd=round(frame_cost + result.cost_usd, 4))
         try:
             key = f"variations/{c.scene_id}/{vid}.mp4"                                 # 5. Depo ve küçük resim
             storage.put_file(result.local_path, key)
@@ -173,20 +201,55 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
     return VarResult(str(vid), score.passed, score.composite)
 
 
-def _generate(c: Ctx, req: GenRequest, vid):
-    """Geçici hatalarda en fazla MAX_ATTEMPTS deneme; her deneme kendi rezervasyonunu alır, başarısızsa iade eder."""
-    estimate = c.provider.estimate(req)
+def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
+    """İlk kareyi üretir, depoya koyar ve puanlar. Geçerse (kare adresi, bedeli); elenirse ya da üretilemezse VarResult.
+    Elenen karenin videosu hiç istenmez: kare karantinaya taşınır, küçük resmi panelde kalır."""
     _set_variation(vid, status="running")
+    frame = _attempts(c, c.provider.estimate_frame(), f"flux_lora:first_frame:{req.resolution}", vid,
+                      lambda: c.provider.first_frame(req))
+    if frame is None:
+        _set_variation(vid, status="failed")
+        return VarResult(str(vid), False, None)
+    key = f"frames/{c.scene_id}/{vid}.jpg"
+    try:
+        storage.put_file(frame.local_path, key, "image/jpeg")
+        thumb = make_thumb(frame.local_path, f"thumbs/{c.scene_id}/{vid}.jpg")
+        score = gate.score_frame(frame.local_path, seed, c.cfg)
+    finally:
+        os.remove(frame.local_path)
+    extra = {"first_frame_key": key, "first_frame_request_id": frame.request_id, "frame_score": score.composite}
+    if score.passed:
+        _merge_params(vid, **extra)
+        return frame.url, frame.cost_usd
+    extra.update(stage="first_frame", purge_reason="quality_gate", quarantine_key=storage.purge(key))
+    with session_scope() as s:
+        v = s.get(Variation, vid)
+        v.status, v.keyframe_key, v.cost_usd = "purged", thumb, frame.cost_usd
+        v.external_request_id = frame.request_id
+        v.clip_score, v.face_score, v.composite_score = score.clip, score.face, score.composite
+        v.anomalies = score.anomalies
+        v.params = {**(v.params or {}), **extra}
+    return VarResult(str(vid), False, score.composite)
+
+
+def _attempts(c: Ctx, estimate: float, label: str, vid, call):
+    """Geçici hatalarda en fazla MAX_ATTEMPTS deneme; her deneme kendi rezervasyonunu alır, başarısızsa iade eder.
+    İşlenen tutar sağlayıcının bildirdiği bedeldir (`cost_usd`)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            with killswitch.spend(c.project_id, estimate, f"{c.provider.engine}:{req.resolution}",
-                                  scene_id=c.scene_id, variation_id=vid) as charge:
-                result = c.provider.generate(req)
+            with killswitch.spend(c.project_id, estimate, label, scene_id=c.scene_id, variation_id=vid) as charge:
+                result = call()
                 charge.actual = result.cost_usd
             return result
         except TransientError as e:
             log.warning("geçici hata (deneme %d/%d): %s", attempt, MAX_ATTEMPTS, e)
     return None
+
+
+def _generate(c: Ctx, req: GenRequest, vid):
+    _set_variation(vid, status="running")
+    return _attempts(c, c.provider.estimate(req), f"{c.provider.engine}:{req.resolution}", vid,
+                     lambda: c.provider.generate(req))
 
 
 # ---------- dalga ----------
@@ -234,10 +297,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
         style = bible.active(s, project_id)
         camera = scene.camera or {}
         spec = dict(scene.prompt_spec or {})
-        # Sağlayıcıya yalnızca bestecinin çıktısı gider: kılavuzun ışık ve hareket dili, çekim tarifi, varlıklar ve
-        # "yalnızca listelenen karakterler" kısıtı. Hepsi görsel özetteki girdilerden türer.
-        composed = compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""),
-                                   "camera": camera, "characters": [ch.name for ch in chars]}, assets, style)
+        composed = compose_for_scene(scene, chars, assets, style)          # hepsi görsel özetteki girdilerden türer
         spec["prompt"], spec["negative"] = composed.prompt, composed.negative
         # Yarım kalmış önceki çalıştırmanın asılı satırları: kimse üstünde çalışmıyor.
         for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id,
@@ -251,8 +311,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
             render={"emotion": scene.emotion, "camera": camera, "characters": [ch.name for ch in chars],
                     "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
-                    "loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
-                    "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger],
+                    **loras_of(chars),
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"})
 
 
@@ -298,7 +357,6 @@ def board_blocks(project_id: str, scene_id: str) -> bool:
 def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") -> str:
     """Sahnenin görsel aşamasını yürütür. mode="draft": yalnızca test turu, geçen ilk varyasyon havuza girer.
     Dönen değer: "refined", "needs_review", "blocked" ya da "board_review"."""
-    gate.ensure_scorer()                                  # para harcanmadan önce
     if lint_blocks(project_id, scene_id):
         return "blocked"
     if board_blocks(project_id, scene_id):
@@ -316,6 +374,7 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
     if method == "previs_guide":                          # yönlendirici: rehberli çekim üretilmez, rehberden çıkar
         from app.engine.methods import run_guide
         return run_guide(project_id, scene_id, visual_hash, style)
+    gate.ensure_scorer()                                  # para harcanmadan önce (rehber ve dış çekim skor kullanmaz)
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 

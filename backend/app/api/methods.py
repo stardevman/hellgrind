@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app import storage
-from app.api.deps import SceneId, VariationId, ensure_not_frozen, scene_or_404
+from app.api.deps import SceneId, VariationId, ensure_not_frozen, paid_errors, scene_or_404
 from app.api.plan import dispatch_result, ensure_idle
 from app.api.uploads import extension, receive
 from app.config import settings
@@ -143,11 +143,10 @@ async def upload_revision(variation_id: VariationId, request: Request,
                           filename: str = Query(..., min_length=1, max_length=200),
                           note: str | None = Query(None, max_length=2000)):
     """Elle düzeltilmiş video ya da ilk kare (ham gövde). Yeni sürüm açılır, orijinal korunur; varyasyon rafine #1 ise
-    yalnızca dudak senkronu ve montaj yeniden çalışır (görüntü motoru çağrılmaz)."""
+    yalnızca dudak senkronu ve montaj yeniden çalışır. Ücretli modda ilk kare, varyasyonun prompt ve seed'iyle videoya
+    çevrilir (bedeli bir video üretimidir; Flux çağrılmaz)."""
     ext = extension(filename, VIDEO_EXTS if kind == "video" else IMAGE_EXTS,
                     "Video düzeltmesi" if kind == "video" else "İlk kare düzeltmesi")
-    if kind == "first_frame" and not settings.dry_run:
-        raise HTTPException(501, "Ücretli modda ilk kareden yeniden üretim henüz yok (Faz 18); düzeltilmiş videoyu yükle.")
 
     def ready():
         with session_scope() as s:
@@ -173,7 +172,9 @@ async def upload_revision(variation_id: VariationId, request: Request,
                 except Exception:
                     raise HTTPException(422, "İlk kare okunamadı: dosya bozuk ya da görsel değil.")
             try:
-                rev, winner = methods.add_revision(variation_id, kind, path, ext, sha_of(path), (note or "").strip() or None)
+                with paid_errors():                    # ücretli modda ilk kare düzeltmesi videoya çevrilir
+                    rev, winner = methods.add_revision(variation_id, kind, path, ext, sha_of(path),
+                                                       (note or "").strip() or None)
             except ValueError as e:
                 raise HTTPException(422, str(e))
             return _after_revision(scene_id, rev, winner)

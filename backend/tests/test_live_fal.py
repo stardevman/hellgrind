@@ -3,7 +3,6 @@
 `paid` fixture'ı kilidi yalnızca bellekteki ayar nesnesinde açar ve genel internete bağlantıyı yasaklar.
 """
 import sys
-import types
 
 import httpx
 import pytest
@@ -12,69 +11,9 @@ from app.config import settings
 from app.engine.providers import GenRequest, TransientError
 from app.live import PaidCallBlocked, fal_video
 from app.live.fal_video import FalProvider, get_live_provider, is_transient, lipsync
+from tests.fal_fake import FakeFal, HTTPError
 
 pytestmark = pytest.mark.usefixtures("paid")
-
-
-class HTTPError(Exception):
-    """fal-client'ın FalClientHTTPError'u gibi: status_code taşır."""
-
-    def __init__(self, status_code):
-        super().__init__(f"HTTP {status_code}")
-        self.status_code = status_code
-
-
-class FakeFal:
-    """Sahte fal_client modülü: çağrıları kaydeder, uygulamaya göre yanıt verir ya da hata fırlatır."""
-
-    def __init__(self):
-        self.calls, self.uploads, self.keys, self.behaviour = [], [], [], {}
-        self.counter = 0
-
-    def responder(self, application, arguments):
-        if application in self.behaviour:
-            return self.behaviour[application](arguments)
-        if application == fal_video.FLUX:
-            return {"images": [{"url": "https://fal.test/frame.jpg"}]}
-        if application == fal_video.LIPSYNC:
-            return {"video": {"url": "https://fal.test/synced.mp4"}}
-        return {"video": {"url": "https://fal.test/clip.mp4"}, "seed": arguments.get("seed")}
-
-    def module(self):
-        fake = self
-
-        class Handle:
-            def __init__(self, request_id, result):
-                self.request_id, self._result = request_id, result
-
-            def get(self):
-                if isinstance(self._result, BaseException):
-                    raise self._result
-                return self._result
-
-        class SyncClient:
-            def __init__(self, key=None, default_timeout=120.0):
-                fake.keys.append(key)
-
-            def submit(self, application, arguments, **kw):
-                fake.counter += 1
-                fake.calls.append((application, arguments, kw))
-                try:
-                    result = fake.responder(application, arguments)
-                except BaseException as e:                       # noqa: BLE001 — hata, handle.get()'te fırlatılır
-                    result = e
-                return Handle(f"req-{fake.counter}", result)
-
-            def upload_file(self, path):
-                fake.uploads.append(str(path))
-                return f"https://fal.test/upload/{len(fake.uploads)}"
-
-        mod = types.ModuleType("fal_client")
-        mod.SyncClient = SyncClient
-        return mod
-
-    def apps(self):
-        return [a for a, _, _ in self.calls]
 
 
 @pytest.fixture
@@ -84,7 +23,7 @@ def fal(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "work_dir", str(tmp_path))
     downloads = []
 
-    def fake_download(url):
+    def fake_download(url, suffix=".mp4"):
         downloads.append(url)
         path = tmp_path / f"dl{len(downloads)}.mp4"
         path.write_bytes(b"mp4:" + url.encode())
@@ -253,11 +192,11 @@ def test_a_failed_download_does_not_pay_for_the_video_again(fal, monkeypatch, tm
     provider, attempts = FalProvider("fal_wan"), []
     good = fal_video._download
 
-    def flaky_download(url):
+    def flaky_download(url, suffix=".mp4"):
         attempts.append(url)
         if len(attempts) == 1:
             raise TransientError("ağ kesildi")
-        return good(url)
+        return good(url, suffix)
 
     monkeypatch.setattr(fal_video, "_download", flaky_download)
     with pytest.raises(TransientError):
@@ -360,23 +299,102 @@ def test_lipsync_classifies_errors_the_same_way(fal, tmp_path):
         lipsync("/w/v.mp4", "/w/a.wav", str(tmp_path / "o.mp4"))
 
 
+# ---------- önce görsel, sonra video (Faz 18) ----------
+
+def test_the_first_frame_is_generated_alone_and_downloaded_to_be_judged(fal):
+    provider = FalProvider("fal_wan")
+    frame = provider.first_frame(request(engine_extra={"lora_triggers": ["KRM"]}))
+    assert fal.apps() == [fal_video.FLUX] and fal.downloads == ["https://fal.test/frame.jpg"]
+    assert (frame.url, frame.request_id, frame.cost_usd) == ("https://fal.test/frame.jpg", "req-1", provider.estimate_frame())
+    assert fal.calls[0][1]["prompt"] == "KRM, köprü çöküyor" and fal.calls[0][1]["seed"] == 1234
+
+
+def test_a_video_from_an_approved_frame_costs_only_the_video(fal):
+    provider = FalProvider("fal_wan")
+    req = request(image_url="https://fal.test/frame.jpg")
+    assert provider.estimate(req) == round(provider.estimate(request()) - provider.estimate_frame(), 4)
+    provider.generate(req)
+    assert fal.apps() == [fal_video.WAN] and fal.calls[0][1]["image_url"] == "https://fal.test/frame.jpg"
+
+
+def test_a_first_frame_whose_download_failed_is_not_paid_again(fal, monkeypatch):
+    provider, good, attempts = FalProvider("fal_wan"), fal_video._download, []
+
+    def flaky(url, suffix=".mp4"):
+        attempts.append(suffix)
+        if len(attempts) == 1:
+            raise TransientError("ağ kesildi")
+        return good(url, suffix)
+
+    monkeypatch.setattr(fal_video, "_download", flaky)
+    with pytest.raises(TransientError):
+        provider.first_frame(request())
+    provider.first_frame(request())
+    assert fal.apps() == [fal_video.FLUX] and attempts == [".jpg", ".jpg"]
+
+
+# ---------- Bölüm B bağlantıları (Faz 18) ----------
+
+def test_a_single_flux_image_carries_the_loras_and_trigger_words(fal):
+    frame = fal_video.image("storyboard karesi", 7, [{"path": "https://lora/kerem", "scale": 0.8}], ["KRM", None])
+    assert fal.apps() == [fal_video.FLUX] and frame.cost_usd == fal_video.image_estimate()
+    assert fal.calls[0][1] == {"prompt": "KRM, storyboard karesi", "image_size": "landscape_16_9", "num_images": 1,
+                               "output_format": "jpeg", "enable_safety_checker": True, "seed": 7,
+                               "loras": [{"path": "https://lora/kerem", "scale": 0.8}]}
+
+
+def test_restyle_uploads_the_guide_and_sends_the_documented_video_to_video_arguments(fal):
+    path, request_id = fal_video.restyle("/w/previs.mp4", "golden hour", "blurry", 5, "720p", 3.0)
+    assert fal.uploads == ["/w/previs.mp4"] and fal.apps() == [fal_video.WAN_V2V] and request_id == "req-1"
+    assert fal.calls[0][1] == {"video_url": "https://fal.test/upload/1", "prompt": "golden hour", "negative_prompt": "blurry",
+                               "seed": 5, "strength": fal_video.V2V_STRENGTH, "num_frames": 48, "frames_per_second": 16,
+                               "resolution": "720p", "aspect_ratio": "16:9", "enable_safety_checker": True}
+    assert fal.downloads == ["https://fal.test/clip.mp4"]
+
+
+@pytest.mark.parametrize("seconds, frames, asked, used", [(0.5, 17, "480p", "480p"), (20.0, 161, "1080p", "720p")])
+def test_restyle_keeps_frames_and_resolution_in_the_documented_range(fal, seconds, frames, asked, used):
+    fal_video.restyle("/w/g.mp4", "p", "", 1, asked, seconds)
+    assert (fal.calls[0][1]["num_frames"], fal.calls[0][1]["resolution"]) == (frames, used)
+
+
+def test_restyle_and_upload_classify_errors_like_the_other_calls(fal):
+    fal.behaviour[fal_video.WAN_V2V] = lambda args: HTTPError(429)
+    with pytest.raises(TransientError):
+        fal_video.restyle("/w/g.mp4", "p", "", 1, "720p", 3.0)
+    assert fal_video.upload("/w/frame.png") == "https://fal.test/upload/2"
+
+
+def test_the_virtual_previs_price_is_the_video_to_video_price():
+    from app.budget import pricing
+    from app.engine.methods import restyle_estimate
+    assert restyle_estimate("720p", 3.0) == pricing.estimate_video("wan_v2v", "720p", 3.0) == 0.24
+    assert restyle_estimate("480p", 20.0) == round(161 / 16 * 0.04, 4)
+
+
 # ---------- kilit ----------
+
+def entry_points():
+    return (lambda: get_live_provider("fal_wan"), lambda: lipsync("v", "a", "o"),
+            lambda: FalProvider("fal_wan").generate(request()), lambda: FalProvider("fal_wan").first_frame(request()),
+            lambda: fal_video.image("p", 1), lambda: fal_video.upload("x.png"),
+            lambda: fal_video.restyle("g.mp4", "p", "", 1, "720p", 3.0))
+
 
 def test_every_entry_point_is_blocked_in_free_mode_before_touching_fal(fal, monkeypatch):
     monkeypatch.setattr(settings, "dry_run", True)
-    for call in (lambda: get_live_provider("fal_wan"), lambda: lipsync("v", "a", "o"),
-                 lambda: FalProvider("fal_wan").generate(request())):
+    for call in entry_points():
         with pytest.raises(PaidCallBlocked):
             call()
-    assert fal.calls == [] and fal.keys == []
+    assert fal.calls == [] and fal.keys == [] and fal.uploads == []
 
 
 def test_every_entry_point_is_blocked_without_a_key(fal, monkeypatch):
     monkeypatch.setattr(settings, "fal_key", "")
-    for call in (lambda: get_live_provider("seedance"), lambda: lipsync("v", "a", "o")):
+    for call in entry_points():
         with pytest.raises(PaidCallBlocked, match="FAL_KEY"):
             call()
-    assert fal.calls == []
+    assert fal.calls == [] and fal.uploads == []
 
 
 # ---------- gerçek paketle sözleşme ----------

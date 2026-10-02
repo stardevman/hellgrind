@@ -128,7 +128,7 @@ def test_status_and_emotion_maps_cover_every_value_the_backend_can_send():
     from app.models import ProjectStatus
     assert set(ProjectStatus.enums) <= js_object_keys("PROJECT_STATUS_TR")
     assert set(Shot.__args__) <= js_object_keys("SHOT_TR") and set(Movement.__args__) <= js_object_keys("MOVE_TR")
-    assert Angle.__args__ and {"black", "freeze", "low_clip", "empty", "unreadable"} <= js_object_keys("ANOMALY_TR")
+    assert Angle.__args__ and {"black", "freeze", "low_clip", "empty", "unreadable", "flat"} <= js_object_keys("ANOMALY_TR")
 
 
 def test_every_event_kind_the_backend_writes_is_rendered():
@@ -281,3 +281,5 @@ def test_the_efficiency_tab_shows_the_metrics_and_offers_every_export():
     assert "/export?format=${f}" in SCRIPT and "/curation.jsonl" in SCRIPT
     assert re.search(r'\["edl",.*\["otio",.*\["package",', SCRIPT)
     assert {"quality_gate", "not_top_k", "superseded", "interrupted", "frozen", "failed"} <= js_object_keys("PURGE_TR")
+    assert {"fal_wan", "seedance", "flux_lora", "fal", "elevenlabs", "anthropic"} <= js_object_keys("KIND_TR")
+    assert "v2v:" in SCRIPT                                                    # defter etiketlerinin önekleri Türkçe

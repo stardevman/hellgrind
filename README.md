@@ -218,21 +218,31 @@ Rekabet avantajı aynı kaliteye daha az üretimle ulaşmak ve yönetmenin zevki
 - Testler bunu otomatik denetler: ücretli paketler `app/live` dışında import edilemez, anahtar değerleri `guard` dışında okunamaz, ücretsiz modda hiçbir ücretli paket yüklenmez, her giriş noktası tuzaklı bir ortamda hiçbir şeye dokunmadan engellenir.
 - Gizli anahtarlar yalnızca `.env` içinde durur; `.env` commit'lenmez.
 
-### Ücretli entegrasyonlar: yazıldı, hiç çalıştırılmadı
+### Ücretli entegrasyonlar (Faz 18): yazıldı, hiç çalıştırılmadı
 
 | Modül | Ne yapar |
 |---|---|
-| `live/fal_video.py` | Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Wan 2.2 (`fal-ai/wan/v2.2-a14b/image-to-video`) ya da Seedance (`bytedance/seedance-2.0/fast/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`. 429, 5xx ve zaman aşımı yeniden denenir. |
+| `live/fal_video.py` | Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Wan 2.2 (`fal-ai/wan/v2.2-a14b/image-to-video`) ya da Seedance (`bytedance/seedance-2.0/fast/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`; previs aktarımı `fal-ai/wan/v2.2-a14b/video-to-video`. 429, 5xx ve zaman aşımı yeniden denenir. |
 | `live/elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. |
 | `live/hermes_llm.py` | LangGraph akışı: `Send` ile paralel çıkarma, doğrulama, en çok 2 tur onarım. Çıktı şeması kural tabanlı ayrıştırıcıyla aynı; replikler eksiltilemez ya da uydurulamaz. |
 
-Uç nokta kimlikleri ve parametreler fal.ai ve ElevenLabs belgelerinden doğrulandı (2 Ekim 2026), paket imzaları gerçek paketlerden denetlendi. Testler sahte `fal_client`, sahte `httpx` ve sahte LLM kullanır; genel internete bağlantı testlerde yasaktır. Hiçbir ücretli çağrı hiçbir zaman yapılmadı. Her ücretli çağrı bütçe rezervasyonundan geçer (LLM çağrıları belirteç tahminiyle, sesler karakter sayısıyla, video ve dudak senkronu fiyat tablosuyla).
+Uç nokta kimlikleri ve parametreler fal.ai ve ElevenLabs belgelerinden doğrulandı (2–3 Ekim 2026), paket imzaları gerçek paketlerden denetlendi. Testler sahte `fal_client`, sahte `httpx` ve sahte LLM kullanır; genel internete bağlantı testlerde yasaktır. Hiçbir ücretli çağrı hiçbir zaman yapılmadı. Her ücretli çağrı bütçe rezervasyonundan geçer (LLM çağrıları belirteç tahminiyle, sesler karakter sayısıyla, video ve dudak senkronu fiyat tablosuyla).
+
+Ücretli modda akış:
+
+- **Önce görsel, sonra video:** her varyasyonun ilk karesi (Flux) ayrı üretilir, depoya konur ve videoyla aynı eşikle puanlanır (siyah ya da tek renk kare ve eşik altı skor elenir). Elenen karenin videosu hiç istenmez; panelde "ilk karede elendi, video üretilmedi" yazar. Video yalnızca geçen kareden üretilir; varyasyonun bedeli kare + videodur. Ücretsiz modda yerel motor doğrudan video çizer.
+- **Storyboard karesi** bestecinin prompt'uyla tek bir Flux karesidir; üzerine çekim bilgisi yazılır.
+- **Previs rehberi** Wan 2.2 video-to-video ile stile aktarılır (`strength` 0,65: hareket ve kompozisyon rehberden, görünüm stil kılavuzundan). Ücretsiz modda rehber renklendirilip kullanılır ve aynı uç noktanın fiyatı sanal olarak düşer.
+- **Referans üretimi** (*Varlıklar* sekmesinde *Referans üret*): karakter için Flux karesinden yörünge hareketli 4 sn'lik dönüş videosu (karakterin LoRA'sı varsa onunla), mekân ve nesne için tek Flux karesi. Ücretsiz moddaki yerel taslak da artık bu fiyattan düşer.
+- **Hareket testi** varlığın onaylı referans görselinden başlar (yüklenir, Flux çağrılmaz): sınanan, onaylanan referansın kendisidir.
+- **Düzenlenmiş ilk kare** yüklenince varyasyonun prompt, seed, çözünürlük ve süresiyle videoya çevrilir; bedeli yalnızca videodur. Aynı kare yeniden yüklenirse yeniden ödenmez.
+- İstek içindeki ücretli çağrının hataları Türkçe yanıtlanır: kilit 409, bütçe 423, sağlayıcının geçici hatası (3 denemeden sonra) 503.
 
 Bilinmesi gerekenler:
 
 - fal yanıtı fatura tutarı döndürmez; harcama `pricing.yaml` tahminidir. `tts_per_1k_chars` ve `llm_per_million_tokens` kalemleri doğrulanmış değildir: ücretli moda geçmeden önce kendi planınıza göre güncelleyin.
 - Seedance en az 4 sn üretir ve tohum kabul etmez; 3 sn'lik bir çekim 4 sn faturalanır. Wan 17–161 kare (16 fps) üretir.
-- **Ücretli modda üretim henüz başlatılamaz**: gerçek kalite skorlayıcı (OpenCLIP stil, InsightFace yüz) yazılmadı ve sahte skor ücretli klipleri sessizce onaylayabileceğinden, görsel üretim para harcanmadan önce durur. Ücretli mod için sırada: gerçek skorlayıcı, düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek.
+- **Ücretli modda kademeli üretim henüz başlatılamaz**: gerçek kalite skorlayıcı (OpenCLIP stil, InsightFace yüz) Faz 18'in sonraki adımlarındadır ve sahte skor ücretli kareleri ve klipleri sessizce onaylayabileceğinden, kademeli üretim para harcanmadan önce durur. Skor kullanmayan yollar (storyboard karesi, previs aktarımı, referans üretimi, hareket testi, ilk kare düzeltmesi, ses ve dudak senkronu) yazılıdır. Sırada: gerçek skorlayıcı, düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek, kürasyon kayıtlarından projeye özel kalite modeli.
 - Ücretli entegrasyonları denemek için ayrıca `pip install -r backend/requirements-live.txt` gerekir. Bunu açık onay olmadan yapmayın; `DRY_RUN=0` ile hiçbir şeyi açık onay olmadan çalıştırmayın.
 
 ## Ayarlar
@@ -265,7 +275,8 @@ backend/
     hermes/      rules (ayrıştırıcı), ingest (veritabanına yazma), lint (üretim öncesi referans kontrolü)
     engine/      procedural (yerel render), providers, iteration (kademeli üretim),
                  references (kare örnekleme, vektör, yerel taslak), motion_test (hareket testi),
-                 storyboard (kare, onay kapısı, PDF), methods (previs rehberi, dış çekim, elle düzeltme)
+                 storyboard (kare, onay kapısı, PDF), methods (previs rehberi, dış çekim, elle düzeltme),
+                 paid (ücretli çağrıların ortak yolu: kilit, rezervasyon, yeniden deneme)
     style/       bible (sürümler, etkin sürüm, etki önizlemesi), composer (prompt bestecisi)
     curation.py  kürasyon kaydı (@curated: her durum değiştiren uç bir olay yazar)
     quality/     anomaly (FFmpeg), gate (skor, rafine havuz), consistency (renk sıçraması, öneri), metrics (verimlilik)

@@ -2,18 +2,21 @@
 
 generate      tamamen yapay zekâ (kademeli üretim, engine/iteration.py)
 previs_guide  yüklenen 3D taslak video rehberdir. Ücretsiz modda rehber, stil kılavuzunun ışık diline göre renklendirilip
-              doğrudan kullanılır; ücretli modda video-to-video stil aktarımı olacaktır (Faz 18, kilitli).
+              doğrudan kullanılır; ücretli modda bestecinin prompt'uyla Wan 2.2 video-to-video stil aktarımından geçer
+              (Faz 18). Bedel iki modda da o uç noktanın fiyatıdır (ücretsiz modda sanal).
 external      dışarıda bitirilmiş çekim yüklenir: görüntü üretilmez, klip yine anomali kontrolünden, sesten ve
               montajdan geçer. Dosyanın içerik özeti görsel özetin yerine geçer.
 
 Elle düzeltme: üretilmiş bir varyasyonun düzenlenmiş videosu ya da ilk karesi yüklenir. Her revizyon sürümlenir, orijinal
-korunur; rafine #1'in revizyonu yalnızca dudak senkronu ve montajı yeniden çalıştırır.
+korunur; rafine #1'in revizyonu yalnızca dudak senkronu ve montajı yeniden çalıştırır. İlk kare düzeltmesi ücretsiz
+modda klibin başında durup orijinale erir; ücretli modda düzenlenmiş kareden aynı prompt ve seed'le video yeniden üretilir.
 """
 import json
 import os
 import subprocess
 import tempfile
 import uuid
+from dataclasses import replace
 
 from sqlalchemy import func, select
 
@@ -38,6 +41,7 @@ GRADES = {
     "overcast": "eq=saturation=0.72:contrast=0.95",
 }
 FIRST_FRAME_HOLD_S, FIRST_FRAME_FADE_S = 0.5, 0.5
+V2V_FPS, V2V_FRAMES = 16, (17, 161)       # Wan 2.2 video-to-video (fal_video.WAN_FPS, WAN_FRAMES ile aynı)
 
 
 def _ffmpeg(*args: str) -> None:
@@ -104,17 +108,20 @@ def register_external(scene_id: str, fingerprint: str) -> str:
 # ---------- previs rehberi ----------
 
 def run_guide(project_id: str, scene_id: str, visual_hash: str, style) -> str:
-    """Rehberli VISUAL aşaması. Ücretsiz modda rehber renklendirilip tek varyasyon olarak kullanılır; bedeli bir
-    video-to-video geçişinin sanal fiyatıdır. Dönen: "refined" ya da "needs_review" (rehber kusurluysa)."""
-    if not settings.dry_run:              # para harcanmadan önce
-        raise NotImplementedError("Ücretli video-to-video stil aktarımı henüz yok (Faz 18); ücretsiz modda rehber "
-                                  "doğrudan kullanılır.")
+    """Rehberli VISUAL aşaması. Ücretsiz modda rehber renklendirilip tek varyasyon olarak kullanılır; ücretli modda
+    video-to-video stil aktarımından geçer. Bedel Wan 2.2 video-to-video fiyatıdır (ücretsiz modda sanal).
+    Dönen: "refined" ya da "needs_review" (rehber ya da aktarım kusurluysa)."""
+    from app.core.hashing import seed_for
+    from app.core.state import load_assets, load_characters
+    from app.engine.iteration import compose_for_scene
     from app.engine.providers import RESOLUTIONS, route_engine
     with session_scope() as s:
         sc, project = s.get(Scene, scene_id), s.get(Project, project_id)
         cfg = project_settings(project.settings)
         guide_key, engine = sc.guide_key, sc.engine or route_engine(sc)
         n = s.scalar(select(func.count()).select_from(Variation).where(Variation.scene_id == scene_id)) or 0
+        composed = compose_for_scene(sc, load_characters(s, scene_id), load_assets(s, scene_id), style)
+        seed = seed_for(scene_id, visual_hash, "v2v")
     advance_scene(project_id, scene_id, status="generating", last_error=None)
     width, height = RESOLUTIONS.get(cfg["full_resolution"], RESOLUTIONS["720p"])
     vid = uuid.uuid4()
@@ -122,17 +129,28 @@ def run_guide(project_id: str, scene_id: str, visual_hash: str, style) -> str:
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         src = storage.download(guide_key, os.path.join(tmp, "guide.mp4"))
         duration = probe_duration(src)
-        estimate = pricing.estimate_video(engine, cfg["full_resolution"], duration)
+        estimate = restyle_estimate(cfg["full_resolution"], duration)
+        label = f"v2v:{cfg['full_resolution']}:previs"
         with session_scope() as s:
-            s.add(Variation(id=vid, scene_id=scene_id, tier="full", wave_no=n, engine=engine, seed=0,
+            s.add(Variation(id=vid, scene_id=scene_id, tier="full", wave_no=n, engine=engine, seed=seed,
                             prompt_revision=0, status="running",
                             params={"source": "previs_guide", "resolution": cfg["full_resolution"],
                                     "duration_s": round(duration, 3), "lighting": style.lighting_prefix if style else "",
-                                    "grade": grade_filter(style.lighting_prefix if style else None)}))
-        with killswitch.spend(project_id, estimate, f"v2v:{cfg['full_resolution']}:previs", scene_id=scene_id,
-                              variation_id=vid) as charge:
-            out = grade(src, os.path.join(tmp, "graded.mp4"), style.lighting_prefix if style else None, width, height)
-            charge.actual = estimate
+                                    "grade": grade_filter(style.lighting_prefix if style else None),
+                                    "prompt": composed.prompt, "negative": composed.negative}))
+        try:
+            if settings.dry_run:
+                with killswitch.spend(project_id, estimate, label, scene_id=scene_id, variation_id=vid) as charge:
+                    out = grade(src, os.path.join(tmp, "graded.mp4"), style.lighting_prefix if style else None,
+                                width, height)
+                    charge.actual = estimate
+            else:
+                out = paid_restyle(project_id, scene_id, vid, src, composed, seed, cfg["full_resolution"], duration,
+                                   estimate, label, os.path.join(tmp, "restyled.mp4"), width, height)
+        except BaseException:
+            with session_scope() as s:
+                s.get(Variation, vid).status = "failed"           # "running" satırı asılı kalmasın
+            raise
         anomalies = detect_anomalies(out)
         key = f"variations/{scene_id}/{vid}.mp4"
         storage.put_file(out, key)
@@ -156,11 +174,39 @@ def run_guide(project_id: str, scene_id: str, visual_hash: str, style) -> str:
     return "refined"
 
 
+def restyle_estimate(resolution: str, duration_s: float) -> float:
+    """Wan 2.2 video-to-video bedeli: 16 fps'deki kare sayısı (belgelenen aralık 17-161) üzerinden saniye başına.
+    Bilinmeyen çözünürlükte en pahalı fiyat kullanılır."""
+    frames = min(V2V_FRAMES[1], max(V2V_FRAMES[0], round(duration_s * V2V_FPS)))
+    return pricing.estimate_video("wan_v2v", resolution, frames / V2V_FPS)
+
+
+def paid_restyle(project_id: str, scene_id: str, vid, src: str, composed, seed: int, resolution: str, duration: float,
+                 estimate: float, label: str, out: str, width: int, height: int) -> str:
+    """Ücretli previs aktarımı (Faz 18): rehber yüklenir, Wan 2.2 video-to-video bestecinin prompt'uyla stile aktarır;
+    sonuç çekim çözünürlüğüne getirilir. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
+    from app.engine import paid
+    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
+    made, request_id = paid.call(project_id, estimate, label, "fal_key",
+                                 lambda: fal_video.restyle(src, composed.prompt, composed.negative, seed, resolution,
+                                                           duration),
+                                 scene_id=scene_id, variation_id=vid)
+    try:
+        _ffmpeg("-i", made, "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p", "-an", "-c:v", "libx264",
+                "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", out)
+    finally:
+        os.remove(made)
+    with session_scope() as s:
+        s.get(Variation, vid).external_request_id = request_id
+    return out
+
+
 # ---------- elle düzeltme ----------
 
 def first_frame_clip(base_video: str, frame: str, out: str) -> str:
     """İlk kare düzeltmesi (ücretsiz mod): düzenlenmiş kare klibin başında kısa süre durur ve orijinale erir.
-    Ücretli modda düzenlenmiş kareden yeniden üretim olacaktır (Faz 18)."""
+    Ücretli modda düzenlenmiş kareden yeniden üretilir (`regenerate_from_frame`)."""
     width, height = video_size(base_video)
     end = FIRST_FRAME_HOLD_S + FIRST_FRAME_FADE_S
     _ffmpeg("-i", base_video, "-loop", "1", "-t", f"{end:.2f}", "-i", frame, "-filter_complex",
@@ -168,6 +214,30 @@ def first_frame_clip(base_video: str, frame: str, out: str) -> str:
             f"[0:v][f]overlay=eof_action=pass,format=yuv420p[v]", "-map", "[v]", "-an", "-c:v", "libx264",
             "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", out)
     return out
+
+
+def regenerate_from_frame(variation_id: str, frame: str, out: str) -> str:
+    """Ücretli ilk kare düzeltmesi (Faz 18): düzenlenmiş kare yüklenir ve varyasyonun prompt, seed, çözünürlük ve
+    süresiyle videoya çevrilir (Flux yeniden çağrılmaz). Bedel yalnızca videodur. Kilit rezervasyondan önce çalışır."""
+    from app.engine import paid
+    from app.engine.providers import GenRequest
+    from app.live.fal_video import FalProvider          # ücretli modül: yalnızca fonksiyon içinde
+    with session_scope() as s:
+        v = s.get(Variation, variation_id)
+        sc = s.get(Scene, v.scene_id)
+        project_id, scene_id, engine = str(sc.project_id), str(sc.id), v.engine
+        p = v.params or {}
+        req = GenRequest(prompt=p.get("prompt", ""), negative=p.get("negative", ""), seed=v.seed,
+                         resolution=p.get("resolution", "720p"), duration_s=float(p.get("duration_s") or sc.duration_s),
+                         image_url="(düzenlenmiş kare)")
+    provider = FalProvider(engine)
+
+    def run():
+        made = provider.generate(replace(req, image_url=provider.upload(frame)))
+        os.replace(made.local_path, out)
+        return out
+    return paid.call(project_id, provider.estimate(req), f"{engine}:{req.resolution}:revision", "fal_key", run,
+                     scene_id=scene_id, variation_id=variation_id)
 
 
 def add_revision(variation_id: str, kind: str, path: str, ext: str, sha: str, note: str | None) -> tuple[dict, bool]:
@@ -184,9 +254,11 @@ def add_revision(variation_id: str, kind: str, path: str, ext: str, sha: str, no
         video_key = f"revisions/{variation_id}/{sha}.mp4" if kind == "video" else f"revisions/{variation_id}/{sha}_ff.mp4"
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
             video = path
-            if kind == "first_frame":
+            if kind == "first_frame" and settings.dry_run:
                 base = storage.download(base_key, os.path.join(tmp, "base.mp4"))
                 video = first_frame_clip(base, path, os.path.join(tmp, "ff.mp4"))
+            elif kind == "first_frame":
+                video = regenerate_from_frame(variation_id, path, os.path.join(tmp, "ff.mp4"))
             anomalies = detect_anomalies(video)
             if anomalies:
                 found = ", ".join(sorted({a["type"] for a in anomalies}))

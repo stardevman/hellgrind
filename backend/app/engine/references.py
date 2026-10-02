@@ -1,6 +1,7 @@
 """Varlık referansları: yükleme doğrulaması, dönüş videosundan kare örnekleme, yerel vektörler ve yerel taslak referans.
 
-Her şey yereldir ve ücretsizdir. Dosyalar içerik-adreslidir: aynı dosya aynı anahtarı üretir, zaten varsa yeniden yüklenmez.
+İşleme yereldir ve ücretsizdir. Referans üretimi ücretsiz modda prosedürel taslaktır; ücretli modda (Faz 18) karakter için
+Flux karesinden yörünge hareketli dönüş videosu, mekân ve nesne için tek bir Flux karesidir. Dosyalar içerik-adreslidir: aynı dosya aynı anahtarı üretir, zaten varsa yeniden yüklenmez.
   assets/{varlık}/{tür}/{sha}{uzantı}       yüklenen referans
   assets/{varlık}/frames/{sha}_{i}.jpg     dönüş videosundan eşit aralıkla örneklenen kareler (ilki yüz referansı)
   assets/{varlık}/thumbs/{sha}.jpg          panel için küçük resim
@@ -166,6 +167,70 @@ def visual_keys(references: dict) -> list[str]:
     keys = list((references.get("turnaround") or {}).get("frames", []))
     keys += [references[k]["key"] for k in ("still", "expressions") if references.get(k)]
     return keys
+
+
+# ---------- referans üretimi ----------
+
+TURNAROUND_S, TURNAROUND_RESOLUTION = 4.0, "480p"
+REFERENCE_SHOT = {   # tür -> (tarif, kamera)
+    "character": ("Character reference turnaround: full body, neutral pose and expression, plain light grey studio "
+                  "background, the camera orbits 360 degrees around the character", {"shot": "medium", "movement": "orbit"}),
+    "location": ("Location reference: establishing view of the empty location, no people", {"shot": "wide"}),
+    "prop": ("Prop reference: the object alone, centered, plain light grey background", {"shot": "close_up"}),
+}
+
+
+def reference_prompt(asset, style):
+    """Referansın prompt'u da besteciden geçer: varlık, filmdeki ışık diliyle ve kendi render kuralıyla tarif edilir."""
+    from app.style.composer import compose_prompt
+    text, camera = REFERENCE_SHOT[asset.type]
+    return compose_prompt({"prompt": text, "camera": camera,
+                           "characters": [asset.name] if asset.type == "character" else []}, [asset], style)
+
+
+def reference_estimate(asset_type: str) -> tuple[str, float]:
+    """(defter etiketi, tahmin): karakter = Flux karesi + 4 sn 480p Wan videosu; mekân ve nesne = tek Flux karesi.
+    Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
+    from app.budget import pricing
+    image = pricing.estimate_image(1.0)
+    if asset_type == "character":
+        return f"fal_wan:{TURNAROUND_RESOLUTION}:reference", round(
+            image + pricing.estimate_video("fal_wan", TURNAROUND_RESOLUTION, TURNAROUND_S), 4)
+    return "flux_lora:reference", image
+
+
+def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> tuple[str, str, str]:
+    """Ücretli referans (Faz 18). Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir (ödenmiş kare yeniden
+    ödenmez). (tür, yol, dosya adı)."""
+    from app.engine import paid
+    from app.engine.providers import GenRequest
+    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
+    seed = seed_for(str(asset.id), asset.version, "reference")
+    composed = reference_prompt(asset, style)
+    label, estimate = reference_estimate(asset.type)
+    if asset.type == "character":
+        provider = fal_video.FalProvider("fal_wan")
+        req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
+                         duration_s=TURNAROUND_S, extra=lora)
+        made = paid.call(project_id, estimate, label, "fal_key", lambda: provider.generate(req))
+        path = os.path.join(out_dir, "turnaround.mp4")
+        os.replace(made.local_path, path)
+        return "turnaround", path, "turnaround.mp4"
+    frame = paid.call(project_id, estimate, label, "fal_key", lambda: fal_video.image(composed.prompt, seed))
+    path = os.path.join(out_dir, "still.jpg")
+    os.replace(frame.local_path, path)
+    return "still", path, "still.jpg"
+
+
+def motion_source(references: dict) -> str | None:
+    """Hareket testinin başlangıç karesi (ücretli mod): onaylı durağan görsel, yoksa dönüş videosunun ilk karesi,
+    yoksa ifade sayfası. Böylece sınanan, onaylanan referansın kendisidir."""
+    if references.get("still"):
+        return references["still"]["key"]
+    frames = (references.get("turnaround") or {}).get("frames") or []
+    if frames:
+        return frames[0]
+    return (references.get("expressions") or {}).get("key")
 
 
 # ---------- yerel taslak referans ----------

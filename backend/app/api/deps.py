@@ -1,4 +1,5 @@
 """Ortak API bağımlılıkları: kimlik biçimi doğrulama, 404 yardımcıları ve Kill-Switch denetimi."""
+from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import HTTPException, Path
@@ -36,3 +37,19 @@ def ensure_not_frozen(project_id: str) -> None:
     """Dondurulmuş projede yeni iş başlatılamaz. Veri DEĞİŞTİRİLMEDEN önce çağrılmalı: 423 dönen istek durumu bozmamalı."""
     if killswitch.is_frozen(project_id):
         raise HTTPException(423, "Proje Kill-Switch ile dondurulmuş. Önce üretime devam ettir.")
+
+
+@contextmanager
+def paid_errors():
+    """İstek içinde yapılan ücretli çağrının (Faz 18) hatalarını Türkçe HTTP yanıtlarına çevirir. Her durumda
+    rezervasyon iade edilmiş ya da hiç alınmamıştır."""
+    from app.engine.providers import TransientError
+    from app.live import PaidCallBlocked                 # yalnızca kilit; ücretli paket yüklenmez
+    try:
+        yield
+    except killswitch.ProjectFrozen:
+        raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
+    except PaidCallBlocked as e:
+        raise HTTPException(409, f"Ücretli çağrı engellendi: {e}")
+    except TransientError as e:
+        raise HTTPException(503, f"Ücretli servis geçici olarak yanıt vermedi; biraz sonra yeniden dene. ({e})")

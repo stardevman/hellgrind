@@ -1,7 +1,13 @@
 """ÜCRETLİ video üretimi ve dudak senkronu (fal.ai). Bu modül hiçbir yerde çalıştırılmadı.
 
-Akış: Flux LoRA ile ilk kare, sonra bu kareden Wan 2.2 ya da Seedance ile video. Her giriş noktası önce `guard("fal_key")`
-çağırır (DRY_RUN=1 ya da boş anahtar: PaidCallBlocked); `fal_client` yalnızca fonksiyon içinde yüklenir.
+Akış: Flux LoRA ile ilk kare, sonra bu kareden Wan 2.2 ya da Seedance ile video. Önce görsel, sonra video: iterasyon
+ilk kareyi `first_frame()` ile ayrı üretip puanlar; video yalnızca eşiği geçen kareden (`image_url`) üretilir.
+Her giriş noktası önce `guard("fal_key")` çağırır (DRY_RUN=1 ya da boş anahtar: PaidCallBlocked); `fal_client` yalnızca
+fonksiyon içinde yüklenir.
+
+Bölüm B bağlantıları: storyboard karesi ve mekân/nesne referansı tek bir Flux karesidir (`image()`); karakter dönüş
+videosu Flux karesinden yörünge hareketli Wan videosudur (`FalProvider.generate`); previs rehberi Wan 2.2 video-to-video
+ile stile aktarılır (`restyle()`); düzenlenmiş ilk kare yüklenip (`upload()`) videoya çevrilir.
 
 Uç nokta kimlikleri ve parametreler fal.ai model sayfalarından doğrulandı (2 Ekim 2026):
   fal-ai/flux-lora                          prompt, image_size, seed, loras[{path, scale}], num_images, output_format
@@ -10,6 +16,9 @@ Uç nokta kimlikleri ve parametreler fal.ai model sayfalarından doğrulandı (2
   bytedance/seedance-2.0/fast/image-to-video  prompt, image_url, resolution 480p|720p, duration "auto" ya da 4-15,
                                             aspect_ratio, generate_audio (varsayılan true); TOHUM ALMAZ
   fal-ai/sync-lipsync/v2/pro                video_url, audio_url, sync_mode
+  fal-ai/wan/v2.2-a14b/video-to-video       video_url, prompt, strength 0-1 (varsayılan 0,9), num_frames 17-161,
+                                            frames_per_second 4-60, resolution 480p|580p|720p, negative_prompt, seed,
+                                            aspect_ratio; 0,04/0,06/0,08 USD/sn (16 fps'de) (3 Ekim 2026)
 
 Bütçe: iterasyon, sağlayıcının `estimate()` değeri kadar rezervasyon alır ve `generate()` sonucundaki `cost_usd`'yi işler.
 Bu yüzden `estimate()` ilk kare dahil tüm üretimi kapsar. fal yanıtı fatura tutarı döndürmez: tutarlar pricing.yaml tahminidir.
@@ -20,6 +29,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 
 import httpx
 
@@ -35,6 +45,7 @@ FLUX = "fal-ai/flux-lora"
 WAN = "fal-ai/wan/v2.2-a14b/image-to-video"
 SEEDANCE = "bytedance/seedance-2.0/fast/image-to-video"
 LIPSYNC = "fal-ai/sync-lipsync/v2/pro"
+WAN_V2V = "fal-ai/wan/v2.2-a14b/video-to-video"
 
 WAN_FPS = 16
 WAN_FRAMES = (17, 161)
@@ -42,6 +53,7 @@ WAN_RESOLUTIONS = ("480p", "580p", "720p")
 SEEDANCE_SECONDS = (4, 15)                 # Seedance yalnızca "auto" ya da 4-15 sn kabul eder; 3 sn'lik çekim geçersiz olurdu
 SEEDANCE_RESOLUTIONS = ("480p", "720p")
 FIRST_FRAME_MEGAPIXELS = 1.0               # landscape_16_9 ~0,59 MP; fiyat MP başına olduğundan tutucu: 1 MP
+V2V_STRENGTH = 0.65                        # previs: hareket ve kompozisyon rehberden, görünüm stilden (0,9 prompt'a fazla yaslanır)
 QUEUE_START_TIMEOUT_S = 900
 DOWNLOAD_ATTEMPTS = 3
 
@@ -81,10 +93,10 @@ def _run(client, application: str, arguments: dict) -> tuple[dict, str]:
     return handle.get(), handle.request_id
 
 
-def _download(url: str) -> str:
-    """Üretilmiş videoyu indirir. İndirme de yeniden denenir: tek bir ağ kesintisi ödenmiş üretimi kaybettirmemeli."""
+def _download(url: str, suffix: str = ".mp4") -> str:
+    """Üretilmiş dosyayı indirir. İndirme de yeniden denenir: tek bir ağ kesintisi ödenmiş üretimi kaybettirmemeli."""
     os.makedirs(settings.work_dir, exist_ok=True)
-    path = os.path.join(settings.work_dir, f"{uuid.uuid4()}.mp4")
+    path = os.path.join(settings.work_dir, f"{uuid.uuid4()}{suffix}")
     last: BaseException | None = None
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
@@ -102,18 +114,89 @@ def _download(url: str) -> str:
                 raise                                        # süresi dolmuş bağlantı gibi: yeniden denemek işe yaramaz
             log.warning("indirme hatası (deneme %d/%d): %s", attempt, DOWNLOAD_ATTEMPTS, e)
             time.sleep(min(2 ** attempt, 8))
-    raise TransientError(f"video indirilemedi: {last}")
+    raise TransientError(f"dosya indirilemedi: {last}")
+
+
+@dataclass
+class Frame:
+    """Üretilmiş tek kare: fal'daki adresi (videoya `image_url` olarak verilir), indirilmiş yerel kopyası ve bedeli."""
+    url: str
+    local_path: str
+    request_id: str
+    cost_usd: float
+
+
+def flux_arguments(prompt: str, seed: int, loras=None, triggers=None, image_size: str = "landscape_16_9") -> dict:
+    """Flux LoRA isteği: karakter LoRA'ları ve tetik sözcükleri kareye ulaşır."""
+    args = {"prompt": ", ".join([*[t for t in triggers or [] if t], prompt]), "image_size": image_size, "num_images": 1,
+            "output_format": "jpeg", "enable_safety_checker": True, "seed": seed}
+    loras = [{"path": l["path"], "scale": l.get("scale", 1.0)} for l in loras or []]
+    if loras:
+        args["loras"] = loras
+    return args
+
+
+def image_estimate(megapixels: float = FIRST_FRAME_MEGAPIXELS) -> float:
+    return pricing.estimate_image(megapixels)
+
+
+def image(prompt: str, seed: int, loras=None, triggers=None, image_size: str = "landscape_16_9") -> Frame:
+    """Tek Flux karesi (storyboard, mekân ve nesne referansı). Çağıran, `image_estimate()` kadar rezervasyon almış olmalı."""
+    client = _client(guard("fal_key"))
+    try:
+        result, request_id = _run(client, FLUX, flux_arguments(prompt, seed, loras, triggers, image_size))
+        url = result["images"][0]["url"]
+        path = _download(url, ".jpg")
+    except Exception as e:
+        _reraise(e)
+    return Frame(url=url, local_path=path, request_id=request_id, cost_usd=image_estimate())
+
+
+def upload(path: str) -> str:
+    """Yerel dosyayı fal deposuna yükler (ücretsiz; üretim isteğine adres olarak verilir)."""
+    client = _client(guard("fal_key"))
+    try:
+        return client.upload_file(path)
+    except Exception as e:
+        _reraise(e)
+
+
+def v2v_frames(duration_s: float) -> int:
+    return min(WAN_FRAMES[1], max(WAN_FRAMES[0], round(duration_s * WAN_FPS)))
+
+
+def restyle_arguments(video_url: str, prompt: str, negative: str, seed: int, resolution: str, duration_s: float) -> dict:
+    return {"video_url": video_url, "prompt": prompt, "negative_prompt": negative, "seed": seed,
+            "strength": V2V_STRENGTH, "num_frames": v2v_frames(duration_s), "frames_per_second": WAN_FPS,
+            "resolution": resolution if resolution in WAN_RESOLUTIONS else "720p", "aspect_ratio": "16:9",
+            "enable_safety_checker": True}
+
+
+def restyle(video_path: str, prompt: str, negative: str, seed: int, resolution: str, duration_s: float) -> tuple[str, str]:
+    """Previs rehberini stile aktarır (Wan 2.2 video-to-video). (yerel video, fal istek kimliği). Çağıran,
+    `methods.restyle_estimate()` kadar rezervasyon almış olmalı."""
+    client = _client(guard("fal_key"))
+    try:
+        video_url = client.upload_file(video_path)
+        result, request_id = _run(client, WAN_V2V, restyle_arguments(video_url, prompt, negative, seed, resolution, duration_s))
+        path = _download(result["video"]["url"])
+    except Exception as e:
+        _reraise(e)
+    return path, request_id
 
 
 class FalProvider:
-    """Yerel sağlayıcıyla aynı arayüz: `engine`, `estimate(req)`, `generate(req)`."""
+    """Yerel sağlayıcıyla aynı arayüz: `engine`, `estimate(req)`, `generate(req)`. Ek olarak `image_first`: iterasyon ilk
+    kareyi `first_frame(req)` ile ayrı üretip puanlar, videoyu yalnızca geçen kareden ister."""
+
+    image_first = True
 
     def __init__(self, engine: str):
         if engine not in ("fal_wan", "seedance"):
             raise NotImplementedError(f"{engine} için ücretli sağlayıcı henüz bağlı değil")
         self.engine = engine
         self._lock = threading.Lock()
-        self._frames: dict[str, str] = {}                  # istek -> ilk kare URL'si
+        self._frames: dict[str, tuple[str, str]] = {}      # istek -> (ilk kare URL'si, fal istek kimliği)
         self._videos: dict[str, tuple[str, str]] = {}      # istek -> (video URL'si, fal istek kimliği)
 
     # ---------- süre, çözünürlük, maliyet ----------
@@ -133,8 +216,11 @@ class FalProvider:
 
     def estimate(self, req: GenRequest) -> float:
         video = pricing.estimate_video(self.engine, self.resolution(req.resolution), self.billed_seconds(req.duration_s))
-        image = 0.0 if req.image_url else pricing.estimate_image(FIRST_FRAME_MEGAPIXELS)
+        image = 0.0 if req.image_url else image_estimate()
         return round(video + image, 4)
+
+    def estimate_frame(self) -> float:
+        return image_estimate()
 
     # ---------- üretim ----------
 
@@ -142,24 +228,36 @@ class FalProvider:
         x = req.extra
         return stable_hash([self.engine, req.prompt, req.seed, req.resolution, req.duration_s, x.get("loras"), x.get("lora_triggers")])
 
-    def _first_frame(self, client, req: GenRequest) -> str:
+    def _first_frame(self, client, req: GenRequest) -> tuple[str, str | None]:
         if req.image_url:
-            return req.image_url
+            return req.image_url, None
         key = self._key(req)
         with self._lock:
             if key in self._frames:                          # yeniden deneme: ikinci kez ilk kare ödenmez
                 return self._frames[key]
-        triggers = [t for t in req.extra.get("lora_triggers") or [] if t]
-        args = {"prompt": ", ".join([*triggers, req.prompt]), "image_size": "landscape_16_9", "num_images": 1,
-                "output_format": "jpeg", "enable_safety_checker": True, "seed": req.seed}
-        loras = [{"path": l["path"], "scale": l.get("scale", 1.0)} for l in req.extra.get("loras") or []]
-        if loras:
-            args["loras"] = loras                            # karakter LoRA'ları ilk kareye ulaşır
-        result, _ = _run(client, FLUX, args)
-        url = result["images"][0]["url"]
+        result, request_id = _run(client, FLUX, flux_arguments(req.prompt, req.seed, req.extra.get("loras"),
+                                                               req.extra.get("lora_triggers")))
+        made = (result["images"][0]["url"], request_id)
         with self._lock:
-            self._frames[key] = url
-        return url
+            self._frames[key] = made
+        return made
+
+    def first_frame(self, req: GenRequest) -> Frame:
+        """Önce görsel: yalnızca ilk kare (Flux LoRA), puanlanmak üzere indirilir. Çağıran `estimate_frame()` kadar
+        rezervasyon almış olmalı. İndirme başarısız olursa yeniden deneme kareyi yeniden ödemez."""
+        client = _client(guard("fal_key"))
+        key = self._key(req)
+        try:
+            url, request_id = self._first_frame(client, req)
+            path = _download(url, ".jpg")
+        except Exception as e:
+            _reraise(e)
+        with self._lock:
+            self._frames.pop(key, None)
+        return Frame(url=url, local_path=path, request_id=request_id or "", cost_usd=self.estimate_frame())
+
+    def upload(self, path: str) -> str:
+        return upload(path)
 
     def video_arguments(self, req: GenRequest, image_url: str) -> tuple[str, dict]:
         resolution = self.resolution(req.resolution)
@@ -179,7 +277,7 @@ class FalProvider:
             with self._lock:
                 made = self._videos.get(key)
             if made is None:                                 # daha önce üretilmiş ama indirilememiş video yeniden üretilmez
-                image_url = self._first_frame(client, req)
+                image_url, _ = self._first_frame(client, req)
                 application, args = self.video_arguments(req, image_url)
                 result, request_id = _run(client, application, args)
                 made = (result["video"]["url"], request_id)

@@ -138,7 +138,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "id": str(v.id), "tier": v.tier, "wave_no": v.wave_no, "status": v.status, "seed": v.seed,
             "score": v.composite_score, "rank": v.refined_rank, "cost_usd": float(v.cost_usd),
             "anomalies": sorted({a["type"] for a in (v.anomalies or [])}),
-            "reason": (v.params or {}).get("purge_reason"), "thumb_url": _media(v.keyframe_key),
+            "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
+            "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
             "source": (v.params or {}).get("source", "generate"), "revisions": len(revisions[v.id]),
             "revision": revisions[v.id].get(v.revision_id) if v.revision_id else None,   # etkin revizyonun sürümü

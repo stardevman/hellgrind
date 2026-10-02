@@ -18,13 +18,13 @@ from dataclasses import dataclass
 from sqlalchemy import select
 
 from app import storage
-from app.budget import killswitch, pricing
+from app.budget import pricing
 from app.config import project_settings, settings
 from app.core.hashing import stable_hash
 from app.core.rerender import Fingerprints, fingerprints
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
-from app.engine.providers import TransientError
+from app.engine import paid
 from app.models import AudioTrack, Character, Project, Revision, Scene, Variation
 from app.post import grade
 from app.post.audio import synthesize, synthesize_music
@@ -34,7 +34,6 @@ from app.style import bible
 
 log = logging.getLogger("hellgrind.post")
 
-MAX_PAID_ATTEMPTS = 3                          # geçici sağlayıcı hatalarında ücretli çağrı başına deneme
 SKIP_STATUSES = ("frozen", "needs_review", "blocked")     # bu durumdaki sahnede post aşaması çalışmaz
 MUSIC_BUCKET_S = 5                             # müzik dosyası bu adımlarla yuvarlanır: sahneler arasında paylaşılır
 
@@ -95,28 +94,12 @@ def effective_tts_engine() -> str:
     return "espeak" if settings.tts_engine == "elevenlabs" and settings.dry_run else settings.tts_engine
 
 
-def _spend_retrying(project_id: str, scene_id, estimate: float, label: str, key_name: str, call):
-    """Ücretli çağrı: guard (engelliyse deftere iz bırakmadan durur), sonra her deneme kendi rezervasyonunu alır ve başarısızsa
-    iade eder. Yalnızca geçici hatalar (429, 5xx, zaman aşımı) yeniden denenir."""
-    from app.live import guard                  # ücretli kilit: yalnızca fonksiyon içinde
-    guard(key_name)
-    for attempt in range(1, MAX_PAID_ATTEMPTS + 1):
-        try:
-            with killswitch.spend(project_id, estimate, label, scene_id=scene_id) as charge:
-                result = call()
-                charge.actual = estimate
-            return result
-        except TransientError as e:
-            log.warning("%s geçici hata (deneme %d/%d): %s", label, attempt, MAX_PAID_ATTEMPTS, e)
-    raise TransientError(f"{label}: {MAX_PAID_ATTEMPTS} denemede de başarısız")
-
-
 def _paid_tts(t: AudioTrack, scene: Scene, path: str) -> float:
     from app.live.elevenlabs import tts
     with session_scope() as s:
         voice_id = s.get(Character, t.character_id).voice_id if t.character_id else None
-    return _spend_retrying(str(scene.project_id), scene.id, pricing.estimate_tts(t.text or ""), "elevenlabs",
-                           "elevenlabs_api_key", lambda: tts(t.text or "", voice_id, t.emotion or scene.emotion, path))
+    return paid.call(str(scene.project_id), pricing.estimate_tts(t.text or ""), "elevenlabs", "elevenlabs_api_key",
+                     lambda: tts(t.text or "", voice_id, t.emotion or scene.emotion, path), scene_id=scene.id)
 
 
 # ---------- ses dosyaları ----------
@@ -224,8 +207,8 @@ def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str) -> None:
                          t.start_offset_s, t.gain_db) for t in dialogue]
     voice = mix_audio(voices, os.path.join(tmp, "voice.wav"), duration)
     out = os.path.join(tmp, "lipsynced.mp4")
-    _spend_retrying(str(scene.project_id), scene.id, pricing.estimate_lipsync(duration), "fal:lipsync", "fal_key",
-                    lambda: lipsync(video, voice, out))
+    paid.call(str(scene.project_id), pricing.estimate_lipsync(duration), "fal:lipsync", "fal_key",
+              lambda: lipsync(video, voice, out), scene_id=scene.id)
     storage.put_file(out, out_key)
 
 

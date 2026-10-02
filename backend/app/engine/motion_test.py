@@ -3,16 +3,23 @@
 Varlık kilitlenmeden önce kısa, düşük çözünürlüklü bir klip üretilir; yönetmen panelden izleyip onaylar. Klip her üretim
 gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal) ve gerçek anomali tespitinden (siyah, donmuş) geçer. Kusurlu test
 onaylanamaz. Test, varlığın sürümüne bağlıdır: referans değişince eski test geçersiz olur.
+
+Ücretli modda (Faz 18) test, varlığın onaylı referans görselinden başlar (ilk kare olarak yüklenir, Flux çağrılmaz):
+sınanan, onaylanan referansın kendisidir.
 """
 import logging
 import os
+import tempfile
+from dataclasses import replace
 
 from sqlalchemy import func, select
 
 from app import storage
 from app.budget import killswitch
+from app.config import settings
 from app.core.hashing import seed_for
 from app.db import session_scope
+from app.engine import references
 from app.engine.iteration import make_thumb
 from app.engine.providers import GenRequest, TransientError, get_provider
 from app.style import bible
@@ -83,15 +90,21 @@ def run(project_id: str, variation_id: str) -> str:
                                 "characters": [asset.name] if asset.type == "character" else [],
                                 "label": f"{asset.name} · hareket testi #{v.wave_no + 1}"})
         asset_id = str(asset.id)
+        source = references.motion_source(asset.references or {})
     if killswitch.is_frozen(project_id):
         _set(variation_id, status="failed", params={**v.params, "purge_reason": "frozen"})
         raise killswitch.ProjectFrozen(project_id)
 
     provider = get_provider(ENGINE)
-    estimate = provider.estimate(req)
     _set(variation_id, status="running")
     result = None
     try:
+        if not settings.dry_run and source:                   # ücretli: onaylı referanstan başla (yükleme ücretsiz)
+            os.makedirs(settings.work_dir, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+                local = storage.download(source, os.path.join(tmp, "start" + os.path.splitext(source)[1]))
+                req = replace(req, image_url=provider.upload(local))
+        estimate = provider.estimate(req)
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 with killswitch.spend(project_id, estimate, f"{ENGINE}:{req.resolution}:motion_test",

@@ -632,7 +632,7 @@ const GRADE_FIELDS = ["exposure", "contrast", "saturation", "gamma", "temperatur
 const BOARD_TR = { pending: "Onay bekliyor", approved: "Onaylı", changes_requested: "Değişiklik istendi" };
 const EMOTION_TR = { neutral: "Nötr", joy: "Sevinç", anger: "Öfke", fear: "Korku", sadness: "Hüzün", surprise: "Şaşkınlık", disgust: "Tiksinti", tension: "Gerilim" };
 const EMOTION_COLOR = { neutral: "#A39E95", joy: "#E4A23E", anger: "#C2573F", fear: "#86A5B8", sadness: "#6F8CA0", surprise: "#D9B77A", disgust: "#8FA66A", tension: "#C9895A" };
-const ANOMALY_TR = { black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya", unreadable: "okunamayan dosya" };
+const ANOMALY_TR = { black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya", unreadable: "okunamayan dosya", flat: "tek renk kare" };
 const SHOT_TR = { extreme_wide: "çok geniş", wide: "geniş", pov: "öznel", medium: "orta", over_shoulder: "omuz üstü", close_up: "yakın", extreme_close_up: "çok yakın" };
 const MOVE_TR = { static: "sabit", dolly_in: "yaklaşma", dolly_out: "uzaklaşma", pan: "pan", tilt: "tilt", crane: "vinç", orbit: "yörünge", tracking: "takip", handheld: "el kamerası" };
 
@@ -747,7 +747,7 @@ function tileSpec(v, prev) {
   const working = ["queued", "running", "generated"].includes(v.status);
   let fate;
   if (v.rank) { cls.push("refined"); fate = `rafine havuzda, ${v.rank}. sıra`; }
-  else if (v.status === "purged" && v.reason === "quality_gate") { cls.push("rejected"); fate = "kalite kontrolünde elendi: " + (v.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ") || "eşik altı"); }
+  else if (v.status === "purged" && v.reason === "quality_gate") { cls.push("rejected"); fate = (v.stage === "first_frame" ? "ilk karede elendi, video üretilmedi: " : "kalite kontrolünde elendi: ") + (v.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ") || "eşik altı"); }
   else if (v.status === "purged") { cls.push("retired"); fate = v.reason === "superseded" ? "yeni üretimle yerini kaybetti" : "havuza giremedi"; }
   else if (v.status === "failed") { cls.push("failed"); fate = "üretilemedi"; }
   else if (working) { cls.push("working"); fate = "üretiliyor"; }
@@ -1175,7 +1175,7 @@ function assetCard(a) {
       <label>Referans türü<select name="kind">${kinds}</select></label>
       <label>Dosya<input type="file" name="file" accept="${REF_ACCEPT[REF_KINDS[a.type][0]]}" required></label>
       <button class="btn small" type="submit"${dis(false)}>Yükle</button>
-      ${S.meta && S.meta.dry_run ? `<button class="btn small" type="button" data-act="placeholder" data-asset="${a.id}"${dis(frozen)}>Yerel taslak üret</button>` : ""}
+      <button class="btn small" type="button" data-act="placeholder" data-asset="${a.id}"${dis(frozen)}>${S.meta && !S.meta.dry_run ? "Referans üret (ücretli)" : "Yerel taslak üret"}</button>
     </form>`;
   const used = a.scenes.length ? "Kullanıldığı çekimler: " + esc(a.scenes.join(", ")) : "Henüz bir çekimde kullanılmıyor.";
   const voice = a.character && a.character.voice_id ? " · ses kimliği " + esc(a.character.voice_id) : "";
@@ -1362,8 +1362,8 @@ function renderStyle() {
 /* ---------- verimlilik (Faz 17) ---------- */
 const PURGE_TR = { quality_gate: "Kalite kontrolünde elendi", not_top_k: "Rafine havuza giremedi", superseded: "Yeni üretimle değişti",
                    interrupted: "Yarıda kesildi", frozen: "Üretim durdurulunca kesildi", failed: "Üretilemedi", unknown: "Nedeni kayıtsız" };
-const KIND_TR = { local: "Görüntü üretimi", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri",
-                  lipsync: "Dudak senkronu", tts: "Konuşma", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)" };
+const KIND_TR = { fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri",
+                  v2v: "Previs aktarımı", fal: "Dudak senkronu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)" };
 const pct = (x) => (x == null ? "—" : `%${Math.round(x * 100)}`);
 const ratio = (x, unit) => (x == null ? "—" : `${String(x).replace(".", ",")}${unit || ""}`);
 function shareBar(x, label) {

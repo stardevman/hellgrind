@@ -13,7 +13,7 @@ from app import storage
 from app.config import settings
 from app.db import session_scope
 from app.models import Scene, Variation
-from app.quality.anomaly import detect_anomalies
+from app.quality.anomaly import detect_anomalies, detect_frame_anomalies
 
 log = logging.getLogger("hellgrind.gate")
 
@@ -44,6 +44,16 @@ def score_video(path: str, seed: int, cfg: dict) -> Score:
     """Birleşik skor + anomaliler. Eşik altı CLIP skoru da `low_clip` anomalisi sayılır; geçmek = anomali yok."""
     clip = clip_score_dry(seed)
     anomalies = detect_anomalies(path)
+    if clip < cfg["clip_threshold"]:
+        anomalies.append({"type": "low_clip", "score": clip, "threshold": cfg["clip_threshold"]})
+    return Score(clip=clip, face=None, composite=clip, anomalies=anomalies, passed=not anomalies)
+
+
+def score_frame(path: str, seed: int, cfg: dict) -> Score:
+    """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle puanlanır; geçemeyen kare için video hiç üretilmez.
+    Skor, videonun skoruyla aynı kaynaktan gelir (ücretsiz modda seed'e bağlı sahte skor)."""
+    clip = clip_score_dry(seed)
+    anomalies = detect_frame_anomalies(path)
     if clip < cfg["clip_threshold"]:
         anomalies.append({"type": "low_clip", "score": clip, "threshold": cfg["clip_threshold"]})
     return Score(clip=clip, face=None, composite=clip, anomalies=anomalies, passed=not anomalies)
