@@ -63,3 +63,25 @@ def purge(key: str) -> str | None:
         return q
     delete(key)
     return None
+
+
+@lru_cache(maxsize=1)
+def public_client():
+    """Tarayıcının erişeceği adresle imzalanan URL'ler için (MinIO: http://localhost:9000)."""
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_public_endpoint_url or settings.s3_endpoint_url or None,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name=settings.s3_region,
+        config=Config(signature_version="s3v4"),
+    )
+
+
+def presign(key: str, ttl: int = 3600) -> str:
+    return public_client().generate_presigned_url(
+        "get_object", Params={"Bucket": settings.s3_bucket, "Key": key}, ExpiresIn=ttl)
+
+
+def read_bytes(key: str) -> bytes:
+    return client().get_object(Bucket=settings.s3_bucket, Key=key)["Body"].read()

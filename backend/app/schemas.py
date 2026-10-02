@@ -1,15 +1,51 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Emotion = Literal["neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension"]
+
+
+def _int(lo, hi):
+    return lambda v: type(v) is int and lo <= v <= hi
+
+
+def _num(lo, hi, open_low=False):
+    return lambda v: type(v) in (int, float) and (lo < v if open_low else lo <= v) and v <= hi
+
+
+# Ayar değerlerinin geçerli aralıkları. wave_size=0 worker'ı sonsuz döngüye sokar; refined_k veritabanında
+# refined_rank CHECK (1..3) ile sınırlıdır; loudnorm hedefi -70..-5 LUFS dışında FFmpeg'de hata verir.
+SETTING_RULES = {
+    "clip_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "excellent_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "min_pass_rate": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "probe_n": (_int(1, 200), "1 ile 200 arasında tam sayı"),
+    "full_n": (_int(1, 1000), "1 ile 1000 arasında tam sayı"),
+    "wave_size": (_int(1, 200), "1 ile 200 arasında tam sayı"),
+    "refined_k": (_int(1, 3), "1 ile 3 arasında tam sayı (Rafine Havuz en çok 3 sıra tutar)"),
+    "max_correction_rounds": (_int(0, 10), "0 ile 10 arasında tam sayı"),
+    "probe_resolution": (lambda v: v in ("480p", "580p", "720p", "1080p"), "480p, 580p, 720p ya da 1080p"),
+    "full_resolution": (lambda v: v in ("480p", "580p", "720p", "1080p"), "480p, 580p, 720p ya da 1080p"),
+    "soft_budget_ratio": (_num(0, 1, open_low=True), "0 ile 1 arasında (0 hariç) bir sayı"),
+    "max_spend_per_10min": (_num(0, 1e6, open_low=True), "sıfırdan büyük bir sayı"),
+    "loudness_lufs": (_num(-70, -5), "-70 ile -5 arasında bir sayı"),
+}
 
 
 class ProjectIn(BaseModel):
     title: str
     budget_limit_usd: float = Field(gt=0)
     settings: dict = {}
+
+    @field_validator("settings")
+    @classmethod
+    def _valid_settings(cls, v: dict) -> dict:
+        for key, value in v.items():
+            rule = SETTING_RULES.get(key)
+            if rule and not rule[0](value):
+                raise ValueError(f"{key}: {rule[1]} olmalı (gelen: {value!r})")
+        return v
 
 
 class CharacterIn(BaseModel):
@@ -58,3 +94,9 @@ class AudioTrackIn(BaseModel):
 class KillSwitchIn(BaseModel):
     action: Literal["freeze", "resume"]
     reason: str = "manual"
+
+
+class ScriptIn(BaseModel):
+    text: str = Field(min_length=10)
+    auto_render: bool = True
+    auto_music: bool = True

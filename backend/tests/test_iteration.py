@@ -24,16 +24,6 @@ from app.quality import gate
 PROBE_COST, FULL_COST = 0.104, 0.208          # fal_wan: 480p 0.04/sn, 720p 0.08/sn; sahne 2.6 sn
 
 
-@pytest.fixture
-def fast(monkeypatch, tmp_path, s3):
-    """Gerçek render hattı, ama küçük kareler: her klip ~0.1 sn. Varsayılan: hepsi geçer (CLIP 0.95)."""
-    monkeypatch.setattr(providers, "RESOLUTIONS", {"480p": (160, 90), "720p": (160, 90)})
-    for name, value in dict(local_render_fps=8, work_dir=str(tmp_path), dry_run_defect_rate=0.0,
-                            dry_run_fail_rate=0.0, dry_run_score_mean=0.95, dry_run_score_sd=0.0,
-                            gen_concurrency=2, purge_mode="quarantine").items():
-        monkeypatch.setattr(settings, name, value)
-
-
 def start(mk_project, mk_scene, limit=100, **cfg):
     base = dict(probe_n=3, full_n=4, wave_size=2, refined_k=2, max_correction_rounds=1)
     pid = mk_project(limit=limit, **{**base, **cfg})
@@ -343,3 +333,15 @@ def test_regeneration_leaves_no_orphaned_refined_variations(fast, mk_project, mk
     vs = variations(sid)
     assert [v for v in vs if v.status == "refined" and v.refined_rank is None] == []
     assert sorted(v.refined_rank for v in vs if v.refined_rank) == [1, 2]
+
+
+def test_non_positive_wave_size_cannot_hang_the_worker(fast, mk_project, mk_scene):
+    """Regresyon: API artık reddediyor ama veritabanında eski/elle girilmiş bir proje wave_size=0 taşıyabilir;
+    n=0 ile produced hiç artmaz ve dalga döngüsü sonsuza dek dönerdi."""
+    pid, sid = start(mk_project, mk_scene, wave_size=0, full_n=2)
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(run_tiered_generation(pid, sid)), daemon=True)
+    worker.start()
+    worker.join(30)
+    assert not worker.is_alive(), "dalga döngüsü sonlanmadı"
+    assert outcome == ["refined"] and len(tiers(sid)[1]) == 2

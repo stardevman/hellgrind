@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS
+from app.api.deps import ProjectId
 from app.db import get_session
 from app.models import Character, Project, Scene, SceneCharacter
 from app.schemas import CharacterIn, ProjectIn, SceneIn
@@ -36,7 +38,7 @@ def create_project(body: ProjectIn, s: Session = Depends(get_session)):
 
 
 @router.get("/projects/{project_id}")
-def get_project(project_id: str, s: Session = Depends(get_session)):
+def get_project(project_id: ProjectId, s: Session = Depends(get_session)):
     p = s.get(Project, project_id)
     if not p:
         raise HTTPException(404)
@@ -44,32 +46,47 @@ def get_project(project_id: str, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/characters", status_code=201)
-def create_character(project_id: str, body: CharacterIn, s: Session = Depends(get_session)):
+def create_character(project_id: ProjectId, body: CharacterIn, s: Session = Depends(get_session)):
     if not s.get(Project, project_id):
         raise HTTPException(404)
     c = Character(project_id=project_id, pinecone_namespace=project_id, reference_images=[],
                   style_constraints={}, embedding_version=1, **body.model_dump())
     s.add(c)
-    s.commit()
+    try:
+        s.commit()
+    except IntegrityError:
+        s.rollback()
+        raise HTTPException(409, f"Bu projede '{body.name}' adlı bir karakter zaten var.")
     return {"id": str(c.id), "name": c.name}
 
 
 @router.post("/projects/{project_id}/scenes", status_code=201)
-def create_scene(project_id: str, body: SceneIn, s: Session = Depends(get_session)):
+def create_scene(project_id: ProjectId, body: SceneIn, s: Session = Depends(get_session)):
     if not s.get(Project, project_id):
         raise HTTPException(404)
+    wanted = set(body.character_ids)
+    known = set(s.scalars(select(Character.id).where(Character.project_id == project_id, Character.id.in_(wanted))).all())
+    if wanted - known:
+        raise HTTPException(422, "Sahnedeki karakterlerden biri bu projeye ait değil: "
+                                 f"{sorted(str(c) for c in wanted - known)}")
     data = body.model_dump(exclude={"character_ids"})
     sc = Scene(project_id=project_id, status="pending", prompt_revision=0, correction_count=0, spent_usd=0, **data)
     s.add(sc)
-    s.flush()
-    for cid in body.character_ids:
+    try:
+        s.flush()
+    except IntegrityError:
+        s.rollback()
+        raise HTTPException(409, f"Bu projede '{body.scene_code}' kodlu bir sahne zaten var.")
+    for cid in wanted:
         s.add(SceneCharacter(scene_id=sc.id, character_id=cid, role="primary", dialogue=[]))
     s.commit()
     return {"id": str(sc.id), "scene_code": sc.scene_code}
 
 
 @router.get("/projects/{project_id}/scenes")
-def list_scenes(project_id: str, s: Session = Depends(get_session)):
+def list_scenes(project_id: ProjectId, s: Session = Depends(get_session)):
+    if not s.get(Project, project_id):
+        raise HTTPException(404)
     rows = s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all()
     return [{"id": str(r.id), "scene_code": r.scene_code, "status": r.status, "engine": r.engine,
              "spent_usd": float(r.spent_usd), "final_video_key": r.final_video_key} for r in rows]

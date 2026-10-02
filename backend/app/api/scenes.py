@@ -3,10 +3,9 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import storage
-from app.config import settings
-from app.budget import killswitch
 from app.core.hashing import stable_hash
 from app.core.rerender import ALL, Stage, plan_rerender, stage_names
+from app.api.deps import SceneId, ensure_not_frozen
 from app.db import get_session
 from app.engine.iteration import load_characters
 from app.models import AudioTrack, Scene, Variation
@@ -16,7 +15,7 @@ from app.worker.dispatch import build_chain
 router = APIRouter(tags=["scenes"])
 
 
-def _scene_or_404(s: Session, scene_id: str) -> Scene:
+def _scene_or_404(s: Session, scene_id: SceneId) -> Scene:
     sc = s.get(Scene, scene_id)
     if not sc:
         raise HTTPException(404)
@@ -25,8 +24,7 @@ def _scene_or_404(s: Session, scene_id: str) -> Scene:
 
 def _plan_and_dispatch(s: Session, sc: Scene, force: Stage = Stage.NONE) -> list[str]:
     pid = str(sc.project_id)
-    if killswitch.is_frozen(pid):
-        raise HTTPException(423, "Proje Kill-Switch ile dondurulmuş. Önce /killswitch ile devam ettir.")
+    ensure_not_frozen(pid)
     tracks = s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id, AudioTrack.is_active)).all()
     stages, _ = plan_rerender(sc, load_characters(s, sc.id), tracks)
     stages |= force
@@ -39,13 +37,13 @@ def _plan_and_dispatch(s: Session, sc: Scene, force: Stage = Stage.NONE) -> list
 
 
 @router.get("/scenes/{scene_id}")
-def get_scene(scene_id: str, s: Session = Depends(get_session)):
+def get_scene(scene_id: SceneId, s: Session = Depends(get_session)):
     sc = _scene_or_404(s, scene_id)
     return {c.name: getattr(sc, c.name) for c in Scene.__table__.columns}
 
 
 @router.patch("/scenes/{scene_id}")
-def patch_scene(scene_id: str, body: ScenePatch, s: Session = Depends(get_session)):
+def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_session)):
     sc = _scene_or_404(s, scene_id)
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(sc, k, v)
@@ -54,15 +52,16 @@ def patch_scene(scene_id: str, body: ScenePatch, s: Session = Depends(get_sessio
 
 
 @router.post("/scenes/{scene_id}/render")
-def render(scene_id: str, force_visual: bool = False, s: Session = Depends(get_session)):
+def render(scene_id: SceneId, force_visual: bool = False, s: Session = Depends(get_session)):
     sc = _scene_or_404(s, scene_id)
     return {"stages": _plan_and_dispatch(s, sc, ALL if force_visual else Stage.NONE)}
 
 
 @router.put("/scenes/{scene_id}/audio")
-def replace_audio(scene_id: str, body: AudioTrackIn, s: Session = Depends(get_session)):
+def replace_audio(scene_id: SceneId, body: AudioTrackIn, s: Session = Depends(get_session)):
     """Ses değiştir: yalnızca gereken aşamalar çalışır (video motoru tetiklenmez)."""
     sc = _scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))          # 423 dönen istek ses kanallarını değiştirmiş olmamalı
     prev = s.scalars(select(AudioTrack).where(
         AudioTrack.scene_id == sc.id, AudioTrack.kind == body.kind, AudioTrack.is_active,
         AudioTrack.character_id.is_not_distinct_from(body.character_id))).all()
@@ -75,7 +74,7 @@ def replace_audio(scene_id: str, body: AudioTrackIn, s: Session = Depends(get_se
 
 
 @router.get("/scenes/{scene_id}/variations")
-def list_variations(scene_id: str, s: Session = Depends(get_session)):
+def list_variations(scene_id: SceneId, s: Session = Depends(get_session)):
     rows = s.scalars(select(Variation).where(Variation.scene_id == scene_id)
                      .order_by(Variation.tier, Variation.wave_no, Variation.created_at)).all()
     return [{"id": str(v.id), "tier": v.tier, "wave_no": v.wave_no, "status": v.status, "seed": v.seed,
@@ -85,10 +84,8 @@ def list_variations(scene_id: str, s: Session = Depends(get_session)):
 
 
 @router.get("/scenes/{scene_id}/final-url")
-def final_url(scene_id: str, s: Session = Depends(get_session)):
+def final_url(scene_id: SceneId, s: Session = Depends(get_session)):
     sc = _scene_or_404(s, scene_id)
     if not sc.final_video_key:
         raise HTTPException(404, "Henüz final video yok")
-    url = storage.client().generate_presigned_url(
-        "get_object", Params={"Bucket": settings.s3_bucket, "Key": sc.final_video_key}, ExpiresIn=3600)
-    return {"key": sc.final_video_key, "url": url.replace("http://minio:9000", "http://localhost:9000")}
+    return {"key": sc.final_video_key, "url": storage.presign(sc.final_video_key)}

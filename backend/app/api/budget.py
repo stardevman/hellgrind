@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.budget import killswitch
+from app.api.deps import ProjectId
 from app.db import get_session
 from app.models import Project
 from app.schemas import KillSwitchIn
@@ -13,7 +14,7 @@ router = APIRouter(tags=["budget"])
 
 
 @router.get("/projects/{project_id}/budget")
-def budget(project_id: str, s: Session = Depends(get_session)):
+def budget(project_id: ProjectId, s: Session = Depends(get_session)):
     p = s.get(Project, project_id)
     if not p:
         raise HTTPException(404)
@@ -31,7 +32,7 @@ def budget(project_id: str, s: Session = Depends(get_session)):
 
 
 @router.post("/projects/{project_id}/killswitch")
-def killswitch_action(project_id: str, body: KillSwitchIn, s: Session = Depends(get_session)):
+def killswitch_action(project_id: ProjectId, body: KillSwitchIn, s: Session = Depends(get_session)):
     if not s.get(Project, project_id):
         raise HTTPException(404)
     if body.action == "freeze":

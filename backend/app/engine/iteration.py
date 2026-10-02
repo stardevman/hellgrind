@@ -203,7 +203,7 @@ def run_tiered_generation(project_id: str, scene_id: str) -> str:
         if wave > 0 and killswitch.is_soft_limited(project_id):
             killswitch.event(project_id, "soft_limit_stop", scene_id=scene_id, produced=produced)
             break
-        n = min(cfg["wave_size"], cfg["full_n"] - produced)
+        n = min(max(1, cfg["wave_size"]), cfg["full_n"] - produced)    # wave_size <= 0 sonsuz döngüye yol açardı
         rep = summarize(run_wave(ctx, "full", wave, n, cfg["full_resolution"]))
         produced, wave = produced + n, wave + 1
         excellent = gate.refined_count(scene_id, cfg["excellent_threshold"])
