@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Kontrol paneli (Next.js) ayrı bir aşamada statik olarak derlenir; son imaja yalnızca çıktısı girer, Node girmez.
 # "frontend" bağlamını docker-compose.yml verir (additional_contexts).
 FROM node:22-slim AS web

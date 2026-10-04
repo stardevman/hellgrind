@@ -1,114 +1,115 @@
 "use client";
-import { useEffect, useState, type FormEvent } from "react";
+/* Kurgu sayfasının denetçisi: seçili çekimin bilgisi, rafine havuz, ses, sekans, varlıklar, yöntem ve elle düzeltme;
+   her bölüm açılıp kapanır. */
+import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, EMOTION_COLOR, EMOTION_TR, GRADE_FIELDS, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ASTATUS_TR, EMOTION_COLOR, EMOTION_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
-import type { Grade, RevisionList, Scene, Sequence, StageResult, Variation } from "@/lib/types";
-import { NoteBox, StatusPill, UploadForm, useSynced, Video } from "./ui";
+import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
+import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
-function pickMedia(sc: Scene, varId: string | null) {
-  const best = sc.variations.find((v) => v.rank === 1);
-  const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
-  if (chosen?.video_url) {
-    const quarantine = chosen.video_url.includes("quarantine");
-    return { src: chosen.video_url, poster: chosen.thumb_url, preview: true,
-             label: `Varyasyon önizlemesi${quarantine ? " (karantinada)" : ""}${chosen.score != null ? " · skor " + chosen.score.toFixed(3) : ""}` };
-  }
-  if (sc.final_url) return { src: sc.final_url, poster: best?.thumb_url, preview: false, label: "Sonuç videosu" };
-  if (best?.video_url) return { src: best.video_url, poster: best.thumb_url, preview: false, label: "Rafine video (montaj bekliyor)" };
-  return null;
+export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
+  const { gotoAsset } = usePanel();
+  return (
+    <>
+      {list.map((m, i) => (
+        <span key={m.id ?? m.name}>
+          {i > 0 && ", "}
+          {m.id
+            ? <a href="#" onClick={(e) => { e.preventDefault(); gotoAsset(m.id!); }}
+                title={`${TYPE_TR[m.type]} · ${m.status ? ASTATUS_TR[m.status] : "kaydı yok"}`}>{m.name}</a>
+            : m.name}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function Shot({ sc }: { sc: Scene }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const cam = sc.camera || {};
+  const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
+  const regen = () => act(async () => {
+    const r = await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true`);
+    setVar(null);
+    note("inspector", resultText(r), r.blocked ? "err" : "ok");
+  }, "inspector");
+  const upgrade = () => act(async () => {
+    const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
+    note("inspector", r.upgrade_requested ? `${sc.scene_code} iyileştirme geçişine alınacak.` : `${sc.scene_code} işareti kaldırıldı.`, "ok");
+  }, "inspector");
+  return (
+    <Section title="Çekim" meta={<StatusDot status={sc.status} />}>
+      <p>{sc.description}</p>
+      <p className="dim small">{sc.heading}</p>
+      {error && <p className="warn small">{error}</p>}
+      {sc.status === "blocked" && sc.missing.length > 0 && (
+        <p className="small"><span className="warn">Eksik referans:</span> <MissingLinks list={sc.missing} /></p>
+      )}
+      <dl className="kv">
+        <dt>Duygu</dt><dd><span className="dot" style={{ background: EMOTION_COLOR[sc.emotion] || "#9ca0a9" }} />{EMOTION_TR[sc.emotion] || sc.emotion}</dd>
+        <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, <span className="mono">{cam.lens_mm ?? "—"} mm</span></dd>
+        <dt>Süre</dt><dd className="mono">{Number(sc.duration_s).toFixed(1)} sn</dd>
+        <dt>Aksiyon</dt><dd className="mono">{Number(sc.action_complexity).toFixed(2)}</dd>
+        <dt>Motor</dt><dd className="mono">{sc.engine || "—"}</dd>
+        <dt>Karakterler</dt><dd>{sc.characters.join(", ") || "—"}</dd>
+        <dt>Kesim</dt><dd>{sc.cut_tier === "draft" ? "Taslak (kaba kurgu)" : sc.cut_tier === "final" ? "Final" : "—"}</dd>
+        <dt>Harcama</dt><dd className="mono">{usd(sc.spent_usd)}</dd>
+      </dl>
+      <div className="row">
+        <button className="btn" type="button" disabled={busy || frozen} onClick={regen}>Bu sahneyi baştan üret</button>
+        {(sc.cut_tier === "draft" || sc.upgrade_requested) && (
+          <button className="btn" type="button" aria-pressed={sc.upgrade_requested} disabled={busy} onClick={upgrade}>
+            {sc.upgrade_requested ? "İyileştirilecek" : "İyileştir"}
+          </button>
+        )}
+      </div>
+    </Section>
+  );
 }
 
 function Pool({ sc }: { sc: Scene }) {
-  const { busy, act, note, setVar } = usePanel();
+  const { busy, act, note, setVar, compareRaw, openCompare } = usePanel();
   const pool = sc.variations.filter((v) => v.rank).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-  if (!pool.length) return <p className="muted">Henüz rafine havuz yok.</p>;
+  const picked = parseIds(compareRaw, sc);
+  const n = candidates(sc).length;
   const promote = (v: Variation) => act(async () => {
     const r = await api.post<StageResult>(`/scenes/${sc.id}/promote/${v.id}`);
     setVar(null);
     note("inspector", resultText(r), r.blocked ? "err" : "ok");
   }, "inspector");
   return (
-    <div className="pool mt8">
-      {pool.map((v) => (
-        <div key={v.id} className={`pool-item${v.rank === 1 ? " use" : ""}`}>
-          {v.thumb_url ? <img src={v.thumb_url} alt="" loading="lazy" /> : <span className="ph" />}
-          <div><b>{v.rank}. sıra</b><br /><span className="muted num">skor {v.score != null ? v.score.toFixed(3) : "—"}</span></div>
-          {v.rank === 1 ? <span className="muted">Kullanımda</span>
-            : <button type="button" className="btn small" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}
+    <Section title="Rafine havuz" meta={`${pool.length} aday`}>
+      {pool.length ? (
+        <ul className="lines">
+          {pool.map((v) => (
+            <li key={v.id} style={{ display: "grid", gridTemplateColumns: "56px 1fr auto", gap: 8, alignItems: "center" }}>
+              {v.thumb_url ? <img src={v.thumb_url} alt="" loading="lazy" style={{ width: 56, height: 32, objectFit: "cover", borderRadius: 2 }} /> : <span />}
+              <span><b className="mono">#{v.rank}</b> <span className="dim mono">skor {v.score != null ? v.score.toFixed(3) : "—"}</span></span>
+              {v.rank === 1 ? <span className="tag ok">Kullanımda</span>
+                : <button type="button" className="btn" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="faint">Henüz rafine havuz yok.</p>}
+      {n >= 2 && (
+        <div className="row">
+          <button className="btn" type="button" onClick={() => openCompare(sc.id, picked.length >= 2 ? picked : defaultSelection(sc))}>
+            {picked.length >= 2 ? `Seçilen ${picked.length} klibi karşılaştır` : "Adayları karşılaştır"}
+          </button>
+          <span className="faint small">{picked.length === 1 ? "Bir klip daha seç (Shift+tık)." : `${n} izlenebilir aday`}</span>
         </div>
-      ))}
-    </div>
+      )}
+    </Section>
   );
 }
 
-function Info({ sc }: { sc: Scene }) {
-  const cam = sc.camera || {};
-  return (
-    <dl className="kv mt8">
-      <dt>Duygu</dt><dd><span className="dot" style={{ background: EMOTION_COLOR[sc.emotion] || "#A39E95" }} />{EMOTION_TR[sc.emotion] || sc.emotion}</dd>
-      <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, {cam.lens_mm ?? "—"} mm</dd>
-      <dt>Süre</dt><dd className="num">{Number(sc.duration_s).toFixed(1)} sn</dd>
-      <dt>Aksiyon</dt><dd className="num">{Number(sc.action_complexity).toFixed(2)}</dd>
-      <dt>Motor</dt><dd>{sc.engine || "—"}</dd>
-      <dt>Karakterler</dt><dd>{sc.characters.join(", ") || "—"}</dd>
-    </dl>
-  );
-}
-
-function Lines({ sc }: { sc: Scene }) {
-  const lines = sc.tracks.filter((t) => t.kind === "dialogue");
-  return (
-    <ul className="lines mt8">
-      {lines.length ? lines.map((t) => (
-        <li key={t.id}><span className="who">{t.character || "Anlatıcı"}</span> · {t.text}{" "}
-          <span className="muted">({EMOTION_TR[t.emotion ?? ""] || "—"}, {Number(t.start_offset_s).toFixed(1)} sn)</span></li>
-      )) : <li className="muted">Bu çekimde diyalog yok.</li>}
-    </ul>
-  );
-}
-
-function Assets({ sc }: { sc: Scene }) {
-  const { busy, act, note, gotoAsset } = usePanel();
-  const [name, setName] = useState("");
-  const link = (e: FormEvent) => {
-    e.preventDefault();
-    void act(async () => {
-      const r = await api.post<{ asset: { name: string; status: string }; hint: string }>(`/scenes/${sc.id}/assets`, { name });
-      setName("");
-      note("inspector", `${r.asset.name} bağlandı (${ASTATUS_TR[r.asset.status]}). ${r.hint}`, "ok");
-    }, "inspector");
-  };
-  const unlink = (id: string) => act(async () => {
-    const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/assets/${id}`);
-    note("inspector", "Bağ kaldırıldı. " + r.hint, "ok");
-  }, "inspector");
-  return (
-    <>
-      <div className="chips mt8">
-        {sc.assets.length ? sc.assets.map((a) => (
-          <span key={`${a.type}:${a.name}`} className={`astatus ${a.status || "draft"}`}>
-            {a.id ? <button type="button" className="linkbtn" style={{ color: "inherit" }} onClick={() => gotoAsset(a.id!)}>{a.name}</button> : a.name}
-            {" "}<span className="muted">{TYPE_TR[a.type]}</span>
-            {a.type !== "character" && a.id && (
-              <button type="button" aria-label={`${a.name} bağını kaldır`} title="Bağı kaldır" disabled={busy} onClick={() => unlink(a.id!)}>×</button>
-            )}
-          </span>
-        )) : <span className="muted">Bu çekime bağlı varlık yok.</span>}
-      </div>
-      <form className="form-row mt8" onSubmit={link}>
-        <label>Nesne bağla<input type="text" maxLength={100} placeholder="ör. Taksi" required value={name} onChange={(e) => setName(e.target.value)} /></label>
-        <button className="btn small" type="submit" disabled={busy}>Bağla</button>
-      </form>
-    </>
-  );
-}
-
-function Music({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
+function Sound({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
   const { busy, frozen, act, note } = usePanel();
+  const lines = sc.tracks.filter((t) => t.kind === "dialogue");
   const [scopePick, setScope] = useState<"sequence" | "scene">("sequence");
   const scope = q ? scopePick : "scene";
   const music = scope === "sequence" ? q?.tracks.find((t) => t.kind === "music" && t.source === "procedural")
@@ -133,20 +134,30 @@ function Music({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
     }, "inspector");
   };
   return (
-    <form className="form-row mt8" onSubmit={submit} noValidate>
-      <label>Kapsam
-        <select value={scope} disabled={!q} onChange={(e) => setScope(e.target.value as "sequence" | "scene")}>
-          <option value="sequence">Sekansın tamamı</option><option value="scene">Yalnızca bu çekim</option>
-        </select>
-      </label>
-      <label>Duygu
-        <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
-          {Object.entries(EMOTION_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-      </label>
-      <label>Seviye (dB)<input type="number" min={-40} max={0} step={1} value={gain} onChange={(e) => setGain(e.target.value)} /></label>
-      <button className="btn" type="submit" disabled={busy || frozen}>Müziği değiştir</button>
-    </form>
+    <Section title="Ses" meta={`${lines.length} replik`}>
+      <h4 className="small dim">Diyalog</h4>
+      <ul className="lines">
+        {lines.length ? lines.map((t) => (
+          <li key={t.id}><span className="who">{t.character || "Anlatıcı"}</span> · {t.text}{" "}
+            <span className="faint mono small">({EMOTION_TR[t.emotion ?? ""] || "—"}, {Number(t.start_offset_s).toFixed(1)} sn)</span></li>
+        )) : <li className="faint">Bu çekimde diyalog yok.</li>}
+      </ul>
+      <h4 className="small dim">Müziği değiştir</h4>
+      <form className="form-row" onSubmit={submit} noValidate>
+        <label className="field">Kapsam
+          <select value={scope} disabled={!q} onChange={(e) => setScope(e.target.value as "sequence" | "scene")}>
+            <option value="sequence">Sekansın tamamı</option><option value="scene">Yalnızca bu çekim</option>
+          </select>
+        </label>
+        <label className="field">Duygu
+          <select value={emotion} onChange={(e) => setEmotion(e.target.value)}>
+            {Object.entries(EMOTION_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </label>
+        <label className="field">Seviye (dB)<input type="number" min={-40} max={0} step={1} value={gain} onChange={(e) => setGain(e.target.value)} /></label>
+        <button className="btn" type="submit" disabled={busy || frozen}>Müziği değiştir</button>
+      </form>
+    </Section>
   );
 }
 
@@ -168,79 +179,71 @@ function SequenceBox({ q }: { q: Sequence }) {
     note("inspector", "Kanal kaldırıldı." + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
   }, "inspector");
   return (
-    <div>
-      <h3>Sekans {q.code} · {q.title}</h3>
-      <p className="muted mt4">
-        {q.shots} çekim · {usd(q.spent_usd)} harcandı · {q.budget_cap_usd != null ? "tavan " + usd(q.budget_cap_usd) : "tavan yok"}
+    <Section title={`Sekans ${q.code} · ${q.title}`} meta={q.status === "capped" ? <span className="tag bad">Tavan doldu</span> : usd(q.spent_usd)} open={false}>
+      <p className="dim small">
+        {q.shots} çekim · {q.done} hazır · {usd(q.spent_usd)} harcandı · {q.budget_cap_usd != null ? "tavan " + usd(q.budget_cap_usd) : "tavan yok"}
         {q.status === "capped" ? " · tavan doldu: bu sekansta yeni üretim yapılmaz" : ""}
       </p>
-      <form className="form-row mt8" onSubmit={saveCap}>
-        <label>Bütçe tavanı (USD)<input type="number" min={0.01} step={0.01} placeholder="tavan yok" value={cap} onChange={(e) => setCap(e.target.value)} /></label>
-        <button className="btn small" type="submit" disabled={busy}>Tavanı kaydet</button>
+      <form className="form-row" onSubmit={saveCap}>
+        <label className="field">Bütçe tavanı (USD)<input type="number" min={0.01} step={0.01} placeholder="tavan yok" value={cap} onChange={(e) => setCap(e.target.value)} /></label>
+        <button className="btn" type="submit" disabled={busy}>Tavanı kaydet</button>
       </form>
-      <ul className="lines mt8">
+      <h4 className="small dim">Film düzeyinde kanallar</h4>
+      <ul className="lines">
         {q.tracks.length ? q.tracks.map((t) => (
           <li key={t.id}>
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => remove(t.id)}>Kaldır</button>
             {t.source === "procedural" ? `Müzik · ${EMOTION_TR[t.mood ?? ""] || t.mood}` : `${t.kind === "music" ? "Stem" : t.kind} · ${t.filename}`}{" "}
-            <span className="muted">({Number(t.start_s).toFixed(1)} sn{t.end_s != null ? `–${Number(t.end_s).toFixed(1)} sn` : "'den sekans sonuna"}, {Number(t.gain_db).toFixed(0)} dB)</span>
-            <button type="button" className="btn small" style={{ marginLeft: 6 }} disabled={busy} onClick={() => remove(t.id)}>Kaldır</button>
+            <span className="faint mono small">({Number(t.start_s).toFixed(1)} sn{t.end_s != null ? `–${Number(t.end_s).toFixed(1)} sn` : "'den sekans sonuna"}, {Number(t.gain_db).toFixed(0)} dB)</span>
           </li>
-        )) : <li className="muted">Bu sekansta film düzeyinde kanal yok.</li>}
+        )) : <li className="faint">Bu sekansta film düzeyinde kanal yok.</li>}
       </ul>
-      <UploadForm className="form-row mt8" label="Stem yükle" accept="audio/*" button="Yükle"
+      <UploadForm label="Stem yükle" accept="audio/*" button="Yükle"
         onUpload={(file, field) => act(async () => {
           const params = new URLSearchParams({ filename: file.name, start_s: field("start_s") || "0", gain_db: field("gain_db") || "0" });
           const r = await api.upload<{ stages: string[] }>(`/sequences/${q.id}/tracks?${params}`, file);
           note("inspector", `${q.code} sekansına stem eklendi; hiçbir çekim yeniden üretilmedi.` + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
         }, "inspector")}>
-        <label>Başlangıç (sn)<input type="number" name="start_s" min={0} step={0.1} defaultValue={0} /></label>
-        <label>Seviye (dB)<input type="number" name="gain_db" min={-40} max={0} step={1} defaultValue={-6} /></label>
+        <label className="field">Başlangıç (sn)<input type="number" name="start_s" min={0} step={0.1} defaultValue={0} /></label>
+        <label className="field">Seviye (dB)<input type="number" name="gain_db" min={-40} max={0} step={1} defaultValue={-6} /></label>
       </UploadForm>
-    </div>
+    </Section>
   );
 }
 
-const GRADE_LABEL: Record<string, [string, number, number, number]> = {
-  exposure: ["Pozlama (EV)", -3, 3, 0.05], contrast: ["Kontrast", 0.5, 2, 0.05], saturation: ["Doygunluk", 0, 3, 0.05],
-  gamma: ["Gama", 0.3, 3, 0.05], temperature: ["Sıcaklık (K)", 2000, 12000, 100],
-};
-
-function GradeBox({ sc }: { sc: Scene }) {
-  const { busy, frozen, act, note } = usePanel();
-  const sig = sc.id + ":" + JSON.stringify(sc.grade);
-  const [values, setValues] = useSynced<Record<string, string>>(
-    Object.fromEntries(GRADE_FIELDS.map((k) => [k, String(sc.grade[k as keyof Grade])])), sig);
-  const numeric = () => {
-    const out: Record<string, number> = {};
-    for (const k of GRADE_FIELDS) { const v = Number(values[k]); if (values[k] !== "" && Number.isFinite(v)) out[k] = k === "temperature" ? Math.round(v) : v; }
-    return out;
+function Assets({ sc }: { sc: Scene }) {
+  const { busy, act, note, gotoAsset } = usePanel();
+  const [name, setName] = useState("");
+  const link = (e: FormEvent) => {
+    e.preventDefault();
+    void act(async () => {
+      const r = await api.post<{ asset: { name: string; status: string }; hint: string }>(`/scenes/${sc.id}/assets`, { name });
+      setName("");
+      note("inspector", `${r.asset.name} bağlandı (${ASTATUS_TR[r.asset.status]}). ${r.hint}`, "ok");
+    }, "inspector");
   };
-  const query = new URLSearchParams(Object.entries(numeric()).map(([k, v]) => [k, String(v)])).toString();
-  const [preview, setPreview] = useState(query);
-  useEffect(() => { const t = setTimeout(() => setPreview(query), 400); return () => clearTimeout(t); }, [query]);   // yazmayı bitirince
-  if (!sc.lipsync_ready) return <p className="muted mt8">Renk ayarı, çekimin dudak senkronlu videosu hazır olunca yapılır.</p>;
-  const apply = (body: Record<string, number>, prefix: string) => act(async () => {
-    const r = await api.post<StageResult>(`/scenes/${sc.id}/grade`, body);
-    note("inspector", prefix + resultText(r), r.blocked ? "err" : "ok");
+  const unlink = (id: string) => act(async () => {
+    const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/assets/${id}`);
+    note("inspector", "Bağ kaldırıldı. " + r.hint, "ok");
   }, "inspector");
+  const tone = (s: string | null) => (s === "locked" ? "ok" : s === "motion_tested" ? "info" : s === "still_approved" ? "warn" : "bad");
   return (
-    <form className="mt8" onSubmit={(e) => { e.preventDefault(); void apply(numeric(), "Renk uygulandı. "); }}>
-      <div className="grade-grid">
-        {GRADE_FIELDS.map((k) => {
-          const [label, min, max, step] = GRADE_LABEL[k];
-          return <label key={k}>{label}<input type="number" min={min} max={max} step={step} value={values[k]}
-            onChange={(e) => setValues({ ...values, [k]: e.target.value })} /></label>;
-        })}
+    <Section title="Varlıklar" meta={`${sc.assets.length}`} open={sc.status === "blocked"}>
+      <div className="row">
+        {sc.assets.length ? sc.assets.map((a) => (
+          <span key={`${a.type}:${a.name}`} className={`tag ${tone(a.status)}`} title={`${TYPE_TR[a.type]} · ${a.status ? ASTATUS_TR[a.status] : "kaydı yok"}`}>
+            {a.id ? <a href="#" style={{ color: "inherit" }} onClick={(e) => { e.preventDefault(); gotoAsset(a.id!); }}>{a.name}</a> : a.name}
+            {a.type !== "character" && a.id && (
+              <button type="button" aria-label={`${a.name} bağını kaldır`} title="Bağı kaldır" disabled={busy} onClick={() => unlink(a.id!)}>×</button>
+            )}
+          </span>
+        )) : <span className="faint">Bu çekime bağlı varlık yok.</span>}
       </div>
-      <div className="compare">
-        <figure><img src={`/api/scenes/${sc.id}/grade/preview.jpg?before=true`} alt="Renk ayarından önce" /><figcaption>Önce</figcaption></figure>
-        <figure><img src={`/api/scenes/${sc.id}/grade/preview.jpg?${preview}`} alt="Renk ayarından sonra" /><figcaption>Sonra (önizleme)</figcaption></figure>
-      </div>
-      <div className="form-row mt8">
-        <button className="btn small" type="submit" disabled={busy || frozen}>Rengi uygula</button>
-        <button className="btn small" type="button" disabled={busy || frozen} onClick={() => apply({}, "Nötr renk. ")}>Nötre dön</button>
-      </div>
-    </form>
+      <form className="form-row" onSubmit={link}>
+        <label className="field grow">Nesne bağla<input type="text" maxLength={100} placeholder="ör. Taksi" required value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <button className="btn" type="submit" disabled={busy}>Bağla</button>
+      </form>
+    </Section>
   );
 }
 
@@ -255,32 +258,32 @@ function Method({ sc }: { sc: Scene }) {
     note("inspector", (target === "external" ? "Dış çekim yüklendi; görüntü üretilmeyecek. " : "Previs rehberi yüklendi. ") + resultText(r), r.blocked ? "err" : "ok");
   }, "inspector");
   return (
-    <>
-      {sc.method_hint && (
-        <p className="hint mt8">Bu çekimde aksiyon çok yoğun ve hareket özel: tarif ederek üretmek zor. Previs rehberi önerilir; karar senin.</p>
-      )}
-      <form className="form-row mt8" onSubmit={(e) => {
+    <Section title="Yöntem" meta={METHOD_TR[sc.method] || sc.method} open={sc.method_hint}>
+      {sc.method_hint && <p className="hint">Bu çekimde aksiyon çok yoğun ve hareket özel: tarif ederek üretmek zor. Previs rehberi önerilir; karar senin.</p>}
+      <form className="form-row" onSubmit={(e) => {
         e.preventDefault();
         void act(async () => {
           const r = await api.post<StageResult & { method: string }>(`/scenes/${sc.id}/method`, { method });
           note("inspector", `Yöntem: ${METHOD_TR[r.method]}. ` + resultText(r), r.blocked ? "err" : "ok");
         }, "inspector");
       }}>
-        <label>Üretim yöntemi
+        <label className="field">Üretim yöntemi
           <select value={method} onChange={(e) => setMethod(e.target.value)}>
             {Object.entries(METHOD_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
-        <button className="btn small" type="submit" disabled={busy}>Uygula</button>
+        <button className="btn" type="submit" disabled={busy}>Uygula</button>
       </form>
-      <p className="muted mt6 small">
-        Şu an: {METHOD_TR[sc.method] || sc.method}
-        {sc.guide_url && <> · <a href={sc.guide_url} target="_blank" rel="noopener">rehber video</a></>}
-        {sc.external_url && <> · <a href={sc.external_url} target="_blank" rel="noopener">dış çekim videosu</a></>}
-      </p>
-      <UploadForm className="form-row mt8" label="Previs rehberi yükle" accept="video/*" button="Yükle" onUpload={upload("guide")} />
-      <UploadForm className="form-row mt8" label="Dış çekim yükle" accept="video/*" button="Yükle" onUpload={upload("external")} />
-    </>
+      {(sc.guide_url || sc.external_url) && (
+        <p className="small dim">
+          {sc.guide_url && <a href={sc.guide_url} target="_blank" rel="noopener">Rehber video</a>}
+          {sc.guide_url && sc.external_url && " · "}
+          {sc.external_url && <a href={sc.external_url} target="_blank" rel="noopener">Dış çekim videosu</a>}
+        </p>
+      )}
+      <UploadForm label="Previs rehberi yükle" accept="video/*" button="Yükle" onUpload={upload("guide")} />
+      <UploadForm label="Dış çekim yükle" accept="video/*" button="Yükle" onUpload={upload("external")} />
+    </Section>
   );
 }
 
@@ -290,37 +293,35 @@ function Revisions({ target }: { target: Variation | undefined }) {
   const sig = target ? `${target.revisions}:${target.revision}` : "";
   // Revizyon sayısı ya da etkin revizyon değişince liste yeniden okunur (sig, arka ucun yok saydığı bir sorgu değeridir).
   const { data } = useSWR<RevisionList>(target ? `/variations/${target.id}/revisions?sig=${encodeURIComponent(sig)}` : null, fetcher);
-  if (!target) return <><h3>Elle düzeltme</h3><ul className="revs"><li className="muted">Düzeltilecek bir klip yok.</li></ul></>;
+  if (!target) return <Section title="Elle düzeltme" open={false}><p className="faint">Düzeltilecek bir klip yok.</p></Section>;
   const activate = (rid: string | null) => act(async () => {
     const r = await api.post<StageResult>(`/variations/${target.id}/revisions/active`, { revision_id: rid });
     note("inspector", (rid ? "Revizyon kullanılıyor. " : "Orijinale dönüldü. ") + (r.hint || resultText(r)), "ok");
   }, "inspector");
   const canUpload = Boolean(target.video_url) && !target.video_url!.includes("quarantine");
   return (
-    <>
-      <h3>Elle düzeltme · {target.rank ? `${target.rank}. sıradaki klip` : "seçili klip"}</h3>
-      <ul className="revs">
-        {!data ? <li className="muted">Yükleniyor…</li> : (
+    <Section title="Elle düzeltme" meta={target.rank ? `#${target.rank} klip` : "seçili klip"} open={false}>
+      <ul className="lines">
+        {!data ? <li className="faint">Yükleniyor…</li> : (
           <>
             {data.revisions.map((r) => (
-              <li key={r.id} className={r.id === data.active ? "active" : ""}>
-                <b>Revizyon {r.version}</b>
-                <span className="muted">{r.kind === "video" ? "video" : "ilk kare"}{r.note ? " · " + r.note : ""}</span>
+              <li key={r.id} style={r.id === data.active ? { borderColor: "var(--ok)" } : undefined}>
+                {r.id === data.active ? <span className="tag ok" style={{ float: "right" }}>kullanımda</span>
+                  : <button className="btn" type="button" disabled={busy} onClick={() => activate(r.id)}>Bunu kullan</button>}
+                <b>Revizyon {r.version}</b> <span className="dim">{r.kind === "video" ? "video" : "ilk kare"}{r.note ? " · " + r.note : ""}</span>{" "}
                 <a href={r.video_url} target="_blank" rel="noopener">izle</a>
-                {r.id === data.active ? <span className="muted">kullanımda</span>
-                  : <button className="btn small" type="button" disabled={busy} onClick={() => activate(r.id)}>Bunu kullan</button>}
               </li>
             ))}
-            <li className={data.active ? "" : "active"}>
+            <li style={!data.active ? { borderColor: "var(--ok)" } : undefined}>
+              {data.active ? <button className="btn" type="button" disabled={busy} onClick={() => activate(null)}>Orijinale dön</button>
+                : <span className="tag ok" style={{ float: "right" }}>kullanımda</span>}
               <b>Orijinal</b>{data.original_url && <> <a href={data.original_url} target="_blank" rel="noopener">izle</a></>}
-              {data.active ? <button className="btn small" type="button" disabled={busy} onClick={() => activate(null)}>Orijinale dön</button>
-                : <span className="muted">kullanımda</span>}
             </li>
           </>
         )}
       </ul>
       {canUpload && (
-        <UploadForm className="form-row mt8" label="Dosya" accept={kind === "video" ? "video/*" : "image/*"} button="Revizyon yükle"
+        <UploadForm label="Dosya" accept={kind === "video" ? "video/*" : "image/*"} button="Revizyon yükle"
           onUpload={(file, field) => act(async () => {
             const params = new URLSearchParams({ kind, filename: file.name });
             const n = field("note").trim();
@@ -328,69 +329,48 @@ function Revisions({ target }: { target: Variation | undefined }) {
             const r = await api.upload<{ revision: { version: number }; hint?: string } & StageResult>(`/variations/${target.id}/revisions?${params}`, file);
             note("inspector", `Revizyon ${r.revision.version} yüklendi, orijinal korunuyor. ` + (r.hint || resultText(r)), "ok");
           }, "inspector")}>
-          <label>Tür
+          <label className="field">Tür
             <select value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="video">Düzenlenmiş video</option><option value="first_frame">Düzenlenmiş ilk kare</option>
             </select>
           </label>
-          <label>Not<input type="text" name="note" maxLength={2000} placeholder="ör. renk ve kalem çizgileri" /></label>
+          <label className="field">Not<input type="text" name="note" maxLength={2000} placeholder="ör. renk ve kalem çizgileri" /></label>
         </UploadForm>
       )}
-    </>
+    </Section>
   );
 }
 
-function CompareEntry({ sc }: { sc: Scene }) {
-  const { compareRaw, openCompare } = usePanel();
-  const picked = parseIds(compareRaw, sc);
-  const n = candidates(sc).length;
-  if (n < 2) return null;
+function ColorLink({ sc }: { sc: Scene }) {
+  const { setPage } = usePanel();
+  const g = sc.grade;
+  const neutral = g.exposure === 0 && g.contrast === 1 && g.saturation === 1 && g.gamma === 1 && g.temperature === 6500;
   return (
-    <div className="form-row row-center">
-      <button className="btn small" type="button" onClick={() => openCompare(sc.id, picked.length >= 2 ? picked : defaultSelection(sc))}>
-        {picked.length >= 2 ? `Seçilen ${picked.length} klibi karşılaştır` : "Adayları karşılaştır"}
-      </button>
-      <span className="muted small">{picked.length === 1 ? "Bir klip daha seç (Shift+tık)." : `${n} izlenebilir aday`}</span>
-    </div>
+    <Section title="Renk" meta={neutral ? "nötr" : "ayarlı"} open={false}>
+      <p className="dim small mono">pozlama {g.exposure} · kontrast {g.contrast} · doygunluk {g.saturation} · gama {g.gamma} · {g.temperature} K</p>
+      <div className="row"><button className="btn" type="button" onClick={() => setPage("color")}>Renk sayfasında aç</button></div>
+    </Section>
   );
 }
 
-export function Inspector() {
-  const { scene: sc, sequence: q, varId, setVar, busy, frozen, act, note } = usePanel();
-  if (!sc) {
-    return <aside className="panel inspector" aria-label="Sahne denetçisi"><header><h2>Sahne seçin</h2></header></aside>;
-  }
-  const media = pickMedia(sc, varId);
+export function Inspector({ className = "" }: { className?: string }) {
+  const { scene: sc, sequence: q, varId } = usePanel();
+  if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2></header><p className="empty">Çekim seçin.</p></section>;
   const revTarget = (varId ? sc.variations.find((v) => v.id === varId) : undefined) ?? sc.variations.find((v) => v.rank === 1);
-  const regen = () => act(async () => {
-    const r = await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true`);
-    setVar(null);
-    note("inspector", resultText(r), r.blocked ? "err" : "ok");
-  }, "inspector");
   return (
-    <aside className="panel inspector" aria-label="Sahne denetçisi">
-      <header><h2>{sc.scene_code} · {sc.heading}</h2><StatusPill status={sc.status} /></header>
-      <div className="body">
-        <div>
-          <Video src={media?.src} poster={media?.poster} empty="Henüz video yok." />
-          <div className="caption">
-            <span>{media?.label ?? ""}</span>
-            {media?.preview && <button className="btn small" type="button" onClick={() => setVar(null)}>Sonuca dön</button>}
-          </div>
-        </div>
-        <CompareEntry sc={sc} />
-        <div><h3>Rafine havuz</h3><Pool sc={sc} /></div>
-        <div><h3>Çekim bilgileri</h3><Info sc={sc} /></div>
-        <div><h3>Diyalog</h3><Lines sc={sc} /></div>
-        <div><h3>Varlıklar</h3><Assets key={sc.id} sc={sc} /></div>
-        <div><h3>Müziği değiştir</h3><Music key={sc.id} sc={sc} q={q} /></div>
+    <section className={`pnl ${className}`} aria-label="Denetçi">
+      <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
+      <div className="pnl-b">
+        <Shot sc={sc} />
+        <Pool sc={sc} />
+        <Sound key={`s${sc.id}`} sc={sc} q={q} />
         {q && <SequenceBox q={q} />}
-        <div><h3>Renk</h3><GradeBox key={sc.id} sc={sc} /></div>
-        <div><h3>Yöntem</h3><Method key={sc.id} sc={sc} /></div>
-        <div><Revisions key={revTarget?.id ?? sc.id} target={revTarget} /></div>
-        <div className="form-row"><button className="btn" type="button" disabled={busy || frozen} onClick={regen}>Bu sahneyi baştan üret</button></div>
-        <NoteBox id="inspector" />
+        <Assets key={`a${sc.id}`} sc={sc} />
+        <Method key={`m${sc.id}`} sc={sc} />
+        <Revisions key={revTarget?.id ?? sc.id} target={revTarget} />
+        <ColorLink sc={sc} />
+        <div style={{ padding: 10 }}><NoteBox id="inspector" /></div>
       </div>
-    </aside>
+    </section>
   );
 }

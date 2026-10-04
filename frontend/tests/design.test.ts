@@ -1,4 +1,4 @@
-/* Tasarım sözleşmesi ve belgelenmiş Türkçe metinler (CLAUDE.md, Faz 9 ve Bölüm B). Tarayıcı gerektirmez. */
+/* Stüdyo arayüzünün tasarım sözleşmesi ve belgelenmiş Türkçe metinler (CLAUDE.md). Tarayıcı gerektirmez. */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,15 +10,16 @@ const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(jo
   + readFileSync(join(root, "lib", "text.ts"), "utf8");
 
 describe("design contract", () => {
-  it.each([["slag", "2A2D31"], ["plate", "33373C"], ["ash", "E6E1D8"], ["dust", "A39E95"], ["ember", "E4A23E"],
-    ["verdigris", "62AE8E"], ["oxide", "C2573F"], ["steel", "86A5B8"]])("palette token %s", (name, hex) => {
+  it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
+    ["accent", "4d8dff"], ["playhead", "ff4a4a"], ["ok", "3dcc91"], ["warn", "f3b443"], ["bad", "ff5c55"], ["work", "a88bff"]])("palette token %s", (name, hex) => {
     expect(CSS).toMatch(new RegExp(`--${name}:\\s*#${hex}`, "i"));
   });
 
-  it("uses Archivo with the width axis", () => {
-    expect(LAYOUT).toContain("family=Archivo:wdth,wght@");
-    expect(CSS).toContain("font-stretch");
-    expect(CSS).toContain('"Archivo"');
+  it("uses Inter for the interface and JetBrains Mono for timecodes", () => {
+    expect(LAYOUT).toContain("family=Inter:");
+    expect(LAYOUT).toContain("family=JetBrains+Mono:");
+    expect(CSS).toMatch(/--sans:\s*"Inter"/);
+    expect(CSS).toMatch(/--mono:\s*"JetBrains Mono"/);
   });
 
   it("never uses the font shorthand for real values (the minifier merged font-stretch into an invalid one)", () => {
@@ -32,13 +33,14 @@ describe("design contract", () => {
   it("keeps keyboard focus visible, honours reduced motion and collapses to one column on phones", () => {
     expect(CSS).toContain(":focus-visible");
     expect(CSS).toMatch(/@media \(prefers-reduced-motion: reduce\)[^}]*\{[^}]*animation: none/);
-    const mobile = CSS.slice(CSS.indexOf("@media (max-width: 960px)"));
+    const mobile = CSS.slice(CSS.indexOf("@media (max-width: 1100px)"));
     expect(mobile).toContain("grid-template-columns: 1fr");
     expect(LAYOUT).toContain('lang="tr"');
   });
 
   it("styles every film strip state", () => {
-    for (const s of ["refined", "rejected", "retired", "working", "failed", "selected", "tier-start"]) expect(CSS).toContain(`.tile.${s}`);
+    for (const s of ["refined", "rejected", "retired", "working", "failed", "selected", "compare-pick"]) expect(CSS).toContain(`.tile.${s}`);
+    expect(CSS).toContain(".strip .gap");                 // test turu ile tam tur arasındaki ayraç
   });
 });
 
@@ -46,7 +48,7 @@ describe("documented Turkish texts", () => {
   it.each([
     // Faz 9
     "Ücretsiz mod: hiçbir ücretli servis çağrılmaz", "Yeni proje", "Üretimi durdur", "Üretime devam et", "Senaryoyu işle ve üret",
-    "Bunu kullan", "Müziği değiştir", "Bu sahneyi baştan üret", "Rafine havuz", "Çekim bilgileri", "Diyalog", "Olay akışı",
+    "Bunu kullan", "Müziği değiştir", "Bu sahneyi baştan üret", "Rafine havuz", "Diyalog", "Olay akışı",
     "sahneyi birleştir", "Sonuca dön",
     // Faz 11–17
     "Sekansın tamamı", "Yalnızca bu çekim", "Bütçe tavanı", "Tavanı kaydet", "Stem yükle", "Tavan doldu", "Sekanssız",
@@ -60,5 +62,8 @@ describe("documented Turkish texts", () => {
     "Profesyonel dışa aktarma", "EDL (CMX3600)", "OpenTimelineIO", "Çekim paketi (zip)", "Kürasyon kaydını indir",
     // Karşılaştırma
     "Karşılaştır", "Adayları karşılaştır", "Perde (1 ↔ 2)", "Bir kare geri", "Denetçide aç",
+    // Stüdyo sayfaları ve kalite skoru
+    "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
+    "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

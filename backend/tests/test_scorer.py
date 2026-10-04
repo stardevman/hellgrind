@@ -266,5 +266,3 @@ def test_the_overview_summarises_a_real_measurement_for_the_panel():
                                                     "identity": {"Kerem": 0.61}, "faces_seen": 1}
     assert measure_of({"stage": "first_frame", "frame_score_detail": detail, "score_detail": None})["faces_seen"] == 1
     assert measure_of({}) is None and measure_of(None) is None
-    html = (BACKEND / "app" / "panel" / "index.html").read_text()
-    assert 'id="score-chip"' in html and "Kalite skoru: gerçek (OpenCLIP + SFace)" in html and "yüzü" in html

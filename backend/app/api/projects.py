@@ -26,6 +26,7 @@ def project_out(p: Project, s: Session) -> dict:
         "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(pid),
         "soft_limited": killswitch.is_soft_limited(pid), "settings": project_settings(p.settings),
         "scene_status_counts": counts, "timeline_key": p.timeline_key,
+        "script_source": p.script_source,                    # panelin senaryo sayfası yeniden düzenlemek için okur
     }
 
 

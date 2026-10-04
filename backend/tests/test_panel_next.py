@@ -96,12 +96,12 @@ def test_regenerate_forces_the_visual_stage_and_music_change_sends_the_documente
     assert "/render?force_visual=true`" in src
     assert re.search(r'api\.put<[^>]*>\(`/scenes/\$\{sc\.id\}/audio`, \{ kind: "music", emotion, gain_db', src)
     assert "/assemble?kind=draft`" in src and "draft_timeline" in src
-    assert re.search(r'\["edl",.*\["otio",.*\["package",', src) and "/export?format=${f}" in src
+    assert re.search(r'\["edl",.*\["otio",.*\["package",', src, re.S) and "/export?format=${f}" in src
 
 
 def test_new_project_form_sets_the_velocity_guard_to_half_the_budget():
     """Örnek film saniyeler içinde ~22 sanal USD harcar; varsayılan 20 USD / 10 dk sınırı filmi ortasında dondururdu."""
-    assert "max_spend_per_10min: Math.max(0.5, limit / 2)" in sources()["components/StartView.tsx"]
+    assert "max_spend_per_10min: Math.max(0.5, limit / 2)" in sources()["components/ScriptPage.tsx"]
 
 
 def test_the_panel_polls_the_overview_every_two_seconds():

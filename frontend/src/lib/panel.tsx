@@ -1,6 +1,6 @@
 "use client";
-/* Panelin ortak durumu: veriler (SWR ile 2 saniyede bir yoklanır), URL'de tutulan görünüm (proje, sekme, sahne,
-   varyasyon, karşılaştırma) ve eylemler (meşgul bayrağı, notlar, eylemden sonra anında yenileme). */
+/* Panelin ortak durumu: veriler (SWR ile 2 saniyede bir yoklanır), URL'de tutulan görünüm (proje, sayfa, çekim,
+   varyasyon, karşılaştırma, varlık) ve eylemler (meşgul bayrağı, notlar, eylemden sonra anında yenileme). */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
@@ -8,8 +8,11 @@ import { fetcher } from "./api";
 import type { Meta, Overview, ProjectListItem, Scene, Sequence } from "./types";
 
 export const POLL_MS = 2000;
-export const TABS = ["scenes", "compare", "assets", "board", "style", "efficiency"] as const;
-export type Tab = (typeof TABS)[number];
+/** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
+export const PAGES = ["script", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
+export type Page = (typeof PAGES)[number];
+/** Çekimi olmayan projede açılamayan sayfalar: senaryo sayfasına düşülür. */
+export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["board", "edit", "compare", "color", "deliver"]);
 export type NoteKind = "ok" | "err" | "";
 export interface Note { text: string; kind: NoteKind }
 export type FilmKind = "final" | "draft";
@@ -30,8 +33,10 @@ interface PanelState {
   setCreating: (on: boolean) => void;
   selectProject: (id: string | null) => void;
 
-  tab: Tab;
-  setTab: (t: Tab) => void;
+  page: Page;
+  setPage: (p: Page) => void;
+  assetId: string | null;
+  selectAsset: (id: string | null) => void;
   scene: Scene | undefined;
   sequence: Sequence | undefined;
   selectScene: (id: string) => void;
@@ -101,8 +106,8 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     { refreshInterval: POLL_MS, keepPreviousData: false, revalidateOnFocus: true });
   const offline = Boolean(ovError && !(ovError as { status?: number }).status) || Boolean(listError && !(listError as { status?: number }).status);
 
-  const tabParam = search.get("tab") as Tab | null;
-  const tab: Tab = tabParam && (TABS as readonly string[]).includes(tabParam) ? tabParam : "scenes";
+  const pageParam = search.get("page") as Page | null;
+  const page: Page = pageParam && (PAGES as readonly string[]).includes(pageParam) ? pageParam : "edit";
   const sceneParam = search.get("s");
   const scene = ov?.scenes.find((x) => x.id === sceneParam) ?? ov?.scenes[0];
   const sequence = scene ? ov?.sequences.find((q) => q.id === scene.sequence_id) : undefined;
@@ -120,9 +125,13 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     setRemembered(id);
     setCreating(false);
     setNotes({});
-    update({ p: id, s: null, v: null, cmp: null }, true);
+    update({ p: id, s: null, v: null, cmp: null, a: null }, true);
   }, [update]);
-  const setTab = useCallback((t: Tab) => update({ tab: t === "scenes" ? null : t }, true), [update]);
+  const setPage = useCallback((x: Page) => {
+    if (x !== "script") setCreating(false);
+    update({ page: x === "edit" ? null : x }, true);
+  }, [update]);
+  const selectAsset = useCallback((id: string | null) => update({ a: id }), [update]);
   const selectScene = useCallback((id: string) => {
     if (id === scene?.id) return;
     setNotes((n) => ({ ...n, inspector: { text: "", kind: "" } }));
@@ -133,7 +142,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     update({ v: id, ...(sceneId ? { s: sceneId } : {}) });
   }, [update]);
   const openCompare = useCallback((sceneId: string, ids: string[]) =>
-    update({ tab: "compare", s: sceneId, cmp: ids.join(",") || null }, true), [update]);
+    update({ page: "compare", s: sceneId, cmp: ids.join(",") || null }, true), [update]);
   const setCompare = useCallback((ids: string[]) => update({ cmp: ids.join(",") || null }), [update]);
 
   const note = useCallback((key: string, text: string, kind: NoteKind = "") =>
@@ -150,12 +159,12 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     finally { busyRef.current = false; setBusy(false); refresh(); }
   }, [note, refresh]);
 
-  const gotoAsset = useCallback((id: string) => { setFlash(id); update({ tab: "assets" }, true); }, [update]);
+  const gotoAsset = useCallback((id: string) => { setFlash(id); update({ page: "assets", a: id }, true); }, [update]);
   const clearFlash = useCallback(() => setFlash(null), []);
 
   const value: PanelState = {
     meta, projects, projectId, ov: ov && ov.project.id === projectId ? ov : undefined, offline, creating,
-    setCreating, selectProject, tab, setTab, scene, sequence, selectScene, varId, setVar,
+    setCreating, selectProject, page, setPage, assetId: search.get("a"), selectAsset, scene, sequence, selectScene, varId, setVar,
     compareRaw: search.get("cmp"), openCompare, setCompare,
     busy, frozen: Boolean(ov?.project.frozen), act, notes, note, refresh,
     flashAsset, gotoAsset, clearFlash, filmKind, setFilmKind, assembling, setAssembling,

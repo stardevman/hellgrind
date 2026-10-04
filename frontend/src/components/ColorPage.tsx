@@ -1,0 +1,149 @@
+"use client";
+/* Renk sayfası (renk düzenleme yazılımları gibi): üstte seçili çekimin önce/sonra görüntüsü, sağda kaydırıcılı
+   renk ayarı, film LUT'u ve süreklilik denetimi, altta bütün çekimlerin klip şeridi (renk sıçramaları işaretli). */
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import { GRADE_FIELDS } from "@/lib/i18n";
+import { posterOf } from "@/lib/media";
+import { usePanel } from "@/lib/panel";
+import { deltaText, resultText } from "@/lib/text";
+import type { Grade, Scene, StageResult } from "@/lib/types";
+import { NoteBox, Panel, Section, UploadForm, useSynced } from "./ui";
+
+const FIELDS: Record<string, { label: string; min: number; max: number; step: number; neutral: number; unit?: string }> = {
+  exposure: { label: "Pozlama", min: -3, max: 3, step: 0.05, neutral: 0, unit: "EV" },
+  contrast: { label: "Kontrast", min: 0.5, max: 2, step: 0.05, neutral: 1 },
+  saturation: { label: "Doygunluk", min: 0, max: 3, step: 0.05, neutral: 1 },
+  gamma: { label: "Gama", min: 0.3, max: 3, step: 0.05, neutral: 1 },
+  temperature: { label: "Sıcaklık", min: 2000, max: 12000, step: 100, neutral: 6500, unit: "K" },
+};
+
+function Controls({ sc, values, setValues, numeric }: {
+  sc: Scene; values: Record<string, string>; setValues: (v: Record<string, string>) => void; numeric: () => Record<string, number>;
+}) {
+  const { busy, frozen, act, note } = usePanel();
+  const apply = (body: Record<string, number>, prefix: string) => act(async () => {
+    const r = await api.post<StageResult>(`/scenes/${sc.id}/grade`, body);
+    note("color", prefix + resultText(r), r.blocked ? "err" : "ok");
+  }, "color");
+  if (!sc.lipsync_ready) return <p className="faint">Renk ayarı, çekimin dudak senkronlu videosu hazır olunca yapılır.</p>;
+  return (
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); void apply(numeric(), "Renk uygulandı. "); }}>
+      {GRADE_FIELDS.map((k) => {
+        const f = FIELDS[k];
+        return (
+          <label key={k} className="slider">
+            <span>{f.label}</span>
+            <output className="mono">{values[k]}{f.unit ? ` ${f.unit}` : ""}</output>
+            <input type="range" min={f.min} max={f.max} step={f.step} value={values[k]} aria-label={f.label}
+              onChange={(e) => setValues({ ...values, [k]: e.target.value })}
+              onDoubleClick={() => setValues({ ...values, [k]: String(f.neutral) })} />
+          </label>
+        );
+      })}
+      <p className="faint tiny">Kaydırıcıya çift tıklamak o ayarı nötre döndürür.</p>
+      <div className="row">
+        <button className="btn primary" type="submit" disabled={busy || frozen}>Rengi uygula</button>
+        <button className="btn" type="button" disabled={busy || frozen} onClick={() => apply({}, "Nötr renk. ")}>Nötre dön</button>
+      </div>
+    </form>
+  );
+}
+
+export function ColorPage() {
+  const { ov, scene: sc, selectScene, projectId, busy, frozen, act, note } = usePanel();
+  const sig = sc ? sc.id + ":" + JSON.stringify(sc.grade) : "";
+  const [values, setValues] = useSynced<Record<string, string>>(
+    Object.fromEntries(GRADE_FIELDS.map((k) => [k, String(sc ? sc.grade[k as keyof Grade] : FIELDS[k].neutral)])), sig);
+  const numeric = () => {
+    const out: Record<string, number> = {};
+    for (const k of GRADE_FIELDS) { const v = Number(values[k]); if (values[k] !== "" && Number.isFinite(v)) out[k] = k === "temperature" ? Math.round(v) : v; }
+    return out;
+  };
+  const query = new URLSearchParams(Object.entries(numeric()).map(([k, v]) => [k, String(v)])).toString();
+  const [preview, setPreview] = useState(query);
+  useEffect(() => { const t = setTimeout(() => setPreview(query), 350); return () => clearTimeout(t); }, [query]);   // sürüklemeyi bitirince
+
+  if (!ov || !sc) return null;
+  const p = ov.project, report = p.continuity, jumps = report ? report.pairs.filter((x) => x.jump) : [];
+  const jumpTo = new Set(jumps.map((j) => j.to));
+  return (
+    <div className="page color">
+      <section className="pnl cv">
+        <header className="pnl-h">
+          <h2 className="mono">{sc.scene_code}</h2><span className="meta">{sc.heading}</span>
+          <span className="grow" />
+          {sc.graded && <span className="tag warn">renk uygulanmış</span>}
+        </header>
+        {sc.lipsync_ready ? (
+          <div className="split">
+            <figure><img src={`/api/scenes/${sc.id}/grade/preview.jpg?before=true`} alt="Renk ayarından önce" /><figcaption>Önce</figcaption></figure>
+            <figure><img src={`/api/scenes/${sc.id}/grade/preview.jpg?${preview}`} alt="Renk ayarından sonra" /><figcaption>Sonra (önizleme)</figcaption></figure>
+          </div>
+        ) : <p className="empty">Bu çekimin dudak senkronlu videosu henüz hazır değil; renk önizlemesi o zaman açılır.</p>}
+      </section>
+
+      <Panel className="cc" title="Renk ayarı" meta={p.lut ? "film LUT'u etkin" : ""} bodyClass="">
+        <div className="pad"><Controls key={sc.id} sc={sc} values={values} setValues={setValues} numeric={numeric} /></div>
+        <Section title="Film LUT'u" meta={p.lut ? "etkin" : "yok"}>
+          <UploadForm label="Film LUT'u (.cube)" accept=".cube" button="LUT yükle"
+            onUpload={(file) => act(async () => {
+              const r = await api.upload<{ lut: { size: number }; regraded: string[] }>(`/projects/${projectId}/lut?filename=${encodeURIComponent(file.name)}`, file);
+              note("color", `LUT yüklendi (${r.lut.size}³); yeniden renklendirilen: ${r.regraded.join(", ") || "yok"}.`, "ok");
+            }, "color")} />
+          {p.lut && (
+            <div className="row">
+              <button className="btn" type="button" disabled={busy} onClick={() => act(async () => {
+                const r = await api.del<{ regraded: string[] }>(`/projects/${projectId}/lut`);
+                note("color", `LUT kaldırıldı; yeniden renklendirilen: ${r.regraded.join(", ") || "yok"}.`, "ok");
+              }, "color")}>LUT&apos;u kaldır</button>
+            </div>
+          )}
+        </Section>
+        <Section title="Süreklilik" meta={report ? (jumps.length ? `${jumps.length} sıçrama` : "temiz") : "denetlenmedi"}>
+          <div className="row">
+            <button className="btn" type="button" disabled={busy || frozen}
+              onClick={() => act(async () => { await api.post(`/projects/${projectId}/continuity`); note("color", "Süreklilik denetimi kuyruğa alındı.", "ok"); }, "color")}>
+              Sürekliliği denetle
+            </button>
+          </div>
+          {!report ? <p className="faint small">Süreklilik henüz denetlenmedi; film birleşince kendiliğinden denetlenir.</p>
+            : jumps.length ? jumps.map((j) => (
+              <div className="jump" key={`${j.from}-${j.to}`}>
+                <b className="mono">{j.from} → {j.to}: renk sıçraması</b>
+                <span className="dim">{deltaText(j.delta)}</span>
+                {j.suggestion && (
+                  <div className="row">
+                    <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {
+                      const r = await api.post<StageResult>(`/scenes/${j.to_id}/grade`, j.suggestion);
+                      note("color", "Önerilen renk uygulandı: " + resultText(r) + " Süreklilik, montaj bitince yeniden ölçülür.", "ok");
+                    }, "color")}>Öneriyi uygula</button>
+                    <button className="btn ghost" type="button" onClick={() => selectScene(j.to_id)}>Çekimi aç</button>
+                  </div>
+                )}
+              </div>
+            ))
+            : <p className="faint small">Renk sıçraması yok ({report.pairs.length} geçiş denetlendi).</p>}
+        </Section>
+        <div className="pad"><NoteBox id="color" /></div>
+      </Panel>
+
+      <Panel className="cs" title="Klip şeridi" meta="kırmızı çentik: önceki çekime göre renk sıçraması · sarı nokta: renk uygulanmış">
+        <div className="clipstrip">
+          {ov.scenes.map((x) => {
+            const th = posterOf(x);
+            return (
+              <button key={x.id} type="button" className="cs-item" aria-current={x.id === sc.id} onClick={() => selectScene(x.id)}
+                aria-label={`${x.scene_code} çekimini renk için aç`}>
+                {jumpTo.has(x.scene_code) && <span className="cs-jump" title="Renk sıçraması" />}
+                {th ? <img src={th} alt="" loading="lazy" /> : <span className="ph" />}
+                {x.graded && <span className="graded" title="Renk uygulanmış" />}
+                <span className="mono">{x.scene_code}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Panel>
+    </div>
+  );
+}

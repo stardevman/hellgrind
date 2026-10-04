@@ -58,14 +58,9 @@ def test_root_redirects_to_the_panel(api):
 
 def test_panel_is_served_as_a_static_page(api):
     r = api.get("/panel/")
-    # İmajda derlenmiş Next.js paneli (200); derleme yoksa klasik panele yönlendiren açıklama sayfası (503).
+    # İmajda derlenmiş Next.js paneli (200); derleme yoksa açıklama sayfası (503).
     assert r.status_code in (200, 503) and "text/html" in r.headers["content-type"]
     assert '<html lang="tr"' in r.text
-
-
-def test_classic_panel_stays_available_during_the_transition(api):
-    r = api.get("/panel-klasik/")
-    assert r.status_code == 200 and "Hell Grind" in r.text
 
 
 def test_the_next_panel_export_is_served_when_built_and_explains_itself_when_not(tmp_path):
@@ -79,16 +74,28 @@ def test_the_next_panel_export_is_served_when_built_and_explains_itself_when_not
         return TestClient(app)
 
     missing = client(tmp_path).get("/panel/")
-    assert missing.status_code == 503 and "Panel derlenmemiş" in missing.text and "/panel-klasik/" in missing.text
+    assert missing.status_code == 503 and "Panel derlenmemiş" in missing.text and "make web-build" in missing.text
     (tmp_path / "index.html").write_text('<!doctype html><html lang="tr"><body>yeni panel</body></html>')
     (tmp_path / "_next").mkdir()
     (tmp_path / "_next" / "app.js").write_text("console.log(1)")
     built = client(tmp_path)
-    assert built.get("/panel/").text.endswith("yeni panel</body></html>")
-    assert built.get("/panel/_next/app.js").status_code == 200
+    page = built.get("/panel/")
+    assert page.text.endswith("yeni panel</body></html>") and page.headers["cache-control"] == "no-cache"
+    asset = built.get("/panel/_next/app.js")
+    assert asset.status_code == 200 and asset.headers["cache-control"] == "no-cache"        # içerik özetli değil
+    (tmp_path / "_next" / "static").mkdir()
+    (tmp_path / "_next" / "static" / "a1b2.js").write_text("1")
+    assert "immutable" in built.get("/panel/_next/static/a1b2.js").headers["cache-control"]
 
 
 # ---------- projeler ----------
+
+def test_the_project_returns_its_script_so_the_panel_can_edit_it(api, api_project):
+    pid = api_project(25.0)
+    assert api.get(f"/api/projects/{pid}").json()["script_source"] is None
+    api.post(f"/api/projects/{pid}/script", json={"text": rules.SAMPLE_SCRIPT, "auto_render": False})
+    assert api.get(f"/api/projects/{pid}").json()["script_source"] == rules.SAMPLE_SCRIPT
+
 
 def test_create_project_returns_defaults_merged_and_starts_as_draft(api, api_project):
     pid = api_project(25.0, probe_n=4)

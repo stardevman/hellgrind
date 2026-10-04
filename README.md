@@ -7,7 +7,7 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 ## Neler yapar
 
 1. **Senaryoyu okur.** Standart senaryo biçimini (sahne başlığı, konuşan karakter, aksiyon) kural tabanlı ayrıştırıcıyla çekimlere böler. Her çekim için kamera, duygu, süre ve aksiyon yoğunluğu çıkarır.
-2. **Eksik referansla üretmez.** Model eksik bilgiyi uydurur: çekimde geçen her karakter, mekân ve nesnenin onaylı ve kilitli bir referansı yoksa o çekim *engellenir* ve hiçbir şey harcanmaz. Referanslar *Varlıklar* sekmesinde yüklenir, kısa bir hareket testinden geçer ve yönetmen onayıyla kilitlenir.
+2. **Eksik referansla üretmez.** Model eksik bilgiyi uydurur: çekimde geçen her karakter, mekân ve nesnenin onaylı ve kilitli bir referansı yoksa o çekim *engellenir* ve hiçbir şey harcanmaz. Referanslar *Varlıklar* sayfasında yüklenir, kısa bir hareket testinden geçer ve yönetmen onayıyla kilitlenir.
 3. **Tek bir stil dili kullanır.** Işık dili, hareket tarzı ve render kuralları projenin sürümlü *stil kılavuzundan* gelir ve her çekimin prompt'una aynı ifadeyle eklenir. Kılavuz değişince önce hangi çekimlerin yeniden üretileceği ve kaça mal olacağı gösterilir; yönetmen onaylamadan hiçbir şey üretilmez.
 4. **Önce storyboard, sonra kaba kurgu.** Her çekimin storyboard karesi yönetmen onayından geçer (istenirse zorunlu). Taslak geçiş yalnızca test turuyla filmin kaba kurgusunu çıkarır; yalnızca zayıf bulunan çekimler tam turla iyileştirilir.
 5. **Her çekim için yöntem seçtirir.** Çekim yapay zekâyla üretilebilir, bir previs (3D taslak) rehberinden çıkarılabilir ya da dışarıda bitirilip yüklenebilir. Üretilen klipler elle düzeltilip yeniden yüklenebilir; orijinal korunur.
@@ -16,7 +16,7 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 8. **Rengi ve sürekliliği denetler.** Film geneli bir LUT ve çekim bazında renk ayarı uygular; ardışık çekimler arasındaki renk sıçramalarını bulur ve tek tıkla uygulanabilir bir düzeltme önerir.
 9. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
 10. **Filmi birleştirir.** Hazır sahneleri sekanslarına göre sırayla tek videoda toplar. Müzik sekans düzeyindedir ve çekimler arasında kesilmeden akar. Tıklanabilir bir kesme listesi üretir.
-11. **Yönetmenin zevkini kaydeder.** Her seçim, eleme, iyileştirme işareti ve onay bir *kürasyon olayı* olarak saklanır; *Verimlilik* sekmesi aynı kaliteye kaç üretimle ulaşıldığını gösterir, film DaVinci Resolve ya da Premiere'e EDL, OpenTimelineIO ya da çekim paketi olarak aktarılır.
+11. **Yönetmenin zevkini kaydeder.** Her seçim, eleme, iyileştirme işareti ve onay bir *kürasyon olayı* olarak saklanır; *Teslim* sayfasının raporu aynı kaliteye kaç üretimle ulaşıldığını gösterir, film DaVinci Resolve ya da Premiere'e EDL, OpenTimelineIO ya da çekim paketi olarak aktarılır.
 12. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
 
 Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır:
@@ -55,46 +55,66 @@ Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veri
 | Adres | Ne |
 |---|---|
 | http://localhost:8000 | Kontrol paneli (Next.js; `/panel/`) |
-| http://localhost:8000/panel-klasik/ | Önceki tek sayfalık panel (geçiş süresince) |
 | http://localhost:8000/docs | API belgeleri |
 | http://localhost:9001 | MinIO konsolu (kullanıcı `minio`, parola `minio12345`) |
 | http://localhost:5555 | Flower (görev kuyruğu) |
 
 ## Kullanım
 
-1. Paneli açın. Henüz proje yoksa karşınıza **Yeni proje** formu gelir: proje adı, sanal bütçe, üretim yoğunluğu ve örnek senaryo hazır dolu olarak.
+Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte proje, sanal bütçe ve **Üretimi durdur** (Kill-Switch); altta, kurgu
+yazılımlarındaki gibi, üretim sırasıyla sayfa çubuğu: **Senaryo › Stil › Varlıklar › Storyboard › Kurgu › Karşılaştır › Renk
+› Teslim** (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>). Sayfa düğmelerindeki rozetler durumu özetler (kilitli varlık, onaylı
+kare, hazır ya da engelli çekim, renk sıçraması, film). Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon,
+karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca aynı görünüm açılır.
+
+1. **Senaryo** sayfası: henüz proje yoksa **Yeni proje** formu açılır: proje adı, sanal bütçe, üretim yoğunluğu ve örnek
+   senaryo hazır dolu olarak; sağda senaryo biçiminin kılavuzu.
    - *Önizleme*: en çok 4 test ve 8 tam klip (örnek film için yeterli, hızlı).
    - *Brifing*: 10 test ve en çok 50 tam klip.
-2. **Senaryoyu işle ve üret**'e basın. Sahneler satırlar halinde belirir, ama ilk seferde hepsi **Engellendi** durumundadır: senaryodaki karakterlerin (Kerem, Ayşe) ve mekânların (Terk Edilmiş Dökümhane, Çöken Köprü) henüz onaylı referansı yoktur. Satırdaki *Eksik referans* bağlantıları sizi ilgili varlığa götürür.
-3. **Varlıklar** sekmesinde her varlık için:
-   1. Referans yükleyin (karakter için 360° dönüş videosu, ifade sayfası ya da ses örneği; mekân ve nesne için durağan görsel). Elinizde dosya yoksa **Yerel taslak üret** prosedürel motordan bir taslak referans çıkarır.
+   **Senaryoyu işle ve üret**'e basınca Kurgu sayfası açılır. Mevcut projede bu sayfa senaryoyu düzenletir; **Değişiklikleri
+   işle ve üret** yalnızca değişen çekimleri yeniden üretir.
+2. İlk seferde çekimlerin hepsi **Engellendi** durumundadır: karakterlerin (Kerem, Ayşe) ve mekânların (Terk Edilmiş
+   Dökümhane, Çöken Köprü) henüz onaylı referansı yoktur. Denetçideki *Eksik referans* bağlantıları ilgili varlığa götürür.
+3. **Varlıklar** sayfası (solda tür ve durum süzgeçleri, ortada varlık ızgarası, sağda seçili varlık):
+   1. Referans yükleyin (karakter için 360° dönüş videosu, ifade sayfası ya da ses örneği; mekân ve nesne için durağan görsel).
+      Elinizde dosya yoksa **Yerel taslak üret** prosedürel motordan bir taslak referans çıkarır.
    2. **Durağanı onayla**.
-   3. **Hareket testi üret**: kısa, düşük çözünürlüklü bir klip. Durağanda iyi görünen bir varlık hareket halinde bozulabilir; testi izleyin. Kusurlu (siyah ya da donmuş) test onaylanamaz, **Hareket testini yenile** ile yenisini üretin.
+   3. **Hareket testi üret**: kısa, düşük çözünürlüklü bir klip. Durağanda iyi görünen bir varlık hareket halinde bozulabilir;
+      testi izleyin. Kusurlu (siyah ya da donmuş) test onaylanamaz, **Hareket testini yenile** ile yenisini üretin.
    4. **Hareket testini onayla**, sonra **Kilitle**. Hareket testi onaylanmadan varlık kilitlenemez.
-   İsterseniz önce **Stil kılavuzu** sekmesinde **Örnekle doldur** (altın saat ışığı, çizgi film hareketi, suluboya mekân + temiz 3D nesneler) ile ilk sürümü kaydedip etkinleştirin; hareket testleri de bu stille üretilir.
-4. Hepsi kilitlenince **Engellenen çekimleri yeniden dene**'ye basın. Üretim başlar; her satırdaki *film şeridi* o sahnenin klipleridir:
-   - yeşil çerçeveli ve numaralı: rafine havuzda
-   - gri ve kırmızı çapraz çizgili: kalite kontrolünde elendi
-   - soluk: havuza giremedi
-   - amber ve nefes alan: üretiliyor
-5. Bir sahneye ya da bir kareye tıklayın. **Denetçi** sonuç videosunu, rafine havuzu, çekim bilgilerini ve diyaloğu gösterir. Elenen klipler de (karantinadakiler dahil) önizlenir.
-6. Denetçiden:
-   - **Bunu kullan**: havuzdan başka bir klip seçer; yalnızca ses ve montaj yeniden çalışır.
-   - **Müziği değiştir**: duygu ve seviye. *Sekansın tamamı* (varsayılan) sekans müziğini değiştirir: hiçbir çekim yeniden üretilmez, yalnızca film yeniden birleştirilir. *Yalnızca bu çekim* çekime özel bir müzik koyar: yalnızca o çekimin montajı yeniden çalışır.
-   - **Sekans**: bütçe tavanı, sekansın film kanalları ve **Stem yükle** (bestecinin zamanlanmış müzik dosyası; başlangıcı sekansın başına göredir).
-   - **Bu sahneyi baştan üret**: görüntüyü yeni klip adaylarıyla yeniden üretir.
-   - **Nesne bağla**: çekime bir nesne ekler (ör. "Taksi"); nesne taslak olarak oluşur ve kilitlenene dek çekimi engeller.
+   İsterseniz önce **Stil** sayfasında **Örnekle doldur** (altın saat ışığı, çizgi film hareketi, suluboya mekân + temiz 3D
+   nesneler) ile ilk sürümü kaydedip etkinleştirin; hareket testleri de bu stille üretilir.
+4. Hepsi kilitlenince **Engellenen çekimleri yeniden dene**'ye basın. Üretim başlar.
+5. **Kurgu** sayfası bir kurgu yazılımı gibidir:
+   - Solda **çekim havuzu** (sekanslara göre, durum ve harcamayla) ve **olay akışı**.
+   - Ortada **izleyici**: zaman kodu (24 kare/sn), kare kare ilerleme, döngü; *Çekim*, *Film* ve *Kaba kurgu* kaynakları.
+     Kısayollar: <kbd>Boşluk</kbd>/<kbd>K</kbd> oynat-duraklat, <kbd>J</kbd>/<kbd>L</kbd> bir saniye, <kbd>←</kbd>/<kbd>→</kbd>
+     bir kare, <kbd>↑</kbd>/<kbd>↓</kbd> önceki/sonraki çekim.
+   - İzleyicinin altında seçili çekimin **adayları**: yeşil çerçeveli ve numaralı rafine havuzda; gri ve kırmızı çapraz çizgili
+     kalite kontrolünde elendi; soluk havuza giremedi; mor ve nefes alan üretiliyor. Tıklanan aday (karantinadakiler dahil)
+     izleyicide önizlenir.
+   - Altta **zaman çizelgesi**: sekans bandı, görüntü izi (çekimler süreleri kadar, duygu renginde), diyalog, müzik ve efekt
+     izleri. Cetvele tıklamak filmi oraya sarar; film oynarken oynatma kafası çekimler üzerinde ilerler ve denetçi o çekime geçer.
+   - Sağda **denetçi** (bölümler açılıp kapanır): çekim bilgisi, **Bu sahneyi baştan üret**, **İyileştir**; rafine havuz ve
+     **Bunu kullan** (yalnızca ses ve montaj yeniden çalışır); **Ses**: diyalog ve **Müziği değiştir** (*Sekansın tamamı*
+     sekans müziğini değiştirir, hiçbir çekim yeniden üretilmez; *Yalnızca bu çekim* çekime özel müzik koyar); **Sekans**: bütçe
+     tavanı, film kanalları ve **Stem yükle**; **Varlıklar** ve **Nesne bağla**; **Yöntem**; **Elle düzeltme**.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
-7. **Karşılaştır** sekmesi aynı çekimin 2–4 adayını yan yana, tek taşıma çubuğuyla **eşzamanlı** oynatır (denetçide **Adayları karşılaştır**; film şeridinde <kbd>Shift</kbd>+tık ile istediğin klipleri seçebilirsin):
+6. **Karşılaştır** sayfası aynı çekimin 2–4 adayını yan yana, tek taşıma çubuğuyla **eşzamanlı** oynatır (denetçide
+   **Adayları karşılaştır**; aday şeridinde <kbd>Shift</kbd>+tık ile istediğin klipleri seçebilirsin):
    - Varsayılan olarak rafine havuz açılır; üstteki şeritten elenenler dahil izlenebilen her aday eklenip çıkarılabilir.
    - **Izgara** ya da **Perde (1 ↔ 2)**: iki adayı üst üste koyup kaydırılabilir bir perdeyle karşılaştırır.
-   - Kare kare ilerleme (<kbd>←</kbd> <kbd>→</kbd>, <kbd>Shift</kbd> ile 1 sn), <kbd>Boşluk</kbd> oynat/duraklat, 0,25×–1× hız, döngü; <kbd>1</kbd>–<kbd>4</kbd> bir adayı tek başına büyütür.
-   - Ölçüm tablosu birleşik skoru (gerçek skorlayıcıyla stil, tarif ve yüz uyumunu da) yan yana koyar, her satırda öndekini işaretler ve farkı yazar.
-   - Havuzdaki bir aday **Bunu kullan** ile seçilir (yalnızca ses ve montaj yeniden çalışır; seçim kürasyon kaydına düşer). Havuz dışındakiler yalnızca incelenir.
-   Görünüm adres çubuğunda tutulur (proje, sekme, sahne, varyasyon, karşılaştırılan adaylar): bağlantıyı paylaşınca aynı görünüm açılır.
-8. **Tamamlanan N sahneyi birleştir** filmi üretir. Kesme şeridindeki bir sahneye tıklamak oynatıcıyı oraya götürür.
-   **Verimlilik** sekmesi metrikleri, son kürasyon kararlarını ve dışa aktarma bağlantılarını (EDL, OpenTimelineIO, çekim paketi, kürasyon kaydı) gösterir.
-9. Bütçe rayındaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et** kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
+   - Kare kare ilerleme (<kbd>←</kbd> <kbd>→</kbd>, <kbd>Shift</kbd> ile 1 sn), <kbd>Boşluk</kbd> oynat/duraklat, 0,25×–1× hız,
+     döngü; <kbd>1</kbd>–<kbd>4</kbd> bir adayı tek başına büyütür.
+   - Ölçüm tablosu birleşik skoru (gerçek skorlayıcıyla stil, tarif ve yüz uyumunu da) yan yana koyar, her satırda öndekini
+     işaretler ve farkı yazar. Havuzdaki bir aday **Bunu kullan** ile seçilir; seçim kürasyon kaydına düşer.
+7. **Renk** sayfası: seçili çekimin önce/sonra görüntüsü, kaydırıcılarla pozlama, kontrast, doygunluk, gama ve sıcaklık
+   (çift tık nötre döndürür), film LUT'u ve **Sürekliliği denetle**; alttaki klip şeridinde renk sıçramaları kırmızı çentikle
+   işaretlidir ve **Öneriyi uygula** tek tıkla düzeltir.
+8. **Teslim** sayfası: **Tamamlanan N sahneyi birleştir** (ya da kaba kurgu), film ve kesme şeridi; dışa aktarma kuyruğu (EDL,
+   OpenTimelineIO, çekim paketi, storyboard PDF'i, kürasyon kaydı) ve verimlilik raporu.
+9. Üst banttaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**
+   kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
 
 API'yi doğrudan da kullanabilirsiniz:
 
@@ -163,7 +183,7 @@ Referans verilmeyen bir taksiye model rastgele yolcular ekler. Bu yüzden:
 Revizyonu en ucuz aşamada yapmak maliyeti en çok düşüren adımdır. Bu yüzden:
 
 - **STORYBOARD aşaması** görüntü üretiminden önce gelir: her çekim için bir kare çizilir. Ücretsiz modda kare, prosedürel motorun çekim ortasındaki karesidir ve üzerine çekim kodu, kamera, süre ve replik yazılır; bedeli tek bir Flux karesinin fiyatıyla sanal olarak bütçeden düşer (ücretli Flux karesi Faz 18'de). Kare yalnızca görüntü yeniden üretilecekse ve çekimin görsel girdileri değiştiyse yeniden çizilir; bitmiş çekimler için kare istenmez.
-- **Kare onayı:** *Storyboard* sekmesinde her kare için **Onayla** ya da not bırakıp **Değişiklik iste**. Görsel girdileri değişen çekimin karesi yeniden çizilir ve onay yeniden istenir (stil değişikliği dahil). **Görüntü üretimi için kare onayı zorunlu** (`require_board_approval`, varsayılan kapalı) açıkken onaylanmamış çekimde hiçbir varyasyon üretilmez: üretim isteği yalnızca kareyi çizer ve çekimi *Kare onay bekliyor* durumunda bırakır; kontrol worker'da da yapılır. **Kareleri hazırla** görüntü üretmeden yalnızca kareleri çizer (varlık kontrolü uygulanmaz: storyboard varlıklar kilitlenmeden önce de hazırlanabilir).
+- **Kare onayı:** *Storyboard* sayfasında her kare için **Onayla** ya da not bırakıp **Değişiklik iste**. Görsel girdileri değişen çekimin karesi yeniden çizilir ve onay yeniden istenir (stil değişikliği dahil). **Görüntü üretimi için kare onayı zorunlu** (`require_board_approval`, varsayılan kapalı) açıkken onaylanmamış çekimde hiçbir varyasyon üretilmez: üretim isteği yalnızca kareyi çizer ve çekimi *Kare onay bekliyor* durumunda bırakır; kontrol worker'da da yapılır. **Kareleri hazırla** görüntü üretmeden yalnızca kareleri çizer (varlık kontrolü uygulanmaz: storyboard varlıklar kilitlenmeden önce de hazırlanabilir).
 - **Storyboard PDF'i:** `GET /api/projects/{id}/storyboard.pdf` (panelde **PDF indir**). Sayfa başına 6 kare; her sekans yeni sayfada başlar; çekim kodu, kamera, süre, diyalog, onay durumu ve not yazılır.
 - **Taslak geçiş** (`POST /api/projects/{id}/draft-pass`, panelde **Taslak geçişi başlat**): görüntüsü üretilecek her çekim (onay zorunluysa yalnızca onaylılar) yalnızca test turuyla üretilir ve test turunda geçen ilk varyasyon kullanılır; tam tur hiç çalışmaz. Son taslak çekim bitince **kaba kurgu** kendiliğinden birleştirilir.
 - **İyileştirme geçişi:** kaba kurguda zayıf bulunan çekimler sahne satırındaki **İyileştir** ile işaretlenir; `POST /api/projects/{id}/upgrade-pass` yalnızca işaretli taslak çekimlerde tam turu çalıştırır. Test turu klipleri aynı seed'lerle yeniden kullanılır: yalnızca tam tur dalgaları ücretlendirilir. Taslak klibi kaba kurgu için saklanır.
@@ -185,7 +205,7 @@ Karmaşık ya da çok özel hareketleri tarif ederek üretmek zordur. Profesyone
 ## Renk aşaması ve süreklilik
 
 - **GRADE aşaması** dudak senkronu ile montaj arasında çalışır: önce film geneli 3B LUT (`.cube`, FFmpeg `lut3d`), sonra çekimin ayarı: pozlama (EV), kontrast, doygunluk, gama (FFmpeg `eq`) ve renk sıcaklığı (Kelvin; 6500 nötr, düşük değer ısıtır). Ayar ve LUT bir özet olarak planlayıcıya girer: yalnızca renk değişince yalnızca renk ve montaj çalışır, görüntü ve dudak senkronu çalışmaz. Nötr ayar ve LUT yoksa aşama hiç çalışmaz.
-- Denetçinin **Renk** bölümünde ayarlar, çekimin orta karesinden **önce/sonra** karşılaştırması (kaydetmeden önizleme) ve *Rengi uygula* / *Nötre dön* vardır. API: `POST /api/scenes/{id}/grade`, `GET /api/scenes/{id}/grade/preview.jpg?before=true` ya da ayarlarla.
+- **Renk** sayfasında kaydırıcılı ayarlar, çekimin orta karesinden **önce/sonra** karşılaştırması (kaydetmeden önizleme) ve *Rengi uygula* / *Nötre dön* vardır. API: `POST /api/scenes/{id}/grade`, `GET /api/scenes/{id}/grade/preview.jpg?before=true` ya da ayarlarla.
 - **Film LUT'u:** `POST /api/projects/{id}/lut?filename=film.cube` (dosya istek gövdesinde; biçim doğrulanır) ve `DELETE`. Bitmiş çekimlerin yalnızca rengi ve montajı yenilenir; görüntüsü üretilmemiş çekimler beklemez.
 - **Süreklilik kontrolü** (`quality/consistency.py`): aynı sekanstaki ardışık çekimlerin orta karelerinden HSV histogramları çıkarılır ve Bhattacharyya mesafesi raporlanır. Histogram mesafesi kompozisyon farkını da ölçtüğü için karar, histogramlardan türetilen ortalama parlaklık, sıcaklık ve doygunluk farkıyla verilir (ölçekler 40, 40, 80: aynı paletteki farklı çekimler arasındaki farkın üstünde). Film birleşince kendiliğinden, panelde *Sürekliliği denetle* ile elle çalışır; montajı değişen çekimin geçişleri kendiliğinden yeniden ölçülür. API: `POST/GET /api/projects/{id}/continuity`.
 - **Önerilen düzeltme:** sıçrama olan geçişte sonraki çekim için, önceki çekimin parlaklık ve sıcaklığına yaklaştıran ayar aranır. Aday ayarlar çekimin renklendirilmemiş karesine GRADE aşamasıyla birebir aynı filtreyle uygulanıp ölçülür; öneri bir tahmin değil, ölçülmüş bir sonuçtur. Panelde kesme şeridinin üstünde uyarı ve **Öneriyi uygula** düğmesi çıkar; sıçrama olan kesme kırmızı çizgiyle işaretlenir.
@@ -195,7 +215,7 @@ Karmaşık ya da çok özel hareketleri tarif ederek üretmek zordur. Profesyone
 Rekabet avantajı aynı kaliteye daha az üretimle ulaşmak ve yönetmenin zevkini veriye dönüştürmektir.
 
 - **Kürasyon kaydı:** durum değiştiren her API ucu (dolayısıyla her panel eylemi) başarılı olduğunda `curation_events` tablosuna bir satır yazar: eylem, sahne, varyasyon, istek, yanıtın özeti ve kalite modeli için bağlam (varyasyonun skoru, sırası, seed'i, anomalileri; sahnenin durumu, yöntemi, kesim katmanı). Başlıca eylemler: `promote` (havuzdan seçim), `upgrade_request`, `board_approve`, `board_reject`, `asset_lock`, `revision_upload`, `style_activate`, `force_rerender`. Reddedilen istekler (ör. dondurulmuş projede 423) kaydedilmez. Dışa aktarım: `GET /api/projects/{id}/curation.jsonl` (her satır bir karar); son kararlar `GET /api/projects/{id}/curation?limit=30`. İleride projeye özel kalite modeli bu veriyle eğitilecektir.
-- **Verimlilik metrikleri** (`GET /api/projects/{id}/metrics`, panelde *Verimlilik* sekmesi): kabul edilen çekim başına üretilen varyasyon (toplam ve sekans bazında), bitmiş film dakikası başına sanal maliyet, sekansların varyasyon ve harcama payları, eleme nedenleri (kalite kontrolü, havuza giremedi, yeni üretimle değişti, üretilemedi…), test turu başarı oranı ve ortalama düzeltme turu, kaba kurgudan finale iyileştirilen çekim oranı, harcama kalemleri. Varyasyon sayımına yalnızca çekim üretimleri girer (hareket testleri varlığa aittir, dış çekim bir üretim değildir); harcama projenin defterinden gelir.
+- **Verimlilik metrikleri** (`GET /api/projects/{id}/metrics`, panelde *Teslim* sayfasının raporu): kabul edilen çekim başına üretilen varyasyon (toplam ve sekans bazında), bitmiş film dakikası başına sanal maliyet, sekansların varyasyon ve harcama payları, eleme nedenleri (kalite kontrolü, havuza giremedi, yeni üretimle değişti, üretilemedi…), test turu başarı oranı ve ortalama düzeltme turu, kaba kurgudan finale iyileştirilen çekim oranı, harcama kalemleri. Varyasyon sayımına yalnızca çekim üretimleri girer (hareket testleri varlığa aittir, dış çekim bir üretim değildir); harcama projenin defterinden gelir.
 - **Profesyonel dışa aktarma** (`GET /api/projects/{id}/export?format=...`, birleştirilmiş filmin kesme listesinden; film yoksa 409):
   - `edl`: CMX3600 EDL, 24 fps, non-drop. Her çekim bir olaydır; makara adı çekim kodudur (`S001SH01`), kayıt zaman kodları kesme listesinin in/out değerleridir, `FROM CLIP NAME` paketteki dosyayı gösterir.
   - `otio`: OpenTimelineIO JSON (`Timeline.1`; görüntü ve ses izleri, renk sıçraması olan çekimlerde işaretçi).
@@ -257,7 +277,7 @@ Uç nokta kimlikleri ve parametreler fal.ai ve ElevenLabs belgelerinden doğrula
 - **Önce görsel, sonra video:** her varyasyonun ilk karesi (Flux) ayrı üretilir, depoya konur ve videoyla aynı eşikle puanlanır (siyah ya da tek renk kare ve eşik altı skor elenir). Elenen karenin videosu hiç istenmez; panelde "ilk karede elendi, video üretilmedi" yazar. Video yalnızca geçen kareden üretilir; varyasyonun bedeli kare + videodur. Ücretsiz modda yerel motor doğrudan video çizer.
 - **Storyboard karesi** bestecinin prompt'uyla tek bir Flux karesidir; üzerine çekim bilgisi yazılır.
 - **Previs rehberi** Wan 2.2 video-to-video ile stile aktarılır (`strength` 0,65: hareket ve kompozisyon rehberden, görünüm stil kılavuzundan). Ücretsiz modda rehber renklendirilip kullanılır ve aynı uç noktanın fiyatı sanal olarak düşer.
-- **Referans üretimi** (*Varlıklar* sekmesinde *Referans üret*): karakter için Flux karesinden yörünge hareketli 4 sn'lik dönüş videosu (karakterin LoRA'sı varsa onunla), mekân ve nesne için tek Flux karesi. Ücretsiz moddaki yerel taslak da artık bu fiyattan düşer.
+- **Referans üretimi** (*Varlıklar* sayfasında *Referans üret*): karakter için Flux karesinden yörünge hareketli 4 sn'lik dönüş videosu (karakterin LoRA'sı varsa onunla), mekân ve nesne için tek Flux karesi. Ücretsiz moddaki yerel taslak da artık bu fiyattan düşer.
 - **Hareket testi** varlığın onaylı referans görselinden başlar (yüklenir, Flux çağrılmaz): sınanan, onaylanan referansın kendisidir.
 - **Düzenlenmiş ilk kare** yüklenince varyasyonun prompt, seed, çözünürlük ve süresiyle videoya çevrilir; bedeli yalnızca videodur. Aynı kare yeniden yüklenirse yeniden ödenmez.
 - İstek içindeki ücretli çağrının hataları Türkçe yanıtlanır: kilit 409, bütçe 423, sağlayıcının geçici hatası (3 denemeden sonra) 503.
@@ -292,11 +312,12 @@ Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excelle
 ```
 docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
-frontend/                      kontrol paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
+frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              Shell, StartView, ScenesPane, Inspector, ComparePane, AssetsPane, BoardPane, StylePane, EfficiencyPane
-  src/lib/                     api (istemci), panel (ortak durum, URL), text ve compare (saf mantık), i18n (Türkçe karşılıklar), types
-  tests/                       vitest: metinler, karşılaştırma, tasarım sözleşmesi
+  src/components/              AppFrame (üst bant, sayfa çubuğu), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+                               (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
+  src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
+  tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi
 backend/
   pricing.yaml  migrations/    fiyat tablosu, şema değişiklikleri
   app/
@@ -317,7 +338,6 @@ backend/
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, panel, plan, deps, uploads
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
-    panel/       index.html (klasik panel, /panel-klasik; geçiş süresince)
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama
@@ -330,6 +350,6 @@ backend/
 - **Sahneler "Engellendi" diyor:** çekimdeki bir varlık henüz kilitli değil. Satırdaki eksik referans bağlantısına tıklayıp varlığı onay akışından geçirin, sonra *Engellenen çekimleri yeniden dene*'ye basın. Referans kontrolünü bir proje için kapatmak isterseniz proje ayarlarında `lint_strictness: "off"` verin.
 - **Üretim başlamıyor:** worker çalışıyor mu? Proje dondurulmuş olabilir (bütçe rayındaki uyarı bandı); *Üretime devam et*'e basın.
 - **Sıfırdan başlamak:** `make reset` veritabanı ve MinIO dahil **her şeyi siler**; çalıştırmadan önce emin olun.
-- **`/panel/` "Panel derlenmemiş" diyor:** imaj panelsiz derlenmiş (ör. `docker build backend` ile, compose'un `frontend` bağlamı olmadan). `docker compose up -d --build` paneli imajın ilk aşamasında derler. Bu arada `/panel-klasik/` çalışır.
+- **`/panel/` "Panel derlenmemiş" diyor:** imaj panelsiz derlenmiş (ör. `docker build backend` ile, compose'un `frontend` bağlamı olmadan). `docker compose up -d --build` paneli imajın ilk aşamasında derler.
 - **Paneli geliştirmek:** `make web-dev` Next.js geliştirme sunucusunu `http://localhost:3000/panel/` adresinde açar ve `/api` isteklerini `HG_API_URL` (varsayılan `http://localhost:8000`) adresine yönlendirir; API Docker'da çalışırken anında yenilenen bir panel elde edilir.
 - **Yazı tipi yüklenmiyor:** panel Archivo'yu Google Fonts'tan alır; çevrimdışıyken sistem yazı tipine düşer, işlev etkilenmez.
