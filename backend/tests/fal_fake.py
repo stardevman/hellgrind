@@ -1,6 +1,7 @@
 """Sahte fal_client: çağrıları kaydeder, uygulamaya göre yanıt verir ya da hata fırlatır. Hiçbir ağ isteği yapmaz."""
 import types
 
+from app.config import settings
 from app.live import fal_video
 
 
@@ -22,9 +23,9 @@ class FakeFal:
     def responder(self, application, arguments):
         if application in self.behaviour:
             return self.behaviour[application](arguments)
-        if application == fal_video.FLUX:
+        if application in (fal_video.FLUX, settings.fal_flux_endpoint):          # panelden değişmiş olabilir
             return {"images": [{"url": "https://fal.test/frame.jpg"}]}
-        if application == fal_video.LIPSYNC:
+        if application in (fal_video.LIPSYNC, settings.fal_lipsync_endpoint):
             return {"video": {"url": "https://fal.test/synced.mp4"}}
         return {"video": {"url": "https://fal.test/clip.mp4"}, "seed": arguments.get("seed")}
 

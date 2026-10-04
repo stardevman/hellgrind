@@ -10,7 +10,10 @@ import type { Meta, Overview, ProjectListItem, Scene, Sequence } from "./types";
 export const POLL_MS = 2000;
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
 export const PAGES = ["script", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
-export type Page = (typeof PAGES)[number];
+/** Sayfa çubuğunda olmayan, üst banttan açılan sayfalar. */
+export const EXTRA_PAGES = ["settings"] as const;
+export type Page = (typeof PAGES)[number] | (typeof EXTRA_PAGES)[number];
+const ALL_PAGES: readonly string[] = [...PAGES, ...EXTRA_PAGES];
 /** Çekimi olmayan projede açılamayan sayfalar: senaryo sayfasına düşülür. */
 export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["board", "edit", "compare", "color", "deliver"]);
 export type NoteKind = "ok" | "err" | "";
@@ -107,7 +110,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const offline = Boolean(ovError && !(ovError as { status?: number }).status) || Boolean(listError && !(listError as { status?: number }).status);
 
   const pageParam = search.get("page") as Page | null;
-  const page: Page = pageParam && (PAGES as readonly string[]).includes(pageParam) ? pageParam : "edit";
+  const page: Page = pageParam && ALL_PAGES.includes(pageParam) ? pageParam : "edit";
   const sceneParam = search.get("s");
   const scene = ov?.scenes.find((x) => x.id === sceneParam) ?? ov?.scenes[0];
   const sequence = scene ? ov?.sequences.find((q) => q.id === scene.sequence_id) : undefined;

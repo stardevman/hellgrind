@@ -5,6 +5,11 @@ x-backend: &backend
     additional_contexts:
       frontend: ./frontend     # Next.js paneli imajın ilk aşamasında derlenir
   env_file: .env
+  environment:
+    CONFIG_ENV_FILE: /config/.env       # panelin Ayarlar sayfası ücretli servis ayarlarını buraya yazar
+  volumes:
+    - ./.env:/config/.env
+    - ./backend/pricing.yaml:/app/pricing.yaml
   depends_on:
     postgres: { condition: service_healthy }
     redis:    { condition: service_healthy }

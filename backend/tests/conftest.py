@@ -17,6 +17,12 @@ TEST_DB = "hellgrind_test"
 # app.db içe aktarılmadan önce ayarlanmalı; bu yüzden conftest yüklenirken yapılır.
 settings.database_url = make_url(settings.database_url).set(database=TEST_DB).render_as_string(hide_password=False)
 
+# Testler her zaman ücretsiz modda koşar (değişmez kural 2): panelden ücretli moda geçilmiş olsa ve konteyner .env'i
+# DRY_RUN=0 ile okusa bile. Ücretli kodun testleri ayarı kendi içinde, sahte istemcilerle açar. Panelin .env'e yazması da
+# testlerde kapalıdır: ayar testleri geçici bir dosya kullanır.
+settings.dry_run = True
+settings.config_env_file = ""
+
 # Aynı nedenle nesne deposu da ayrı bir kova kullanır (geliştirme kovasındaki medya silinmesin).
 settings.s3_bucket = "hellgrind-test"
 

@@ -9,12 +9,13 @@ import os
 
 import httpx
 
+from app.config import settings
 from app.engine.providers import TransientError
 from app.live import guard
 from app.quality.anomaly import probe_duration
 
 URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-MODEL_ID = "eleven_multilingual_v2"
+MODEL_ID = "eleven_multilingual_v2"                # varsayılan; asıl değer settings.elevenlabs_model
 OUTPUT_FORMAT = "mp3_44100_128"
 EXTENSION = ".mp3"
 SIMILARITY_BOOST = 0.75
@@ -38,7 +39,7 @@ def tts(text: str, voice_id: str | None, emotion: str | None, out_path: str) -> 
     try:
         response = httpx.post(URL.format(voice_id=voice_id), params={"output_format": OUTPUT_FORMAT},
                               headers={"xi-api-key": key, "Accept": "audio/mpeg"}, timeout=120,
-                              json={"text": text, "model_id": MODEL_ID, "voice_settings": voice_settings(emotion)})
+                              json={"text": text, "model_id": settings.elevenlabs_model, "voice_settings": voice_settings(emotion)})
     except (httpx.TransportError, TimeoutError) as e:
         raise TransientError(f"ElevenLabs: {type(e).__name__}: {e}") from e
     if response.status_code == 429 or response.status_code >= 500:

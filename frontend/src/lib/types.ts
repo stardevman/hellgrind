@@ -162,3 +162,32 @@ export interface DispatchAll {
   planned: Record<string, string[]>; busy: string[]; blocked: Record<string, unknown>;
   capped: string[]; awaiting_board?: string[]; frozen: boolean;
 }
+
+/* ---------- ayarlar (ücretli servisler) ---------- */
+
+export interface ServiceField {
+  env: string; label: string; kind: "secret" | "model" | "choice";
+  set?: boolean; masked?: string | null;                                  // secret
+  value?: string; default?: string; choices?: string[]; url?: string | null;   // model, choice
+}
+
+export interface Service {
+  id: "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
+  fields: ServiceField[]; active: boolean; key_set: boolean; spent_usd: number;
+}
+
+export interface AuditEntry { ts: number; field: string; action: string; detail: string }
+
+export interface SettingsState {
+  dry_run: boolean; editable: boolean; env_file: string | null; confirmation: string; busy: string[];
+  services: Service[]; spent_usd: number; audit: AuditEntry[]; pricing_file: string;
+}
+
+export interface PricingTable {
+  video_per_second: Record<string, Record<string, number>>;
+  image_per_megapixel: Record<string, number>;
+  lipsync_per_minute: number; tts_per_1k_chars: number;
+  llm_per_million_tokens: { input: number; output: number };
+}
+
+export interface ProbeResult { ok: boolean | null; status: number | null; message: string }

@@ -14,16 +14,17 @@ import { DeliverPage } from "./DeliverPage";
 import { EditPage } from "./EditPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
+import { SettingsPage } from "./SettingsPage";
 import { StylePage } from "./StylePage";
 import { shortcutTarget } from "./ui";
 
 const PAGE_LABEL: Record<Page, string> = {
   script: "Senaryo", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
-  color: "Renk", deliver: "Teslim",
+  color: "Renk", deliver: "Teslim", settings: "Ayarlar",
 };
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
-  color: ColorPage, deliver: DeliverPage,
+  color: ColorPage, deliver: DeliverPage, settings: SettingsPage,
 };
 
 function Budget() {
@@ -40,15 +41,15 @@ function Budget() {
         <i className="soft" style={{ left: `${(p.settings.soft_budget_ratio * 100).toFixed(1)}%` }} title="Yumuşak limit" />
       </div>
       <div className="fig"><b>{usd(p.spent_usd)}</b><span>harcanan{p.dry_run ? " (sanal)" : ""}</span></div>
-      <div className="fig"><b>{usd(p.reserved_usd)}</b><span>ayrılan</span></div>
-      <div className="fig"><b>{usd(left)}</b><span>kalan</span></div>
+      <div className="fig opt"><b>{usd(p.reserved_usd)}</b><span>ayrılan</span></div>
+      <div className="fig opt"><b>{usd(left)}</b><span>kalan</span></div>
       <div className="fig"><b>{usd(p.budget_limit_usd)}</b><span>limit</span></div>
     </div>
   );
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, setCreating, setPage, meta, ov, act } = usePanel();
+  const { projects, projectId, selectProject, setCreating, page, setPage, meta, ov, act } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -65,14 +66,19 @@ function TopBar() {
       <Budget />
       <span className="grow" />
       {q && (
-        <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`} title={q.reason || ""}>
-          {q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
-            : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor"}
+        <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
+          title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
+            : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
+          {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
         </span>
       )}
-      <span className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`}>
-        {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" : "Ücretli mod açık: gerçek harcama yapılır"}
-      </span>
+      <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
+        title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
+        onClick={() => setPage("settings")}>
+        {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
+      </button>
+      <button type="button" className="btn ghost" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
+        title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear />Ayarlar</button>
       {ov && (
         <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
           title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
@@ -160,14 +166,15 @@ export function AppFrame() {
   }, [setPage]);
 
   const loading = (!projects && !offline) || (projectId && !ov && !creating && !offline);
-  const target: Page = creating || !projectId || (ov && NEEDS_SHOTS.has(page) && !hasShots) ? "script" : page;
+  const target: Page = page === "settings" && !creating ? "settings"
+    : creating || !projectId || (ov && NEEDS_SHOTS.has(page) && !hasShots) ? "script" : page;
   const View = PAGE_VIEW[target];
   return (
     <div className="app">
       <TopBar />
       <Alerts />
       <main className="workspace">
-        {loading ? <p className="loading">Yükleniyor…</p> : <View key={`${projectId}:${target}`} />}
+        {loading && target !== "settings" ? <p className="loading">Yükleniyor…</p> : <View key={`${projectId}:${target}`} />}
       </main>
       <PageBar hasShots={hasShots} />
     </div>

@@ -317,6 +317,16 @@ def test_a_video_from_an_approved_frame_costs_only_the_video(fal):
     assert fal.apps() == [fal_video.WAN] and fal.calls[0][1]["image_url"] == "https://fal.test/frame.jpg"
 
 
+def test_endpoints_come_from_the_settings_the_panel_edits(fal, monkeypatch):
+    """Ayarlar sayfasında değiştirilen uç nokta kimliği bir sonraki çağrıda kullanılır (yeniden başlatma yok)."""
+    monkeypatch.setattr(settings, "fal_flux_endpoint", "fal-ai/flux-lora-new")
+    monkeypatch.setattr(settings, "fal_wan_endpoint", "fal-ai/wan/v3/image-to-video")
+    provider = FalProvider("fal_wan")
+    provider.first_frame(request())
+    provider.generate(request(image_url="https://fal.test/frame.jpg"))
+    assert fal.apps() == ["fal-ai/flux-lora-new", "fal-ai/wan/v3/image-to-video"]
+
+
 def test_a_first_frame_whose_download_failed_is_not_paid_again(fal, monkeypatch):
     provider, good, attempts = FalProvider("fal_wan"), fal_video._download, []
 

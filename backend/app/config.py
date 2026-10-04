@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
     hermes_model: str = "claude-sonnet-5-5"
+    # Ücretli model ve uç nokta kimlikleri (panelin Ayarlar sayfasından da düzenlenir; fal.ai model sayfalarıyla doğrula)
+    fal_flux_endpoint: str = "fal-ai/flux-lora"
+    fal_wan_endpoint: str = "fal-ai/wan/v2.2-a14b/image-to-video"
+    fal_seedance_endpoint: str = "bytedance/seedance-2.0/fast/image-to-video"
+    fal_lipsync_endpoint: str = "fal-ai/sync-lipsync/v2/pro"
+    fal_wan_v2v_endpoint: str = "fal-ai/wan/v2.2-a14b/video-to-video"
+    elevenlabs_model: str = "eleven_multilingual_v2"
+    # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
+    config_env_file: str = ""
     s3_public_endpoint_url: str | None = "http://localhost:9000"   # tarayıcının MinIO'ya eriştiği adres
 
     purge_mode: str = "quarantine"   # hard | quarantine

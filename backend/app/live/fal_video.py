@@ -41,6 +41,7 @@ from app.live import guard
 
 log = logging.getLogger("hellgrind.live.fal")
 
+# Varsayılan uç noktalar (asıl değerler settings.fal_*_endpoint: .env ya da panelin Ayarlar sayfası)
 FLUX = "fal-ai/flux-lora"
 WAN = "fal-ai/wan/v2.2-a14b/image-to-video"
 SEEDANCE = "bytedance/seedance-2.0/fast/image-to-video"
@@ -144,7 +145,7 @@ def image(prompt: str, seed: int, loras=None, triggers=None, image_size: str = "
     """Tek Flux karesi (storyboard, mekân ve nesne referansı). Çağıran, `image_estimate()` kadar rezervasyon almış olmalı."""
     client = _client(guard("fal_key"))
     try:
-        result, request_id = _run(client, FLUX, flux_arguments(prompt, seed, loras, triggers, image_size))
+        result, request_id = _run(client, settings.fal_flux_endpoint, flux_arguments(prompt, seed, loras, triggers, image_size))
         url = result["images"][0]["url"]
         path = _download(url, ".jpg")
     except Exception as e:
@@ -178,7 +179,7 @@ def restyle(video_path: str, prompt: str, negative: str, seed: int, resolution: 
     client = _client(guard("fal_key"))
     try:
         video_url = client.upload_file(video_path)
-        result, request_id = _run(client, WAN_V2V, restyle_arguments(video_url, prompt, negative, seed, resolution, duration_s))
+        result, request_id = _run(client, settings.fal_wan_v2v_endpoint, restyle_arguments(video_url, prompt, negative, seed, resolution, duration_s))
         path = _download(result["video"]["url"])
     except Exception as e:
         _reraise(e)
@@ -235,7 +236,7 @@ class FalProvider:
         with self._lock:
             if key in self._frames:                          # yeniden deneme: ikinci kez ilk kare ödenmez
                 return self._frames[key]
-        result, request_id = _run(client, FLUX, flux_arguments(req.prompt, req.seed, req.extra.get("loras"),
+        result, request_id = _run(client, settings.fal_flux_endpoint, flux_arguments(req.prompt, req.seed, req.extra.get("loras"),
                                                                req.extra.get("lora_triggers")))
         made = (result["images"][0]["url"], request_id)
         with self._lock:
@@ -262,11 +263,11 @@ class FalProvider:
     def video_arguments(self, req: GenRequest, image_url: str) -> tuple[str, dict]:
         resolution = self.resolution(req.resolution)
         if self.engine == "fal_wan":
-            return WAN, {"prompt": req.prompt, "image_url": image_url, "num_frames": self.frames(req.duration_s),
+            return settings.fal_wan_endpoint, {"prompt": req.prompt, "image_url": image_url, "num_frames": self.frames(req.duration_s),
                          "frames_per_second": WAN_FPS, "resolution": resolution, "negative_prompt": req.negative,
                          "seed": req.seed, "aspect_ratio": "16:9", "enable_safety_checker": True}
         # Seedance tohum almaz; kendi sesimizi ekleyeceğimizden yerleşik ses kapatılır (varsayılan açık).
-        return SEEDANCE, {"prompt": req.prompt, "image_url": image_url, "resolution": resolution,
+        return settings.fal_seedance_endpoint, {"prompt": req.prompt, "image_url": image_url, "resolution": resolution,
                           "duration": str(int(self.billed_seconds(req.duration_s))), "aspect_ratio": "16:9",
                           "generate_audio": False}
 
@@ -303,7 +304,7 @@ def lipsync(video_path: str, audio_path: str, out_path: str) -> str:
     client = _client(guard("fal_key"))
     try:
         video_url, audio_url = client.upload_file(video_path), client.upload_file(audio_path)
-        result, _ = _run(client, LIPSYNC, {"video_url": video_url, "audio_url": audio_url, "sync_mode": "cut_off"})
+        result, _ = _run(client, settings.fal_lipsync_endpoint, {"video_url": video_url, "audio_url": audio_url, "sync_mode": "cut_off"})
         downloaded = _download(result["video"]["url"])
     except Exception as e:
         _reraise(e)

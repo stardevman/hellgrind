@@ -5,10 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp
 
-from app import migrate, storage
-from app.api import assets, budget, export, grade, methods, panel, projects, scenes, sequences, storyboard, style
+from app import migrate, runtime_config, storage
+from app.api import assets, budget, export, grade, methods, panel, projects, scenes, sequences, services, storyboard, style
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -52,9 +53,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
-for module in (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, panel):
+for module in (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, services, panel):
     app.include_router(module.router, prefix="/api")
 app.mount("/panel", panel_app(pathlib.Path(settings.panel_web_dir)), name="panel")
+
+
+@app.middleware("http")
+async def config_refresh(request, call_next):
+    """Ayarlar başka bir süreçte (panel, worker) değiştiyse istekten önce .env'den tazelenir."""
+    if request.url.path.startswith("/api"):
+        await run_in_threadpool(runtime_config.refresh_if_changed)
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)

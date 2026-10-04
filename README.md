@@ -253,6 +253,29 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 - Bayat rezervasyon toplayıcı 5 dakikada bir, 60 dakikadan eski ve eşi olmayan rezervasyonları iade eder.
 - Fiyatlar `backend/pricing.yaml` dosyasındadır (fal.ai, Ekim 2026). Periyodik olarak güncelleyin.
 
+## Ücretli servisler (panelin Ayarlar sayfası)
+
+Üst banttaki **Ayarlar** düğmesi (ya da mod rozeti) bütün ücretli servisleri tek yerde gösterir ve düzenletir:
+
+- **Servisler:** fal.ai (Flux, Wan, Seedance, previs aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes
+  LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
+  (varsayılana dönme ve model sayfası bağlantısıyla), motor seçimi (`TTS_ENGINE`, `HERMES_MODE`), kullanıldığı yerler, ilgili
+  fiyatlar, bugüne kadarki harcama ve sağlayıcının hesap paneli bağlantısı.
+- **Çalışma modu:** ücretsiz moddan ücretli moda geçiş, kutuya **ücretli moda geç** yazılarak onaylanır ve herhangi bir projede
+  üretim sürerken reddedilir. Ücretsiz moda dönüş onaysızdır.
+- **Fiyat tablosu:** `backend/pricing.yaml` panelde düzenlenir; kaydetmeden önce kodun kullandığı her fiyatın var ve pozitif
+  olduğu denetlenir, yorumlar korunur. Bütçe rezervasyonları hemen yeni fiyatlarla yapılır.
+- **Değişiklik kaydı:** kim neyi ne zaman değiştirdi (anahtar değerleri kaydedilmez).
+
+Değişiklikler `.env` dosyasına (fiyatlar `backend/pricing.yaml`'a) yazılır; docker-compose bu dosyaları `api`, `worker` ve
+`beat` konteynerlerine bağlar. Servisler **yeniden başlatılmadan** yeni ayarı kullanır: kayıt Redis'teki bir sayacı artırır, API
+her istekte ve worker her görevden önce sayacı görüp `.env`'i yeniden okur. Panel yalnızca beyaz listedeki ücretli servis
+ayarlarını yazabilir; veritabanı ve depo ayarlarına dokunamaz. Bağlantı sınaması yalnızca ücretsiz, salt okunur doğrulama
+uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyruk durumu) ve üretim yapmaz.
+
+> Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
+> yazabildiği için paneli ağa açmayın.
+
 ## Ücretli mod kilitli
 
 `DRY_RUN=1` varsayılandır. Bu modda anahtar tanımlı olsa bile hiçbir ücretli API çağrılmaz:
@@ -304,6 +327,11 @@ Bilinmesi gerekenler:
 | `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
 | `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
+| `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir) |
+| `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
+| `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
+| `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
+| `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 
 Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
@@ -314,7 +342,7 @@ docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (üst bant, sayfa çubuğu), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi

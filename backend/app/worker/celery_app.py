@@ -1,5 +1,5 @@
 from celery import Celery
-from celery.signals import worker_process_init
+from celery.signals import task_prerun, worker_process_init
 from kombu import Queue
 
 from app.config import settings
@@ -39,3 +39,10 @@ def _reset_db_pool(**_):
     # Fork sonrası ebeveynden kalan bağlantıları paylaşma
     from app.db import engine
     engine.dispose(close=False)
+
+
+@task_prerun.connect
+def _refresh_config(**_):
+    # Panelden değişen ücretli servis ayarları (.env) her görevden önce tazelenir: worker yeniden başlatılmaz.
+    from app import runtime_config
+    runtime_config.refresh_if_changed()

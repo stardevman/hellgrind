@@ -76,7 +76,7 @@ button { cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line-2); }
 .seg button[aria-pressed="true"] { background: var(--hover); color: var(--text); }
 .seg button:disabled { opacity: .4; cursor: not-allowed; }
-input[type=text], input[type=number], select, textarea {
+input[type=text], input[type=number], input[type=password], select, textarea {
   height: 26px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--field);
   color: var(--text); font-size: 12px; min-width: 0;
 }
@@ -132,7 +132,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .budget .meter .soft { width: 1px; background: var(--warn); }
 .budget .fig { display: grid; line-height: 1.15; }
 .budget .fig b { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
-.budget .fig span { font-size: 10.5px; color: var(--text-3); }
+.budget .fig span { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+@media (max-width: 1500px) { .budget .fig.opt { display: none; } .budget .meter { width: 110px; } .topbar .project { width: 220px; } }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 11px; color: var(--text-2); white-space: nowrap; }
 .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .chip.free { color: var(--ok); border-color: rgba(61, 204, 145, .35); }

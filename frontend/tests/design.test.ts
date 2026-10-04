@@ -65,5 +65,8 @@ describe("documented Turkish texts", () => {
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
+    // Ayarlar (ücretli servisler)
+    "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",
+    "Model ve uç noktalar", "Fiyat tablosu", "Doğrula ve kaydet", "Değişiklik kaydı",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });
