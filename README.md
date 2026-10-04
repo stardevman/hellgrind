@@ -54,7 +54,8 @@ Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veri
 
 | Adres | Ne |
 |---|---|
-| http://localhost:8000 | Kontrol paneli |
+| http://localhost:8000 | Kontrol paneli (Next.js; `/panel/`) |
+| http://localhost:8000/panel-klasik/ | Önceki tek sayfalık panel (geçiş süresince) |
 | http://localhost:8000/docs | API belgeleri |
 | http://localhost:9001 | MinIO konsolu (kullanıcı `minio`, parola `minio12345`) |
 | http://localhost:5555 | Flower (görev kuyruğu) |
@@ -84,9 +85,16 @@ Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veri
    - **Bu sahneyi baştan üret**: görüntüyü yeni klip adaylarıyla yeniden üretir.
    - **Nesne bağla**: çekime bir nesne ekler (ör. "Taksi"); nesne taslak olarak oluşur ve kilitlenene dek çekimi engeller.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
-7. **Tamamlanan N sahneyi birleştir** filmi üretir. Kesme şeridindeki bir sahneye tıklamak oynatıcıyı oraya götürür.
+7. **Karşılaştır** sekmesi aynı çekimin 2–4 adayını yan yana, tek taşıma çubuğuyla **eşzamanlı** oynatır (denetçide **Adayları karşılaştır**; film şeridinde <kbd>Shift</kbd>+tık ile istediğin klipleri seçebilirsin):
+   - Varsayılan olarak rafine havuz açılır; üstteki şeritten elenenler dahil izlenebilen her aday eklenip çıkarılabilir.
+   - **Izgara** ya da **Perde (1 ↔ 2)**: iki adayı üst üste koyup kaydırılabilir bir perdeyle karşılaştırır.
+   - Kare kare ilerleme (<kbd>←</kbd> <kbd>→</kbd>, <kbd>Shift</kbd> ile 1 sn), <kbd>Boşluk</kbd> oynat/duraklat, 0,25×–1× hız, döngü; <kbd>1</kbd>–<kbd>4</kbd> bir adayı tek başına büyütür.
+   - Ölçüm tablosu birleşik skoru (gerçek skorlayıcıyla stil, tarif ve yüz uyumunu da) yan yana koyar, her satırda öndekini işaretler ve farkı yazar.
+   - Havuzdaki bir aday **Bunu kullan** ile seçilir (yalnızca ses ve montaj yeniden çalışır; seçim kürasyon kaydına düşer). Havuz dışındakiler yalnızca incelenir.
+   Görünüm adres çubuğunda tutulur (proje, sekme, sahne, varyasyon, karşılaştırılan adaylar): bağlantıyı paylaşınca aynı görünüm açılır.
+8. **Tamamlanan N sahneyi birleştir** filmi üretir. Kesme şeridindeki bir sahneye tıklamak oynatıcıyı oraya götürür.
    **Verimlilik** sekmesi metrikleri, son kürasyon kararlarını ve dışa aktarma bağlantılarını (EDL, OpenTimelineIO, çekim paketi, kürasyon kaydı) gösterir.
-8. Bütçe rayındaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et** kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
+9. Bütçe rayındaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et** kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
 
 API'yi doğrudan da kullanabilirsiniz:
 
@@ -125,8 +133,9 @@ make test    # tam paket: Docker içinde, PostgreSQL, Redis ve MinIO ile (~4 dk)
 make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 ```
 
-- **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin.
-- **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır. CI'da veritabanı servisi ve kalite skorlayıcısının modelleri yoktur; altyapı ya da gerçek model gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir (imajda modeller hazırdır).
+- **`make web-test`** panelin tip denetimini ve birim testlerini (metinler, karşılaştırma mantığı, tasarım sözleşmesi) çalıştırır; makinede Node 22 gerekir.
+- **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin; `frontend/src`'yi de bağlar ki `test_panel_next.py` panelin çağırdığı her uç noktanın arka uçta o yöntemle var olduğunu ve her durum, duygu, varlık ve olay değerinin Türkçe karşılığı olduğunu denetleyebilsin.
+- **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır; ayrı bir iş paneli derler (`npm ci`, tip denetimi, birim testleri, `next build`). CI'da veritabanı servisi ve kalite skorlayıcısının modelleri yoktur; altyapı ya da gerçek model gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir (imajda modeller hazırdır).
 - **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
@@ -283,6 +292,11 @@ Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excelle
 ```
 docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
+frontend/                      kontrol paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
+  src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
+  src/components/              Shell, StartView, ScenesPane, Inspector, ComparePane, AssetsPane, BoardPane, StylePane, EfficiencyPane
+  src/lib/                     api (istemci), panel (ortak durum, URL), text ve compare (saf mantık), i18n (Türkçe karşılıklar), types
+  tests/                       vitest: metinler, karşılaştırma, tasarım sözleşmesi
 backend/
   pricing.yaml  migrations/    fiyat tablosu, şema değişiklikleri
   app/
@@ -303,7 +317,7 @@ backend/
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, panel, plan, deps, uploads
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
-    panel/       index.html (tek sayfa, build adımı yok)
+    panel/       index.html (klasik panel, /panel-klasik; geçiş süresince)
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama
@@ -316,4 +330,6 @@ backend/
 - **Sahneler "Engellendi" diyor:** çekimdeki bir varlık henüz kilitli değil. Satırdaki eksik referans bağlantısına tıklayıp varlığı onay akışından geçirin, sonra *Engellenen çekimleri yeniden dene*'ye basın. Referans kontrolünü bir proje için kapatmak isterseniz proje ayarlarında `lint_strictness: "off"` verin.
 - **Üretim başlamıyor:** worker çalışıyor mu? Proje dondurulmuş olabilir (bütçe rayındaki uyarı bandı); *Üretime devam et*'e basın.
 - **Sıfırdan başlamak:** `make reset` veritabanı ve MinIO dahil **her şeyi siler**; çalıştırmadan önce emin olun.
+- **`/panel/` "Panel derlenmemiş" diyor:** imaj panelsiz derlenmiş (ör. `docker build backend` ile, compose'un `frontend` bağlamı olmadan). `docker compose up -d --build` paneli imajın ilk aşamasında derler. Bu arada `/panel-klasik/` çalışır.
+- **Paneli geliştirmek:** `make web-dev` Next.js geliştirme sunucusunu `http://localhost:3000/panel/` adresinde açar ve `/api` isteklerini `HG_API_URL` (varsayılan `http://localhost:8000`) adresine yönlendirir; API Docker'da çalışırken anında yenilenen bir panel elde edilir.
 - **Yazı tipi yüklenmiyor:** panel Archivo'yu Google Fonts'tan alır; çevrimdışıyken sistem yazı tipine düşer, işlev etkilenmez.

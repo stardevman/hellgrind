@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     samples_dir: str = "/samples"
     work_dir: str = "/tmp/hellgrind"
     pricing_file: str = "/app/pricing.yaml"
+    panel_web_dir: str = "/srv/panel"        # Next.js panelinin statik dışa aktarımı (imajda derlenir; yoksa yedek sayfa)
 
     dry_run: bool = True
     dry_run_fail_rate: float = 0.0

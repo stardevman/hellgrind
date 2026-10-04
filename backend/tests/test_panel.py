@@ -1,4 +1,5 @@
-"""Panel (tek statik HTML): tasarım sözleşmesi ve API ile tutarlılık. Tarayıcı gerektirmez.
+"""Klasik panel (tek statik HTML, /panel-klasik): tasarım sözleşmesi ve API ile tutarlılık. Tarayıcı gerektirmez.
+Next.js paneli (/panel) için aynı sözleşmeler test_panel_next.py içindedir.
 
 Gerçek tarayıcı davranışı (tıklama, yoklama, video) ayrıca elle/Brave ile doğrulanır; burada panelin sözleşmeleri
 (uç noktalar, kimlikler, çeviri haritaları, renkler, erişilebilirlik) bozulmasın diye statik olarak denetlenir.
@@ -26,7 +27,7 @@ def js_object_keys(name):
 # ---------- sayfa ----------
 
 def test_panel_is_a_single_turkish_page_served_without_a_build(api):
-    r = api.get("/panel/")
+    r = api.get("/panel-klasik/")
     assert r.status_code == 200 and r.text == HTML
     assert '<html lang="tr">' in HTML and "<script src" not in HTML          # dış betik yok: build adımı yok
 

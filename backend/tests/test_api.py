@@ -58,7 +58,34 @@ def test_root_redirects_to_the_panel(api):
 
 def test_panel_is_served_as_a_static_page(api):
     r = api.get("/panel/")
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    # İmajda derlenmiş Next.js paneli (200); derleme yoksa klasik panele yönlendiren açıklama sayfası (503).
+    assert r.status_code in (200, 503) and "text/html" in r.headers["content-type"]
+    assert '<html lang="tr"' in r.text
+
+
+def test_classic_panel_stays_available_during_the_transition(api):
+    r = api.get("/panel-klasik/")
+    assert r.status_code == 200 and "Hell Grind" in r.text
+
+
+def test_the_next_panel_export_is_served_when_built_and_explains_itself_when_not(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.main import panel_app
+
+    def client(directory):
+        app = FastAPI()
+        app.mount("/panel", panel_app(directory))
+        return TestClient(app)
+
+    missing = client(tmp_path).get("/panel/")
+    assert missing.status_code == 503 and "Panel derlenmemiş" in missing.text and "/panel-klasik/" in missing.text
+    (tmp_path / "index.html").write_text('<!doctype html><html lang="tr"><body>yeni panel</body></html>')
+    (tmp_path / "_next").mkdir()
+    (tmp_path / "_next" / "app.js").write_text("console.log(1)")
+    built = client(tmp_path)
+    assert built.get("/panel/").text.endswith("yeni panel</body></html>")
+    assert built.get("/panel/_next/app.js").status_code == 200
 
 
 # ---------- projeler ----------
