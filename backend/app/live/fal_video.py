@@ -77,6 +77,10 @@ def is_transient(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, httpx.TransportError))
 
 
+CHARGE_NOTE = ("Yalnızca reddedilen bu çağrı ücretlendirilmedi; bu çekimde daha önce tamamlanan çağrılar ücretlendi ve "
+               "harcamaya yazıldı (kesin tutar fal.ai faturasındadır).")
+
+
 def account_problem(exc: BaseException) -> str | None:
     """Hesap kaynaklı, yeniden denemeyle düzelmeyen hatalar için yönetmene Türkçe açıklama (bakiye, anahtar)."""
     status = getattr(exc, "status_code", None)
@@ -85,10 +89,10 @@ def account_problem(exc: BaseException) -> str | None:
     text = str(exc).lower()
     if "balance" in text or "billing" in text or status == 402:
         return ("fal.ai bakiyesi bitti: fal.ai/dashboard/billing adresinden bakiye yükleyin, sonra çekimi yeniden üretin. "
-                "Bu çağrı için para harcanmadı.")
+                f"{CHARGE_NOTE}")
     if status in (401, 403):
         return ("fal.ai anahtarı reddedildi (yetki yok ya da hesap kilitli): Ayarlar › fal.ai'den anahtarı ve "
-                "\"Bağlantıyı sına\" sonucunu kontrol edin. Bu çağrı için para harcanmadı.")
+                f"\"Bağlantıyı sına\" sonucunu kontrol edin. {CHARGE_NOTE}")
     return None
 
 
