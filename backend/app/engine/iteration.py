@@ -126,7 +126,7 @@ def compose_for_scene(scene, chars, assets, style) -> Composed:
     "yalnızca listelenen karakterler" kısıtı). Görüntü, storyboard karesi, previs aktarımı ve ilk kare düzeltmesi aynı
     fonksiyonu kullanır."""
     spec = scene.prompt_spec or {}
-    return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""),
+    return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""), "lang": spec.get("lang"),
                            "camera": scene.camera or {}, "characters": [ch.name for ch in chars]}, assets, style)
 
 

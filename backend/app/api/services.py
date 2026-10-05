@@ -83,6 +83,17 @@ def _scorer() -> dict:
     return {"ready": reason is None, "message": reason or "Gerçek kalite skorlayıcısı hazır (OpenCLIP + SFace, yerel ve ücretsiz)"}
 
 
+def _translator() -> dict:
+    """Ücretli modda Türkçe tarifler sağlayıcıya gitmeden yerel modelle İngilizceye çevrilir (hermes/translate.py)."""
+    from app.hermes import translate
+    if settings.prompt_translation == "off":
+        return {"ready": False, "message": "PROMPT_TRANSLATION=off: Türkçe tarifler çevrilmez; senaryoyu İngilizce yazın"}
+    reason = translate.unavailable()
+    if reason:
+        return {"ready": False, "message": f"kullanılamıyor ({reason}): Türkçe senaryoyla ücretli üretim başlamaz, İngilizce senaryo çalışır"}
+    return {"ready": True, "message": "Türkçe tarifler sağlayıcıya gitmeden İngilizceye çevrilir (opus-mt-tr-en, yerel ve ücretsiz)"}
+
+
 def state(s: Session) -> dict:
     rc.refresh_if_changed()
     spend = _spend(s)
@@ -111,7 +122,7 @@ def state(s: Session) -> dict:
         "dry_run": settings.dry_run, "editable": bool(rc.env_path()), "env_file": rc.env_path(),
         "confirmation": rc.PAID_CONFIRMATION, "busy": _busy(s), "services": services,
         "spent_usd": round(sum(spend.values()), 4), "audit": rc.audit(),
-        "pricing_file": settings.pricing_file, "scorer": _scorer(),
+        "pricing_file": settings.pricing_file, "scorer": _scorer(), "translator": _translator(),
     }
 
 

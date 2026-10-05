@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     quality_scorer: str = "auto"
     quality_model_dir: str = "/models"
     score_face_weight: float = 0.4   # birleşik skorda yüz kimliğinin payı (yüz görünüyorsa)
+    # Prompt çevirisi (Türkçe -> İngilizce, yerel opus-mt-tr-en, ücretsiz): auto = yalnızca ücretli modda, sağlayıcıya
+    # giden prompt'a; on = her zaman (ücretsiz modda prompt'ları görmek için); off = hiç
+    prompt_translation: str = "auto"
 
 
 settings = Settings()

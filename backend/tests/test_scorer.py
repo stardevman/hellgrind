@@ -67,8 +67,12 @@ def test_the_model_files_are_the_ones_the_build_downloads():
     finally:
         sys.path.pop(0)
     assert fetch_models.CLIP_MODEL == scorer.CLIP_MODEL
+    from app.hermes import translate
+    assert fetch_models.MT_DIR == translate.MT_DIR
+    mt = {f"{fetch_models.MT_DIR}/{name}" for name in fetch_models.MT_FILES}
     assert {fetch_models.CLIP_FILE, fetch_models.YUNET_FILE, fetch_models.SFACE_FILE} == \
-        {scorer.CLIP_FILE, scorer.YUNET_FILE, scorer.SFACE_FILE} == set(fetch_models.MODELS)
+        {scorer.CLIP_FILE, scorer.YUNET_FILE, scorer.SFACE_FILE} == set(fetch_models.MODELS) - mt
+    assert "pytorch_model.bin" in fetch_models.MT_FILES and "source.spm" in fetch_models.MT_FILES
     assert all(len(sha) == 64 for _, sha in fetch_models.MODELS.values())
     assert all("/resolve/main/" not in url and "/raw/main/" not in url for url, _ in fetch_models.MODELS.values())
 

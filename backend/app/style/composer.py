@@ -8,10 +8,13 @@ compose_prompt(shot, assets, bible) deterministiktir ve her zaman aynı sırayı
   5. "yalnızca listelenen karakterler" kısıtı
   6. negatifler                      kılavuz + çekim + kadro negatifi
 Stil çekim bazında elle yazılmaz: ışık ve hareket dili yalnızca kılavuzdan gelir.
+
+Ücretli modda Türkçe metinler (çekim tarifi, mekân ve nesne adları ve tarifleri, Türkçe yazılmış kılavuz alanları)
+yerel modelle İngilizceye çevrilir (hermes/translate.py); karakter adları korunur. Ücretsiz modda metin olduğu gibidir.
 """
 from dataclasses import dataclass
 
-from app.hermes import lint
+from app.hermes import lint, translate
 from app.style.bible import effective_style
 
 STYLE_TEXT = {
@@ -59,15 +62,17 @@ def camera_text(camera: dict | None) -> str:
 def style_prefix(bible) -> str:
     if bible is None:
         return ""
-    lighting = sentence(bible.lighting_prefix)
+    lighting = sentence(translate.to_english(bible.lighting_prefix or ""))
     if bible.palette:
         lighting = " ".join(x for x in (lighting, sentence("Palette: " + ", ".join(bible.palette))) if x)
-    return " ".join(x for x in (lighting, sentence(bible.motion_style)) if x)
+    return " ".join(x for x in (lighting, sentence(translate.to_english(bible.motion_style or ""))) if x)
 
 
-def asset_text(asset, bible) -> str:
-    what = f"{TYPE_LABEL[asset.type]} {asset.name}"
-    body = ", ".join(x for x in (" ".join((asset.description or "").split()).rstrip("."), style_text(effective_style(asset, bible))) if x)
+def asset_text(asset, bible, names=(), lang: str | None = None) -> str:
+    name = asset.name if asset.type == "character" else translate.to_english_name(asset.name, lang)
+    what = f"{TYPE_LABEL[asset.type]} {name}"
+    description = translate.to_english(" ".join((asset.description or "").split()), names, lang).rstrip(".")
+    body = ", ".join(x for x in (description, style_text(effective_style(asset, bible))) if x)
     return sentence(f"{what}: {body}")
 
 
@@ -83,10 +88,15 @@ def _join_negative(*parts: str) -> str:
 
 
 def compose_prompt(shot: dict, assets, bible) -> Composed:
-    """shot: {"prompt", "negative"?, "camera"?, "characters": [ad]}; assets: çekimdeki varlıklar; bible: etkin kılavuz ya da None."""
+    """shot: {"prompt", "negative"?, "camera"?, "characters": [ad], "lang"?}; assets: çekimdeki varlıklar; bible: etkin
+    kılavuz ya da None. lang: çekim tarifinin dili ("tr" / "en"); çeviri bunu esas alır."""
     prefix = style_prefix(bible)
+    lang = shot.get("lang")
+    cast = list(shot.get("characters") or [])
+    names = cast + [a.name for a in assets if a.type == "character"]
     ordered = sorted(assets, key=lambda a: (TYPE_ORDER.index(a.type), a.name))
-    body = [prefix, sentence(shot.get("prompt")), camera_text(shot.get("camera")),
-            *(asset_text(a, bible) for a in ordered), lint.cast_constraint(list(shot.get("characters") or []))]
-    negative = _join_negative(bible.negative if bible else "", shot.get("negative", ""), lint.CAST_NEGATIVE)
+    body = [prefix, sentence(translate.to_english(shot.get("prompt") or "", names, lang)), camera_text(shot.get("camera")),
+            *(asset_text(a, bible, names, lang) for a in ordered), lint.cast_constraint(cast)]
+    negative = _join_negative(translate.to_english(bible.negative or "") if bible else "",
+                              translate.to_english(shot.get("negative", "") or "", names, lang), lint.CAST_NEGATIVE)
     return Composed(prompt=" ".join(x for x in body if x), negative=negative, prefix=prefix)

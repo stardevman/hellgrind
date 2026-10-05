@@ -36,12 +36,15 @@ PRESETS = {
               "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn"},
 }
 
-# Diyalogsuz (dudak senkronu ücreti yok), aksiyonsuz (Wan, Seedance değil) tek çekimlik deneme senaryosu.
-TRIAL_SCRIPT = """# SEKANS: Deneme
+# Diyalogsuz (dudak senkronu ücreti yok), aksiyonsuz (Wan, Seedance değil), 3 saniyelik tek çekimlik deneme senaryosu.
+# İngilizce: sağlayıcıya çeviri olmadan gider. Kerem konuşmadığı için işaretle kadroya alınır.
+TRIAL_SCRIPT = """# SEQUENCE: Trial
 
-DIŞ. ÇATI - GÜN BATIMI
+EXT. ROOFTOP - SUNSET
 
-Kerem çatının kenarında durup sakin şehre bakıyor.
+[CHARACTER: Kerem]
+
+Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/")

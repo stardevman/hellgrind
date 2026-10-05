@@ -62,6 +62,7 @@ def test_the_fal_trial_preset_is_cheap_and_valid(api, api_project):
     from app.hermes.rules import parse
     shots = parse(meta["trial_script"])["shots"]
     assert len(shots) == 1 and not shots[0]["dialogue"] and shots[0]["action_complexity"] < 0.7
+    assert shots[0]["characters"] == ["Kerem"] and shots[0]["duration_s"] == 3.0     # Kerem konuşmasa da kadroda
     assert pid
 
 

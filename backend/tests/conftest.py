@@ -22,6 +22,9 @@ settings.database_url = make_url(settings.database_url).set(database=TEST_DB).re
 # testlerde kapalıdır: ayar testleri geçici bir dosya kullanır.
 settings.dry_run = True
 settings.config_env_file = ""
+# Prompt çevirisi testlerde kapalı: ücretli modu sahteyle açan testler yerel çeviri modelini yüklemesin (CI'da model yok).
+# Çeviri testleri ayarı kendi içinde açar (tests/test_translate.py).
+settings.prompt_translation = "off"
 
 # Aynı nedenle nesne deposu da ayrı bir kova kullanır (geliştirme kovasındaki medya silinmesin).
 settings.s3_bucket = "hellgrind-test"

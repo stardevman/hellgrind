@@ -132,6 +132,7 @@ curl -s localhost:8000/api/projects/<id>/overview | jq .scenes[0].status
 
 Kızıl bir ışık kazanların arasından süzülüyor.   ← aksiyon: her paragraf yeni bir çekim
 Kerem bir taksiye biner. [NESNE: Taksi]          ← nesne: yalnızca bu çekime bağlanır
+[KARAKTER: Ayşe]                                 ← konuşmayan karakter: kadroya girer
 
 KEREM                                       ← konuşan karakter: büyük harfli, en çok 4 kelime
 (tedirgin)                                  ← parantez: duygu ipucu
@@ -141,6 +142,15 @@ Burada kimse yok mu?
 Mekân sahne başlığından çıkar, gün zamanı atılır: `İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE` → *Terk Edilmiş Dökümhane*. `[NESNE: Taksi, Bavul]` işareti bir paragrafın içindeyse o çekime, tek başına bir satırdaysa sahnenin bütün çekimlerine bağlanır; işaret metinden ve replikten silinir. Karakter, mekân ve nesneler ilk görüldüklerinde *taslak* varlık olarak oluşur.
 
 Film sekanslara bölünür: `# SEKANS: Havalimanı` satırı yeni bir sekans başlatır ve sonraki sahne başlıkları ona aittir (sekans satırını sahne başlığından önce yazın). Hiç sekans satırı yoksa bütün sahneler tek sekanstadır (*Sekans 1*). Örnek senaryo iki sekanslıdır: *Dökümhane* ve *Köprü*.
+
+Kadro, konuşan karakterlerden ve `[KARAKTER: Ayşe]` ile işaretlenenlerden oluşur; kadrodaki bir karakter adı geçtiği her
+çekime bağlanır. Konuşmayan bir karakteri işaretlemezseniz prompt "kimse yok" der ve görüntü modeli onu çizmez. İşaret
+paragraf içindeyse o çekime, tek başına bir satırdaysa sahnenin bütün çekimlerine bağlanır. Projede zaten olan karakterler
+işaretsiz de tanınır.
+
+Senaryo İngilizce de yazılabilir: `INT.` / `EXT.`, `# SEQUENCE:`, `[CHARACTER: Kerem]`, `[PROP: Taxi]`; İngilizce duygu
+(afraid, angry, whisper...) ve aksiyon kelimeleri (run, jump, explode...) de tanınır. Türkçe harf içermeyen senaryoda adlar
+İngilizce kurallarla yazılır (`IRIS` → *Iris*).
 
 Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök sözlüğünden çıkarılır (korku, öfke, gerilim...). Aksiyon kelimeleri (koş, atla, patla, düş, kop, sarsıl...) çekimi geniş açı ve yüksek aksiyon yoğunluğuna çevirir. Yoğun aksiyon (≥ 0,7) Seedance'e, gerisi Wan'a yönlenir (ücretsiz modda yalnızca sanal fiyatı değiştirir).
 
@@ -284,7 +294,8 @@ ElevenLabs ve Anthropic olmadan, yalnızca fal.ai anahtarıyla gerçek üretimi 
    düğme kapalıdır).
 3. **Senaryo › Yeni proje**: yoğunluk olarak **fal.ai denemesi** seçin. Bu seçim:
    - bütçeyi 3 USD yapar;
-   - **Deneme senaryosu**nu doldurur: tek çekim, diyalogsuz (dudak senkronu ücreti yok), sakin (Seedance yerine Wan);
+   - **Deneme senaryosu**nu doldurur: İngilizce, tek çekim, 3 saniye, diyalogsuz (dudak senkronu ücreti yok), sakin
+     (Seedance yerine Wan); Kerem `[CHARACTER: Kerem]` ile kadroya alınır;
    - çekim başına en çok 2 test ve 2 tam klip üretir, 480p, düzeltme turu yok;
    - varlık onay akışını ve hareket testlerini atlar (referans kontrolü yalnızca uyarır).
    Panel çekim başına en yüksek maliyeti fiyat tablosundan hesaplar (şu anki fiyatlarla ~0,62 USD).
@@ -292,6 +303,16 @@ ElevenLabs ve Anthropic olmadan, yalnızca fal.ai anahtarıyla gerçek üretimi 
 4. **Kurgu** sayfasında adayları izleyin. Her klip bir Flux ilk karesi ve bir Wan videosudur. Kalite kapısını geçemeyen karenin
    videosu hiç istenmez.
 5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön**.
+
+### Prompt çevirisi
+
+Görüntü modelleri (Flux, Wan, Seedance) İngilizce istemi izler; Türkçe tarifle sahneyle ilgisiz görüntü üretirler. Ücretli
+modda bestecinin çıktısındaki Türkçe metinler (çekim tarifi, mekân ve nesne adları ve tarifleri) sağlayıcıya gitmeden yerel
+bir modelle (Helsinki-NLP opus-mt-tr-en, Apache 2.0, imajda sabit sürümle; ücretsiz, ağ kullanmaz) İngilizceye çevrilir.
+Yalnızca Türkçe cümleler çevrilir; kamera ve stil ifadeleri ile İngilizce yazılmış senaryo olduğu gibi gider. Karakter adları
+korunur ("Gül", "Işıl" kelime olarak çevrilmez). Senaryo, çekim tarifi ve görsel özet Türkçe kalır; çeviri hiçbir çekimi
+yeniden üretmez. Model yoksa Türkçe tarifli ücretli üretim para harcanmadan durur. Gönderilen istem, varyasyonun kaydında
+(`params.prompt`) durur. `PROMPT_TRANSLATION=off` çeviriyi kapatır, `on` ücretsiz modda da açar.
 
 Proje ücretli moda geçmeden önce oluşturulursa çekimler hemen yerel motorla üretilir ve sonradan geçişte yeniden üretilmez;
 o durumda Kurgu'da **Bu sahneyi baştan üret** kullanın. Sanal bütçe tavanı ücretli modda gerçek harcamanın da sınırıdır:
@@ -351,6 +372,7 @@ Bilinmesi gerekenler:
 | `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
 | `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
+| `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |
 | `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir) |
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |

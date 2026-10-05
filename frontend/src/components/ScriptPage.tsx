@@ -162,6 +162,8 @@ export function ScriptPage() {
           <li><code>Kızıl bir ışık kazanların arasından süzülüyor.</code>Aksiyon: her paragraf yeni bir çekim. Koş, atla, patla gibi kelimeler geniş açı ve yüksek aksiyon demektir.</li>
           <li><code>Kerem bir taksiye biner. [NESNE: Taksi]</code>Nesne: paragraf içindeyse o çekime, tek satırdaysa sahnenin bütün çekimlerine bağlanır.</li>
           <li><code>{"KEREM\n(tedirgin)\nBurada kimse yok mu?"}</code>Konuşan karakter (büyük harf, en çok 4 kelime), parantezde duygu, ardından replik.</li>
+          <li><code>[KARAKTER: Kerem]</code>Konuşmayan karakter: kadroya girer ve adı geçen çekimlere bağlanır; tek satırdaysa sahnenin bütün çekimlerine.</li>
+          <li><code>EXT. ROOFTOP - SUNSET</code>Senaryo İngilizce de yazılabilir ([CHARACTER: …], [PROP: …]). Ücretli modda Türkçe tarifler sağlayıcıya gitmeden İngilizceye çevrilir.</li>
         </ul>
       </Panel>
     </form>

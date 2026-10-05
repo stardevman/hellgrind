@@ -31,12 +31,13 @@ MUSIC_FADE_IN_S, MUSIC_FADE_OUT_S = 1.0, 1.5
 DEFAULT_SEQUENCE = {"code": "SEQ01", "title": "Sekans 1"}
 
 
-def parse_script(text: str, project_id: str) -> dict:
-    """Ücretsiz modda her zaman kural tabanlı ayrıştırıcı; LLM yalnızca DRY_RUN kapalıyken ve açıkça istenirse."""
+def parse_script(text: str, project_id: str, known=()) -> dict:
+    """Ücretsiz modda her zaman kural tabanlı ayrıştırıcı; LLM yalnızca DRY_RUN kapalıyken ve açıkça istenirse.
+    known: projenin mevcut karakterleri (konuşmasalar da adları geçen çekimlere bağlanırlar)."""
     if settings.hermes_mode == "llm" and not settings.dry_run:
         from app.live.hermes_llm import parse_with_llm     # ücretli; LLM çağrıları proje bütçesinden rezerve edilir
         return parse_with_llm(text, project_id)
-    return rules.parse(text)
+    return rules.parse(text, known=known)
 
 
 def dialogue_hash(character_id, line: dict) -> str:
@@ -95,7 +96,10 @@ def shot_assets(shot: dict) -> tuple[str | None, list[str]]:
 
 
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
-    parsed = parse_script(text, project_id)     # DB işleminin dışında: LLM modunda uzun sürebilir
+    with session_scope() as s:
+        known = list(s.scalars(select(Character.name).where(Character.project_id == project_id)))
+    parsed = parse_script(text, project_id, known)     # DB işleminin dışında: LLM modunda uzun sürebilir
+    lang = "tr" if rules.is_turkish_script(text) else "en"     # prompt çevirisi bunu esas alır (hermes/translate.py)
     created, updated = [], []
     with session_scope() as s:
         # Aynı projeye eşzamanlı iki senaryo yüklemesi (project_id, scene_code) benzersizliğine çarpmasın.
@@ -116,7 +120,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                           script_text=script_text(shot), description=shot["description"],
                           emotion=shot["emotion"], camera=shot["camera"], duration_s=shot["duration_s"],
                           action_complexity=shot["action_complexity"])
-            prompt = {"prompt": shot["visual_prompt"], "lang": "tr"}
+            prompt = {"prompt": shot["visual_prompt"], "lang": lang}
             if sc is None:
                 sc = Scene(project_id=project_id, scene_code=shot["scene_id"], prompt_spec=prompt, **fields)
                 sc.engine = route_engine(sc)     # görsel özet motoru içerir: baştan yazılır, sonradan değişip render tetiklemez

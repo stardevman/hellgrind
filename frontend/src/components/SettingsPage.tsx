@@ -167,6 +167,7 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                 </li>
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
+              {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
               {fal && !fal.key_set && <li className="warn">En az fal.ai anahtarı gerekir: görüntü ve video yalnızca fal.ai ile üretilir.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>

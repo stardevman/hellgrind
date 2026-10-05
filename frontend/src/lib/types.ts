@@ -184,6 +184,7 @@ export interface SettingsState {
   dry_run: boolean; editable: boolean; env_file: string | null; confirmation: string; busy: string[];
   services: Service[]; spent_usd: number; audit: AuditEntry[]; pricing_file: string;
   scorer: { ready: boolean; message: string };
+  translator?: { ready: boolean; message: string };
 }
 
 export interface PricingTable {
