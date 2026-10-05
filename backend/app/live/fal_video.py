@@ -37,7 +37,7 @@ from app.budget import pricing
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.engine.providers import GenRequest, GenResult, TransientError
-from app.live import guard
+from app.live import PaidCallBlocked, guard
 
 log = logging.getLogger("hellgrind.live.fal")
 
@@ -77,7 +77,24 @@ def is_transient(exc: BaseException) -> bool:
     return isinstance(exc, (TimeoutError, httpx.TransportError))
 
 
+def account_problem(exc: BaseException) -> str | None:
+    """Hesap kaynaklı, yeniden denemeyle düzelmeyen hatalar için yönetmene Türkçe açıklama (bakiye, anahtar)."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc).lower()
+    if "balance" in text or "billing" in text or status == 402:
+        return ("fal.ai bakiyesi bitti: fal.ai/dashboard/billing adresinden bakiye yükleyin, sonra çekimi yeniden üretin. "
+                "Bu çağrı için para harcanmadı.")
+    if status in (401, 403):
+        return ("fal.ai anahtarı reddedildi (yetki yok ya da hesap kilitli): Ayarlar › fal.ai'den anahtarı ve "
+                "\"Bağlantıyı sına\" sonucunu kontrol edin. Bu çağrı için para harcanmadı.")
+    return None
+
+
 def _classify(exc: BaseException) -> BaseException:
+    if (reason := account_problem(exc)) is not None:
+        return PaidCallBlocked(reason)
     if isinstance(exc, TransientError) or not is_transient(exc):
         return exc
     return TransientError(f"{type(exc).__name__}: {exc}")

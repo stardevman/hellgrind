@@ -368,6 +368,22 @@ def test_restyle_keeps_frames_and_resolution_in_the_documented_range(fal, second
     assert (fal.calls[0][1]["num_frames"], fal.calls[0][1]["resolution"]) == (frames, used)
 
 
+class _LockedError(Exception):
+    status_code = 403
+
+
+@pytest.mark.parametrize("exc,expected", [
+    (_LockedError("User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."), "bakiyesi bitti"),
+    (HTTPError(402), "bakiyesi bitti"), (HTTPError(401), "anahtarı reddedildi"), (HTTPError(403), "anahtarı reddedildi"),
+])
+def test_account_errors_become_a_clear_turkish_blocked_call(fal, exc, expected):
+    from app.live import PaidCallBlocked
+    fal.behaviour[fal_video.WAN_V2V] = lambda args: exc
+    with pytest.raises(PaidCallBlocked, match=expected):
+        fal_video.restyle("/w/g.mp4", "p", "", 1, "720p", 3.0)
+    assert fal_video.account_problem(HTTPError(429)) is None and fal_video.account_problem(HTTPError(500)) is None
+
+
 def test_restyle_and_upload_classify_errors_like_the_other_calls(fal):
     fal.behaviour[fal_video.WAN_V2V] = lambda args: HTTPError(429)
     with pytest.raises(TransientError):
