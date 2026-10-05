@@ -131,8 +131,10 @@ export function ScriptPage() {
             </dl>
           )}
           <p className="faint small">
-            Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır. Çekimler, içlerindeki karakter, mekân ve nesneler
-            Varlıklar sayfasında kilitlenene dek engelli kalır.
+            {meta?.dry_run === false ? "Ücretli mod açık: üretim gerçek harcama yapar ve bütçe limitinde durur." : "Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır."}{" "}
+            {(ov?.project.settings.lint_strictness ?? meta?.defaults.lint_strictness) === "block"
+              ? "Çekimler, içlerindeki karakter, mekân ve nesneler Varlıklar sayfasında kilitlenene dek engelli kalır."
+              : "Varlık kontrolü yalnızca uyarır: kilitlenmemiş varlıklar üretimi durdurmaz."}
           </p>
           <button className="btn primary lg" type="submit" disabled={sending || !meta}>
             {newProject || !hasShots ? "Senaryoyu işle ve üret" : "Değişiklikleri işle ve üret"}
