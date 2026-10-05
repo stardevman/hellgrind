@@ -6,8 +6,9 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
-import { clock, usd } from "@/lib/text";
+import { clock, usd, usdExact } from "@/lib/text";
 import type { PricingTable, ProbeResult, Service, ServiceField, SettingsState } from "@/lib/types";
+import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
 type Sec = "mode" | Service["id"] | "pricing" | "audit";
@@ -65,7 +66,7 @@ function KeyBlock({ svc, field, editable, onSaved }: { svc: Service; field: Serv
 }
 
 function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsState; prices: PricingTable | undefined; onSaved: () => void }) {
-  const { busy, act, note } = usePanel();
+  const { busy, act, note, setHistory } = usePanel();
   const key = svc.fields.find((f) => f.kind === "secret")!;
   const others = svc.fields.filter((f) => f.kind !== "secret");
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -85,7 +86,8 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
           <span className={`tag ${svc.active ? "info" : ""}`}>{svc.active ? "Ücretli modda kullanılır" : "Ücretli modda da kullanılmaz"}</span>
           <span className={`tag ${st.dry_run ? "ok" : "bad"}`}>{st.dry_run ? "Şu an kilitli: ücretsiz mod" : "Ücretli mod açık"}</span>
           <span className="grow" />
-          <span className="dim small">Harcama <b className="mono">{usd(svc.spent_usd)}</b>{st.dry_run ? " (sanal)" : ""}</span>
+          <span className="dim small">Gerçek harcama <b className="mono">{usdExact(svc.spent_usd)}</b> · sanal <span className="mono">{usdExact(svc.virtual_usd)}</span></span>
+          <button className="btn ghost" type="button" onClick={() => setHistory({ service: svc.id }, true)} title={`${svc.name} çağrılarının geçmişi`}><Icon.receipt />Geçmiş</button>
         </div>
         <KeyBlock svc={svc} field={key} editable={st.editable} onSaved={onSaved} />
       </div>
@@ -220,7 +222,7 @@ function PricingView({ onSaved }: { onSaved: () => void }) {
 }
 
 export function SettingsPage() {
-  const { busy } = usePanel();
+  const { busy, setHistory } = usePanel();
   const { data: st, mutate } = useSWR<SettingsState>("/settings", fetcher, { refreshInterval: POLL_MS * 2 });
   const { data: prices } = useSWR<{ table: PricingTable }>("/settings/pricing", fetcher, { revalidateOnFocus: false });
   const [sec, setSec] = useState<Sec>("mode");
@@ -266,16 +268,22 @@ export function SettingsPage() {
       <Panel title="Özet" meta={busy ? "kaydediliyor…" : ""}>
         <div className="kpis" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <div className="kpi"><b>{st.dry_run ? "Ücretsiz" : "Ücretli"}</b><span>Çalışma modu</span></div>
-          <div className="kpi"><b>{usd(st.spent_usd)}</b><span>Toplam harcama{st.dry_run ? " (sanal)" : ""}</span><small>bütün projeler</small></div>
+          <div className="kpi"><b>{usdExact(st.spent_usd)}</b><span>Gerçek harcama</span><small>bütün projeler, silinenler dahil</small></div>
+          <div className="kpi"><b>{usdExact(st.virtual_usd)}</b><span>Sanal harcama</span><small>ücretsiz modda; para harcanmadı</small></div>
         </div>
         <table className="tbl">
-          <thead><tr><th>Servis</th><th>Anahtar</th><th className="r">Harcama</th></tr></thead>
+          <thead><tr><th>Servis</th><th>Anahtar</th><th className="r">Gerçek</th><th className="r">Sanal</th></tr></thead>
           <tbody>
             {st.services.map((s) => (
-              <tr key={s.id}><td>{s.name}</td><td><span className={`st ${s.key_set ? "ok" : "bad"}`}>{s.key_set ? "tanımlı" : "yok"}</span></td><td className="r mono">{usd(s.spent_usd)}</td></tr>
+              <tr key={s.id}><td>{s.name}</td><td><span className={`st ${s.key_set ? "ok" : "bad"}`}>{s.key_set ? "tanımlı" : "yok"}</span></td>
+                <td className="r mono">{usdExact(s.spent_usd)}</td><td className="r mono faint">{usdExact(s.virtual_usd)}</td></tr>
             ))}
           </tbody>
         </table>
+        <div className="pad row">
+          <button className="btn" type="button" onClick={() => setHistory({}, true)}><Icon.receipt />Harcama geçmişi</button>
+          <span className="faint small">Her çağrı: servis, model, istek kimliği, tutar ve hata.</span>
+        </div>
         <div className="pad stack">
           <NoteBox id="settings" />
           <p className="faint small">Anahtarlar panelde yalnızca maskeli görünür ve hiçbir yanıtta ya da kayıtta açık yazılmaz. Bağlantı sınaması üretim yapmaz ve ücret doğurmaz.</p>

@@ -3,6 +3,8 @@ import { ANOMALY_TR, ALIGN_TR, ASTATUS_TR, BOARD_TR } from "./i18n";
 import type { Blocked, DispatchAll, Measure, PanelEvent, StageResult, StyleImpact, Variation } from "./types";
 
 export const usd = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(2);
+/** Kuruşun altını da gösteren tutar (tek çağrılar 0,035 USD gibi küçüktür): en az 2, en çok 4 ondalık. */
+export const usdExact = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(4).replace(/(\.\d\d\d*?)0+$/, "$1");
 export const num2 = (x: number) => x.toFixed(2).replace(".", ",");
 export const clock = (ts: number) => new Date(ts * 1000).toLocaleTimeString("tr-TR", { hour12: false });
 export const pct = (x: number | null | undefined) => (x == null ? "—" : `%${Math.round(x * 100)}`);
@@ -145,3 +147,26 @@ export const deltaText = (d: Record<string, number>) =>
 
 export const paletteOf = (raw: string) => raw.split(",").map((x) => x.trim()).filter(Boolean);
 export const isHex = (c: string) => /^#[0-9a-f]{6}$/i.test(c);
+
+/** Geçmişteki zaman: bugünse yalnızca saat, değilse gün ve saat (yerel saat). */
+export function whenText(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("tr-TR", { hour12: false });
+  if (d.toDateString() === now.toDateString()) return time;
+  return `${d.toLocaleDateString("tr-TR", { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) })} ${time}`;
+}
+
+/** Çağrının tutarı panelde nasıl okunur: işlenen, iade edilen ya da henüz ayrılmış. */
+export function callAmountText(c: { status: string; amount_usd: number | null; estimate_usd: number }): { value: string; note: string } {
+  if (c.status === "running") return { value: usdExact(c.estimate_usd), note: "ayrıldı" };
+  if (c.status === "failed") return { value: usdExact(0), note: `${usdExact(c.estimate_usd)} iade edildi` };
+  return { value: usdExact(c.amount_usd), note: c.amount_usd !== c.estimate_usd ? `tahmin ${usdExact(c.estimate_usd)}` : "" };
+}
+
+/** Sağlayıcı isteğinin parametre değeri, okunur biçimde. */
+export function stepValue(key: string, value: unknown): string {
+  if (typeof value === "boolean") return value ? (key === "reused" ? "evet: yeniden ödenmedi" : "evet") : "hayır";
+  if (key === "loras" && Array.isArray(value)) return value.map((l) => `${(l as { path: string }).path} ×${(l as { scale?: number }).scale ?? 1}`).join(", ");
+  if (value && typeof value === "object") return Object.entries(value as Record<string, unknown>).map(([k, v]) => `${k} ${v}`).join(", ");
+  return String(value);
+}

@@ -200,6 +200,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .color { grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: minmax(0, 1fr) 132px; grid-template-areas: "cv cc" "cs cc"; }
 .color > .cv { grid-area: cv; } .color > .cc { grid-area: cc; } .color > .cs { grid-area: cs; }
 .deliver { grid-template-columns: 300px minmax(0, 1fr) 440px; }
+.history { grid-template-columns: 330px minmax(0, 1fr) 390px; }
 .scroll-page { overflow: auto; height: 100%; }
 
 /* ---------- çekim havuzu ---------- */
@@ -422,13 +423,30 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .wipe .tagl.a { left: 8px; } .wipe .tagl.b { right: 8px; }
 .wipe-range { display: block; width: min(100%, calc(52vh * 16 / 9)); margin: 6px auto 0; }
 
+/* ---------- servis geçmişi ---------- */
+.hist-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.hist-filters .field select { min-width: 130px; }
+.hist-filters .tag { height: 26px; }
+.calls tbody tr { cursor: pointer; }
+.calls tbody tr:hover td { background: var(--hover); }
+.calls tbody tr.sel td { background: var(--accent-soft); }
+.calls tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.nowrap { white-space: nowrap; }
+.text-btn { padding: 0; border: 0; background: none; color: var(--text); font-size: inherit; text-align: left; cursor: pointer; }
+.text-btn:hover { color: #8fb6ff; text-decoration: underline; }
+.kv.wide { grid-template-columns: 112px 1fr; }
+.steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.steps > li { display: grid; gap: 4px; padding: 7px 8px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
+.steps summary { cursor: pointer; color: var(--text-2); }
+
 /* ---------- dar ekran: tek sütun, sayfa kayar ---------- */
 @media (max-width: 1100px) {
   body { overflow: auto; }
   .app { height: auto; min-height: 100vh; }
   .workspace { overflow: visible; }
-  .page, .edit, .three, .two, .two-l, .color, .deliver { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
+  .page, .edit, .three, .two, .two-l, .color, .deliver, .history { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
   .edit > *, .color > * { grid-area: auto !important; }
+  .history > .h-calls { order: -1; }              /* telefonda önce çağrılar, sonra özet */
   .pnl { max-height: none; }
   .pnl-b { max-height: 70vh; }
   .viewer .screen { aspect-ratio: 16 / 9; flex: none; }

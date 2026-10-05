@@ -47,6 +47,15 @@ def probe_key(key_name: str) -> str:
     return getattr(settings, key_name) or ""
 
 
+def redact(message: str) -> str:
+    """Kayda yazılacak metindeki anahtar değerlerini maskeler (servis geçmişindeki hata metinleri için)."""
+    for key_name in PAID_KEYS:
+        value = getattr(settings, key_name) or ""
+        if len(value) >= 8:
+            message = message.replace(value, "••••")
+    return message
+
+
 def _installed(module: str) -> bool:
     return module in sys.modules or importlib.util.find_spec(module) is not None
 

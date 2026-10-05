@@ -11,9 +11,14 @@ export const POLL_MS = 2000;
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
 export const PAGES = ["script", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
 /** Sayfa çubuğunda olmayan, üst banttan açılan sayfalar. */
-export const EXTRA_PAGES = ["settings"] as const;
+export const EXTRA_PAGES = ["settings", "history"] as const;
 export type Page = (typeof PAGES)[number] | (typeof EXTRA_PAGES)[number];
 const ALL_PAGES: readonly string[] = [...PAGES, ...EXTRA_PAGES];
+/** Projeden bağımsız sayfalar: proje yokken ya da çekimsiz projede de açılır. */
+export const isExtraPage = (p: string): p is (typeof EXTRA_PAGES)[number] => (EXTRA_PAGES as readonly string[]).includes(p);
+/** Servis geçmişinin URL'de tutulan süzgeçleri (sayfa yenilenince ve bağlantıyla paylaşılınca korunur). */
+export const HISTORY_PARAMS = { project: "hp", service: "hs", operation: "ho", mode: "hm", status: "hst", days: "hd", call: "hc" } as const;
+export type HistoryFilter = Partial<Record<keyof typeof HISTORY_PARAMS, string | null>>;
 /** Çekimi olmayan projede açılamayan sayfalar: senaryo sayfasına düşülür. */
 export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["board", "edit", "compare", "color", "deliver"]);
 export type NoteKind = "ok" | "err" | "";
@@ -48,6 +53,9 @@ interface PanelState {
   compareRaw: string | null;
   openCompare: (sceneId: string, ids: string[]) => void;
   setCompare: (ids: string[]) => void;
+  history: HistoryFilter;
+  /** Servis geçmişinin süzgeçlerini değiştirir; `open` ile geçmiş sayfası açılır (diğer süzgeçler sıfırlanır). */
+  setHistory: (f: HistoryFilter, open?: boolean) => void;
 
   busy: boolean;
   frozen: boolean;
@@ -147,6 +155,11 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const openCompare = useCallback((sceneId: string, ids: string[]) =>
     update({ page: "compare", s: sceneId, cmp: ids.join(",") || null }, true), [update]);
   const setCompare = useCallback((ids: string[]) => update({ cmp: ids.join(",") || null }), [update]);
+  const history: HistoryFilter = Object.fromEntries(Object.entries(HISTORY_PARAMS).map(([k, q]) => [k, search.get(q)]));
+  const setHistory = useCallback((f: HistoryFilter, open = false) => {
+    const keys = open ? (Object.keys(HISTORY_PARAMS) as (keyof typeof HISTORY_PARAMS)[]) : (Object.keys(f) as (keyof typeof HISTORY_PARAMS)[]);
+    update({ ...(open ? { page: "history" } : {}), ...Object.fromEntries(keys.map((k) => [HISTORY_PARAMS[k], f[k] ?? null])) }, open);
+  }, [update]);
 
   const note = useCallback((key: string, text: string, kind: NoteKind = "") =>
     setNotes((n) => ({ ...n, [key]: { text, kind } })), []);
@@ -168,7 +181,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const value: PanelState = {
     meta, projects, projectId, ov: ov && ov.project.id === projectId ? ov : undefined, offline, creating,
     setCreating, selectProject, page, setPage, assetId: search.get("a"), selectAsset, scene, sequence, selectScene, varId, setVar,
-    compareRaw: search.get("cmp"), openCompare, setCompare,
+    compareRaw: search.get("cmp"), openCompare, setCompare, history, setHistory,
     busy, frozen: Boolean(ov?.project.frozen), act, notes, note, refresh,
     flashAsset, gotoAsset, clearFlash, filmKind, setFilmKind, assembling, setAssembling,
   };

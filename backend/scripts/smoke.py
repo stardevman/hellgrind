@@ -25,6 +25,7 @@ Kontroller:
   K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
      panelin gördüğü sayılarla tutarlıdır; EDL tüm çekimleri doğru in/out değerleriyle içerir; paket zip'i açılır ve
      stem'ler çekim süresindedir; baştan üretim isteği de kaydedilir
+  G. Servis geçmişi: projenin her sanal çağrısı tek satır; tutarlar harcamayla tutar, her satırın modeli var
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
@@ -99,6 +100,9 @@ def main() -> int:
     print("1) Güvenlik")
     meta = c.get("/meta").json()
     check(meta["dry_run"] is True, "DRY_RUN açık")
+    if meta["dry_run"] is not True:                 # ücretli moddaki yığında üretim gerçek para harcar: hiçbir şey başlatma
+        print("Ücretli mod açık: duman testi durduruldu (önce panelden ücretsiz moda dönün). Hiçbir proje oluşturulmadı.")
+        return 2
     from app.live import PAID_KEYS, PaidCallBlocked, guard
     blocked = 0
     for key in PAID_KEYS:
@@ -330,6 +334,7 @@ def main() -> int:
         check(bool(pair) and not pair["jump"], f"önerilen düzeltme uygulanınca uyarı kalktı (skor {pair and pair['score']})")
 
     check_curation_and_exports(pid)
+    check_history(pid)
 
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
@@ -364,6 +369,29 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+def check_history(pid: str) -> None:
+    print("G) Servis geçmişi")
+    calls, before = [], None
+    while True:
+        page = c.get("/history", params={"project_id": pid, "limit": 500, **({"before": before} if before else {})}).json()
+        calls += page["items"]
+        if not (before := page["next"]):
+            break
+    total = sum(x["amount_usd"] or 0 for x in calls if x["status"] == "succeeded")
+    check(bool(calls) and abs(total - spent(pid)) < 1e-3,
+          f"{len(calls)} çağrının işlenen toplamı harcamayla aynı (${total:.4f} / ${spent(pid):.4f})")
+    check(all(x["mode"] == "virtual" for x in calls), "hepsi sanal: ücretsiz modda hiçbir servis çağrılmadı")
+    check(all(x["model"] and x["service"] == "fal" for x in calls), "her satırda ücretli modda çağrılacak fal.ai modeli var")
+    ops = {x["operation"] for x in calls}
+    check({"video", "storyboard", "reference", "motion_test"} <= ops, f"işlemler: {sorted(ops)}")
+    s = c.get("/history/summary", params={"project_id": pid}).json()
+    check(s["totals"]["real_usd"] == 0 and abs(s["totals"]["virtual_usd"] - total) < 1e-3, "özet: gerçek harcama 0, sanal toplam tutuyor")
+    import csv
+    import io
+    r = c.get("/history.csv", params={"project_id": pid})
+    check(r.status_code == 200 and len(list(csv.reader(io.StringIO(r.text)))) == len(calls) + 1, "CSV her çağrıyı içeriyor")
 
 
 SPEC_ACTIONS = {"promote", "upgrade_request", "board_approve", "board_reject", "asset_lock", "revision_upload",

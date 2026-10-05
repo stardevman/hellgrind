@@ -264,7 +264,7 @@ def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
         if settings.dry_run:
             label, estimate = references.reference_estimate(a.type)
             try:
-                with killswitch.spend(pid, estimate, label) as charge:
+                with killswitch.spend(pid, estimate, label, asset_id=a.id) as charge:
                     kind, path, filename = references.placeholder(a, tmp)
                     charge.actual = estimate
             except killswitch.ProjectFrozen:

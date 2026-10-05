@@ -9,6 +9,7 @@ import os
 
 import httpx
 
+from app.budget import history
 from app.config import settings
 from app.engine.providers import TransientError
 from app.live import guard
@@ -42,6 +43,9 @@ def tts(text: str, voice_id: str | None, emotion: str | None, out_path: str) -> 
                               json={"text": text, "model_id": settings.elevenlabs_model, "voice_settings": voice_settings(emotion)})
     except (httpx.TransportError, TimeoutError) as e:
         raise TransientError(f"ElevenLabs: {type(e).__name__}: {e}") from e
+    history.step(settings.elevenlabs_model, (getattr(response, "headers", None) or {}).get("request-id"),
+                 characters=len(text), voice_id=voice_id, emotion=emotion or "neutral", voice=voice_settings(emotion),
+                 http_status=response.status_code)
     if response.status_code == 429 or response.status_code >= 500:
         raise TransientError(f"ElevenLabs HTTP {response.status_code}")
     if response.status_code >= 400:                           # istek gövdesini ya da başlıkları (anahtar!) günlüğe sızdırma

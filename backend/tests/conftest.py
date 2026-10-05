@@ -72,6 +72,8 @@ def pg():
     yield
     with engine.begin() as conn:             # yalnızca test veritabanı: reddedilmesi gerekirken oluşan artıklar dahil
         conn.execute(text("DELETE FROM projects WHERE title LIKE 'pytest-%'"))
+        # Servis geçmişi proje silinince kalır (gerçek harcama kaydıdır); testlerinkiler burada silinir.
+        conn.execute(text("DELETE FROM service_calls WHERE project_title LIKE 'pytest-%'"))
 
 
 @pytest.fixture(scope="session")
@@ -120,6 +122,7 @@ def mk_project(pg):
     for pid in created:
         ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
         with session_scope() as s:
+            s.execute(text("DELETE FROM service_calls WHERE project_id = :p"), {"p": pid})
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})
 
 
@@ -247,6 +250,7 @@ def api_project(api, pg):
     for pid in created:
         ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
         with session_scope() as s:
+            s.execute(text("DELETE FROM service_calls WHERE project_id = :p"), {"p": pid})
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})
 
 

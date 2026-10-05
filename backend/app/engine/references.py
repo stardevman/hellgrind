@@ -212,11 +212,12 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> t
         provider = fal_video.FalProvider("fal_wan")
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
                          duration_s=TURNAROUND_S, extra=lora)
-        made = paid.call(project_id, estimate, label, "fal_key", lambda: provider.generate(req))
+        made = paid.call(project_id, estimate, label, "fal_key", lambda: provider.generate(req), asset_id=asset.id)
         path = os.path.join(out_dir, "turnaround.mp4")
         os.replace(made.local_path, path)
         return "turnaround", path, "turnaround.mp4"
-    frame = paid.call(project_id, estimate, label, "fal_key", lambda: fal_video.image(composed.prompt, seed))
+    frame = paid.call(project_id, estimate, label, "fal_key", lambda: fal_video.image(composed.prompt, seed),
+                      asset_id=asset.id)
     path = os.path.join(out_dir, "still.jpg")
     os.replace(frame.local_path, path)
     return "still", path, "still.jpg"

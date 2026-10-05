@@ -7,6 +7,7 @@ panelin değişiklik kaydına dokunulmaz. Hiçbir test ağ çağrısı yapmaz (b
 import json
 import pathlib
 import shutil
+import sys
 
 import httpx
 import pytest
@@ -145,6 +146,7 @@ def test_missing_paid_package_is_a_clear_blocked_call_not_an_import_error(monkey
     from app import live
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "fal_client" else real(name, *a))
+    monkeypatch.delitem(sys.modules, "fal_client", raising=False)   # test_live_fal gerçek paketi önceden yüklemiş olabilir
     with pytest.raises(live.PaidCallBlocked, match="requirements-live.txt"):
         live.require_package("fal_client")
     assert live.missing_packages("fal") == ["fal_client"] and live.missing_packages("elevenlabs") == []

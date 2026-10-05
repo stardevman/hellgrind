@@ -33,7 +33,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.budget import pricing
+from app.budget import history, pricing
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.engine.providers import GenRequest, GenResult, TransientError
@@ -112,8 +112,25 @@ def _reraise(exc: BaseException):
     raise classified from exc
 
 
+# Servis geçmişine yazılan istek parametreleri: neyin üretildiğini anlatanlar. Adresler (image_url, video_url...) yazılmaz.
+NOTED_ARGUMENTS = ("resolution", "num_frames", "frames_per_second", "duration", "image_size", "num_images", "seed",
+                   "strength", "sync_mode", "aspect_ratio", "generate_audio")
+NOTED_PROMPT_CHARS = 400
+
+
+def noted(arguments: dict) -> dict:
+    info = {k: arguments[k] for k in NOTED_ARGUMENTS if k in arguments}
+    if arguments.get("loras"):
+        info["loras"] = [{"path": l["path"], "scale": l.get("scale")} for l in arguments["loras"]]
+    if arguments.get("prompt"):
+        info["prompt"] = arguments["prompt"][:NOTED_PROMPT_CHARS]
+    return info
+
+
 def _run(client, application: str, arguments: dict) -> tuple[dict, str]:
     handle = client.submit(application, arguments=arguments, start_timeout=QUEUE_START_TIMEOUT_S)
+    # Kuyruğa giren istek kayda hemen geçer: sonucu alınamasa da fal tarafında ücretlenmiş olabilir.
+    history.step(application, handle.request_id, **noted(arguments))
     return handle.get(), handle.request_id
 
 
@@ -258,7 +275,9 @@ class FalProvider:
         key = self._key(req)
         with self._lock:
             if key in self._frames:                          # yeniden deneme: ikinci kez ilk kare ödenmez
-                return self._frames[key]
+                url, request_id = self._frames[key]
+                history.step(settings.fal_flux_endpoint, request_id, reused=True)
+                return url, request_id
         result, request_id = _run(client, settings.fal_flux_endpoint, flux_arguments(req.prompt, req.seed, req.extra.get("loras"),
                                                                req.extra.get("lora_triggers")))
         made = (result["images"][0]["url"], request_id)
@@ -304,9 +323,11 @@ class FalProvider:
                 image_url, _ = self._first_frame(client, req)
                 application, args = self.video_arguments(req, image_url)
                 result, request_id = _run(client, application, args)
-                made = (result["video"]["url"], request_id)
+                made = (result["video"]["url"], request_id, application)
                 with self._lock:
                     self._videos[key] = made
+            else:
+                history.step(made[2], made[1], reused=True)
             path = _download(made[0])
         except Exception as e:
             _reraise(e)

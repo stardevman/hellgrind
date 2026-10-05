@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatchText, eventText, impactText, measureText, passText, resultText, stagesText, tileSpec } from "@/lib/text";
+import { callAmountText, dispatchText, eventText, impactText, measureText, passText, resultText, stagesText, stepValue, tileSpec, usdExact, whenText } from "@/lib/text";
 import type { Variation } from "@/lib/types";
 
 const v = (over: Partial<Variation> = {}): Variation => ({
@@ -90,5 +90,32 @@ describe("pass and dispatch summaries", () => {
   it("style impact names the shots and the virtual cost", () => {
     expect(impactText({ version: 2, affected: [{ scene_code: "S001_SH01", style_only: true }], pending: ["S002_SH01"], expected_usd: 1.2, worst_usd: 3 }))
       .toBe("1 çekim yeniden üretilir: S001_SH01. Tahmini sanal maliyet $1.20 (en kötü durumda $3.00). Henüz üretilmemiş 1 çekim ilk üretiminde bu stili kullanır.");
+  });
+});
+
+describe("service history", () => {
+  it.each([[0.035, "$0.035"], [0.4, "$0.40"], [1.2345, "$1.2345"], [0, "$0.00"], [12, "$12.00"], [null, "$0.00"]])(
+    "usdExact(%s) = %s", (n, text) => expect(usdExact(n)).toBe(text));
+
+  it("an amount reads as charged, refunded or reserved", () => {
+    expect(callAmountText({ status: "succeeded", amount_usd: 0.035, estimate_usd: 0.035 })).toEqual({ value: "$0.035", note: "" });
+    expect(callAmountText({ status: "succeeded", amount_usd: 0.006, estimate_usd: 0.0465 })).toEqual({ value: "$0.006", note: "tahmin $0.0465" });
+    expect(callAmountText({ status: "failed", amount_usd: 0, estimate_usd: 0.4 })).toEqual({ value: "$0.00", note: "$0.40 iade edildi" });
+    expect(callAmountText({ status: "running", amount_usd: null, estimate_usd: 0.4 })).toEqual({ value: "$0.40", note: "ayrıldı" });
+  });
+
+  it("today shows only the time, other days show the date too", () => {
+    const now = new Date(2026, 9, 5, 15, 0, 0);
+    expect(whenText(new Date(2026, 9, 5, 12, 40, 8).toISOString(), now)).toBe("12:40:08");
+    expect(whenText(new Date(2026, 9, 4, 9, 5, 0).toISOString(), now)).toMatch(/^4 Eki 09:05:00$/);
+    expect(whenText(new Date(2025, 0, 2, 9, 5, 0).toISOString(), now)).toMatch(/2025/);
+  });
+
+  it("step parameters read in Turkish", () => {
+    expect(stepValue("reused", true)).toBe("evet: yeniden ödenmedi");
+    expect(stepValue("generate_audio", false)).toBe("hayır");
+    expect(stepValue("loras", [{ path: "https://x/kerem.safetensors", scale: 0.8 }])).toBe("https://x/kerem.safetensors ×0.8");
+    expect(stepValue("voice", { stability: 0.25, style: 0.7 })).toBe("stability 0.25, style 0.7");
+    expect(stepValue("num_frames", 81)).toBe("81");
   });
 });

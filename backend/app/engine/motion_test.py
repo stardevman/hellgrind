@@ -108,7 +108,7 @@ def run(project_id: str, variation_id: str) -> str:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 with killswitch.spend(project_id, estimate, f"{ENGINE}:{req.resolution}:motion_test",
-                                      variation_id=variation_id) as charge:
+                                      variation_id=variation_id, details={"attempt": attempt}) as charge:
                     result = provider.generate(req)
                     charge.actual = result.cost_usd
                 break

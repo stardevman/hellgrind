@@ -4,7 +4,7 @@
 import { useEffect, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
-import { NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
+import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { usd } from "@/lib/text";
 import { AssetsPage } from "./AssetsPage";
 import { BoardPage } from "./BoardPage";
@@ -12,6 +12,7 @@ import { ColorPage } from "./ColorPage";
 import { ComparePage } from "./ComparePage";
 import { DeliverPage } from "./DeliverPage";
 import { EditPage } from "./EditPage";
+import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
@@ -20,11 +21,11 @@ import { shortcutTarget } from "./ui";
 
 const PAGE_LABEL: Record<Page, string> = {
   script: "Senaryo", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
-  color: "Renk", deliver: "Teslim", settings: "Ayarlar",
+  color: "Renk", deliver: "Teslim", settings: "Ayarlar", history: "Geçmiş",
 };
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
-  color: ColorPage, deliver: DeliverPage, settings: SettingsPage,
+  color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
 };
 
 function Budget() {
@@ -49,14 +50,14 @@ function Budget() {
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, setCreating, page, setPage, meta, ov, act } = usePanel();
+  const { projects, projectId, selectProject, setCreating, page, setPage, meta, ov, act, setHistory } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
   const current = projects?.find((p) => p.id === projectId);
   const remove = async () => {
     if (!projectId || !current) return;
-    if (!window.confirm(`"${current.title}" projesi ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz.`)) return;
+    if (!window.confirm(`"${current.title}" projesi ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz. Servis geçmişi (harcama kaydı) silinmez.`)) return;
     if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
   };
   return (
@@ -84,6 +85,9 @@ function TopBar() {
         onClick={() => setPage("settings")}>
         {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
       </button>
+      <button type="button" className="btn ghost" aria-current={page === "history" ? "page" : undefined}
+        onClick={() => { if (page !== "history") setHistory({}, true); }}
+        title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt />Geçmiş</button>
       <button type="button" className="btn ghost" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
         title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear />Ayarlar</button>
       {ov && (
@@ -173,7 +177,7 @@ export function AppFrame() {
   }, [setPage]);
 
   const loading = (!projects && !offline) || (projectId && !ov && !creating && !offline);
-  const target: Page = page === "settings" && !creating ? "settings"
+  const target: Page = isExtraPage(page) && !creating ? page
     : creating || !projectId || (ov && NEEDS_SHOTS.has(page) && !hasShots) ? "script" : page;
   const View = PAGE_VIEW[target];
   return (
@@ -181,7 +185,8 @@ export function AppFrame() {
       <TopBar />
       <Alerts />
       <main className="workspace">
-        {loading && target !== "settings" ? <p className="loading">Yükleniyor…</p> : <View key={`${projectId}:${target}`} />}
+        {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
+          : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
       <PageBar hasShots={hasShots} />
     </div>

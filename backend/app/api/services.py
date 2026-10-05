@@ -20,14 +20,14 @@ WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsyn
 
 SERVICES = {
     "fal": {"name": "fal.ai", "purpose": "İlk kare ve storyboard (Flux), video (Wan, Seedance), previs aktarımı, dudak senkronu",
-            "key": "FAL_KEY", "console": "https://fal.ai/dashboard", "providers": ("fal_wan", "seedance", "higgsfield", "flux_lora", "v2v", "fal"),
+            "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
             "used_by": ["Kurgu: görüntü üretimi (test ve tam tur)", "Storyboard kareleri", "Varlıklar: referans ve hareket testi",
                         "Yöntem: previs rehberinden video", "Elle düzeltme: ilk kareden video", "Dudak senkronu"]},
     "elevenlabs": {"name": "ElevenLabs", "purpose": "Türkçe diyalog seslendirme", "key": "ELEVENLABS_API_KEY",
-                   "console": "https://elevenlabs.io/app", "providers": ("elevenlabs",),
+                   "console": "https://elevenlabs.io/app",
                    "used_by": ["Ses: diyalog kanalları (konuşma motoru elevenlabs iken)"]},
     "anthropic": {"name": "Anthropic (Hermes)", "purpose": "Senaryo ayrıştırma (LLM modu)", "key": "ANTHROPIC_API_KEY",
-                  "console": "https://console.anthropic.com", "providers": ("anthropic",),
+                  "console": "https://console.anthropic.com",
                   "used_by": ["Senaryo: ayrıştırma (Hermes llm modundayken)"]},
 }
 
@@ -48,10 +48,21 @@ def _active(service: str) -> bool:
     return has_key
 
 
-def _spend(s: Session) -> dict[str, float]:
-    rows = s.execute(text("SELECT split_part(provider, ':', 1), SUM(amount_usd) FROM cost_ledger "
-                          "WHERE kind = 'commit' GROUP BY 1")).all()
-    return {p: float(v or 0) for p, v in rows}
+MODE_KEYS = {False: "real", True: "virtual", None: "unknown"}
+
+
+def _spend(s: Session) -> dict[str, dict[str, float]]:
+    """Servis başına işlenen tutar, gerçek ve sanal ayrı (servis geçmişinden; silinmiş projelerin harcaması dahil)."""
+    out: dict[str, dict[str, float]] = {}
+    for service, dry_run, usd in s.execute(text("""SELECT service, dry_run, SUM(amount_usd) FROM service_calls
+                                                   WHERE status = 'succeeded' GROUP BY 1, 2""")).all():
+        row = out.setdefault(service, {"real": 0.0, "virtual": 0.0, "unknown": 0.0})
+        row[MODE_KEYS[dry_run]] += float(usd or 0)
+    return out
+
+
+def _sum(spend: dict[str, dict[str, float]], services, mode: str) -> float:
+    return round(sum(v[mode] for k, v in spend.items() if services is None or k in services), 4)
 
 
 def _busy(s: Session) -> list[str]:
@@ -116,12 +127,13 @@ def state(s: Session) -> dict:
         services.append({"id": sid, "name": meta["name"], "needed": needed, "not_needed_reason": why,
                          "missing_packages": _missing(sid), "purpose": meta["purpose"], "console": meta["console"],
                          "used_by": meta["used_by"], "fields": fields, "active": _active(sid),
-                         "key_set": _key(meta["key"])["set"],
-                         "spent_usd": round(sum(v for p, v in spend.items() if p in meta["providers"]), 4)})
+                         "key_set": _key(meta["key"])["set"], "spent_usd": _sum(spend, {sid}, "real"),
+                         "virtual_usd": _sum(spend, {sid}, "virtual"), "unknown_usd": _sum(spend, {sid}, "unknown")})
     return {
         "dry_run": settings.dry_run, "editable": bool(rc.env_path()), "env_file": rc.env_path(),
         "confirmation": rc.PAID_CONFIRMATION, "busy": _busy(s), "services": services,
-        "spent_usd": round(sum(spend.values()), 4), "audit": rc.audit(),
+        "spent_usd": _sum(spend, None, "real"), "virtual_usd": _sum(spend, None, "virtual"),
+        "unknown_usd": _sum(spend, None, "unknown"), "audit": rc.audit(),
         "pricing_file": settings.pricing_file, "scorer": _scorer(), "translator": _translator(),
     }
 

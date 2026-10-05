@@ -174,7 +174,9 @@ export interface ServiceField {
 
 export interface Service {
   id: "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
-  fields: ServiceField[]; active: boolean; key_set: boolean; spent_usd: number;
+  fields: ServiceField[]; active: boolean; key_set: boolean;
+  /** Gerçek harcama; sanal (ücretsiz mod) ve modu bilinmeyen ayrı. */
+  spent_usd: number; virtual_usd: number; unknown_usd: number;
   needed: boolean; not_needed_reason: string; missing_packages?: string[];
 }
 
@@ -182,7 +184,7 @@ export interface AuditEntry { ts: number; field: string; action: string; detail:
 
 export interface SettingsState {
   dry_run: boolean; editable: boolean; env_file: string | null; confirmation: string; busy: string[];
-  services: Service[]; spent_usd: number; audit: AuditEntry[]; pricing_file: string;
+  services: Service[]; spent_usd: number; virtual_usd: number; unknown_usd: number; audit: AuditEntry[]; pricing_file: string;
   scorer: { ready: boolean; message: string };
   translator?: { ready: boolean; message: string };
 }
@@ -195,3 +197,38 @@ export interface PricingTable {
 }
 
 export interface ProbeResult { ok: boolean | null; status: number | null; message: string }
+
+/* ---------- servis geçmişi ---------- */
+
+export type CallMode = "real" | "virtual" | "unknown";
+export type CallStatus = "running" | "succeeded" | "failed";
+
+/** Sağlayıcıya giden tek istek: model, istek kimliği ve açıklayıcı parametreler (adresler ve anahtarlar yazılmaz). */
+export interface CallStep { model: string; request_id?: string; prompt?: string; [param: string]: unknown }
+
+export interface ServiceCall {
+  id: number; reservation: string; started_at: string; finished_at: string | null; duration_s: number | null;
+  service: string; service_name: string; console: string | null; operation: string; operation_title: string;
+  label: string; model: string | null; model_inferred: boolean; request_id: string | null;
+  mode: CallMode; mode_inferred: boolean; backfilled: boolean; status: CallStatus;
+  estimate_usd: number; amount_usd: number | null; error: string | null; error_type: string | null;
+  attempt: number | null; resolution: string | null; steps: CallStep[];
+  project_id: string | null; project_title: string | null; subject: string | null; scene_id: string | null;
+  variation_id: string | null; asset_id: string | null; asset_type: string | null; tier: string | null; wave_no: number | null;
+}
+
+export interface CallPage { items: ServiceCall[]; next: number | null }
+
+export interface CallFigures {
+  calls: number; failed: number; running: number; real_calls: number; virtual_calls: number;
+  real_usd: number; virtual_usd: number; unknown_usd: number; reserved_usd: number;
+}
+
+export interface CallSummary {
+  totals: CallFigures; first_at: string | null; last_at: string | null;
+  by_service: (CallFigures & { service: string; name: string })[];
+  by_model: (CallFigures & { service: string; model: string | null })[];
+  by_operation: (CallFigures & { operation: string; title: string })[];
+  by_project: (CallFigures & { project_id: string | null; title: string | null; deleted: boolean })[];
+  by_day: (CallFigures & { day: string })[];
+}

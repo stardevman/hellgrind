@@ -20,7 +20,7 @@ from typing import Annotated, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from app.budget import killswitch, pricing
+from app.budget import history, killswitch, pricing
 from app.config import settings
 from app.engine.providers import TransientError
 from app.hermes import rules
@@ -137,7 +137,12 @@ def _ask(llm, project_id: str, prompt: str) -> SceneDraft | None:
         try:
             with killswitch.spend(project_id, estimate, "anthropic") as charge:
                 answer = structured.invoke([("system", SYSTEM), ("human", prompt)])
-                usage = getattr(answer["raw"], "usage_metadata", None) or {}
+                raw = answer["raw"]
+                usage = getattr(raw, "usage_metadata", None) or {}
+                meta = getattr(raw, "response_metadata", None) or {}
+                history.step(meta.get("model_name") or meta.get("model") or settings.hermes_model,
+                             getattr(raw, "id", None) or meta.get("id"), input_tokens=usage.get("input_tokens"),
+                             output_tokens=usage.get("output_tokens"))
                 charge.actual = (pricing.estimate_llm(usage["input_tokens"], usage["output_tokens"])
                                  if usage else estimate)
             return answer.get("parsed")

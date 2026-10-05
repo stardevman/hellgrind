@@ -5,6 +5,9 @@ Kural: hiçbir ücretli çağrı, bütçeden atomik bir rezervasyon almadan yap�
   commit()   -> gerçek maliyeti yazar, rezervasyonu düşer
   release()  -> çağrı başarısızsa rezervasyonu iade eder
 
+Servis geçmişi: her rezervasyon `service_calls` tablosunda bir satır açar; commit ya da release onu aynı işlemde kapatır
+(bkz. app.budget.history).
+
 Sekans tavanı (Faz 11): sahneye bağlı bir çağrı, proje limitinin yanında sahnenin sekansının tavanını da aynı işlemde
 denetler. Tavan dolunca yalnızca o sekans durur (`capped`) ve olay yazılır; proje ve diğer sekanslar üretmeye devam eder.
 """
@@ -19,6 +22,7 @@ from functools import lru_cache
 import redis
 from sqlalchemy import text
 
+from app.budget import history
 from app.config import DEFAULT_PROJECT_SETTINGS, settings
 from app.db import session_scope
 
@@ -160,7 +164,8 @@ def _sequence_of(s, scene_id):
     return s.execute(text("SELECT sequence_id FROM scenes WHERE id = :s"), {"s": scene_id}).scalar()
 
 
-def reserve(project_id: str, amount: float, provider: str, scene_id=None, variation_id=None) -> uuid.UUID:
+def reserve(project_id: str, amount: float, provider: str, scene_id=None, variation_id=None, asset_id=None,
+            details: dict | None = None) -> uuid.UUID:
     if is_frozen(project_id):
         raise ProjectFrozen(project_id)
     rid, refused = uuid.uuid4(), None
@@ -179,7 +184,7 @@ def reserve(project_id: str, amount: float, provider: str, scene_id=None, variat
                 UPDATE projects SET reserved_usd = reserved_usd + :amt
                 WHERE id = :p AND status NOT IN ('paused','killed')
                   AND spent_usd + reserved_usd + :amt <= budget_limit_usd
-                RETURNING spent_usd, reserved_usd, budget_limit_usd
+                RETURNING spent_usd, reserved_usd, budget_limit_usd, title
             """), {"p": project_id, "amt": amount}).first()
             if row is None:
                 refused = "project"
@@ -190,6 +195,8 @@ def reserve(project_id: str, amount: float, provider: str, scene_id=None, variat
                                   VALUES (:p, :s, :v, :q, :prov, 'reserve', :amt, :rid)"""),
                           {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider,
                            "amt": amount, "rid": rid})
+                history.open_call(s, rid, project_id, row[3], provider, amount, scene_id=scene_id,
+                                  variation_id=variation_id, sequence_id=seq, asset_id=asset_id, details=details)
     if refused == "sequence":
         cap_sequence(project_id, seq, f"budget_cap (istek {amount:.4f} USD reddedildi)")
         raise SequenceCapReached(project_id)
@@ -200,7 +207,7 @@ def reserve(project_id: str, amount: float, provider: str, scene_id=None, variat
 
 
 def commit(project_id: str, rid: uuid.UUID, estimate: float, actual: float, provider: str,
-           scene_id=None, variation_id=None) -> None:
+           scene_id=None, variation_id=None, call: history.Call | None = None) -> None:
     # Kilit sırası her yerde aynı: önce sekans, sonra proje satırı (eşzamanlı reserve/commit/release kilitlenmesin).
     with session_scope() as s:
         seq, capped = _sequence_of(s, scene_id), None
@@ -219,6 +226,7 @@ def commit(project_id: str, rid: uuid.UUID, estimate: float, actual: float, prov
                                                    reservation)
                           VALUES (:p, :s, :v, :q, :prov, 'commit', :amt, :rid)"""),
                   {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider, "amt": actual, "rid": rid})
+        history.close_call(s, rid, "succeeded", actual, call)
         if scene_id:
             s.execute(text("UPDATE scenes SET spent_usd = spent_usd + :a WHERE id = :s"), {"a": actual, "s": scene_id})
     spent, limit, cfg = float(row[0]), float(row[1]), {**DEFAULT_PROJECT_SETTINGS, **(row[2] or {})}
@@ -231,7 +239,9 @@ def commit(project_id: str, rid: uuid.UUID, estimate: float, actual: float, prov
         cap_sequence(project_id, capped, "budget_cap_exhausted")
 
 
-def release(project_id: str, rid: uuid.UUID, estimate: float, provider: str, scene_id=None, variation_id=None) -> None:
+def release(project_id: str, rid: uuid.UUID, estimate: float, provider: str, scene_id=None, variation_id=None,
+            call: history.Call | None = None, error=None) -> None:
+    """Rezervasyonu iade eder; geçmişte çağrı başarısız olarak kapanır (`error`: istisna ya da açıklama)."""
     with session_scope() as s:
         seq = _sequence_of(s, scene_id)
         if seq is not None:                                 # kilit sırası: önce sekans, sonra proje
@@ -243,6 +253,7 @@ def release(project_id: str, rid: uuid.UUID, estimate: float, provider: str, sce
                                                    reservation)
                           VALUES (:p, :s, :v, :q, :prov, 'release', :amt, :rid)"""),
                   {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider, "amt": estimate, "rid": rid})
+        history.close_call(s, rid, "failed", 0, call, error)
 
 
 @dataclass
@@ -252,21 +263,23 @@ class Charge:
 
 
 @contextmanager
-def spend(project_id: str, estimate: float, provider: str, scene_id=None, variation_id=None):
+def spend(project_id: str, estimate: float, provider: str, scene_id=None, variation_id=None, asset_id=None,
+          details: dict | None = None):
     """Kullanım:
         with spend(pid, 0.40, "fal_wan:720p") as charge:
             result = provider.generate(...)
             charge.actual = result.cost_usd
-    """
-    rid = reserve(project_id, estimate, provider, scene_id, variation_id)
+    Gövdede ücretli modüllerin `history.step()` notları (model, istek kimliği) çağrının geçmiş satırına yazılır."""
+    rid = reserve(project_id, estimate, provider, scene_id, variation_id, asset_id=asset_id, details=details)
     charge = Charge(estimate)
-    try:
-        yield charge
-    except BaseException:
-        release(project_id, rid, estimate, provider, scene_id, variation_id)
-        raise
+    with history.recording() as call:
+        try:
+            yield charge
+        except BaseException as e:
+            release(project_id, rid, estimate, provider, scene_id, variation_id, call=call, error=e)
+            raise
     commit(project_id, rid, estimate, charge.actual if charge.actual is not None else estimate,
-           provider, scene_id, variation_id)
+           provider, scene_id, variation_id, call=call)
 
 
 # ---------- bekçiler (Celery beat) ----------
@@ -305,5 +318,6 @@ def reap_stale_reservations(max_age_minutes: int = 60) -> int:
                               WHERE x.reservation = l.reservation AND x.kind IN ('commit','release'))
         """), {"m": max_age_minutes}).all()
     for pid, rid, amt, prov, sid in stale:
-        release(str(pid), rid, float(amt), prov, sid)
+        release(str(pid), rid, float(amt), prov, sid,
+                error=f"Rezervasyon {max_age_minutes} dakikada kapanmadı (worker yarıda kesildi); tutar iade edildi.")
     return len(stale)

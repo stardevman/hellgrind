@@ -239,7 +239,8 @@ def _attempts(c: Ctx, estimate: float, label: str, vid, call):
     İşlenen tutar sağlayıcının bildirdiği bedeldir (`cost_usd`)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            with killswitch.spend(c.project_id, estimate, label, scene_id=c.scene_id, variation_id=vid) as charge:
+            with killswitch.spend(c.project_id, estimate, label, scene_id=c.scene_id, variation_id=vid,
+                                  details={"attempt": attempt}) as charge:
                 result = call()
                 charge.actual = result.cost_usd
             return result

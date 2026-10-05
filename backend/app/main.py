@@ -1,3 +1,4 @@
+import json
 import logging
 import pathlib
 from contextlib import asynccontextmanager
@@ -9,8 +10,11 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp
 
 from app import migrate, runtime_config, storage
-from app.api import assets, budget, export, grade, methods, panel, projects, scenes, sequences, services, storyboard, style
+from app.api import (assets, budget, export, grade, history, methods, panel, projects, scenes, sequences, services,
+                     storyboard, style)
+from app.budget import history as service_history, killswitch
 from app.config import settings
+from app.db import session_scope
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 PANEL_MISSING = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
@@ -45,15 +49,28 @@ def panel_app(web_dir: pathlib.Path) -> ASGIApp:
     return missing
 
 
+def complete_service_history() -> None:
+    """Servis geçmişi sisteminden önceki kayıtların modunu ayar değişiklik kaydından tamamlar (bir kez). Kayıt okunamazsa
+    (Redis yok) sonraki açılışa kalır: yanlış modla doldurmaktansa beklemek iyidir."""
+    try:
+        entries = [json.loads(x) for x in killswitch.r().lrange(runtime_config.AUDIT_KEY, 0, -1)]
+        with session_scope() as s:
+            service_history.complete_backfill(s, entries)
+    except Exception:                                           # noqa: BLE001 — açılışı engellemez
+        logging.getLogger("hellgrind").warning("eski servis kayıtları tamamlanamadı", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     migrate.run()
+    complete_service_history()
     storage.ensure_bucket()
     yield
 
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
-for module in (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, services, panel):
+for module in (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, services, history,
+               panel):
     app.include_router(module.router, prefix="/api")
 app.mount("/panel", panel_app(pathlib.Path(settings.panel_web_dir)), name="panel")
 

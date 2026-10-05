@@ -166,7 +166,7 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 - **`make web-test`** panelin tip denetimini ve birim testlerini (metinler, karşılaştırma mantığı, tasarım sözleşmesi) çalıştırır; makinede Node 22 gerekir.
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin; `frontend/src`'yi de bağlar ki `test_panel_next.py` panelin çağırdığı her uç noktanın arka uçta o yöntemle var olduğunu ve her durum, duygu, varlık ve olay değerinin Türkçe karşılığı olduğunu denetleyebilsin.
 - **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır; ayrı bir iş paneli derler (`npm ci`, tip denetimi, birim testleri, `next build`). CI'da veritabanı servisi ve kalite skorlayıcısının modelleri yoktur; altyapı ya da gerçek model gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir (imajda modeller hazırdır).
-- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez.
+- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; projenin her sanal çağrısı servis geçmişinde bir satırdır, işlenen tutarların toplamı harcamaya eşittir ve CSV her çağrıyı içerir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez. Ücretli mod açıksa hiçbir şey başlatmadan durur (çıkış kodu 2): önce panelden ücretsiz moda dönün.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
 
@@ -262,6 +262,27 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 - Hız bekçisi 30 saniyede bir son 10 dakikanın harcamasına bakar; `max_spend_per_10min` aşılırsa projeyi dondurur. Panel, yeni projeyi bu sınır bütçenin yarısı olacak şekilde açar: örnek film saniyeler içinde yaklaşık 25-30 sanal USD harcar ve varsayılan 20 USD sınırı filmin ortasında projeyi dondururdu.
 - Bayat rezervasyon toplayıcı 5 dakikada bir, 60 dakikadan eski ve eşi olmayan rezervasyonları iade eder.
 - Fiyatlar `backend/pricing.yaml` dosyasındadır (fal.ai, Ekim 2026). Periyodik olarak güncelleyin.
+
+## Servis geçmişi (panelin Geçmiş sayfası)
+
+Ücretli servislere yapılan her çağrı ayrıntılı bir kayıt bırakır; ücretsiz modda aynı iş, ücretli modda harcanacak tutarla
+**sanal** olarak kaydedilir. Üst banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
+
+- **Çağrılar:** zaman, işlem (video üretimi, ilk kare, storyboard karesi, varlık referansı, hareket testi, previs rehberinden
+  video, düzenlenmiş kareden video, dudak senkronu, diyalog seslendirme, senaryo ayrıştırma), proje ve çekim ya da varlık,
+  servis ve model, mod (gerçek ya da sanal), durum ve tutar. Proje, servis, mod, durum ve dönem süzgeçleri URL'de durur.
+- **Ayrıntı:** sağlayıcıya gerçekten giden her istek (model ya da uç nokta, sağlayıcının istek kimliği, çözünürlük, kare sayısı,
+  tohum, LoRA, belirteç ya da karakter sayısı, istem), tahmin ve işlenen tutar, süre, deneme numarası, bütçe rezervasyonu ve
+  varsa hata (anahtar değerleri maskelenir). İstek kimliğiyle tutarı sağlayıcının panelinde doğrulayabilirsiniz; fal.ai yanıtı
+  fatura tutarı döndürmediği için işlenen tutar fiyat tablosundan hesaplanır.
+- **Özet:** gerçek ve sanal harcama, başarısız ve süren çağrılar; servis, model, işlem, proje ve gün dağılımı.
+- **CSV indir:** süzgece uyan bütün çağrılar (UTF-8, Excel uyumlu).
+
+Kayıt bütçe defteriyle aynı işlemde yazılır (`service_calls` tablosu, `app/budget/history.py`): rezervasyon satırı açar,
+commit ya da release kapatır; geçmiş ile bütçe birbirinden ayrışmaz. Proje silinse de kayıt kalır (gerçek para harcanmıştır).
+Ayarlar sayfasındaki servis harcamaları da bu kayıttan gelir ve gerçek ile sanal ayrı gösterilir. Bu sistemden önceki defter
+kayıtları ilk açılışta aktarılır: modu ayar değişiklik kaydından, modeli etiketten çıkarılır ve panelde "tahmini" diye
+işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/history.csv`.
 
 ## Ücretli servisler (panelin Ayarlar sayfası)
 
@@ -388,7 +409,7 @@ docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi
@@ -396,7 +417,7 @@ backend/
   pricing.yaml  migrations/    fiyat tablosu, şema değişiklikleri
   app/
     config.py db.py models.py schemas.py storage.py migrate.py main.py
-    budget/      killswitch (rezervasyon, dondurma, bekçiler), pricing
+    budget/      killswitch (rezervasyon, dondurma, bekçiler), pricing, history (servis geçmişi)
     core/        hashing, rerender (Stateless Re-render planlayıcısı), state
     hermes/      rules (ayrıştırıcı), ingest (veritabanına yazma), lint (üretim öncesi referans kontrolü)
     engine/      procedural (yerel render), providers, iteration (kademeli üretim),
@@ -409,7 +430,8 @@ backend/
                  consistency (renk sıçraması, öneri), metrics (verimlilik)
     post/        audio, mux, grade (LUT ve renk ayarı), pipeline (LIPSYNC, GRADE, MUX), timeline (film ve sekans müziği),
                  export (EDL, OpenTimelineIO, çekim paketi)
-    api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, export, panel, plan, deps, uploads
+    api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, history, export, services, panel,
+                 plan, deps, uploads
     worker/      celery_app, tasks, dispatch
     live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
