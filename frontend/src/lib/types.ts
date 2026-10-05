@@ -14,6 +14,7 @@ export interface Meta {
   presets: Record<string, Preset>;
   defaults: Record<string, number | string | boolean> & { probe_n: number; full_n: number };
   sample_script: string;
+  trial_script?: string;
 }
 
 export interface ProjectListItem { id: string; title: string; status: string; spent_usd: number; budget_limit_usd: number }
@@ -174,6 +175,7 @@ export interface ServiceField {
 export interface Service {
   id: "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean; spent_usd: number;
+  needed: boolean; not_needed_reason: string;
 }
 
 export interface AuditEntry { ts: number; field: string; action: string; detail: string }
@@ -181,6 +183,7 @@ export interface AuditEntry { ts: number; field: string; action: string; detail:
 export interface SettingsState {
   dry_run: boolean; editable: boolean; env_file: string | null; confirmation: string; busy: string[];
   services: Service[]; spent_usd: number; audit: AuditEntry[]; pricing_file: string;
+  scorer: { ready: boolean; message: string };
 }
 
 export interface PricingTable {

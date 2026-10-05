@@ -68,5 +68,6 @@ describe("documented Turkish texts", () => {
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",
     "Model ve uç noktalar", "Fiyat tablosu", "Doğrula ve kaydet", "Değişiklik kaydı",
+    "fal.ai denemesi", "Deneme senaryosu", "Yalnızca fal.ai anahtarı gerekir", "gerekmez",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

@@ -144,7 +144,7 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
     setTyped(""); onSaved(); void mutate("/meta");
     note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : "Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.", paid ? "err" : "ok");
   }, "settings");
-  const ready = st.services.map((s) => [s.name, s.key_set] as const);
+  const fal = st.services.find((s) => s.id === "fal");
   return (
     <Panel title="Çalışma modu" meta={st.dry_run ? "ücretsiz" : "ücretli"}>
       <div className="pad stack">
@@ -156,7 +156,14 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
           <>
             <h3 className="small">Ücretli moda geçmeden önce</h3>
             <ul className="lines">
-              {ready.map(([name, ok]) => <li key={name}><span className={`st ${ok ? "ok" : "bad"}`}>{name}: {ok ? "anahtar tanımlı" : "anahtar yok (bu servis çağrılamaz)"}</span></li>)}
+              {st.services.map((s) => (
+                <li key={s.id}>
+                  {!s.needed ? <span className="st">{s.name}: gerekmez ({s.not_needed_reason})</span>
+                    : <span className={`st ${s.key_set ? "ok" : "bad"}`}>{s.name}: {s.key_set ? "anahtar tanımlı" : "anahtar yok: bu servisle üretim yapılamaz"}</span>}
+                </li>
+              ))}
+              <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
+              {fal && !fal.key_set && <li className="warn">En az fal.ai anahtarı gerekir: görüntü ve video yalnızca fal.ai ile üretilir.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>
               <li>Mod, servisler yeniden başlatılmadan geçerli olur; o andan sonra başlayan her ücretli çağrı gerçek harcamadır.</li>
@@ -167,7 +174,10 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                 <label className="field"><span>Onaylamak için kutuya <b className="mono" style={{ color: "var(--text)" }}>{st.confirmation}</b> yazın</span>
                   <input type="text" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
                 </label>
-                <div className="row"><button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0}>Ücretli moda geç</button></div>
+                <div className="row">
+                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !fal?.key_set || !st.scorer.ready}>Ücretli moda geç</button>
+                  {(!fal?.key_set || !st.scorer.ready) && <span className="faint small">Önce fal.ai anahtarını girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                </div>
               </form>
             ) : <p className="faint small">Ayar dosyası bağlı değil; mod yalnızca .env elle düzenlenerek değişir.</p>}
           </>

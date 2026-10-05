@@ -60,6 +60,17 @@ def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(a
     assert SECRET not in json.dumps(body)
 
 
+def test_only_fal_is_needed_with_the_default_engines(api, cfg):
+    """Konuşma motoru espeak ve Hermes kural tabanlıyken yalnızca fal.ai anahtarı gerekir."""
+    body = api.get("/api/settings").json()
+    needed = {s["id"]: s["needed"] for s in body["services"]}
+    assert needed == {"fal": True, "elevenlabs": False, "anthropic": False}
+    assert "espeak" in body["services"][1]["not_needed_reason"]
+    api.patch("/api/settings", json={"values": {"TTS_ENGINE": "elevenlabs", "HERMES_MODE": "llm"}})
+    assert all(s["needed"] for s in api.get("/api/settings").json()["services"])
+    assert set(body["scorer"]) == {"ready", "message"}
+
+
 def test_saving_writes_the_env_file_in_place_and_takes_effect_without_a_restart(api, cfg):
     r = api.patch("/api/settings", json={"values": {"FAL_KEY": SECRET, "HERMES_MODEL": "claude-opus-5-5", "TTS_ENGINE": "elevenlabs"}})
     assert r.status_code == 200, r.text
@@ -112,7 +123,13 @@ def test_other_processes_pick_up_a_change_and_only_whitelisted_keys(cfg):
 
 # ---------- mod ----------
 
+def test_paid_mode_needs_a_fal_key(api, cfg):
+    r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
+    assert r.status_code == 422 and "fal.ai anahtarı" in r.json()["detail"] and settings.dry_run is True
+
+
 def test_paid_mode_needs_the_exact_confirmation(api, cfg):
+    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
     for confirm in (None, "evet", "ücretli mod"):
         r = api.post("/api/settings/mode", json={"paid": True, "confirm": confirm})
         assert r.status_code == 422 and rc.PAID_CONFIRMATION in r.json()["detail"]
@@ -121,6 +138,7 @@ def test_paid_mode_needs_the_exact_confirmation(api, cfg):
 
 def test_paid_mode_is_refused_while_production_runs(api, cfg, monkeypatch):
     from app.api import services
+    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
     monkeypatch.setattr(services, "_busy", lambda s: ["Film S001_SH01"])
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 409 and "S001_SH01" in r.json()["detail"] and settings.dry_run is True
@@ -128,6 +146,7 @@ def test_paid_mode_is_refused_while_production_runs(api, cfg, monkeypatch):
 
 def test_switching_to_paid_and_back_is_written_and_logged(api, cfg, monkeypatch):
     from app.api import services
+    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
     monkeypatch.setattr(services, "_busy", lambda s: [])
     try:
         r = api.post("/api/settings/mode", json={"paid": True, "confirm": "Ücretli Moda Geç"})   # büyük/küçük harf duyarsız

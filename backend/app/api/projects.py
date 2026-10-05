@@ -64,6 +64,24 @@ def patch_project(project_id: ProjectId, body: ProjectPatch, s: Session = Depend
     return project_out(p, s)
 
 
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Projeyi ve tüm sahne, varyasyon, kanal ve defter kayıtlarını siler (veritabanında CASCADE).
+    Kürasyon olayı yazılmaz: kayıt projeyle birlikte silinir. Nesne deposundaki dosyalara dokunulmaz; anahtarlar
+    içerik-adreslidir ve başka projelerle paylaşılıyor olabilir. Üretim sürerken reddedilir."""
+    p = project_or_404(s, project_id)
+    pid = str(p.id)
+    if killswitch.has_running_tasks(pid):
+        raise HTTPException(409, "Üretim sürüyor; önce 'Üretimi durdur' ile durdurun, sonra silin.")
+    title = p.title
+    s.delete(p)
+    s.commit()
+    r = killswitch.r()
+    r.delete(*(k.format(pid) for k in (killswitch.FROZEN, killswitch.SOFT, killswitch.TASKS, killswitch.EVENTS,
+                                       killswitch.RESUMED_AT)))
+    return {"deleted": pid, "title": title}
+
+
 @router.post("/projects/{project_id}/characters", status_code=201)
 @curated("character_create")
 def create_character(project_id: ProjectId, body: CharacterIn, s: Session = Depends(get_session)):

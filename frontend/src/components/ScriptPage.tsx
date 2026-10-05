@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { usePanel } from "@/lib/panel";
-import type { DispatchAll } from "@/lib/types";
+import type { DispatchAll, PricingTable } from "@/lib/types";
 import { NoteBox, Panel } from "./ui";
 
 interface Ingest extends DispatchAll { cast: string[]; shots: number; created: string[]; updated: string[]; orphaned: string[] }
@@ -24,6 +24,18 @@ export function ScriptPage() {
   const text = script ?? source ?? "";
   const hasShots = Boolean(ov?.scenes.length);
   const lines = text.split("\n").length, words = text.split(/\s+/).filter(Boolean).length;
+  const { data: prices } = useSWR<{ table: PricingTable }>(intensity === "trial" ? "/settings/pricing" : null, fetcher, { revalidateOnFocus: false });
+  const trial = meta?.presets.trial;
+  // Deneme: çekim başına en çok (test + tam) klip; her klip bir Flux karesi (1 MP) + 3 sn'lik 480p Wan videosu.
+  const perShot = trial && prices ? (Number(trial.probe_n) + Number(trial.full_n))
+    * (prices.table.image_per_megapixel.flux_lora + prices.table.video_per_second.fal_wan["480p"] * 3) : null;
+  const pickIntensity = (x: string) => {
+    setIntensity(x);
+    if (x === "trial") {
+      if (budget === "60") setBudget("3");
+      if (script == null && meta?.trial_script) setScript(meta.trial_script);
+    } else if (budget === "3") setBudget("60");
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,14 +94,34 @@ export function ScriptPage() {
               <div className="stack" role="radiogroup" aria-label="Üretim yoğunluğu" style={{ gap: 6 }}>
                 <span className="field">Üretim yoğunluğu</span>
                 <label className="choice">
-                  <input type="radio" name="intensity" value="preview" checked={intensity === "preview"} onChange={() => setIntensity("preview")} />
+                  <input type="radio" name="intensity" value="preview" checked={intensity === "preview"} onChange={() => pickIntensity("preview")} />
                   <span><b>Önizleme</b><small>{p ? `En çok ${p.probe_n} test ve ${p.full_n} tam klip: hızlı sonuç, örnek film için uygun.` : ""}</small></span>
                 </label>
                 <label className="choice">
-                  <input type="radio" name="intensity" value="brief" checked={intensity === "brief"} onChange={() => setIntensity("brief")} />
+                  <input type="radio" name="intensity" value="brief" checked={intensity === "brief"} onChange={() => pickIntensity("brief")} />
                   <span><b>Brifing</b><small>{d ? `${d.probe_n} test ve en çok ${d.full_n} tam klip: brifingdeki yoğunluk.` : ""}</small></span>
                 </label>
+                {trial && (
+                  <label className="choice">
+                    <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
+                    <span><b>fal.ai denemesi</b><small>
+                      {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır.`}
+                      {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(2)} (3 sn).`}
+                      {" "}Yalnızca fal.ai anahtarı gerekir.
+                    </small></span>
+                  </label>
+                )}
               </div>
+              {intensity === "trial" && meta?.dry_run && (
+                <div className="note err">
+                  Ücretsiz moddasınız: bu proje fal.ai yerine yerel motorla üretilir. fal.ai ile denemek için önce Ayarlar'da
+                  fal.ai anahtarını girip ücretli moda geçin, sonra buraya dönün.
+                  <div className="row mt8"><button className="btn" type="button" onClick={() => setPage("settings")}>Ayarlar'ı aç</button></div>
+                </div>
+              )}
+              {intensity === "trial" && meta && !meta.dry_run && (
+                <div className="note ok">Ücretli mod açık: bu proje fal.ai ile gerçek harcamayla üretilir; sanal bütçe tavanı gerçek harcamanın da sınırıdır.</div>
+              )}
             </>
           ) : (
             <dl className="kv">
@@ -116,6 +148,7 @@ export function ScriptPage() {
           <span className="grow" />
           {script != null && <button className="btn ghost" type="button" onClick={() => setScript(null)}>Değişiklikleri geri al</button>}
           {newProject && <button className="btn ghost" type="button" onClick={() => setScript(meta?.sample_script ?? "")}>Örnek senaryo</button>}
+          {newProject && meta?.trial_script && <button className="btn ghost" type="button" onClick={() => setScript(meta.trial_script!)}>Deneme senaryosu</button>}
         </header>
         <textarea aria-label="Senaryo" spellCheck={false} required minLength={10} value={text} onChange={(e) => setScript(e.target.value)} />
       </section>

@@ -273,6 +273,30 @@ her istekte ve worker her görevden önce sayacı görüp `.env`'i yeniden okur.
 ayarlarını yazabilir; veritabanı ve depo ayarlarına dokunamaz. Bağlantı sınaması yalnızca ücretsiz, salt okunur doğrulama
 uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyruk durumu) ve üretim yapmaz.
 
+### Yalnızca fal.ai ile ücretli deneme
+
+ElevenLabs ve Anthropic olmadan, yalnızca fal.ai anahtarıyla gerçek üretimi denemek için:
+
+1. **Ayarlar › fal.ai**: anahtarı yapıştırıp **Anahtarı kaydet**, ardından **Bağlantıyı sına**. Konuşma motoru `espeak` ve Hermes
+   `rules` kaldıkça ElevenLabs ve Anthropic çağrılmaz; Çalışma modu listesinde "gerekmez" görünür. Seslendirme yerel espeak ile,
+   senaryo ayrıştırma kural tabanlı yapılır.
+2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (fal.ai anahtarı ve kalite skorlayıcısı hazır değilse
+   düğme kapalıdır).
+3. **Senaryo › Yeni proje**: yoğunluk olarak **fal.ai denemesi** seçin. Bu seçim:
+   - bütçeyi 3 USD yapar;
+   - **Deneme senaryosu**nu doldurur: tek çekim, diyalogsuz (dudak senkronu ücreti yok), sakin (Seedance yerine Wan);
+   - çekim başına en çok 2 test ve 2 tam klip üretir, 480p, düzeltme turu yok;
+   - varlık onay akışını ve hareket testlerini atlar (referans kontrolü yalnızca uyarır).
+   Panel çekim başına en yüksek maliyeti fiyat tablosundan hesaplar (şu anki fiyatlarla ~0,62 USD).
+   **Senaryoyu işle ve üret**'e basın.
+4. **Kurgu** sayfasında adayları izleyin. Her klip bir Flux ilk karesi ve bir Wan videosudur. Kalite kapısını geçemeyen karenin
+   videosu hiç istenmez.
+5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön**.
+
+Proje ücretli moda geçmeden önce oluşturulursa çekimler hemen yerel motorla üretilir ve sonradan geçişte yeniden üretilmez;
+o durumda Kurgu'da **Bu sahneyi baştan üret** kullanın. Sanal bütçe tavanı ücretli modda gerçek harcamanın da sınırıdır:
+dolunca Kill-Switch üretimi durdurur.
+
 > Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
 > yazabildiği için paneli ağa açmayın.
 

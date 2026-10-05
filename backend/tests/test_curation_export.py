@@ -24,7 +24,8 @@ from tests.media_utils import pcm, probe, rms
 
 SMALL = dict(probe_n=2, full_n=2, wave_size=2, refined_k=2, max_correction_rounds=1, max_spend_per_10min=10_000)
 MODULES = (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, panel)
-READ_ONLY_POSTS = {"preview_style"}          # POST ama hiçbir şey yazmaz: karar değildir
+READ_ONLY_POSTS = {"preview_style",          # POST ama hiçbir şey yazmaz: karar değildir
+                   "delete_project"}         # olayın bağlı olduğu proje silinir; kayıt da CASCADE ile gider
 SPEC_ACTIONS = {"promote", "upgrade_request", "board_approve", "board_reject", "asset_lock", "revision_upload",
                 "style_activate", "force_rerender"}
 

@@ -60,6 +60,24 @@ def _busy(s: Session) -> list[str]:
     return [f"{t} {c}" for t, c in rows]
 
 
+def _needed(service: str) -> tuple[bool, str]:
+    """Servis şu ayarlarla ücretli modda çağrılır mı; çağrılmıyorsa neden."""
+    if service == "elevenlabs" and settings.tts_engine != "elevenlabs":
+        return False, f"konuşma motoru {settings.tts_engine}: ElevenLabs çağrılmaz, anahtar gerekmez"
+    if service == "anthropic" and settings.hermes_mode != "llm":
+        return False, "senaryo ayrıştırma kural tabanlı: Anthropic çağrılmaz, anahtar gerekmez"
+    return True, ""
+
+
+def _scorer() -> dict:
+    """Ücretli modda kalite kapısı gerçek skorlayıcıyı ister; yoksa üretim başlamaz."""
+    from app.quality import scorer
+    if settings.quality_scorer == "dry":
+        return {"ready": False, "message": "QUALITY_SCORER=dry: ücretli modda üretim başlamaz (auto ya da real olmalı)"}
+    reason = scorer.unavailable()
+    return {"ready": reason is None, "message": reason or "Gerçek kalite skorlayıcısı hazır (OpenCLIP + SFace, yerel ve ücretsiz)"}
+
+
 def state(s: Session) -> dict:
     rc.refresh_if_changed()
     spend = _spend(s)
@@ -78,7 +96,8 @@ def state(s: Session) -> dict:
                 item.update({"value": value, "default": default, "choices": list(f.choices),
                              "url": f.url.format(value) if f.url else None})
             fields.append(item)
-        services.append({"id": sid, "name": meta["name"], "purpose": meta["purpose"], "console": meta["console"],
+        needed, why = _needed(sid)
+        services.append({"id": sid, "name": meta["name"], "needed": needed, "not_needed_reason": why, "purpose": meta["purpose"], "console": meta["console"],
                          "used_by": meta["used_by"], "fields": fields, "active": _active(sid),
                          "key_set": _key(meta["key"])["set"],
                          "spent_usd": round(sum(v for p, v in spend.items() if p in meta["providers"]), 4)})
@@ -86,7 +105,7 @@ def state(s: Session) -> dict:
         "dry_run": settings.dry_run, "editable": bool(rc.env_path()), "env_file": rc.env_path(),
         "confirmation": rc.PAID_CONFIRMATION, "busy": _busy(s), "services": services,
         "spent_usd": round(sum(spend.values()), 4), "audit": rc.audit(),
-        "pricing_file": settings.pricing_file,
+        "pricing_file": settings.pricing_file, "scorer": _scorer(),
     }
 
 
@@ -117,6 +136,8 @@ class ModeIn(BaseModel):
 @router.post("/settings/mode")
 def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
+    if body.paid and not _key("FAL_KEY")["set"]:
+        raise HTTPException(422, "fal.ai anahtarı tanımlı değil: görüntü ve video yalnızca fal.ai ile üretilir. Önce anahtarı girin.")
     try:
         result = rc.set_mode(body.paid, body.confirm, _busy(s) if body.paid else [])
     except rc.ConfigError as e:

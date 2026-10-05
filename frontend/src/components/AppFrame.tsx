@@ -53,6 +53,12 @@ function TopBar() {
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
+  const current = projects?.find((p) => p.id === projectId);
+  const remove = async () => {
+    if (!projectId || !current) return;
+    if (!window.confirm(`"${current.title}" projesi ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz.`)) return;
+    if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
+  };
   return (
     <header className="topbar">
       <div className="logo"><Icon.logo />Hell Grind</div>
@@ -62,6 +68,7 @@ function TopBar() {
           : <option value="">Henüz proje yok</option>}
       </select>
       <button className="btn" type="button" onClick={() => { setCreating(true); setPage("script"); }}><Icon.plus />Yeni proje</button>
+      {current && <button className="btn ghost" type="button" onClick={remove} title="Projeyi kalıcı olarak sil">Projeyi sil</button>}
       <span className="vsep" />
       <Budget />
       <span className="grow" />

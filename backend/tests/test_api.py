@@ -51,6 +51,20 @@ def test_meta_exposes_presets_defaults_and_the_sample_script(api):
     assert meta["presets"]["brief"] == {} and meta["defaults"] == DEFAULT_PROJECT_SETTINGS
 
 
+def test_the_fal_trial_preset_is_cheap_and_valid(api, api_project):
+    """Yalnızca fal.ai ile deneme: çekim başına en çok 4 klip, 480p, düzeltme turu yok; deneme senaryosu diyalogsuz
+    ve aksiyonsuzdur (dudak senkronu ücreti yok, Wan'a gider)."""
+    meta = api.get("/api/meta").json()
+    trial = meta["presets"]["trial"]
+    assert trial["probe_n"] + trial["full_n"] <= 4 and trial["max_correction_rounds"] == 0
+    assert trial["probe_resolution"] == trial["full_resolution"] == "480p" and trial["lint_strictness"] == "warn"
+    pid = api_project(3.0, **trial)                                     # ayarlar doğrulamadan geçer
+    from app.hermes.rules import parse
+    shots = parse(meta["trial_script"])["shots"]
+    assert len(shots) == 1 and not shots[0]["dialogue"] and shots[0]["action_complexity"] < 0.7
+    assert pid
+
+
 def test_root_redirects_to_the_panel(api):
     r = api.get("/", follow_redirects=False)
     assert r.status_code in (302, 307) and r.headers["location"] == "/panel/"

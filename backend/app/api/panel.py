@@ -30,7 +30,19 @@ router = APIRouter(tags=["panel"])
 PRESETS = {
     "preview": {"probe_n": 4, "full_n": 8, "wave_size": 4, "max_correction_rounds": 2},
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
+    # Yalnızca fal.ai anahtarıyla en ucuz ücretli deneme: çekim başına en çok 4 klip (2 test + 2 tam), 480p, düzeltme
+    # turu yok. Referans kontrolü uyarıya iner: varlık onay akışı ve hareket testleri (video ücreti) atlanır.
+    "trial": {"probe_n": 2, "full_n": 2, "wave_size": 2, "refined_k": 1, "max_correction_rounds": 0,
+              "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn"},
 }
+
+# Diyalogsuz (dudak senkronu ücreti yok), aksiyonsuz (Wan, Seedance değil) tek çekimlik deneme senaryosu.
+TRIAL_SCRIPT = """# SEKANS: Deneme
+
+DIŞ. ÇATI - GÜN BATIMI
+
+Kerem çatının kenarında durup sakin şehre bakıyor.
+"""
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/")
 EVENT_LIMIT = 30
@@ -60,7 +72,7 @@ def measure_of(params: dict | None) -> dict | None:
 def meta():
     return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
             "quality": quality_meta(), "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS,
-            "sample_script": SAMPLE_SCRIPT}
+            "sample_script": SAMPLE_SCRIPT, "trial_script": TRIAL_SCRIPT}
 
 
 @router.post("/projects/{project_id}/script")
