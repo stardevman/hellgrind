@@ -1,7 +1,7 @@
 "use client";
 /* Stüdyo çerçevesi: üstte proje, bütçe ve durdurma düğmesi; ortada etkin sayfa; altta üretim sırasıyla sayfa çubuğu
    (Shift+1…8 ile geçilir). */
-import { useEffect, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
@@ -49,8 +49,53 @@ function Budget() {
   );
 }
 
+function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
+  const { projects, projectId, selectProject, setCreating, setPage } = usePanel();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const current = projects?.find((p) => p.id === projectId);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="switcher" ref={box}>
+      <button type="button" className="switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label="Proje seçici" onClick={() => setOpen((v) => !v)}>
+        <span className="sw-title">{current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok"}</span>
+        {current && <span className="sw-status">{PROJECT_STATUS_TR[current.status] || current.status}</span>}
+        <Icon.chevron />
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          {projects?.map((p) => (
+            <button key={p.id} type="button" role="menuitem" className={p.id === projectId ? "on" : ""}
+              onClick={() => { selectProject(p.id); setOpen(false); }}>
+              <span className="mi-ck">{p.id === projectId && <Icon.check />}</span>
+              <span className="mi-t">{p.title}</span>
+              <span className="mi-s">{PROJECT_STATUS_TR[p.status] || p.status}</span>
+            </button>
+          ))}
+          {projects?.length ? <div className="menu-sep" /> : null}
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); setCreating(true); setPage("script"); }}>
+            <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni proje</span>
+          </button>
+          {current && (
+            <button type="button" role="menuitem" className="danger" onClick={() => { setOpen(false); onRemove(); }}>
+              <span className="mi-ck"><Icon.trash /></span><span className="mi-t">Projeyi sil…</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopBar() {
-  const { projects, projectId, selectProject, setCreating, page, setPage, meta, ov, act, setHistory } = usePanel();
+  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -62,40 +107,36 @@ function TopBar() {
   };
   return (
     <header className="topbar">
-      <div className="logo"><Icon.logo />Hell Grind</div>
-      <select className="project" aria-label="Proje seçici" value={projectId ?? ""} onChange={(e) => selectProject(e.target.value || null)}>
-        {projects?.length
-          ? projects.map((p) => <option key={p.id} value={p.id}>{p.title} — {PROJECT_STATUS_TR[p.status] || p.status}</option>)
-          : <option value="">Henüz proje yok</option>}
-      </select>
-      <button className="btn" type="button" onClick={() => { setCreating(true); setPage("script"); }}><Icon.plus />Yeni proje</button>
-      {current && <button className="btn ghost" type="button" onClick={remove} title="Projeyi kalıcı olarak sil">Projeyi sil</button>}
-      <span className="vsep" />
-      <Budget />
-      <span className="grow" />
-      {q && (
-        <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
-          title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
-            : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
-          {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
-        </span>
-      )}
-      <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
-        title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
-        onClick={() => setPage("settings")}>
-        {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
-      </button>
-      <button type="button" className="btn ghost" aria-current={page === "history" ? "page" : undefined}
-        onClick={() => { if (page !== "history") setHistory({}, true); }}
-        title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt />Geçmiş</button>
-      <button type="button" className="btn ghost" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
-        title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear />Ayarlar</button>
-      {ov && (
-        <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
-          title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
-          {frozen ? "Üretime devam et" : "Üretimi durdur"}
+      <div className="tb-main">
+        <div className="logo"><Icon.logo />Hell Grind</div>
+        <ProjectSwitcher onRemove={remove} />
+        <span className="grow" />
+        {q && (
+          <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
+            title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
+              : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
+            {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
+          </span>
+        )}
+        <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
+          title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
+          onClick={() => setPage("settings")}>
+          {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
         </button>
-      )}
+        <span className="vsep" />
+        <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
+          onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
+          title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
+        <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
+          aria-label="Ayarlar" title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear /></button>
+        {ov && (
+          <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
+            title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
+            {frozen ? "Üretime devam et" : "Üretimi durdur"}
+          </button>
+        )}
+      </div>
+      {ov && <Budget />}
     </header>
   );
 }
