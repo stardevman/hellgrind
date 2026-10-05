@@ -192,6 +192,7 @@ export interface SettingsState {
 export interface PricingTable {
   video_per_second: Record<string, Record<string, number>>;
   image_per_megapixel: Record<string, number>;
+  image_per_image?: Record<string, number>;
   lipsync_per_minute: number; tts_per_1k_chars: number;
   llm_per_million_tokens: { input: number; output: number };
 }

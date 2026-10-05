@@ -47,6 +47,7 @@ FACE_SAME = 0.363              # OpenCV FaceRecognizerSF: aynı kişi için öne
 FACE_SLOPE = 0.05              # lojistik eğrinin genişliği: eşikte 0,5; +0,15'te ~0,95
 DETECT_SCORE = 0.8             # YuNet güven eşiği
 MIN_FACE_PX = 24               # bundan küçük yüzler kimlik için güvenilmez
+DETECT_MAX_SIDE = 1024         # YuNet, kareyi dolduran büyük yüzleri (ör. 1500 px'lik portre) bulamıyor: önce küçültülür
 TEXT_CACHE, REF_CACHE = 512, 256
 GENERIC = "a detailed, well composed frame from an animated film"
 ANCHORS = ("an image", "a picture", "a photo")   # Türkçe genel altyazı her şeye fazla benzer: ölçümü bozar
@@ -164,8 +165,13 @@ class Models:
             return np.stack([self.texts[t] for t in texts])
 
     def faces(self, image: Image.Image) -> list[tuple[float, np.ndarray]]:
-        """[(alan, birim uzunlukta 128 boyutlu kimlik vektörü)], büyükten küçüğe."""
-        bgr = np.ascontiguousarray(np.asarray(image.convert("RGB"))[:, :, ::-1])
+        """[(alan, birim uzunlukta 128 boyutlu kimlik vektörü)], büyükten küçüğe. Uzun kenarı DETECT_MAX_SIDE'dan büyük
+        görsel önce küçültülür (alan küçültülmüş görseldedir)."""
+        image = image.convert("RGB")
+        if max(image.size) > DETECT_MAX_SIDE:
+            r = DETECT_MAX_SIDE / max(image.size)
+            image = image.resize((max(1, round(image.width * r)), max(1, round(image.height * r))), Image.LANCZOS)
+        bgr = np.ascontiguousarray(np.asarray(image)[:, :, ::-1])
         h, w = bgr.shape[:2]
         out = []
         with self.lock:

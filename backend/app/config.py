@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     fal_seedance_endpoint: str = "bytedance/seedance-2.0/fast/image-to-video"
     fal_lipsync_endpoint: str = "fal-ai/sync-lipsync/v2/pro"
     fal_wan_v2v_endpoint: str = "fal-ai/wan/v2.2-a14b/video-to-video"
+    fal_kontext_endpoint: str = "fal-ai/flux-pro/kontext"     # karakterin referans görseliyle kare (görsel başına)
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""
@@ -76,6 +77,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "lint_strictness": "block",    # üretim öncesi referans kontrolü: off | warn | block
     "asset_min_status": "locked",  # çekimdeki varlıkların ulaşması gereken en az durum (still_approved | motion_tested | locked)
     "require_board_approval": False,   # açıksa storyboard karesi onaylanmadan görüntü üretilmez
+    "paid_audio": True,            # false: ücretli modda da ses yereldir (espeak) ve dudak senkronu çağrılmaz
 }
 
 

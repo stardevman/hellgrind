@@ -58,6 +58,8 @@ def describe(label: str) -> Described:
         return Described("fal", "lipsync", (settings.fal_lipsync_endpoint,))
     if head == "flux_lora":
         return Described("fal", purpose or "other", (settings.fal_flux_endpoint,), resolution)
+    if head == "flux_kontext":                 # karakterin referans görseliyle kare
+        return Described("fal", purpose or "other", (settings.fal_kontext_endpoint,), resolution)
     if head == "v2v":
         return Described("fal", "previs", (settings.fal_wan_v2v_endpoint,), resolution)
     if head in VIDEO_ENGINES:

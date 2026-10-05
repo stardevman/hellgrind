@@ -24,7 +24,9 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
   for (const [engine, byRes] of Object.entries(t.video_per_second)) {
     for (const [res, price] of Object.entries(byRes)) rows.push([`${engine} · ${res} (video saniyesi)`, `$${price}`]);
   }
-  rows.push(["flux_lora (megapiksel)", `$${t.image_per_megapixel.flux_lora}`], ["Dudak senkronu (dakika)", `$${t.lipsync_per_minute}`]);
+  rows.push(["flux_lora (megapiksel)", `$${t.image_per_megapixel.flux_lora}`]);
+  if (t.image_per_image?.flux_kontext != null) rows.push(["flux_kontext: karakter referanslı kare (görsel)", `$${t.image_per_image.flux_kontext}`]);
+  rows.push(["Dudak senkronu (dakika)", `$${t.lipsync_per_minute}`]);
   return rows;
 }
 

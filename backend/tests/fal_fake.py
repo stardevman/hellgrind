@@ -23,7 +23,8 @@ class FakeFal:
     def responder(self, application, arguments):
         if application in self.behaviour:
             return self.behaviour[application](arguments)
-        if application in (fal_video.FLUX, settings.fal_flux_endpoint):          # panelden değişmiş olabilir
+        if application in (fal_video.FLUX, settings.fal_flux_endpoint,          # panelden değişmiş olabilir
+                           fal_video.KONTEXT, settings.fal_kontext_endpoint):
             return {"images": [{"url": "https://fal.test/frame.jpg"}]}
         if application in (fal_video.LIPSYNC, settings.fal_lipsync_endpoint):
             return {"video": {"url": "https://fal.test/synced.mp4"}}

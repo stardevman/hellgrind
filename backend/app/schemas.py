@@ -39,6 +39,7 @@ SETTING_RULES = {
     "loudness_lufs": (_num(-70, -5), "-70 ile -5 arasında bir sayı"),
     "lint_strictness": (lambda v: v in ("off", "warn", "block"), "off, warn ya da block"),
     "require_board_approval": (lambda v: type(v) is bool, "true ya da false"),
+    "paid_audio": (lambda v: type(v) is bool, "true ya da false"),
     "asset_min_status": (lambda v: v in ("still_approved", "motion_tested", "locked"),
                          "still_approved, motion_tested ya da locked"),
 }

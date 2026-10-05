@@ -33,7 +33,8 @@ PRESETS = {
     # Yalnızca fal.ai anahtarıyla en ucuz ücretli deneme: çekim başına en çok 4 klip (2 test + 2 tam), 480p, düzeltme
     # turu yok. Referans kontrolü uyarıya iner: varlık onay akışı ve hareket testleri (video ücreti) atlanır.
     "trial": {"probe_n": 2, "full_n": 2, "wave_size": 2, "refined_k": 1, "max_correction_rounds": 0,
-              "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn"},
+              "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn",
+              "paid_audio": False},
 }
 
 # Diyalogsuz (dudak senkronu ücreti yok), aksiyonsuz (Wan, Seedance değil), 3 saniyelik tek çekimlik deneme senaryosu.

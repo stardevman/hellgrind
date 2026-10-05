@@ -74,7 +74,7 @@ export const PURGE_TR: Record<string, string> = {
 };
 
 export const KIND_TR: Record<string, string> = {
-  fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri",
+  fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
   v2v: "Previs aktarımı", fal: "Dudak senkronu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)",
 };
 

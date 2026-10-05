@@ -28,7 +28,8 @@ export function ScriptPage() {
   const trial = meta?.presets.trial;
   // Deneme: çekim başına en çok (test + tam) klip; her klip bir Flux karesi (1 MP) + 3 sn'lik 480p Wan videosu.
   const perShot = trial && prices ? (Number(trial.probe_n) + Number(trial.full_n))
-    * (prices.table.image_per_megapixel.flux_lora + prices.table.video_per_second.fal_wan["480p"] * 3) : null;
+    * (Math.max(prices.table.image_per_megapixel.flux_lora, prices.table.image_per_image?.flux_kontext ?? 0)
+      + prices.table.video_per_second.fal_wan["480p"] * 3) : null;
   const pickIntensity = (x: string) => {
     setIntensity(x);
     if (x === "trial") {
@@ -105,7 +106,7 @@ export function ScriptPage() {
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
                     <span><b>fal.ai denemesi</b><small>
-                      {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır.`}
+                      {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır; ses yerel (espeak), dudak senkronu yok.`}
                       {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(2)} (3 sn).`}
                       {" "}Yalnızca fal.ai anahtarı gerekir.
                     </small></span>

@@ -325,6 +325,28 @@ ElevenLabs ve Anthropic olmadan, yalnızca fal.ai anahtarıyla gerçek üretimi 
    videosu hiç istenmez.
 5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön**.
 
+### Karakter referansıyla üretim
+
+Bir karakterin görünüşünü bir görselle sabitlemek için: **Varlıklar** sayfasında karakteri seçip **Durağan görsel**
+olarak yükleyin (ör. karakterin yüzünü net gösteren bir portre). Ücretli modda o karakterin geçtiği çekimlerin ilk
+kareleri ve storyboard karesi Flux LoRA yerine **Flux Kontext** (`fal-ai/flux-pro/kontext`, görsel başına 0,04 USD) ile
+bu görselden çizilir: yüz, saç, göz ve kıyafet korunur, sahne, poz ve kadraj prompt'tan gelir. Video yine bu kareden
+(Wan ya da Seedance) üretilir. Görsel fal deposuna bir kez yüklenir (ücretsiz).
+
+- Kontext tek görsel alır: çekimde birden çok referanslı karakter varsa ilki kullanılır. LoRA'sı olan karakterde LoRA
+  kazanır.
+- Kalite kapısı aynı görseli yüz kimliği için de kullanır (SFace); büyük portrelerde yüz bulunabilsin diye görsel
+  ölçülmeden önce küçültülür.
+- Durağan görsel yüklemek karakterin sürümünü artırır: o karakterin çekimleri bir sonraki üretimde yeniden çizilir.
+- Uç nokta Ayarlar › fal.ai'den değiştirilebilir (`FAL_KONTEXT_ENDPOINT`), fiyatı `pricing.yaml`'da
+  `image_per_image.flux_kontext`.
+
+### Ücretli ses kapalı (fal.ai denemesi)
+
+`paid_audio: false` proje ayarıyla (fal.ai denemesi ön ayarında kapalıdır) ücretli modda bile konuşma yerel espeak ile
+üretilir ve dudak senkronu çağrılmaz: replikli çekimde rafine video olduğu gibi kullanılır. ElevenLabs ve fal dudak
+senkronu bu projede hiç çağrılmaz; yalnızca görüntü fal.ai'den gelir.
+
 ### Prompt çevirisi
 
 Görüntü modelleri (Flux, Wan, Seedance) İngilizce istemi izler; Türkçe tarifle sahneyle ilgisiz görüntü üretirler. Ücretli

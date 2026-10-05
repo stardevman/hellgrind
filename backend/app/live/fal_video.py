@@ -5,6 +5,9 @@ ilk kareyi `first_frame()` ile ayrı üretip puanlar; video yalnızca eşiği ge
 Her giriş noktası önce `guard("fal_key")` çağırır (DRY_RUN=1 ya da boş anahtar: PaidCallBlocked); `fal_client` yalnızca
 fonksiyon içinde yüklenir.
 
+Karakter referansı: çekimdeki bir karakterin durağan referans görseli varsa (ve LoRA'sı yoksa) ilk kare ve storyboard
+karesi Flux Kontext ile o görselden çizilir; karakterin yüzü, saçı ve kıyafeti korunur, sahne prompt'tan gelir.
+
 Bölüm B bağlantıları: storyboard karesi ve mekân/nesne referansı tek bir Flux karesidir (`image()`); karakter dönüş
 videosu Flux karesinden yörünge hareketli Wan videosudur (`FalProvider.generate`); previs rehberi Wan 2.2 video-to-video
 ile stile aktarılır (`restyle()`); düzenlenmiş ilk kare yüklenip (`upload()`) videoya çevrilir.
@@ -16,6 +19,8 @@ Uç nokta kimlikleri ve parametreler fal.ai model sayfalarından doğrulandı (2
   bytedance/seedance-2.0/fast/image-to-video  prompt, image_url, resolution 480p|720p, duration "auto" ya da 4-15,
                                             aspect_ratio, generate_audio (varsayılan true); TOHUM ALMAZ
   fal-ai/sync-lipsync/v2/pro                video_url, audio_url, sync_mode
+  fal-ai/flux-pro/kontext                   prompt, image_url, seed, aspect_ratio (16:9...), num_images, output_format,
+                                            guidance_scale, safety_tolerance; 0,04 USD/görsel (5 Ekim 2026)
   fal-ai/wan/v2.2-a14b/video-to-video       video_url, prompt, strength 0-1 (varsayılan 0,9), num_frames 17-161,
                                             frames_per_second 4-60, resolution 480p|580p|720p, negative_prompt, seed,
                                             aspect_ratio; 0,04/0,06/0,08 USD/sn (16 fps'de) (3 Ekim 2026)
@@ -26,6 +31,7 @@ Bu yüzden `estimate()` ilk kare dahil tüm üretimi kapsar. fal yanıtı fatura
 import logging
 import math
 import os
+import tempfile
 import threading
 import time
 import uuid
@@ -47,6 +53,7 @@ WAN = "fal-ai/wan/v2.2-a14b/image-to-video"
 SEEDANCE = "bytedance/seedance-2.0/fast/image-to-video"
 LIPSYNC = "fal-ai/sync-lipsync/v2/pro"
 WAN_V2V = "fal-ai/wan/v2.2-a14b/video-to-video"
+KONTEXT = "fal-ai/flux-pro/kontext"
 
 WAN_FPS = 16
 WAN_FRAMES = (17, 161)
@@ -177,20 +184,59 @@ def flux_arguments(prompt: str, seed: int, loras=None, triggers=None, image_size
     return args
 
 
-def image_estimate(megapixels: float = FIRST_FRAME_MEGAPIXELS) -> float:
-    return pricing.estimate_image(megapixels)
+def kontext_prompt(prompt: str, name: str) -> str:
+    """Kontext bir düzenleme modelidir: karakteri koruyup sahneyi değiştirmesi açıkça söylenir."""
+    return (f"The character in the reference image is {name}. Keep {name}'s face, hair, eyes, proportions and outfit exactly "
+            f"as in the reference image; change only the scene, pose, framing and lighting as described. {prompt}")
 
 
-def image(prompt: str, seed: int, loras=None, triggers=None, image_size: str = "landscape_16_9") -> Frame:
-    """Tek Flux karesi (storyboard, mekân ve nesne referansı). Çağıran, `image_estimate()` kadar rezervasyon almış olmalı."""
+def kontext_arguments(prompt: str, image_url: str, seed: int, name: str) -> dict:
+    return {"prompt": kontext_prompt(prompt, name), "image_url": image_url, "seed": seed, "aspect_ratio": "16:9",
+            "num_images": 1, "output_format": "jpeg"}
+
+
+_reference_urls: dict[str, str] = {}
+_reference_lock = threading.Lock()
+
+
+def reference_url(client, key: str) -> str:
+    """Karakterin referans görseli fal deposuna bir kez yüklenir (yükleme ücretsizdir). Anahtar içerik-adreslidir: süreç
+    içi önbellek güvenlidir."""
+    from app import storage
+    with _reference_lock:                    # dalga iş parçacıklıdır: aynı görsel yalnızca bir kez yüklensin
+        if key not in _reference_urls:
+            os.makedirs(settings.work_dir, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+                path = storage.download(key, os.path.join(tmp, "reference" + os.path.splitext(key)[1]))
+                _reference_urls[key] = client.upload_file(path)
+        return _reference_urls[key]
+
+
+def _frame(client, prompt: str, seed: int, loras=None, triggers=None, reference: dict | None = None,
+           image_size: str = "landscape_16_9") -> tuple[dict, str]:
+    """Tek kare isteği: karakter referansı varsa Kontext (görselden), yoksa Flux LoRA (metinden)."""
+    if reference:
+        image_url = reference_url(client, reference["key"])
+        return _run(client, settings.fal_kontext_endpoint, kontext_arguments(prompt, image_url, seed, reference["name"]))
+    return _run(client, settings.fal_flux_endpoint, flux_arguments(prompt, seed, loras, triggers, image_size))
+
+
+def image_estimate(megapixels: float = FIRST_FRAME_MEGAPIXELS, reference: bool = False) -> float:
+    return pricing.estimate_frame(reference, megapixels)
+
+
+def image(prompt: str, seed: int, loras=None, triggers=None, image_size: str = "landscape_16_9",
+          reference: dict | None = None) -> Frame:
+    """Tek kare (storyboard, mekân ve nesne referansı). Çağıran, `image_estimate(reference=...)` kadar rezervasyon almış
+    olmalı. reference: {"name", "key"}: karakterin durağan referans görseli (Kontext)."""
     client = _client(guard("fal_key"))
     try:
-        result, request_id = _run(client, settings.fal_flux_endpoint, flux_arguments(prompt, seed, loras, triggers, image_size))
+        result, request_id = _frame(client, prompt, seed, loras, triggers, reference, image_size)
         url = result["images"][0]["url"]
         path = _download(url, ".jpg")
     except Exception as e:
         _reraise(e)
-    return Frame(url=url, local_path=path, request_id=request_id, cost_usd=image_estimate())
+    return Frame(url=url, local_path=path, request_id=request_id, cost_usd=image_estimate(reference=bool(reference)))
 
 
 def upload(path: str) -> str:
@@ -257,17 +303,18 @@ class FalProvider:
 
     def estimate(self, req: GenRequest) -> float:
         video = pricing.estimate_video(self.engine, self.resolution(req.resolution), self.billed_seconds(req.duration_s))
-        image = 0.0 if req.image_url else image_estimate()
+        image = 0.0 if req.image_url else self.estimate_frame(req)
         return round(video + image, 4)
 
-    def estimate_frame(self) -> float:
-        return image_estimate()
+    def estimate_frame(self, req: GenRequest | None = None) -> float:
+        return image_estimate(reference=bool(req and req.extra.get("reference")))
 
     # ---------- üretim ----------
 
     def _key(self, req: GenRequest) -> str:
         x = req.extra
-        return stable_hash([self.engine, req.prompt, req.seed, req.resolution, req.duration_s, x.get("loras"), x.get("lora_triggers")])
+        return stable_hash([self.engine, req.prompt, req.seed, req.resolution, req.duration_s, x.get("loras"), x.get("lora_triggers"),
+                            x.get("reference")])
 
     def _first_frame(self, client, req: GenRequest) -> tuple[str, str | None]:
         if req.image_url:
@@ -276,10 +323,11 @@ class FalProvider:
         with self._lock:
             if key in self._frames:                          # yeniden deneme: ikinci kez ilk kare ödenmez
                 url, request_id = self._frames[key]
-                history.step(settings.fal_flux_endpoint, request_id, reused=True)
+                model = settings.fal_kontext_endpoint if req.extra.get("reference") else settings.fal_flux_endpoint
+                history.step(model, request_id, reused=True)
                 return url, request_id
-        result, request_id = _run(client, settings.fal_flux_endpoint, flux_arguments(req.prompt, req.seed, req.extra.get("loras"),
-                                                               req.extra.get("lora_triggers")))
+        result, request_id = _frame(client, req.prompt, req.seed, req.extra.get("loras"), req.extra.get("lora_triggers"),
+                                    req.extra.get("reference"))
         made = (result["images"][0]["url"], request_id)
         with self._lock:
             self._frames[key] = made
@@ -297,7 +345,7 @@ class FalProvider:
             _reraise(e)
         with self._lock:
             self._frames.pop(key, None)
-        return Frame(url=url, local_path=path, request_id=request_id or "", cost_usd=self.estimate_frame())
+        return Frame(url=url, local_path=path, request_id=request_id or "", cost_usd=self.estimate_frame(req))
 
     def upload(self, path: str) -> str:
         return upload(path)

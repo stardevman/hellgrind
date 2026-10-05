@@ -27,6 +27,16 @@ def estimate_image(megapixels: float, prices: dict | None = None) -> float:
     return round(math.ceil(megapixels) * (prices or table())["image_per_megapixel"]["flux_lora"], 4)
 
 
+def estimate_reference_image(prices: dict | None = None) -> float:
+    """Flux Kontext: referans görselden bir kare, görsel başına."""
+    return round((prices or table())["image_per_image"]["flux_kontext"], 4)
+
+
+def estimate_frame(reference: bool, megapixels: float = 1.0, prices: dict | None = None) -> float:
+    """İlk kare ya da storyboard karesi: karakter referansı varsa Kontext, yoksa Flux LoRA."""
+    return estimate_reference_image(prices) if reference else estimate_image(megapixels, prices)
+
+
 def estimate_tts(text: str, prices: dict | None = None) -> float:
     return round(len(text or "") / 1000.0 * (prices or table())["tts_per_1k_chars"], 4)
 
@@ -71,6 +81,7 @@ def validate_table(text: str) -> dict:
         for res, price in rows.items():
             _positive(price, f"video_per_second.{engine}.{res}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")
+    _positive((data.get("image_per_image") or {}).get("flux_kontext"), "image_per_image.flux_kontext")
     _positive(data.get("lipsync_per_minute"), "lipsync_per_minute")
     _positive(data.get("tts_per_1k_chars"), "tts_per_1k_chars")
     llm = data.get("llm_per_million_tokens") or {}

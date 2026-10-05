@@ -198,7 +198,8 @@ def _precheck(asset_id: str, kind: str) -> None:
 
 def attach_reference(asset_id: str, kind: str, path: str, filename: str, content_type: str | None) -> dict:
     """Dosyayı işler ve varlığa bağlar. Görsel referans değişince sürüm artar, varlık taslağa döner, hareket testi
-    düşer; karakterde `reference_images` yenilenir, dönüş videosu vektörleri değiştirdiği için embedding_version artar.
+    düşer; karakterde `reference_images` yenilenir; dönüş videosu vektörleri, durağan görsel de ücretli karenin kaynağını (Kontext)
+    değiştirdiği için embedding_version artar ve çekim yeniden üretilir.
     Aynı dosyayı yeniden yüklemek hiçbir şeyi değiştirmez."""
     try:
         entry = references.process(asset_id, kind, path, filename, content_type)
@@ -218,7 +219,7 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
                 ch = s.scalar(select(Character).where(Character.asset_id == a.id))
                 if ch is not None:
                     ch.reference_images = references.visual_keys(refs)
-                    if kind == "turnaround":
+                    if kind in ("turnaround", "still"):     # dönüş videosu vektörleri; durağan görsel ücretli karenin kaynağı
                         ch.embedding_version += 1
         out = _changed(s, a, f"reference:{kind}") if not same else asset_out(s, a)
     return out

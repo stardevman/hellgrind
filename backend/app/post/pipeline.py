@@ -89,9 +89,15 @@ def _set_track(track_id, **fields) -> None:
 
 # ---------- ücretli çağrılar (yalnızca DRY_RUN=0 ve anahtar tanımlıyken) ----------
 
-def effective_tts_engine() -> str:
-    """Ücretsiz modda "elevenlabs" seçilmiş olsa bile espeak kullanılır: ücretli çağrı hiçbir koşulda sızmaz."""
-    return "espeak" if settings.tts_engine == "elevenlabs" and settings.dry_run else settings.tts_engine
+def paid_audio(cfg: dict | None) -> bool:
+    """Ses için ücretli servis (ElevenLabs, fal dudak senkronu) çağrılabilir mi: ücretli mod ve projenin `paid_audio`
+    ayarı (fal.ai denemesi ön ayarında kapalı)."""
+    return not settings.dry_run and bool((cfg or {}).get("paid_audio", True))
+
+
+def effective_tts_engine(cfg: dict | None = None) -> str:
+    """Ücretsiz modda ya da projede ücretli ses kapalıyken "elevenlabs" seçilmiş olsa bile espeak kullanılır."""
+    return "espeak" if settings.tts_engine == "elevenlabs" and not paid_audio(cfg) else settings.tts_engine
 
 
 def _paid_tts(t: AudioTrack, scene: Scene, path: str) -> float:
@@ -109,13 +115,13 @@ def voice_seed(character_id) -> int:
     return int(stable_hash(str(character_id))[:6], 16) if character_id else 0
 
 
-def ensure_dialogue_audio(t: AudioTrack, scene: Scene, tmp: str) -> None:
+def ensure_dialogue_audio(t: AudioTrack, scene: Scene, tmp: str, cfg: dict | None = None) -> None:
     """Replik sesini içerik-adresli anahtara yazar (yoksa üretir) ve kanal satırına bağlar."""
     if t.source != "tts":                                           # kullanıcının yüklediği ses: hazır olmalı
         if not t.file_key:
             raise RuntimeError(f"diyalog kanalı {t.id} için ses dosyası yok")
         return
-    engine = effective_tts_engine()
+    engine = effective_tts_engine(cfg)
     ext = ".mp3" if engine == "elevenlabs" else ".wav"
     key = f"audio/{engine}/{t.content_hash}{ext}"
     if t.file_key == key and t.duration_s and storage.exists(key):
@@ -178,12 +184,14 @@ def voice_and_lipsync(scene_id: str) -> str:
     with workspace() as tmp:
         for t in snap.tracks:
             if t.kind == "dialogue":
-                ensure_dialogue_audio(t, scene, tmp)
+                ensure_dialogue_audio(t, scene, tmp, snap.cfg)
 
-        out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}.mp4"
+        # Ücretli modda senkronsuz kopya ayrı anahtardadır: ücretli ses sonradan açılınca senkron gerçekten yapılır.
+        unsynced = "" if settings.dry_run or paid_audio(snap.cfg) else "_unsynced"
+        out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}{unsynced}.mp4"
         if not storage.exists(out_key):
             advance_scene(project_id, scene_id, status="lipsync")
-            _lipsync(scene, video_key, out_key, tmp)
+            _lipsync(scene, video_key, out_key, tmp, sync=paid_audio(snap.cfg))
     fields = dict(lipsync_video_key=out_key, dialogue_hash=snap.fp.dialogue)
     if scene.lipsync_video_key != out_key:     # kaynak video değişti: eski renk ve montaj geçersiz, plan yeniden yapsın
         fields.update(final_video_key=None, graded_video_key=None, grade_hash=None)
@@ -191,13 +199,14 @@ def voice_and_lipsync(scene_id: str) -> str:
     return out_key
 
 
-def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str) -> None:
-    """Ücretsiz modda ya da senkronlanacak konuşma yoksa rafine video olduğu gibi kopyalanır; ücretli modda fal'a gider."""
+def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True) -> None:
+    """Ücretsiz modda, projede ücretli ses kapalıyken ya da senkronlanacak konuşma yoksa rafine video olduğu gibi
+    kopyalanır; aksi halde fal'a gider."""
     with session_scope() as s:                     # ses dosyaları az önce bağlandı: anlık görüntü bayat, yeniden oku
         dialogue = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene.id, AudioTrack.is_active,
                                                            AudioTrack.kind == "dialogue").order_by(AudioTrack.start_offset_s)))
         s.expunge_all()
-    if settings.dry_run or not dialogue:
+    if settings.dry_run or not sync or not dialogue:
         storage.copy(video_key, out_key)
         return
     from app.live.fal_video import lipsync

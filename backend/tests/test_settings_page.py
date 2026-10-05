@@ -57,7 +57,8 @@ def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(a
     key = next(f for f in fal["fields"] if f["env"] == "FAL_KEY")
     assert key == {"env": "FAL_KEY", "label": "API anahtarı", "kind": "secret", "set": True, "masked": "••••WXYZ"}
     endpoints = {f["env"]: f for f in fal["fields"] if f["kind"] == "model"}
-    assert set(endpoints) == {"FAL_FLUX_ENDPOINT", "FAL_WAN_ENDPOINT", "FAL_SEEDANCE_ENDPOINT", "FAL_LIPSYNC_ENDPOINT", "FAL_WAN_V2V_ENDPOINT"}
+    assert set(endpoints) == {"FAL_FLUX_ENDPOINT", "FAL_WAN_ENDPOINT", "FAL_SEEDANCE_ENDPOINT", "FAL_LIPSYNC_ENDPOINT", "FAL_WAN_V2V_ENDPOINT",
+                              "FAL_KONTEXT_ENDPOINT"}
     assert endpoints["FAL_WAN_ENDPOINT"]["url"] == "https://fal.ai/models/fal-ai/wan/v2.2-a14b/image-to-video"
     assert fal["console"].startswith("https://") and fal["used_by"]
     assert SECRET not in json.dumps(body)

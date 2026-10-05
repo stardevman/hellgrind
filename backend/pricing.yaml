@@ -15,6 +15,8 @@ video_per_second:
     "720p": 0.25
 image_per_megapixel:
   flux_lora: 0.035
+image_per_image:
+  flux_kontext: 0.04   # Flux Kontext [pro]: karakterin referans görseliyle kare, görsel başına (fal.ai, Ekim 2026)
 lipsync_per_minute: 5.0
 # Aşağıdaki iki kalem brifingdeki fal.ai fiyatları gibi doğrulanmış DEĞİL; ücretli moda geçmeden önce kendi planına göre güncelle.
 tts_per_1k_chars: 0.30         # ElevenLabs, tahmini (plana göre değişir)

@@ -130,9 +130,26 @@ def compose_for_scene(scene, chars, assets, style) -> Composed:
                            "camera": scene.camera or {}, "characters": [ch.name for ch in chars]}, assets, style)
 
 
+def still_of(ch) -> str | None:
+    """Karakterin durağan referans görseli (Varlıklar sayfasında "Durağan görsel" olarak yüklenen)."""
+    return next((k for k in ch.reference_images or [] if "/still/" in k), None)
+
+
+def reference_of(chars) -> dict | None:
+    """Ücretli ilk kare ve storyboard karesi için karakter referansı: LoRA'sı olmayan ve durağan görseli olan ilk
+    karakter. Kontext tek görsel alır; LoRA varsa LoRA kazanır (karakter zaten eğitilmiş)."""
+    for ch in chars:
+        if not ch.lora_url and (key := still_of(ch)):
+            return {"name": ch.name, "key": key}
+    return None
+
+
 def loras_of(chars) -> dict:
-    return {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
-            "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger]}
+    out = {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
+           "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger]}
+    if (reference := reference_of(chars)) is not None:
+        out["reference"] = reference
+    return out
 
 
 # ---------- tek varyasyon ----------
@@ -206,7 +223,8 @@ def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
     """İlk kareyi üretir, depoya koyar ve puanlar. Geçerse (kare adresi, bedeli); elenirse ya da üretilemezse VarResult.
     Elenen karenin videosu hiç istenmez: kare karantinaya taşınır, küçük resmi panelde kalır."""
     _set_variation(vid, status="running")
-    frame = _attempts(c, c.provider.estimate_frame(), f"flux_lora:first_frame:{req.resolution}", vid,
+    model = "flux_kontext" if req.extra.get("reference") else "flux_lora"
+    frame = _attempts(c, c.provider.estimate_frame(req), f"{model}:first_frame:{req.resolution}", vid,
                       lambda: c.provider.first_frame(req))
     if frame is None:
         _set_variation(vid, status="failed")

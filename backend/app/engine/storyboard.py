@@ -61,13 +61,23 @@ def render_board(out_path: str, seed: int, render: dict, lines: list[str]) -> st
         return annotate(frame, lines, out_path)
 
 
+def board_estimate(reference) -> float:
+    return pricing.estimate_frame(bool(reference), BOARD_MEGAPIXELS)
+
+
+def board_label(reference) -> str:
+    return "flux_kontext:storyboard" if reference else "flux_lora:storyboard"
+
+
 def paid_board(out_path: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict, lines: list[str]) -> str:
-    """Ücretli kare (Faz 18): bestecinin prompt'uyla tek bir Flux karesi, karakter LoRA'larıyla; alt bantta çekim bilgisi.
-    Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
+    """Ücretli kare (Faz 18): bestecinin prompt'uyla tek bir kare, karakter LoRA'larıyla ya da karakterin referans
+    görseliyle (Kontext); alt bantta çekim bilgisi. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
     from app.engine import paid
     from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
-    frame = paid.call(project_id, pricing.estimate_image(BOARD_MEGAPIXELS), "flux_lora:storyboard", "fal_key",
-                      lambda: fal_video.image(prompt, seed, extra.get("loras"), extra.get("lora_triggers")),
+    reference = extra.get("reference")
+    frame = paid.call(project_id, board_estimate(reference), board_label(reference), "fal_key",
+                      lambda: fal_video.image(prompt, seed, extra.get("loras"), extra.get("lora_triggers"),
+                                              reference=reference),
                       scene_id=scene_id)
     try:
         with Image.open(frame.local_path) as im:
@@ -125,13 +135,13 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
             lines = [f"{info['code']} · {camera_text(info['camera'])} · {seconds_text(info['duration'])}"]
             lines += [textwrap.shorten(f"{(who or 'Anlatıcı').upper()}: {text}", 84, placeholder="…")
                       for who, text in dialogue[:2]]
-            estimate = pricing.estimate_image(BOARD_MEGAPIXELS)
+            estimate = board_estimate(extra.get("reference"))      # ücretsiz modda da gerçek fiyatla (sanal)
             os.makedirs(settings.work_dir, exist_ok=True)
             seed = seed_for(scene_id, fp, "board")
             with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
                 out = os.path.join(tmp, "board.jpg")
                 if settings.dry_run:
-                    with killswitch.spend(project_id, estimate, "flux_lora:storyboard", scene_id=scene_id) as charge:
+                    with killswitch.spend(project_id, estimate, board_label(extra.get("reference")), scene_id=scene_id) as charge:
                         path = render_board(out, seed, info["render"], lines)
                         charge.actual = estimate
                 else:
