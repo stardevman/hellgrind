@@ -38,6 +38,8 @@ def cfg(tmp_path, monkeypatch, api):
     monkeypatch.setattr(rc, "VERSION_KEY", "hg:test:config:version")
     monkeypatch.setattr(rc, "AUDIT_KEY", "hg:test:config:audit")
     monkeypatch.setattr(rc, "_seen", None)
+    from app import live
+    monkeypatch.setattr(live, "missing_packages", lambda service: [])   # CI'da ücretli paketler kurulu değil
     rc._redis().delete(rc.AUDIT_KEY)
     yield path
     rc._redis().delete(rc.AUDIT_KEY, rc.VERSION_KEY)
@@ -126,6 +128,26 @@ def test_other_processes_pick_up_a_change_and_only_whitelisted_keys(cfg):
 def test_paid_mode_needs_a_fal_key(api, cfg):
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 422 and "fal.ai anahtarı" in r.json()["detail"] and settings.dry_run is True
+
+
+def test_paid_mode_needs_the_paid_packages(api, cfg, monkeypatch):
+    from app import live
+    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
+    monkeypatch.setattr(live, "missing_packages", lambda service: ["fal_client"] if service == "fal" else [])
+    r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
+    assert r.status_code == 422 and "fal_client" in r.json()["detail"] and settings.dry_run is True
+    fal = next(s for s in api.get("/api/settings").json()["services"] if s["id"] == "fal")
+    assert fal["missing_packages"] == ["fal_client"]
+
+
+def test_missing_paid_package_is_a_clear_blocked_call_not_an_import_error(monkeypatch):
+    import importlib.util
+    from app import live
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "fal_client" else real(name, *a))
+    with pytest.raises(live.PaidCallBlocked, match="requirements-live.txt"):
+        live.require_package("fal_client")
+    assert live.missing_packages("fal") == ["fal_client"] and live.missing_packages("elevenlabs") == []
 
 
 def test_paid_mode_needs_the_exact_confirmation(api, cfg):

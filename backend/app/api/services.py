@@ -60,6 +60,11 @@ def _busy(s: Session) -> list[str]:
     return [f"{t} {c}" for t, c in rows]
 
 
+def _missing(service: str) -> list[str]:
+    from app.live import missing_packages                    # tembel: app.live yalnızca gerektiğinde yüklenir
+    return missing_packages(service)
+
+
 def _needed(service: str) -> tuple[bool, str]:
     """Servis şu ayarlarla ücretli modda çağrılır mı; çağrılmıyorsa neden."""
     if service == "elevenlabs" and settings.tts_engine != "elevenlabs":
@@ -97,7 +102,8 @@ def state(s: Session) -> dict:
                              "url": f.url.format(value) if f.url else None})
             fields.append(item)
         needed, why = _needed(sid)
-        services.append({"id": sid, "name": meta["name"], "needed": needed, "not_needed_reason": why, "purpose": meta["purpose"], "console": meta["console"],
+        services.append({"id": sid, "name": meta["name"], "needed": needed, "not_needed_reason": why,
+                         "missing_packages": _missing(sid), "purpose": meta["purpose"], "console": meta["console"],
                          "used_by": meta["used_by"], "fields": fields, "active": _active(sid),
                          "key_set": _key(meta["key"])["set"],
                          "spent_usd": round(sum(v for p, v in spend.items() if p in meta["providers"]), 4)})
@@ -138,6 +144,11 @@ def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
     if body.paid and not _key("FAL_KEY")["set"]:
         raise HTTPException(422, "fal.ai anahtarı tanımlı değil: görüntü ve video yalnızca fal.ai ile üretilir. Önce anahtarı girin.")
+    if body.paid:
+        missing = [m for sid in SERVICES if sid == "fal" or _needed(sid)[0] for m in _missing(sid)]
+        if missing:
+            raise HTTPException(422, f"Ücretli paketler kurulu değil ({', '.join(missing)}): imajı yeniden derleyin "
+                                     "(docker compose up -d --build).")
     try:
         result = rc.set_mode(body.paid, body.confirm, _busy(s) if body.paid else [])
     except rc.ConfigError as e:

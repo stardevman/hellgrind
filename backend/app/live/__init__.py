@@ -3,9 +3,14 @@
 Ücretli kod yalnızca bu pakette durur ve yalnızca fonksiyon içinde, tembel import ile yüklenir. Her giriş noktası
 önce `guard(anahtar_adı)` çağırır: DRY_RUN=1 iken ya da anahtar boşken hiçbir şey çalışmaz.
 """
+import importlib.util
+import sys
+
 from app.config import settings
 
 PAID_KEYS = ("fal_key", "anthropic_api_key", "elevenlabs_api_key")
+# Servis başına ücretli paketler (requirements-live.txt). ElevenLabs yalnızca httpx kullanır.
+PACKAGES = {"fal": ("fal_client",), "anthropic": ("langgraph", "langchain_anthropic"), "elevenlabs": ()}
 
 
 class PaidCallBlocked(RuntimeError):
@@ -40,3 +45,19 @@ def probe_key(key_name: str) -> str:
     if key_name not in PAID_KEYS:
         raise ValueError(f"Bilinmeyen ücretli anahtar: {key_name!r}")
     return getattr(settings, key_name) or ""
+
+
+def _installed(module: str) -> bool:
+    return module in sys.modules or importlib.util.find_spec(module) is not None
+
+
+def missing_packages(service: str) -> list[str]:
+    """Servisin kurulu olmayan ücretli paketleri. Paketler yüklenmez, yalnızca bulunup bulunmadıkları bakılır."""
+    return [m for m in PACKAGES[service] if not _installed(m)]
+
+
+def require_package(module: str) -> None:
+    """Ücretli paket kurulu değilse anlaşılır bir hatayla durur (ham ModuleNotFoundError yerine)."""
+    if not _installed(module):
+        raise PaidCallBlocked(f"Ücretli paket kurulu değil: {module}. İmajı yeniden derleyin (docker compose up -d --build) "
+                              "ya da pip install -r requirements-live.txt çalıştırın.")

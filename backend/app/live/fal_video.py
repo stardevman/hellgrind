@@ -60,6 +60,8 @@ DOWNLOAD_ATTEMPTS = 3
 
 
 def _client(key: str):
+    from app.live import require_package
+    require_package("fal_client")
     import fal_client                       # ücretli paket: yalnızca fonksiyon içinde
     return fal_client.SyncClient(key=key)
 

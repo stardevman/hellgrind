@@ -145,6 +145,7 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
     note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : "Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.", paid ? "err" : "ok");
   }, "settings");
   const fal = st.services.find((s) => s.id === "fal");
+  const missingPkgs = st.services.some((s) => (s.id === "fal" || s.needed) && Boolean(s.missing_packages?.length));
   return (
     <Panel title="Çalışma modu" meta={st.dry_run ? "ücretsiz" : "ücretli"}>
       <div className="pad stack">
@@ -160,6 +161,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                 <li key={s.id}>
                   {!s.needed ? <span className="st">{s.name}: gerekmez ({s.not_needed_reason})</span>
                     : <span className={`st ${s.key_set ? "ok" : "bad"}`}>{s.name}: {s.key_set ? "anahtar tanımlı" : "anahtar yok: bu servisle üretim yapılamaz"}</span>}
+                  {s.needed && Boolean(s.missing_packages?.length) && (
+                    <span className="st bad"> · paket kurulu değil ({s.missing_packages!.join(", ")}): imajı yeniden derleyin</span>
+                  )}
                 </li>
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
@@ -175,8 +179,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                   <input type="text" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
                 </label>
                 <div className="row">
-                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !fal?.key_set || !st.scorer.ready}>Ücretli moda geç</button>
+                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !fal?.key_set || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
                   {(!fal?.key_set || !st.scorer.ready) && <span className="faint small">Önce fal.ai anahtarını girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                  {fal?.key_set && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
                 </div>
               </form>
             ) : <p className="faint small">Ayar dosyası bağlı değil; mod yalnızca .env elle düzenlenerek değişir.</p>}

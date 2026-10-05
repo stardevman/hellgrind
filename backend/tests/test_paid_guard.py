@@ -68,7 +68,9 @@ def test_paid_call_blocked_is_a_runtime_error():
 
 # ---------- varsayılanlar ----------
 
-def test_free_mode_is_the_default_and_paid_keys_default_to_empty():
+def test_free_mode_is_the_default_and_paid_keys_default_to_empty(monkeypatch):
+    for name in ("DRY_RUN", "HERMES_MODE", "TTS_ENGINE", "FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
+        monkeypatch.delenv(name, raising=False)       # konteyner ortamı yönetmenin .env'inden gelir; varsayılanlar sınanır
     defaults = Settings(_env_file=None)
     assert defaults.dry_run is True and defaults.hermes_mode == "rules" and defaults.tts_engine == "espeak"
     assert (defaults.fal_key, defaults.anthropic_api_key, defaults.elevenlabs_api_key) == ("", "", "")

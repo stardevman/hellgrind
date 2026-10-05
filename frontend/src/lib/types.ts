@@ -175,7 +175,7 @@ export interface ServiceField {
 export interface Service {
   id: "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean; spent_usd: number;
-  needed: boolean; not_needed_reason: string;
+  needed: boolean; not_needed_reason: string; missing_packages?: string[];
 }
 
 export interface AuditEntry { ts: number; field: string; action: string; detail: string }

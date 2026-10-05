@@ -11,8 +11,14 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY requirements.txt requirements-quality.txt ./
+COPY requirements.txt requirements-quality.txt requirements-live.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Ücretli entegrasyonların paketleri (fal-client, langgraph, langchain-anthropic). Kurulu olmaları hiçbir şey çağırmaz:
+# yalnızca app/live içinde, fonksiyon içinde ve guard() geçildikten sonra yüklenirler; DRY_RUN=1 iken hiç yüklenmezler.
+# Panelden ücretli moda geçebilmek için gerekir. Bu paketler olmadan imaj için: docker compose build --build-arg LIVE=0
+ARG LIVE=1
+RUN if [ "$LIVE" = "1" ]; then pip install --no-cache-dir -r requirements-live.txt; fi
 
 # Gerçek kalite skorlayıcısı (ücretsiz, yerel): CPU'luk torch, OpenCLIP, OpenCV ve sürüme sabitlenmiş model dosyaları.
 # Çalışma anında ağ gerekmez. Hafif imaj için: docker compose build --build-arg QUALITY=0
