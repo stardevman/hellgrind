@@ -12,7 +12,7 @@ import pytest
 
 from app.config import settings
 from app.engine.providers import GenRequest, get_provider
-from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm, vast_h3
+from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm, vast_api, vast_h3
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 REQ = GenRequest(prompt="x", seed=1, resolution="720p", duration_s=3.0)
@@ -32,13 +32,18 @@ def booby_trapped(monkeypatch, no_network):
     monkeypatch.setattr(hermes_llm, "make_llm", boom)
     monkeypatch.setattr(hermes_llm, "build_graph", boom)
     monkeypatch.setattr(vast_h3, "TRANSPORT", __import__("httpx").MockTransport(boom))
+    monkeypatch.setattr(vast_api, "TRANSPORT", __import__("httpx").MockTransport(boom))
     monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
+    monkeypatch.setattr(settings, "vast_instance_id", "4242")
 
 
 ENTRY_POINTS = {
     "h3_provider": lambda: vast_h3.get_live_provider(),
     "H3Provider.generate": lambda: vast_h3.H3Provider().generate(REQ),
     "get_provider_h3": lambda: get_provider("h3"),
+    "keyframe_image": lambda: vast_h3.keyframe_image("kare", 1),
+    "vast_start": lambda: vast_api.set_state("running"),
+    "vast_instance": lambda: vast_api.instance(),
     "get_live_provider": lambda: fal_video.get_live_provider("fal_wan"),
     "get_provider": lambda: get_provider("seedance"),
     "FalProvider.generate": lambda: fal_video.FalProvider("fal_wan").generate(REQ),
@@ -50,7 +55,8 @@ ENTRY_POINTS = {
     "tts": lambda: elevenlabs.tts("merhaba", "voice-1", "joy", "o.mp3"),
     "parse_with_llm": lambda: hermes_llm.parse_with_llm("İÇ. ODA\n\nKerem bekler.", "proje"),
 }
-KEY_OF = {"h3_provider": "h3_api_key", "H3Provider.generate": "h3_api_key", "get_provider_h3": "h3_api_key",
+KEY_OF = {"h3_provider": "vast_api_key", "H3Provider.generate": "vast_api_key", "get_provider_h3": "vast_api_key",
+          "keyframe_image": "vast_api_key", "vast_start": "vast_api_key", "vast_instance": "vast_api_key",
           "get_live_provider": "fal_key", "get_provider": "fal_key", "FalProvider.generate": "fal_key",
           "lipsync": "fal_key", "tts": "elevenlabs_api_key", "parse_with_llm": "anthropic_api_key",
           "FalProvider.first_frame": "fal_key", "image": "fal_key", "upload": "fal_key", "restyle": "fal_key"}
@@ -59,7 +65,7 @@ KEY_OF = {"h3_provider": "h3_api_key", "H3Provider.generate": "h3_api_key", "get
 @pytest.mark.parametrize("name", [n for n in ENTRY_POINTS if not n.startswith("get_provider")])   # yerel döner: aşağıda
 def test_free_mode_blocks_every_entry_point_even_with_keys_set(booby_trapped, monkeypatch, name):
     monkeypatch.setattr(settings, "dry_run", True)
-    for key in ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for key in ("vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, key, "gerçek-görünümlü-anahtar")
     with pytest.raises(PaidCallBlocked, match="DRY_RUN=1"):
         ENTRY_POINTS[name]()
@@ -82,7 +88,8 @@ def test_the_router_returns_the_local_provider_in_free_mode_and_never_builds_a_l
 
 
 def test_the_live_modules_import_without_loading_any_paid_package():
-    code = ("import sys\nimport app.live, app.live.fal_video, app.live.elevenlabs, app.live.hermes_llm, app.live.vast_h3\n"
+    code = ("import sys\nimport app.live, app.live.fal_video, app.live.elevenlabs, app.live.hermes_llm, app.live.vast_h3, "
+            "app.live.vast_api, app.live.vast_box\n"
             "paid = {'fal_client', 'langgraph', 'langchain', 'langchain_anthropic', 'langchain_core', 'anthropic'}\n"
             "print(sorted(m for m in sys.modules if m.split('.')[0] in paid))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=BACKEND,

@@ -4,6 +4,7 @@
 iş ya da indirme hata verir.
 """
 import json
+import re
 
 import httpx
 
@@ -40,6 +41,8 @@ class FakeH3:
         path = request.url.path
         if request.method == "GET" and path == "/health":
             return httpx.Response(200, json={"status": "ok"})
+        if request.method == "GET" and path == "/v1/videos":
+            return httpx.Response(200, json={"data": [{"id": k, "status": "completed"} for k in self.jobs]})
         if request.method == "POST" and path == "/v1/videos":
             if self.submit_errors:
                 return httpx.Response(self.submit_errors.pop(0), json={"detail": "istek reddedildi"})
@@ -68,3 +71,91 @@ class FakeH3:
                 done["inference_time_s"] = self.inference_time_s
             return httpx.Response(200, json=done)
         return httpx.Response(404)
+
+
+class FakeComfy:
+    """Sahte ComfyUI (127.0.0.1'deki sunucu, SSH tüneli ya da portal üzerinden): /upload/image, /prompt, /history, /view,
+    /queue, /system_stats. İş, `polls_to_finish` sorgudan sonra biter; GPU süresi geçmişteki zaman damgalarından okunur."""
+
+    def __init__(self, video: bytes, image: bytes = b"", gpu_ms: int = 30_000):
+        self.video, self.image, self.gpu_ms = video, image, gpu_ms
+        self.polls_to_finish = 2
+        self.requests: list[httpx.Request] = []
+        self.uploads: list[str] = []
+        self.prompts: list[dict] = []
+        self.polls: dict[str, int] = {}
+        self.failing = 0
+        self.reject_next = False
+        self.output_ext = ".mp4"
+        self.queue_running: list = []
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self.handle)
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        path = request.url.path
+        if path == "/system_stats":
+            return httpx.Response(200, json={"system": {"os": "posix"}})
+        if path == "/queue":
+            return httpx.Response(200, json={"queue_running": self.queue_running, "queue_pending": []})
+        if request.method == "POST" and path == "/upload/image":
+            name = re.search(rb'filename="([^"]+)"', request.content).group(1).decode()
+            self.uploads.append(name)
+            return httpx.Response(200, json={"name": name, "subfolder": "", "type": "input"})
+        if request.method == "POST" and path == "/prompt":
+            body = json.loads(request.content)
+            if self.reject_next:
+                self.reject_next = False
+                return httpx.Response(400, json={"error": {"type": "prompt_outputs_failed_validation"},
+                                                 "node_errors": {"7": {"errors": [{"message": "Value not in list"}]}}})
+            prompt_id = f"p{len(self.prompts) + 1}"
+            self.prompts.append(body["prompt"])
+            failed = self.failing > 0
+            self.failing -= int(failed)
+            self.polls[prompt_id] = -1000 if failed else 0
+            return httpx.Response(200, json={"prompt_id": prompt_id, "number": len(self.prompts), "node_errors": {}})
+        if path.startswith("/history/"):
+            prompt_id = path.rsplit("/", 1)[1]
+            if self.polls[prompt_id] < 0:
+                return httpx.Response(200, json={prompt_id: {"status": {"status_str": "error", "completed": False,
+                    "messages": [["execution_error", {"exception_message": "Allocation on device failed"}]]}, "outputs": {}}})
+            self.polls[prompt_id] += 1
+            if self.polls[prompt_id] < self.polls_to_finish:
+                return httpx.Response(200, json={})
+            kind = "images"
+            name = f"hg_{prompt_id}{self.output_ext}"
+            return httpx.Response(200, json={prompt_id: {
+                "status": {"status_str": "success", "completed": True,
+                           "messages": [["execution_start", {"timestamp": 1_000}], ["execution_cached", {"timestamp": 1_001}],
+                                        ["execution_success", {"timestamp": 1_000 + self.gpu_ms}]]},
+                "outputs": {"9": {kind: [{"filename": name, "subfolder": "hellgrind", "type": "output"}]}}}})
+        if path == "/view":
+            name = request.url.params["filename"]
+            return httpx.Response(200, content=self.image if name.endswith((".png", ".jpg")) else self.video)
+        return httpx.Response(404)
+
+
+class FakeVast:
+    """Sahte vast.ai API'si: GET/PUT /api/v0/instances/{id}."""
+
+    def __init__(self, status: str = "running", geolocation: str = "Norway, NO", dph: float = 0.87):
+        self.status, self.geolocation, self.dph = status, geolocation, dph
+        self.requests: list[httpx.Request] = []
+        self.puts: list[dict] = []
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self.handle)
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if request.headers.get("Authorization") != "Bearer test-vast_api_key":
+            return httpx.Response(401, json={"error": "bad key"})
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            self.puts.append(body)
+            self.status = body["state"]
+            return httpx.Response(200, json={"success": True})
+        return httpx.Response(200, json={"instances": {"id": 1, "actual_status": self.status, "intended_status": self.status,
+                                                        "dph_total": self.dph, "geolocation": self.geolocation,
+                                                        "gpu_name": "RTX 5090"}})

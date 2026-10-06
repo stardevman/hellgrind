@@ -390,7 +390,13 @@ def check_history(pid: str) -> None:
     check(bool(calls) and abs(total - spent(pid)) < 1e-3,
           f"{len(calls)} çağrının işlenen toplamı harcamayla aynı (${total:.4f} / ${spent(pid):.4f})")
     check(all(x["mode"] == "virtual" for x in calls), "hepsi sanal: ücretsiz modda hiçbir servis çağrılmadı")
-    check(all(x["model"] and x["service"] == "fal" for x in calls), "her satırda ücretli modda çağrılacak fal.ai modeli var")
+    check(all(x["model"] and x["service"] in ("vast", "fal") for x in calls), "her satırda ücretli modda çağrılacak model var")
+    h3 = [x for x in calls if x["operation"] in ("video", "motion_test")]
+    check(bool(h3) and all(x["service"] == "vast" and x["model"] == "MiniMaxAI/MiniMax-H3" for x in h3),
+          f"video ve hareket testi MiniMax H3'e (vast.ai) yazıldı ({len(h3)} çağrı)")
+    ov = overview(pid)
+    check(all(sc["h3_mode"] == "fl2va" and sc["keyframe_url"] for sc in ov["scenes"]),
+          "her çekimin H3 ilk karesi var (storyboard karesinin yazısız hâli; koşul FL2VA)")
     ops = {x["operation"] for x in calls}
     check({"video", "storyboard", "reference", "motion_test"} <= ops, f"işlemler: {sorted(ops)}")
     s = c.get("/history/summary", params={"project_id": pid}).json()

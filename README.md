@@ -311,10 +311,11 @@ uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyr
 ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek üretimi denemek için (sunucu kurulumu:
 *Video motoru: MiniMax H3* bölümü):
 
-1. **Ayarlar › MiniMax H3 · vast.ai**: sunucu adresini ve erişim anahtarını girip kaydedin, ardından **Bağlantıyı sına**
-   ("Sunucu hazır" görünmeli). Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
+1. **Ayarlar › MiniMax H3 · vast.ai**: vast.ai API anahtarını, makine kimliğini, arka ucu ve sunucu adresini (gerekirse
+   portal belirtecini) girip kaydedin, ardından **Bağlantıyı sına** (makine "running", konum lisansın kapsadığı bir bölge,
+   "Sunucu hazır" görünmeli). Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
    çağrılmaz; Çalışma modu listesinde "gerekmez" görünür.
-2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (H3 sunucusu ve kalite skorlayıcısı hazır değilse
+2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (H3 makinesi ve kalite skorlayıcısı hazır değilse
    düğme kapalıdır).
 3. **Senaryo › Yeni proje**: yoğunluk olarak **MiniMax H3 denemesi** seçin. Bu seçim:
    - bütçeyi 3 USD yapar;
@@ -322,7 +323,9 @@ ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek 
    - çekim başına en çok 2 test ve 2 tam klip üretir, 480p, düzeltme turu yok;
    - varlık onay akışını ve hareket testlerini atlar (referans kontrolü yalnızca uyarır).
    Panel çekim başına en yüksek GPU maliyetini fiyat tablosundan hesaplar. **Senaryoyu işle ve üret**'e basın.
-4. **Kurgu** sayfasında adayları izleyin. Her klip doğrudan H3'ten gelir ve videonun kendisi puanlanır.
+   Çekim FL2VA'dır: ilk kare için ComfyUI `keyframe.json`, fal.ai anahtarı ya da denetçiden yüklenen bir kare gerekir;
+   hiçbiri yoksa çekim "ilk kare bekliyor" diye durur, kareyi yükleyip **Bu sahneyi baştan üret**'e basın.
+4. **Kurgu** sayfasında adayları izleyin. Her klip ilk kareden H3'te üretilir ve videonun kendisi puanlanır.
 5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön** ve kullanmıyorsanız makineyi vast.ai'de durdurun.
 
 ### Karakter referansıyla üretim
@@ -371,64 +374,118 @@ dolunca Kill-Switch üretimi durdurur.
 ## Video motoru: MiniMax H3 (vast.ai)
 
 Ücretli modda test turu, tam tur, hareket testi, karakter dönüş videosu ve düzenlenmiş ilk kareden video **MiniMax H3**
-ile, kendi kiraladığınız GPU sunucusunda üretilir (açık ağırlıklı model, SGLang'in `/v1/videos` ucu). Yeni her çekim H3'e
-yönlenir; bir çekimi **Seedance** (fal.ai) ile üretmek isterseniz Kurgu › denetçi › **Motor** listesinden seçin, sonra
-**Bu sahneyi baştan üret**. Seçim, senaryo yeniden işlense de korunur. Eski Wan çekimleri senaryo yeniden işlenince H3'e geçer.
+ile, vast.ai'de kiraladığınız GPU makinesinde üretilir. Yeni her çekim H3'e yönlenir; bir çekimi **Seedance** (fal.ai) ile
+üretmek isterseniz Kurgu › denetçi › **Motor** listesinden seçin. Seçim, senaryo yeniden işlense de korunur.
 
 > **Lisans: önce okuyun.** MiniMax H3 Community License, modelin ve **çıktılarının** (filmin) Avrupa Birliği, Birleşik
 > Krallık, Güney Kore ve ABD'de kullanılmasını, çalıştırılmasını, barındırılmasını, dağıtılmasını ve gösterilmesini ayrı
-> izin olmadan kapsamaz. vast.ai'de makineyi bu bölgelerin dışından seçin; filmi bu bölgelerde göstermeyi ya da dağıtmayı
-> planlıyorsanız MiniMax'ten önceden izin alın. Yıllık geliri 20 milyon USD'yi aşan ticari kullanım da yazılı izin ister ve
-> ticari ürünün arayüzünde "MiniMax H3" adı görünmelidir. Bu bir hukuki görüş değildir; lisans metni:
-> https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE
+> izin olmadan kapsamaz (§V.4). Çıktılar MiniMax H3 ve türevleri dışındaki hiçbir yapay zekâ modelini geliştirmek için
+> kullanılamaz (§V.3). Yıllık geliri 20 milyon USD'yi aşan ticari kullanım yazılı izin ister; ticari ürünün arayüzünde
+> "MiniMax H3" görünmelidir. Bu bir hukuki görüş değildir: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE
 
-**Sunucuyu kurmak (vast.ai):**
+### Kompozisyon: seed değil koşul
 
-1. Excluded bölgelerin dışında bir makine kiralayın. Tek kartla çalışır: RTX 5090 (32 GB) ya da RTX 4090 (24 GB) katman
-   katman bellek aktarımıyla ve en az 64 GB sistem belleğiyle; tek H100 80 GB daha hızlıdır. Model ağırlıkları onlarca GB'tır:
-   diski geniş seçin.
-2. vast.ai'nin *Instance Portal*'lı bir şablonunu kullanın (kimlik doğrulama ve TLS'i o yapar). SGLang'i kurup FL2VA
-   sunucusunu başlatın (SGLang tarifi, docs.sglang.io › MiniMax-H3), ör. RTX 5090 için:
-   ```bash
-   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-   sglang serve --model-path MiniMaxAI/MiniMax-H3 --model-variant fl2va --host 0.0.0.0 --port 18010 \
-     --performance-mode memory --layerwise-offload-components dit,text_encoder,vae \
-     --dit-layerwise-resident-layers 14 --layerwise-resident-layers video_vae=36 \
-     --warmup-resolutions 864x480 --warmup-num-frames 124
-   ```
-   RTX 4090'da tarifteki `--quantization convrot_int8 ... --dit-layerwise-resident-layers 0` bayraklarını kullanın
-   (`pip install comfy-kitchen` gerekir). Daha hızlı üretim için tarifteki turbo LoRA'yı sunucuya yükleyip panelde adım
-   sayısını 9 (ya da 5) yapın.
-3. Portu Instance Portal üzerinden açın (`PORTAL_CONFIG` girdisi, ör. `localhost:30010:18010:/:MiniMax H3`): portal onu
-   kimlik doğrulamalı bir adresle ve bir Cloudflare tünel adresiyle (`https://dort-rastgele-kelime.trycloudflare.com`)
-   yayınlar. Erişim anahtarı makinenin `OPEN_BUTTON_TOKEN`'ıdır (SSH ile `echo $OPEN_BUTTON_TOKEN`) ya da şablonda
-   verdiğiniz `WEB_PASSWORD`. Sunucuyu kimlik doğrulamasız açmayın.
-4. **Ayarlar › MiniMax H3 · vast.ai**: tünel adresini **Sunucu (FL2VA)**, belirteci **Erişim anahtarı** olarak girin ve
-   **Bağlantıyı sına**. Tünel adresi makine her yeniden başladığında değişir; değişince buradan güncelleyin.
-5. İsteğe bağlı: karakter referansları için ikinci bir sunucuyu `--model-variant ref2va` ile başlatıp adresini **Referans
-   sunucusu (Ref2VA)** alanına girin (ayrı GPU belleği ister).
+Aynı seed farklı çözünürlükte farklı kompozisyon verir; bu yüzden H3 çekimlerinde kompozisyon koşulla kontrol edilir.
+Denetçideki **H3 koşulu** her çekim için seçilir:
 
-**Bütçe:** vast.ai makineyi saatle faturalar. `pricing.yaml`'daki `self_hosted.h3.gpu_hourly_usd` (makinenin $/saat
-ücreti) ve `render_seconds` (bir video saniyesi için GPU saniyesi) rezervasyonun tahminidir; işlenen tutar sunucunun her iş
-için bildirdiği GPU süresi × saatlik ücrettir. İlk gerçek üretimden sonra servis geçmişindeki GPU süresine bakıp
-`render_seconds`'ı güncelleyin. **Makinenin boşta geçen süresi bütçeye ve Kill-Switch'e yansımaz:** kullanmadığınızda
-makineyi vast.ai'de durdurun.
+- **İlk kareden (FL2VA, varsayılan):** çekimin storyboard karesinin yazısız hâli (ya da yönetmenin yüklediği kare) her
+  varyasyonun ilk karesidir; test turu (480p) ve tam tur (720p) aynı kareden başlar. Ücretli modda kare H3 makinesindeki
+  ComfyUI görsel iş akışıyla (`keyframe.json`) ya da fal.ai Flux ile çizilir ve videoyla aynı kalite kapısından geçer;
+  geçemezse yeni seed'le en çok 3 kez denenir, yine olmazsa "değişiklik istendi" olur ve video üretilmez. Kareyi yine de
+  onaylayabilir ya da **Kendi ilk kareni yükle** ile kendi karenizi verebilirsiniz (yüklenen kare storyboard'un yerine geçer,
+  çizim ve ücret yoktur). İlk kare kaynağı yoksa (ne `keyframe.json` ne fal.ai anahtarı) FL2VA çekimi üretilmez ve neden
+  denetçide yazar.
+- **Karakter referanslarıyla (Ref2VA):** karakter tutarlılığının kritik olduğu çekimler için. Çekimdeki karakterlerin
+  referans seti (durağan görsel, ifade sayfası ve dönüş videosundan önden, yandan, arkadan üç kare; karakterler arasında
+  paylaşılan en çok 9 görsel) ve varsa ilk kare gider; istemde `<Picture 1>, <Picture 2> show Kerem` gibi eşlenir. Ref2VA
+  ayrı bir model bölümüdür: SGLang'de ikinci bir sunucu (`--model-variant ref2va`), ComfyUI'de `r2v.json` iş akışı.
 
-**Bilinmesi gerekenler:**
+**Negatifler:** model CFG damıtılmıştır, negatif istem almaz. Stil kılavuzunun ve çekimin negatifleri istemin sonuna
+**pozitif kısıt** olarak eklenir ("bulanık" yerine "sharp focus with crisp, clean contours", "kalabalık" yerine "only the
+listed characters are present"); istenmeyen şeyin adı isteme yazılmaz. Tanınmayan terimler servis geçmişinde "kısıta
+çevrilemeyen negatifler" olarak görünür: kılavuzda pozitif bir ifadeyle yeniden yazın (`backend/app/style/constraints.py`).
 
-- **Hız:** tek kartta 20 adımda bir klip birkaç dakika sürer (SGLang tarifinde RTX 5090, 480p, 5 sn: ~112 sn; RTX 4090,
-  768p, 4,5 sn: ~300 sn). Brifing yoğunluğu (10 test + 50'ye kadar tam klip) çekim başına saatler demektir; önizleme ya da
+### Sunucu: SGLang ya da ComfyUI
+
+Ayarlar › MiniMax H3 › **Arka uç**:
+
+- **SGLang** (resmî sunucu, `/v1/videos`). Tek RTX 5090 için planım: ağırlıklar SGLang'in kendi indirdiği resmî BF16
+  bileşenler, DiT doğrusal katmanları çalışırken `--quantization convrot_int8` ile INT8'e çevrilir (5090'da SGLang'in
+  JIT ConvRot çekirdekleri), turbo LoRA (`larryvrh/MiniMax-H3-Turbo-Lora`, 9 adım = 8 değerlendirme) ve katman katman
+  bellek aktarımı (`--layerwise-offload-components dit,text_encoder,vae`):
+  ```bash
+  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  sglang serve --model-path MiniMaxAI/MiniMax-H3 --model-variant fl2va --host 127.0.0.1 --port 18010 \
+    --quantization convrot_int8 --performance-mode memory \
+    --layerwise-offload-components dit,text_encoder,vae --layerwise-resident-layers video_vae=36 \
+    --lora-path larryvrh/MiniMax-H3-Turbo-Lora --lora-weight-name minimax_h3_turbo_v4_step600_ema.safetensors \
+    --lora-merge-mode auto --warmup-resolutions 1280x704 --warmup-num-frames 124
+  ```
+  Bu bayrak birleşimi tek 5090'da benim tarafımdan ölçülmedi; SGLang tarifindeki ölçümler BF16 + aktarım (5090, 480p, 20
+  adım: 112 sn) ve INT8 (4090, 768p, 20 adım: ~300 sn) içindir. Yavaş kalırsa ComfyUI arka ucunu kullanın.
+- **ComfyUI** (`/prompt`, `/history`, `/view`, `/upload/image`). Kendi ölçtüğünüz kurulum (int8_convrot, Turbo 8 adım) bu
+  arka uçla doğrudan kullanılır. İş akışlarını ComfyUI'de **Workflow › Export (API)** ile kaydedip değişen değerleri yer
+  tutucuyla değiştirin ve Ayarlar › MiniMax H3 › **ComfyUI iş akışları**ndan yükleyin (`t2v`, `i2v`, `r2v`, isteğe bağlı
+  `keyframe`; ayrıntı: `comfy-workflows/README.md`). GPU süresi ComfyUI geçmişindeki başlangıç ve bitiş zamanından okunur.
+
+**Erişim (açık port yok):** sunucu makinede `127.0.0.1`'de dinler. Ya SSH tüneli
+(`ssh -N -L 8188:127.0.0.1:8188 -p <SSH portu> root@<makine IP>`; adres `http://host.docker.internal:8188`) ya da
+vast.ai Instance Portal'ın kimlik doğrulamalı vekili (`PORTAL_CONFIG` girdisi; adres portal ya da Cloudflare tünel
+adresi, **Portal belirteci** `OPEN_BUTTON_TOKEN` ya da `WEB_PASSWORD`). Otomatik başlatma kullanacaksanız adres makine
+yeniden başladığında değişmemeli (SSH tüneli ya da sabit adlı Cloudflare tüneli; geçici trycloudflare adresi değişir) ve
+sunucu makine açılışında kendiliğinden başlamalı (supervisor ya da onstart betiği).
+
+**Makine gereksinimi:**
+
+| | SGLang | ComfyUI (int8) |
+|---|---|---|
+| GPU | RTX 5090 32 GB (ya da 24 GB+ ve aktarım) | RTX 5090 32 GB |
+| Sistem belleği | en az 64 GB; 128 GB önerilir (SGLang ~117 GB ağırlığı belleğe sabitleyebilince en hızlı) | en az 64 GB |
+| Disk | en az 250 GB (FL2VA + Ref2VA resmî BF16 bileşenleri: metin kodlayıcı ~46 GB, her DiT ~62 GB, VAE'ler ~10 GB, önbellek) | en az 150 GB (budanmış INT8 DiT'ler, NVFP4 metin kodlayıcı, VAE'ler, turbo LoRA, ComfyUI) |
+
+Disk ve bellek rakamları SGLang tarifindeki ve model kartındaki ağırlık boyutlarından türetildi, ölçülmedi.
+
+### Makine yönetimi ve bütçe
+
+Ayarlar › MiniMax H3'e **vast.ai API anahtarı** (ücretli kilidin anahtarı) ve **makine kimliği** girilir:
+
+- **Boşta durdurma:** kuyruk **Boşta durdurma** dakikası (varsayılan 10) boş kalırsa ve sunucunun kendi kuyruğu da boşsa
+  makine vast.ai API'siyle durdurulur. Ücretsiz moda dönerken çalışan makine de durdurulur.
+- **Boşta bekleme bedeli:** makine çalışırken kuyruk boşsa geçen süre saatlik ücretle son etkin projenin bütçesine yazılır
+  ("GPU makinesi boşta"); Kill-Switch ve hız bekçisi bunu görür, bütçe yetmezse makine hemen durdurulur.
+- **Otomatik başlatma** (isteğe bağlı): iş geldiğinde durmuş makine başlatılır ve sunucu hazır olana dek beklenir.
+- **Elle:** Ayarlar'da **Makineyi başlat / durdur** (yalnızca ücretli modda). Durdurulmuş makinenin diski vast.ai'de
+  ücretlenmeye devam eder; makinenin GPU'su başkasına kiralanmışsa yeniden başlatma başarısız olabilir.
+- **Bölge:** makine lisansın dışladığı bölgedeyse üretim başlamaz; MiniMax'ten izin aldıysanız **Bölge izni**ni açın.
+- **Bağlantıyı sına:** vast.ai'den makinenin durumu, saatlik ücreti, konumu ve GPU'su (ücretsiz okuma) ve sunucunun sağlık
+  ucu. İş başlatmaz.
+
+**Fiyatlar** (`pricing.yaml` › `self_hosted.h3`, sizin ölçümünüz): saatlik 0,95 $ (0,79-0,95 aralığının üstü, tutucu),
+480p'de video saniyesi başına 8 GPU saniyesi (864x480: 40,8 sn, model yüklemesi dahil), 720p'de 16,5 (1280x704: 85 sn).
+720p kademesi bu yüzden 1280x704 tuvalde üretilir. Rezervasyon bu tahminle yapılır; işlenen tutar sunucunun bildirdiği GPU
+süresi × saatlik ücrettir.
+
+### Lisans koruması
+
+- Her H3 klibinin kaydına ve MP4 meta verisine (`comment`, `copyright`) kaynak bilgisi yazılır: model, **Model sürümü**
+  (Ayarlar'da), arka uç, görev, adım sayısı, sunucu ve vast.ai'nin bildirdiği konumu, lisans ve "başka modelleri eğitmek
+  için kullanılamaz" notu.
+- Hattın model eğitimine giden tek yolu kürasyon kaydıdır (projeye özel kalite modeli için). `curation.jsonl` dışa
+  aktarılırken gerçek H3 kliplerine bağlı kararlar ve H3 klibi üretilmiş sahnelerin kararları çıkarılır
+  (`X-Hellgrind-H3-Records` başlığında sayısı; `?include_h3=true` denetim içindir ve onları `training_allowed: false`
+  işaretiyle verir). Çekim paketi H3 çıktısı içeriyorsa `MINIMAX_H3.txt` bildirimi eklenir.
+- Hatta LoRA ya da başka model eğitimi yapan kod yoktur. H3 çıktılarını (ör. dönüş videosu karelerini) Flux LoRA gibi başka
+  bir modelin eğitiminde kullanmayın; H3'ün kendi LoRA'sı lisansa göre H3 türevidir ve serbesttir.
+
+### Bilinmesi gerekenler
+
+- **Hız:** brifing yoğunluğu (10 test + 50'ye kadar tam klip) tek makinede çekim başına saatler sürebilir; önizleme ya da
   deneme yoğunluğuyla başlayın. Bir çekimin görsel aşaması 6 saati aşarsa görev kuyruğa yeniden düşebilir (Celery
-  `visibility_timeout`); yoğunluğu buna göre seçin.
-- **Önce görsel yok:** H3 ilk kare üretmez; video doğrudan üretilir ve kalite kapısı videoyu puanlar. Flux karesiyle ön eleme
-  yalnızca Seedance çekimlerinde yapılır.
-- **Negatif istem gitmez:** model CFG damıtılmıştır; stil kılavuzunun negatifleri gönderilmez (servis geçmişinde not edilir).
-- **Süre 4–15 sn, 24 fps:** daha kısa çekim 4 sn üretilir ve indirilince çekim süresine kesilir (4 saniyenin GPU süresi yine
-  harcanır). 720p kademesi H3'ün doğal 768p çözünürlüğünde üretilir, film birleştirmede 1280×720'ye getirilir.
-- **H3'ün kendi sesi kullanılmaz:** montaj yalnızca görüntüyü alır; diyalog ve müzik hattın kendi sesidir.
-- **fal.ai isteğe bağlıdır:** anahtarı yoksa storyboard karesi yerel çizilir, dudak senkronu atlanır; Seedance, mekân ve nesne
-  referans görseli üretimi ve previs aktarımı ise fal.ai anahtarı ister (görselleri kendiniz de yükleyebilirsiniz).
-- Sunucuya ulaşılamazsa ya da anahtar reddedilirse çekim, yeniden denemeyle zaman kaybetmeden Türkçe bir hatayla durur.
+  `visibility_timeout`).
+- **Süre 4-15 sn, 24 fps:** daha kısa çekim 4 sn üretilir ve çekim süresine kesilir.
+- **H3'ün kendi sesi kullanılmaz:** montaj yalnızca görüntüyü alır.
+- **fal.ai isteğe bağlıdır:** anahtarı yoksa storyboard karesi H3 makinesinde (keyframe.json) ya da yerel çizilir, dudak
+  senkronu atlanır; Seedance, mekân ve nesne referans görseli üretimi ve previs aktarımı fal.ai anahtarı ister.
 
 ## Ücretli mod kilitli
 
@@ -443,7 +500,8 @@ makineyi vast.ai'de durdurun.
 
 | Modül | Ne yapar |
 |---|---|
-| `live/vast_h3.py` | MiniMax H3, kendi GPU sunucunuzda (SGLang `/v1/videos`): t2va (metinden), fl2va (verilen ilk kareden), ref2va (karakter görselleriyle). İş gönderilir, durumu sorgulanır, video indirilir; tutar sunucunun bildirdiği GPU süresinden. Gönderilmiş iş yeniden denemede yeniden üretilmez. 429 ve 5xx yeniden denenir; bağlanamamak ve reddedilen anahtar Türkçe hatayla durur. |
+| `live/vast_h3.py` | MiniMax H3, vast.ai makinesinde; arka uç SGLang (`/v1/videos`) ya da ComfyUI (`/prompt`, `/history`, `/view`). t2va, fl2va (ilk kareden), ref2va (karakter referans setiyle); negatifler pozitif kısıt olur; her klibe kaynak bilgisi yazılır. Tutar ölçülen GPU süresinden. Gönderilmiş iş yeniden denemede yeniden üretilmez. |
+| `live/vast_box.py`, `live/vast_api.py` | Makine yönetimi: iş kaydı, boşta bekleme bedeli, boşta durdurma, otomatik başlatma, bölge denetimi; vast.ai API'si (durum, başlat, durdur). |
 | `live/fal_video.py` | İsteğe bağlı. Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Seedance (`bytedance/seedance-2.0/fast/image-to-video`; eski çekimlerde Wan 2.2 `fal-ai/wan/v2.2-a14b/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`; previs aktarımı `fal-ai/wan/v2.2-a14b/video-to-video`. 429, 5xx ve zaman aşımı yeniden denenir. |
 | `live/elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. |
 | `live/hermes_llm.py` | LangGraph akışı: `Send` ile paralel çıkarma, doğrulama, en çok 2 tur onarım. Çıktı şeması kural tabanlı ayrıştırıcıyla aynı; replikler eksiltilemez ya da uydurulamaz. |
@@ -484,10 +542,15 @@ Bilinmesi gerekenler:
 | `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
 | `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |
-| `H3_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir); `H3_API_KEY` H3 sunucusunun önündeki kimlik doğrulamanın belirtecidir |
-| `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | MiniMax H3 sunucuları: FL2VA (zorunlu) ve Ref2VA (isteğe bağlı, karakter görselleriyle) |
-| `H3_MODEL` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / `20` | İstekteki model kimliği ve adım sayısı (sunucudaki kurulumla aynı olmalı; turbo LoRA ile 9 ya da 5) |
-| `H3_TIMEOUT_S` | `3600` | Tek işin (kuyrukta bekleme dahil) en uzun süresi |
+| `VAST_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir); MiniMax H3'ün kilidi vast.ai API anahtarıdır |
+| `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
+| `H3_BACKEND` | `sglang` | `sglang` ya da `comfyui` |
+| `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |
+| `H3_API_KEY` | boş | Portal belirteci (isteğe bağlı; SSH tünelinde gerekmez) |
+| `H3_MODEL` / `H3_MODEL_REVISION` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / boş / `9` | Model kimliği, klip meta verisine yazılan sürüm, adım sayısı (sunucudaki kurulumla aynı) |
+| `H3_IDLE_STOP_MINUTES` / `H3_AUTO_START` | `10` / `false` | Boşta durdurma süresi (0: kapalı) ve iş gelince durmuş makineyi başlatma |
+| `H3_TERRITORY_AUTHORIZED` | `false` | Makine lisansın dışladığı bölgedeyse yalnızca MiniMax'ten izin alındıysa `true` |
+| `H3_TIMEOUT_S` / `H3_START_TIMEOUT_S` / `H3_COMFY_WORKFLOW_DIR` | `3600` / `900` / `/config/comfy` | Tek işin en uzun süresi, otomatik başlatmada bekleme, ComfyUI iş akışı klasörü (`./comfy-workflows`) |
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
@@ -526,7 +589,7 @@ backend/
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, history, export, services, panel,
                  plan, deps, uploads
     worker/      celery_app, tasks, dispatch
-    live/        ücretli kilit (guard), vast_h3 (MiniMax H3 sunucusu), fal_video, elevenlabs, hermes_llm, probe
+    live/        ücretli kilit (guard), vast_h3 (MiniMax H3), vast_box ve vast_api (makine), fal_video, elevenlabs, hermes_llm, probe
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama

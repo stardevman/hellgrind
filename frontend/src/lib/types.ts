@@ -73,6 +73,10 @@ export interface Scene {
   duration_s: number; action_complexity: number; spent_usd: number; last_error: string | null;
   correction_count: number; characters: string[]; final_url: string | null;
   assets: SceneAssetRef[]; missing: SceneAssetRef[]; tracks: Track[]; variations: Variation[];
+  /** MiniMax H3 koşulu: fl2va (ilk kareden) | ref2va (karakter referans setiyle). */
+  h3_mode: "fl2va" | "ref2va"; board_score: number | null; board_source: string | null;
+  keyframe_source: "upload" | "board" | null; keyframe_url: string | null;
+  h3_refs: { name: string; url: string | null }[];
 }
 
 export interface TimelineTrack {
@@ -167,13 +171,13 @@ export interface DispatchAll {
 /* ---------- ayarlar (ücretli servisler) ---------- */
 
 export interface ServiceField {
-  env: string; label: string; kind: "secret" | "model" | "url" | "choice";
+  env: string; label: string; kind: "secret" | "model" | "url" | "text" | "choice";
   set?: boolean; masked?: string | null;                                  // secret
   value?: string; default?: string; choices?: string[]; url?: string | null;   // model, url, choice
 }
 
 export interface Service {
-  id: "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
+  id: "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; key_env: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean;
   /** Gerçek harcama; sanal (ücretsiz mod) ve modu bilinmeyen ayrı. */
   spent_usd: number; virtual_usd: number; unknown_usd: number;
@@ -187,10 +191,14 @@ export interface SettingsState {
   services: Service[]; spent_usd: number; virtual_usd: number; unknown_usd: number; audit: AuditEntry[]; pricing_file: string;
   scorer: { ready: boolean; message: string };
   translator?: { ready: boolean; message: string };
+  comfy?: ComfyState;
 }
 
+export interface ComfyWorkflow { kind: string; present: boolean; required: string[]; placeholders: string[]; error: string | null }
+export interface ComfyState { backend: string; dir: string; workflows: ComfyWorkflow[] }
+
 /** Kendi GPU sunucusunda çalışan motor (vast.ai'de MiniMax H3): saatlik ücret ve video saniyesi başına GPU saniyesi. */
-export interface SelfHosted { gpu_hourly_usd: number; render_seconds: Record<string, number> }
+export interface SelfHosted { gpu_hourly_usd: number; render_seconds: Record<string, number>; keyframe_seconds?: number }
 
 export interface PricingTable {
   self_hosted?: Record<string, SelfHosted>;

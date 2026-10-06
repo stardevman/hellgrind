@@ -12,8 +12,11 @@ yeniden kullanılır (yeniden üretilmez, yeniden ücretlendirilmez).
 
 Önce görsel, sonra video (Faz 18): fal.ai sağlayıcısında (`image_first`: Seedance ve eski Wan çekimleri) her varyasyonun
 ilk karesi ayrı üretilir ve aynı eşikle puanlanır. Geçemeyen kare kalite kapısında elenir (`params.stage="first_frame"`)
-ve videosu hiç üretilmez; video yalnızca geçen kareden istenir. Varsayılan motor MiniMax H3 (kendi GPU sunucumuz) ilk
-kare üretmez: video doğrudan üretilir ve kalite kapısı videoyu puanlar. Ücretsiz modda yerel motor doğrudan video çizer.
+ve videosu hiç üretilmez; video yalnızca geçen kareden istenir. Varsayılan motor MiniMax H3'te (kendi GPU sunucumuz)
+kompozisyon koşulla kontrol edilir: FL2VA'da çekimin kalite kapısından geçmiş storyboard karesi (ya da yönetmenin yüklediği
+kare) her varyasyonun ilk karesidir, Ref2VA'da karakter referans seti de gider; videonun kendisi puanlanır. Ücretli modda
+FL2VA çekiminin kullanılabilir ilk karesi yoksa üretim başlamaz (`keyframe_blocks`). Ücretsiz modda yerel motor doğrudan
+video çizer.
 
 Seed'ler girdilerden türetildiği için çalıştırma tekrarlanabilir: bir kesintiden (Kill-Switch, çökme) sonra aynı girdiyle
 yeniden başlayan çalıştırma, tamamlanmış varyasyonları yeniden üretmez ve bütçeden yeniden düşmez.
@@ -21,6 +24,7 @@ yeniden başlayan çalıştırma, tamamlanmış varyasyonları yeniden üretmez 
 import logging
 import os
 import subprocess
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -67,6 +71,7 @@ class Ctx:
     visual_hash: str
     render: dict
     target: object = None          # gerçek kalite skorunun ölçütü (scorer.Target)
+    keyframe: str | None = None    # MiniMax H3: her varyasyonun ilk karesi (sağlayıcıya yüklenmiş hâli)
 
 
 # ---------- yardımcılar ----------
@@ -145,12 +150,32 @@ def reference_of(chars) -> dict | None:
     return None
 
 
+def reference_set(chars, limit: int = 9) -> list[dict]:
+    """Ref2VA için karakter referans seti: her karakterin durağan görseli, ifade sayfası ve dönüş videosundan üç kare
+    (önden, yandan, arkadan). Yer karakterler arasında sırayla dağıtılır (en çok `limit`); çıktı karaktere göre gruplu."""
+    picks = []
+    for ch in chars:
+        keys = list(ch.reference_images or [])
+        frames = [k for k in keys if "/frames/" in k]
+        chosen = [k for k in keys if "/still/" in k][:1] + [k for k in keys if "/expressions/" in k][:1]
+        chosen += [frames[i] for i in sorted({0, len(frames) // 3, 2 * len(frames) // 3})] if frames else []
+        picks.append((ch.name, chosen))
+    quota, left = [0] * len(picks), limit
+    while left and any(quota[i] < len(keys) for i, (_, keys) in enumerate(picks)):
+        for i, (_, keys) in enumerate(picks):
+            if left and quota[i] < len(keys):
+                quota[i] += 1
+                left -= 1
+    return [{"name": name, "key": key} for (name, keys), n in zip(picks, quota) for key in keys[:n]]
+
+
 def loras_of(chars) -> dict:
     """Karakter kimliğinin sağlayıcıya giden biçimleri: Flux için LoRA'lar ve tek Kontext referansı; MiniMax H3 (Ref2VA)
     için çekimdeki bütün karakterlerin durağan görselleri."""
     out = {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
            "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger],
-           "stills": [{"name": ch.name, "key": key} for ch in chars if (key := still_of(ch))]}
+           "stills": [{"name": ch.name, "key": key} for ch in chars if (key := still_of(ch))],
+           "reference_set": reference_set(chars)}
     if (reference := reference_of(chars)) is not None:
         out["reference"] = reference
     return out
@@ -171,12 +196,14 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
 
     label = f"{c.render.get('label', '')}  {tier} {resolution} #{seed % 10000}"
     req = GenRequest(prompt=c.prompt_spec.get("prompt", ""), negative=c.prompt_spec.get("negative", ""), seed=seed,
-                     resolution=resolution, duration_s=c.duration, extra={**c.render, "label": label})
+                     resolution=resolution, duration_s=c.duration, image_url=c.keyframe, extra={**c.render, "label": label})
     with session_scope() as s:                                                         # 3. Variation satırı
         v = Variation(scene_id=c.scene_id, tier=tier, wave_no=wave_no, engine=c.provider.engine, seed=seed,
                       prompt_revision=c.revision, status="queued",
                       params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
-                              "negative": req.negative, "run": c.run_id})
+                              "negative": req.negative, "run": c.run_id,
+                              **({"keyframe_key": c.render["keyframe_key"], "h3_mode": c.render["h3_mode"]}
+                                 if c.provider.engine == "h3" and c.render.get("keyframe_key") else {})})
         s.add(v)
         s.flush()
         vid = v.id
@@ -329,16 +356,24 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                                                    Variation.status.in_(("queued", "running", "generated")))):
             v.status = "failed"
             v.params = {**(v.params or {}), "purge_reason": "interrupted"}
-        return Ctx(
+        visual_hash = visual_fingerprint(scene, chars, assets, style.version if style else None)
+        ctx = Ctx(
             project_id=project_id, scene_id=scene_id, run_id=run_id, provider=get_provider(scene.engine), cfg=cfg,
-            duration=scene.duration_s, prompt_spec=spec, revision=scene.prompt_revision,
-            visual_hash=visual_fingerprint(scene, chars, assets, style.version if style else None),
+            duration=scene.duration_s, prompt_spec=spec, revision=scene.prompt_revision, visual_hash=visual_hash,
             render={"emotion": scene.emotion, "camera": camera, "characters": [ch.name for ch in chars],
                     "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
                     **loras_of(chars),
+                    "project_id": project_id, "h3_mode": scene.h3_mode or "fl2va",
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
+        keyframe_key = keyframe_of(scene, visual_hash)
+    if keyframe_key and ctx.provider.engine == "h3" and hasattr(ctx.provider, "upload"):
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:   # bir kez yüklenir, bütün varyasyonlar kullanır
+            ctx.keyframe = ctx.provider.upload(storage.download(keyframe_key, os.path.join(tmp, "keyframe.jpg")))
+    ctx.render["keyframe_key"] = keyframe_key
+    return ctx
 
 
 def _finish_draft(c: Ctx, first: VarResult) -> str:
@@ -360,6 +395,44 @@ def lint_blocks(project_id: str, scene_id: str) -> bool:
         return False
     advance_scene(project_id, scene_id, status="blocked", last_error=result.message())
     killswitch.event(project_id, "blocked", scene_id=scene_id, missing=[m.name for m in result.missing])
+    return True
+
+
+def keyframe_of(scene, fp: str) -> str | None:
+    """MiniMax H3'e giden ilk kare: yönetmenin yüklediği kare, yoksa bu görsel özetin storyboard karesinin yazısız hâli."""
+    from app.engine.storyboard import clean_key
+    if (scene.engine or "h3") != "h3":
+        return None
+    if scene.keyframe_key:
+        return scene.keyframe_key
+    if scene.board_key and scene.board_hash == fp and scene.board_status != "changes_requested":
+        key = clean_key(scene.board_key)
+        return key if storage.exists(key) else None
+    return None
+
+
+def keyframe_blocks(project_id: str, scene_id: str) -> bool:
+    """Ücretli modda MiniMax H3 FL2VA çekiminin ilk karesi hazır değilse görüntü üretilmez: storyboard karesi yoksa önce
+    çizilir (kalite kapısından geçer); kullanılamıyorsa sahne onaya kalır ve neden Türkçe yazılır. Hiçbir şey harcanmaz."""
+    from app.engine.storyboard import keyframe_problem, make_board
+    if settings.dry_run:
+        return False
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" or scene.h3_mode == "ref2va":
+            return False
+        style = bible.active_version(s, project_id)
+        fp = visual_fingerprint(scene, load_characters(s, scene_id), load_assets(s, scene_id), style)
+        missing = not scene.keyframe_key and not (scene.board_key and scene.board_hash == fp)
+    if missing:
+        make_board(project_id, scene_id)
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        problem = keyframe_problem(scene, fp)
+    if problem is None:
+        return False
+    advance_scene(project_id, scene_id, status="board_review", last_error=problem)
+    killswitch.event(project_id, "keyframe_required", scene_id=scene_id)
     return True
 
 
@@ -401,6 +474,8 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
         from app.engine.methods import run_guide
         return run_guide(project_id, scene_id, visual_hash, style)
     gate.ensure_scorer()                                  # para harcanmadan önce (rehber ve dış çekim skor kullanmaz)
+    if keyframe_blocks(project_id, scene_id):             # ilk kare çizilecekse skorlayıcı hazır olduktan sonra
+        return "board_review"
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 

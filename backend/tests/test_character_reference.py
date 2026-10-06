@@ -110,6 +110,7 @@ def test_the_paid_storyboard_frame_uses_the_still_too(api, sample_scene, studio,
     give_still(api, pid, "Kerem", tmp_path)
     studio.behaviour[fal_video.KONTEXT] = lambda args: {"images": [{"url": f"https://fal.test/frame/{args['seed']}.jpg"}]}
     go_paid(monkeypatch)
+    fake_scorer(monkeypatch)
     fal_video._reference_urls.clear()
     make_board(pid, codes["S001_SH01"], standalone=True)
     (app, args, _), = studio.calls
@@ -121,6 +122,7 @@ def test_a_shot_without_the_character_still_uses_flux(api, sample_scene, studio,
     pid, codes = sample_scene()
     give_still(api, pid, "Kerem", tmp_path)
     go_paid(monkeypatch)
+    fake_scorer(monkeypatch)
     make_board(pid, codes["S001_SH02"], standalone=True)          # yalnızca Ayşe: referansı yok
     assert [app for app, _, _ in studio.calls] == [fal_video.FLUX]
 
@@ -163,9 +165,10 @@ def test_with_paid_audio_the_same_shot_is_lip_synced_on_fal(sample_scene, studio
     assert not key.endswith("_unsynced.mp4") and fal_video.LIPSYNC in [app for app, _, _ in studio.calls]
 
 
-def test_an_h3_shot_without_a_fal_key_is_never_lip_synced(sample_scene, studio, h3, monkeypatch):
+def test_an_h3_shot_without_a_fal_key_is_never_lip_synced(sample_scene, studio, h3, give_keyframe, monkeypatch):
     pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
     sid = codes["S002_SH01"]
+    give_keyframe(sid)                                             # FL2VA: yönetmenin ilk karesi (fal.ai yok)
     monkeypatch.setattr(settings, "fal_key", "")                  # yalnızca MiniMax H3: fal.ai isteğe bağlı
     fake_scorer(monkeypatch)
     refine(pid, sid)
@@ -174,9 +177,11 @@ def test_an_h3_shot_without_a_fal_key_is_never_lip_synced(sample_scene, studio, 
     assert len(h3.submits) == 2 and commits(pid, "fal:") == []
 
 
-def test_h3_sends_every_character_still_to_the_ref2va_server(api, sample_scene, h3, monkeypatch, tmp_path):
+def test_h3_ref2va_sends_the_character_reference_set_when_chosen(api, sample_scene, h3, monkeypatch, tmp_path):
     pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
     sid = codes["S002_SH01"]                                       # köprü: Kerem ve Ayşe
+    with session_scope() as s:
+        s.get(Scene, sid).h3_mode = "ref2va"                       # yönetmen denetçiden seçti
     monkeypatch.setattr(settings, "dry_run", True)
     give_still(api, pid, "Kerem", tmp_path)
     monkeypatch.setattr(settings, "dry_run", False)
@@ -187,7 +192,7 @@ def test_h3_sends_every_character_still_to_the_ref2va_server(api, sample_scene, 
     for job in h3.submits:
         (ref,) = job["conditions"]
         assert ref["role"] == "reference" and ref["uri"].startswith("data:image/jpeg;base64,")
-        assert job["prompt"].startswith("Character references: <Picture 1> is Kerem.")
+        assert job["prompt"].startswith("Character references: <Picture 1> shows Kerem.")
 
 
 def test_paid_audio_is_a_validated_project_setting(api):

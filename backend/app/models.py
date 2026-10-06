@@ -134,6 +134,11 @@ class Scene(Base):
     board_note: Mapped[str | None] = mapped_column(Text)
     board_key: Mapped[str | None] = mapped_column(Text)
     board_hash: Mapped[str | None] = mapped_column(Text)
+    board_score: Mapped[float | None] = mapped_column(Float)                # storyboard karesinin kalite skoru (ücretli mod)
+    board_source: Mapped[str | None] = mapped_column(Text)                  # local | flux | comfyui | upload
+    h3_mode: Mapped[str | None] = mapped_column(Text)                       # None/fl2va: ilk kareden | ref2va: karakter referanslarıyla
+    keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
+    keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     cut_tier: Mapped[str | None] = mapped_column(Text)                     # draft | final
     draft_video_key: Mapped[str | None] = mapped_column(Text)

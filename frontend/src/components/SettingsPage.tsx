@@ -7,7 +7,8 @@ import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { clock, usd, usdExact } from "@/lib/text";
-import type { PricingTable, ProbeResult, Service, ServiceField, SettingsState } from "@/lib/types";
+import { COMFY_KIND_TR } from "@/lib/i18n";
+import type { ComfyState, PricingTable, ProbeResult, Service, ServiceField, SettingsState } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -27,6 +28,8 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
     for (const [res, sec] of Object.entries(h3.render_seconds)) {
       rows.push([`${res}: video saniyesi başına GPU süresi ${sec} sn (tahmin)`, `$${(h3.gpu_hourly_usd / 3600 * sec).toFixed(4)}`]);
     }
+    if (h3.keyframe_seconds) rows.push([`Storyboard ilk karesi (ComfyUI, ${h3.keyframe_seconds} sn GPU, tahmin)`, `$${(h3.gpu_hourly_usd / 3600 * h3.keyframe_seconds).toFixed(4)}`]);
+    rows.push(["Boşta bekleme (dakika)", `$${(h3.gpu_hourly_usd / 60).toFixed(4)}`]);
     return rows;
   }
   const rows: [string, string][] = [];
@@ -39,7 +42,7 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
   return rows;
 }
 
-function KeyBlock({ svc, field, editable, onSaved }: { svc: Service; field: ServiceField; editable: boolean; onSaved: () => void }) {
+function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true }: { svc: Service; field: ServiceField; editable: boolean; onSaved: () => void; probe?: boolean }) {
   const { busy, act, note } = usePanel();
   const [value, setValue] = useState("");
   const [sure, setSure] = useState(false);
@@ -47,7 +50,7 @@ function KeyBlock({ svc, field, editable, onSaved }: { svc: Service; field: Serv
   const save = (v: string) => act(async () => {
     await api.patch<SettingsState>("/settings", { values: { [field.env]: v } });
     setValue(""); setSure(false); setProbe(null); onSaved();
-    note("settings", v ? `${svc.name} anahtarı kaydedildi; bütün servislerde hemen geçerli.` : `${svc.name} anahtarı silindi.`, "ok");
+    note("settings", v ? `${field.label} kaydedildi; bütün servislerde hemen geçerli.` : `${field.label} silindi.`, "ok");
   }, "settings");
   const test = () => act(async () => {
     const r = await api.post<ProbeResult>(`/settings/test/${svc.id}`);
@@ -56,11 +59,13 @@ function KeyBlock({ svc, field, editable, onSaved }: { svc: Service; field: Serv
   return (
     <div className="stack">
       <div className="row">
-        <span className="dim small" style={{ width: 92 }}>{field.label}</span>
+        <span className="dim small" style={{ minWidth: 92 }}>{field.label}</span>
         {field.set ? <span className="mono">{field.masked}</span> : <span className="tag bad">tanımlı değil</span>}
         <span className="grow" />
-        <button className="btn" type="button" disabled={busy || !field.set} onClick={test} title="Ücretsiz bir doğrulama isteği; üretim yapmaz">Bağlantıyı sına</button>
-        {probe && <span className={`tag ${tone(probe.ok)}`} title={probe.status ? `HTTP ${probe.status}` : ""}>{probe.message}</span>}
+        {canProbe && <button className="btn" type="button" disabled={busy || !field.set} onClick={test} title="Ücretsiz bir doğrulama isteği; üretim yapmaz">Bağlantıyı sına</button>}
+      </div>
+      <div className="row">
+        {probe && <span className={`tag ${tone(probe.ok)}`} style={{ whiteSpace: "normal" }} title={probe.status ? `HTTP ${probe.status}` : ""}>{probe.message}</span>}
       </div>
       {editable && (
         <form className="row" onSubmit={(e) => { e.preventDefault(); if (value.trim()) void save(value.trim()); }}>
@@ -78,7 +83,7 @@ function KeyBlock({ svc, field, editable, onSaved }: { svc: Service; field: Serv
 
 function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsState; prices: PricingTable | undefined; onSaved: () => void }) {
   const { busy, act, note, setHistory } = usePanel();
-  const key = svc.fields.find((f) => f.kind === "secret")!;
+  const keys = svc.fields.filter((f) => f.kind === "secret");
   const others = svc.fields.filter((f) => f.kind !== "secret");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const val = (f: ServiceField) => draft[f.env] ?? f.value ?? "";
@@ -100,8 +105,10 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
           <span className="dim small">Gerçek harcama <b className="mono">{usdExact(svc.spent_usd)}</b> · sanal <span className="mono">{usdExact(svc.virtual_usd)}</span></span>
           <button className="btn ghost" type="button" onClick={() => setHistory({ service: svc.id }, true)} title={`${svc.name} çağrılarının geçmişi`}><Icon.receipt />Geçmiş</button>
         </div>
-        <KeyBlock svc={svc} field={key} editable={st.editable} onSaved={onSaved} />
+        {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env} />)}
       </div>
+      {svc.id === "vast" && <BoxSection st={st} />}
+      {svc.id === "vast" && st.comfy && <ComfySection comfy={st.comfy} editable={st.editable} onSaved={onSaved} />}
       <Section title="Model ve uç noktalar" meta={`${others.length}`}>
         <table className="tbl">
           <tbody>
@@ -152,15 +159,81 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
   );
 }
 
+/** H3 makinesi: elle başlat / durdur (yalnızca ücretli modda; vast.ai API'si ücretli kilitten geçer). */
+function BoxSection({ st }: { st: SettingsState }) {
+  const { busy, act, note } = usePanel();
+  const run = (action: "start" | "stop") => act(async () => {
+    const r = await api.post<{ status: string; geolocation: string | null }>("/settings/vast/instance", { action });
+    note("settings", `vast.ai makinesi: ${action === "start" ? "başlatılıyor" : "durduruluyor"} (şu an: ${r.status}${r.geolocation ? ", " + r.geolocation : ""}).`, "ok");
+  }, "settings");
+  return (
+    <Section title="Makine" meta="vast.ai">
+      <p className="faint small">Kuyruk ayarlanan süre boş kalırsa makine kendiliğinden durdurulur; boşta geçen süre son etkin projenin
+        bütçesine yazılır ve Kill-Switch'e yansır. Durdurulmuş makinenin diski vast.ai'de ücretlenmeye devam eder.</p>
+      <div className="row">
+        <button className="btn" type="button" disabled={busy || st.dry_run} onClick={() => run("start")}>Makineyi başlat</button>
+        <button className="btn" type="button" disabled={busy || st.dry_run} onClick={() => run("stop")}>Makineyi durdur</button>
+        {st.dry_run && <span className="faint small">Ücretsiz modda makine buradan yönetilmez; vast.ai panelini kullanın.</span>}
+      </div>
+    </Section>
+  );
+}
+
+/** ComfyUI iş akışları: ComfyUI'de Workflow › Export (API) ile kaydedilen JSON, değişen değerler yer tutucuyla. */
+function ComfySection({ comfy, editable, onSaved }: { comfy: ComfyState; editable: boolean; onSaved: () => void }) {
+  const { busy, act, note } = usePanel();
+  const upload = (kind: string) => (file: File) => act(async () => {
+    await api.put(`/settings/comfy/${kind}`, { text: await file.text() });
+    onSaved();
+    note("settings", `${COMFY_KIND_TR[kind]} iş akışı doğrulandı ve kaydedildi.`, "ok");
+  }, "settings");
+  const remove = (kind: string) => act(async () => {
+    await api.del(`/settings/comfy/${kind}`);
+    onSaved();
+    note("settings", `${COMFY_KIND_TR[kind]} iş akışı kaldırıldı.`, "ok");
+  }, "settings");
+  return (
+    <Section title="ComfyUI iş akışları" meta={comfy.backend === "comfyui" ? "arka uç: ComfyUI" : "arka uç: SGLang (kullanılmıyor)"} open={comfy.backend === "comfyui"}>
+      <p className="faint small">Yer tutucular: <span className="mono">{"{{prompt}} {{seed}} {{width}} {{height}} {{frames}} {{duration}} {{steps}} {{first_frame}} {{reference_1}}…{{reference_9}} {{filename_prefix}}"}</span>.
+        ComfyUI makinede 127.0.0.1'de çalışır; adres SSH tüneli ya da portalın kimlik doğrulamalı vekilidir. Klasör: <span className="mono">{comfy.dir}</span></p>
+      <table className="tbl">
+        <tbody>
+          {comfy.workflows.map((w) => (
+            <tr key={w.kind}>
+              <td style={{ width: "30%" }}>{COMFY_KIND_TR[w.kind] ?? w.kind}<small className="mono">{w.kind}.json</small></td>
+              <td>
+                {w.error ? <span className="tag bad" style={{ whiteSpace: "normal" }}>{w.error}</span>
+                  : w.present ? <span className="tag ok">hazır</span> : <span className="tag">yok</span>}
+                {w.present && !w.error && <small className="mono">{w.placeholders.map((x) => `{{${x}}}`).join(" ")}</small>}
+                {!w.present && <small>gerekli: <span className="mono">{w.required.map((x) => `{{${x}}}`).join(" ")}</span></small>}
+              </td>
+              <td className="r" style={{ whiteSpace: "nowrap" }}>
+                {editable && (
+                  <label className="btn" aria-disabled={busy} title={`${w.kind}.json dosyasını seç (ComfyUI › Export (API))`}>
+                    {w.present ? "Değiştir" : "Yükle"}
+                    <input type="file" accept="application/json,.json" hidden disabled={busy}
+                      onChange={(e) => { const f = e.currentTarget.files?.[0]; e.currentTarget.value = ""; if (f) void upload(w.kind)(f); }} />
+                  </label>
+                )}
+                {editable && w.present && <button className="btn ghost" type="button" disabled={busy} onClick={() => remove(w.kind)}>Kaldır</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Section>
+  );
+}
+
 function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
   const { busy, act, note } = usePanel();
   const { mutate } = useSWRConfig();
   const [typed, setTyped] = useState("");
   const matches = typed.trim().toLocaleLowerCase("tr") === st.confirmation.toLocaleLowerCase("tr");
   const switchTo = (paid: boolean) => act(async () => {
-    await api.post("/settings/mode", paid ? { paid, confirm: typed } : { paid });
+    const r = await api.post<{ vast_note?: string | null }>("/settings/mode", paid ? { paid, confirm: typed } : { paid });
     setTyped(""); onSaved(); void mutate("/meta");
-    note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : "Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.", paid ? "err" : "ok");
+    note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : `Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.${r.vast_note ? " " + r.vast_note : ""}`, paid ? "err" : "ok");
   }, "settings");
   const h3 = st.services.find((s) => s.id === "vast");
   const missingPkgs = st.services.some((s) => s.needed && Boolean(s.missing_packages?.length));
@@ -186,7 +259,7 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
               {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
-              {h3 && !h3.active && <li className="warn">MiniMax H3 sunucusu gerekir: video H3 ile üretilir. Ayarlar › MiniMax H3'ten sunucu adresini ve erişim anahtarını girin.</li>}
+              {h3 && !h3.active && <li className="warn">MiniMax H3 sunucusu gerekir: video H3 ile üretilir. Ayarlar › MiniMax H3'ten vast.ai API anahtarını, makine kimliğini ve sunucu adresini girin.</li>}
               {h3?.active && <li>vast.ai makinesinin çalıştığını ve "Bağlantıyı sına" sonucunun "hazır" olduğunu doğrulayın.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>

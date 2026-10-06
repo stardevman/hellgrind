@@ -284,8 +284,9 @@ def paid(monkeypatch, no_network):
     kalır, genel internete bağlantı yasaktır (no_network) ve ücretli sağlayıcı çağrıları testlerde sahtedir: gerçek servise
     hiçbir istek gitmez."""
     monkeypatch.setattr(settings, "dry_run", False)
-    for name in ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for name in ("vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, name, f"test-{name}")
+    monkeypatch.setattr(settings, "vast_instance_id", "")       # makine yönetimi kapalı: testler vast.ai'yi sahteler
 
 
 @pytest.fixture
@@ -302,9 +303,31 @@ def h3(monkeypatch, tmp_path, paid):
     monkeypatch.setattr(vast_h3, "RETRY_BASE_S", 0)
     monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
     monkeypatch.setattr(settings, "h3_ref_endpoint_url", "")
+    monkeypatch.setattr(settings, "h3_backend", "sglang")
+    monkeypatch.setattr(settings, "h3_comfy_workflow_dir", str(tmp_path / "comfy"))
     monkeypatch.setattr(settings, "work_dir", str(tmp_path / "work"))
     vast_h3._reference_uris.clear()
     return fake
+
+
+@pytest.fixture
+def give_keyframe(tmp_path):
+    """Çekime yönetmenin ilk karesini verir (MiniMax H3 FL2VA'nın kompozisyon koşulu): gerçek, düz olmayan bir görsel."""
+    def make(scene_id: str) -> str:
+        import numpy as np
+        from PIL import Image
+        from app import storage
+        from app.db import session_scope
+        from app.models import Scene
+        path = tmp_path / f"kf_{scene_id}.jpg"
+        Image.fromarray(np.random.default_rng(3).integers(0, 255, (180, 320, 3), dtype=np.uint8)).save(path)
+        key = f"keyframes/{scene_id}/test.jpg"
+        storage.put_file(str(path), key, "image/jpeg")
+        with session_scope() as s:
+            sc = s.get(Scene, scene_id)
+            sc.keyframe_key, sc.keyframe_hash = key, "test-keyframe"
+        return key
+    return make
 
 
 @pytest.fixture

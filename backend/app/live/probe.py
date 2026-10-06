@@ -1,8 +1,8 @@
 """Bağlantı sınaması: bir API anahtarının sağlayıcı tarafından kabul edilip edilmediğini, üretim yapmadan ve ücret
 doğurmadan denetler. Yalnızca panelde "Bağlantıyı sına" düğmesine basılınca çalışır; testler bu modülün ağ çağrısını
 çalıştırmaz (httpx taşıyıcısı sahtelenir). DRY_RUN'dan bağımsızdır çünkü ücretli bir işlem yapmaz: yalnızca hesap ya da
-model listesini okuyan ücretsiz uçlara gider. MiniMax H3 için yönetmenin kendi sunucusunun /health ucuna bakılır
-(sunucu zaten açıktır; sınama GPU'da iş başlatmaz).
+model listesini okuyan ücretsiz uçlara gider. MiniMax H3 için vast.ai'den makinenin durumu okunur (GET, ücretsiz) ve
+yönetmenin kendi sunucusunun sağlık ucuna bakılır (/health ya da ComfyUI /system_stats; GPU'da iş başlatmaz).
 """
 from __future__ import annotations
 
@@ -14,9 +14,7 @@ TIMEOUT = 10.0
 ZERO_REQUEST = "00000000-0000-0000-0000-000000000000"
 
 
-def _request(service: str, key: str, url: str | None = None) -> httpx.Request:
-    if service == "vast":                                   # kendi H3 sunucusu: hazır mı (iş başlatmaz)
-        return httpx.Request("GET", f"{url.rstrip('/')}/health", headers={"Authorization": f"Bearer {key}"})
+def _request(service: str, key: str) -> httpx.Request:
     if service == "anthropic":                              # model listesi: ücretsiz
         return httpx.Request("GET", "https://api.anthropic.com/v1/models?limit=1",
                              headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
@@ -48,18 +46,21 @@ def check(service: str, key: str, transport: httpx.BaseTransport | None = None) 
     return {"ok": None, "status": r.status_code, "message": f"Beklenmeyen yanıt ({r.status_code}); sağlayıcının durum sayfasına bakın."}
 
 
-def _h3_one(key: str, url: str, transport) -> dict:
+def _h3_one(token: str, url: str, transport) -> dict:
+    path = "/system_stats" if settings.h3_backend == "comfyui" else "/health"
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         with httpx.Client(timeout=TIMEOUT, transport=transport, follow_redirects=True) as client:
-            r = client.send(_request("vast", key, url))
+            r = client.get(f"{url.rstrip('/')}{path}", headers=headers)
     except httpx.ConnectError:
-        return {"ok": False, "status": None, "message": "Sunucuya bağlanılamadı: vast.ai'de makine çalışıyor mu, adres güncel mi?"}
+        how = "SSH tüneli açık mı?" if settings.h3_backend == "comfyui" else "makine çalışıyor mu, adres güncel mi?"
+        return {"ok": False, "status": None, "message": f"Sunucuya bağlanılamadı: {how}"}
     except httpx.HTTPError as e:
         return {"ok": None, "status": None, "message": f"Sunucuya ulaşılamadı: {type(e).__name__}"}
     if r.status_code in (401, 403):
-        return {"ok": False, "status": r.status_code, "message": "Anahtar reddedildi."}
+        return {"ok": False, "status": r.status_code, "message": "Sunucu erişimi reddetti (portal belirteci)."}
     if r.status_code == 200:
-        return {"ok": True, "status": 200, "message": "Sunucu hazır, anahtar kabul edildi."}
+        return {"ok": True, "status": 200, "message": "Sunucu hazır."}
     if r.status_code == 503:
         return {"ok": None, "status": 503, "message": "Sunucu açılıyor (model yükleniyor); birkaç dakika sonra yeniden deneyin."}
     if r.status_code == 530:
@@ -67,14 +68,48 @@ def _h3_one(key: str, url: str, transport) -> dict:
     return {"ok": None, "status": r.status_code, "message": f"Beklenmeyen yanıt ({r.status_code}); sunucunun günlüğüne bakın."}
 
 
+def _box_line(key: str, transport) -> tuple[bool | None, str]:
+    """vast.ai'den makinenin durumu, saatlik ücreti, konumu ve GPU'su (ücretsiz, salt okunur)."""
+    from app.live import PaidCallBlocked, vast_api
+    try:
+        box = vast_api.read(key, settings.vast_instance_id, transport=transport)
+    except PaidCallBlocked as e:
+        return False, str(e)
+    except httpx.HTTPError as e:
+        return None, f"vast.ai'ye ulaşılamadı ({type(e).__name__})"
+    price = f"{box.dph:.2f} $/sa".replace(".", ",") if box.dph is not None else "ücret bilinmiyor"
+    line = f"Makine: {box.status} · {price} · {box.geolocation or 'konum bilinmiyor'} · {box.gpu or 'GPU bilinmiyor'}"
+    if box.excluded:
+        if settings.h3_territory_authorized:
+            return True, f"{line} (lisansın dışladığı bölge; izin alındı olarak işaretli)"
+        return False, f"{line}. Bu bölge MiniMax H3 lisansının dışında: üretim başlamaz (başka bölgeden makine seçin)."
+    if not box.running:
+        return None, f"{line}. Makine çalışmıyor."
+    return True, line
+
+
 def check_h3(key: str, transport: httpx.BaseTransport | None = None) -> dict:
-    """MiniMax H3 sunucuları: FL2VA (zorunlu) ve tanımlıysa Ref2VA. İkisinden kötü olanın sonucu döner."""
+    """vast.ai hesabı ve makine (tanımlıysa), sonra H3 sunucuları: FL2VA / ComfyUI (zorunlu) ve tanımlıysa Ref2VA. En kötü
+    sonuç döner; mesaj hepsini anlatır. Hiçbiri iş başlatmaz."""
+    from app.live import probe_key
     if not settings.h3_endpoint_url:
         return {"ok": False, "status": None, "message": "Sunucu adresi tanımlı değil."}
-    main = _h3_one(key, settings.h3_endpoint_url, transport)
-    if not settings.h3_ref_endpoint_url or main["ok"] is not True:
-        return main
-    ref = _h3_one(key, settings.h3_ref_endpoint_url, transport)
-    if ref["ok"] is True:
-        return {**main, "message": "İki sunucu da hazır (FL2VA ve Ref2VA), anahtar kabul edildi."}
-    return {**ref, "message": f"Ana sunucu hazır; referans sunucusu (Ref2VA): {ref['message']}"}
+    token = probe_key("h3_api_key")
+    messages, oks, status = [], [], None
+    if settings.vast_instance_id:
+        ok, line = _box_line(key, transport)
+        oks.append(ok)
+        messages.append(line)
+    else:
+        messages.append("Makine kimliği tanımlı değil: boşta durdurma, otomatik başlatma ve konum denetimi kapalı.")
+        oks.append(None)
+    main = _h3_one(token, settings.h3_endpoint_url, transport)
+    oks.append(main["ok"])
+    status = main["status"]
+    messages.append(main["message"])
+    if settings.h3_ref_endpoint_url and settings.h3_ref_endpoint_url != settings.h3_endpoint_url:
+        ref = _h3_one(token, settings.h3_ref_endpoint_url, transport)
+        oks.append(ref["ok"])
+        messages.append(f"Ref2VA: {ref['message']}")
+    ok = False if False in oks else (None if None in oks else True)
+    return {"ok": ok, "status": status, "message": " ".join(messages)}

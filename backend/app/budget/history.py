@@ -25,9 +25,10 @@ OPERATIONS = {                       # işlem -> panelde ve CSV'de görünen ad
     "lipsync": "Dudak senkronu",
     "tts": "Diyalog seslendirme",
     "script_parse": "Senaryo ayrıştırma",
+    "idle": "GPU makinesi boşta",
     "other": "Diğer",
 }
-PURPOSES = ("first_frame", "storyboard", "reference", "motion_test", "previs", "revision", "lipsync")
+PURPOSES = ("first_frame", "storyboard", "reference", "motion_test", "previs", "revision", "lipsync", "idle")
 VIDEO_ENGINES = ("fal_wan", "seedance", "higgsfield")      # fal.ai motorları; MiniMax H3 kendi sunucumuzda ("vast")
 MAX_ERROR = 600
 

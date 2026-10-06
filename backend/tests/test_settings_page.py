@@ -20,6 +20,8 @@ ENV = """# Ücretsiz aşama
 DATABASE_URL=postgresql+psycopg://hg:hg@postgres:5432/hellgrind
 DRY_RUN=1
 # Ücretli entegrasyonlar
+VAST_API_KEY=
+VAST_INSTANCE_ID=
 H3_API_KEY=
 H3_ENDPOINT_URL=
 FAL_KEY=
@@ -27,9 +29,11 @@ ANTHROPIC_API_KEY=
 ELEVENLABS_API_KEY=
 """
 SECRET = "fal-key-1234567890abcdWXYZ"
-H3_SECRET = "vast-token-0987654321zyxQRST"
-# Ücretli moda geçmek için gereken tek servis: MiniMax H3 sunucusu (fal.ai isteğe bağlıdır)
-H3_ENV = ENV.replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}").replace("H3_ENDPOINT_URL=", "H3_ENDPOINT_URL=https://h3.test")
+VAST_SECRET = "vast-api-key-0987654321zyxQRST"
+H3_SECRET = "portal-token-1234567890abcPQRS"
+# Ücretli moda geçmek için gereken tek servis: MiniMax H3 makinesi (vast.ai anahtarı, makine kimliği, sunucu adresi)
+H3_ENV = (ENV.replace("VAST_API_KEY=", f"VAST_API_KEY={VAST_SECRET}").replace("VAST_INSTANCE_ID=", "VAST_INSTANCE_ID=4242")
+          .replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}").replace("H3_ENDPOINT_URL=", "H3_ENDPOINT_URL=https://h3.test"))
 
 
 @pytest.fixture
@@ -74,11 +78,30 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
     vast = api.get("/api/settings").json()["services"][0]
     assert vast["name"] == "MiniMax H3 · vast.ai" and vast["console"] == "https://cloud.vast.ai/instances/"
     fields = {f["env"]: f for f in vast["fields"]}
-    assert fields["H3_API_KEY"] == {"env": "H3_API_KEY", "label": "Erişim anahtarı", "kind": "secret", "set": True, "masked": "••••QRST"}
+    assert vast["key_env"] == "VAST_API_KEY"
+    assert fields["VAST_API_KEY"] == {"env": "VAST_API_KEY", "label": "vast.ai API anahtarı", "kind": "secret", "set": True,
+                                      "masked": "••••QRST"}
+    assert fields["H3_API_KEY"]["kind"] == "secret" and fields["H3_API_KEY"]["masked"] == "••••PQRS"
+    assert fields["VAST_INSTANCE_ID"]["value"] == "4242" and fields["H3_BACKEND"]["value"] == "sglang"
     assert fields["H3_ENDPOINT_URL"]["kind"] == "url" and fields["H3_ENDPOINT_URL"]["value"] == "https://h3.test"
     assert fields["H3_REF_ENDPOINT_URL"]["value"] == "" and fields["H3_MODEL"]["url"] == "https://huggingface.co/MiniMaxAI/MiniMax-H3"
-    assert fields["H3_STEPS"]["kind"] == "choice" and fields["H3_STEPS"]["value"] == fields["H3_STEPS"]["default"] == "20"
-    assert vast["active"] is True and H3_SECRET not in api.get("/api/settings").text
+    assert fields["H3_STEPS"]["kind"] == "choice" and fields["H3_STEPS"]["value"] == fields["H3_STEPS"]["default"] == "9"
+    assert (fields["H3_IDLE_STOP_MINUTES"]["value"], fields["H3_AUTO_START"]["value"]) == ("10", "false")
+    assert fields["H3_TERRITORY_AUTHORIZED"]["choices"] == ["false", "true"]
+    text = api.get("/api/settings").text
+    assert vast["active"] is True and H3_SECRET not in text and VAST_SECRET not in text
+
+
+def test_on_off_and_number_settings_are_typed_when_applied(api, cfg):
+    r = api.patch("/api/settings", json={"values": {"H3_AUTO_START": "true", "H3_STEPS": "8", "H3_IDLE_STOP_MINUTES": "0",
+                                                    "H3_MODEL_REVISION": "fl2va int8 convrot + turbo v4"}})
+    assert r.status_code == 200, r.text
+    assert settings.h3_auto_start is True and settings.h3_steps == 8 and settings.h3_idle_stop_minutes == 0
+    assert settings.h3_model_revision == "fl2va int8 convrot + turbo v4"
+    api.patch("/api/settings", json={"values": {"H3_AUTO_START": "false"}})
+    assert settings.h3_auto_start is False
+    fields = {f["env"]: f for f in api.get("/api/settings").json()["services"][0]["fields"]}
+    assert (fields["H3_AUTO_START"]["value"], fields["H3_STEPS"]["value"]) == ("false", "8")
 
 
 def test_only_the_h3_server_is_needed_with_the_default_engines(api, cfg):
@@ -122,7 +145,9 @@ def test_clearing_a_key_empties_it(api, cfg):
     ({"HERMES_MODE": "magic"}, "rules, llm"),
     ({"H3_ENDPOINT_URL": "ftp://1.2.3.4"}, "sunucu adresi"),
     ({"H3_ENDPOINT_URL": "https://h3.test\nDRY_RUN=0"}, "sunucu adresi"),         # satır enjeksiyonu
-    ({"H3_STEPS": "7"}, "50, 30, 20, 9, 5"),
+    ({"H3_STEPS": "7"}, "50, 20, 9, 8, 5"),
+    ({"H3_BACKEND": "vllm"}, "sglang, comfyui"),
+    ({"H3_MODEL_REVISION": "kötü\nDRY_RUN=0"}, "satır sonu"),
 ])
 def test_rejects_anything_outside_the_whitelist_or_malformed(api, cfg, values, needle):
     r = api.patch("/api/settings", json={"values": values})
@@ -159,7 +184,8 @@ def test_paid_mode_needs_the_h3_server_not_a_fal_key(api, cfg):
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))       # fal anahtarı tek başına yetmez
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 422 and "MiniMax H3 sunucusu" in r.json()["detail"] and settings.dry_run is True
-    cfg.write_text(ENV.replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}"))   # adres olmadan da yetmez
+    cfg.write_text(H3_ENV.replace("VAST_INSTANCE_ID=4242", "VAST_INSTANCE_ID="))   # makine kimliği olmadan da yetmez
+    rc._redis().incr(rc.VERSION_KEY)
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 422 and settings.dry_run is True
 
@@ -242,8 +268,9 @@ def test_pricing_is_read_and_saved_with_comments_and_used_at_once(api, cfg, pric
     (lambda t: t + "\n: : :\n", "YAML okunamadı"),
     (lambda t: t.replace("lipsync_per_minute: 5.0", "lipsync_per_minute: bedava"), "lipsync_per_minute"),
     (lambda t: t.replace("self_hosted:\n  h3:", "self_hosted:\n  h4:"), "self_hosted.h3 eksik"),
-    (lambda t: t.replace("gpu_hourly_usd: 0.60", "gpu_hourly_usd: 0"), "self_hosted.h3.gpu_hourly_usd"),
-    (lambda t: t.replace('"480p": 22 ', '"480p": -5 '), "self_hosted.h3.render_seconds.480p"),
+    (lambda t: t.replace("gpu_hourly_usd: 0.95", "gpu_hourly_usd: 0"), "self_hosted.h3.gpu_hourly_usd"),
+    (lambda t: t.replace('"480p": 8 ', '"480p": -5 '), "self_hosted.h3.render_seconds.480p"),
+    (lambda t: t.replace("keyframe_seconds: 10", "keyframe_seconds: -1"), "self_hosted.h3.keyframe_seconds"),
 ])
 def test_invalid_pricing_is_refused_and_the_file_is_kept(api, cfg, prices, mutate, needle):
     before = prices.read_text()
@@ -288,14 +315,65 @@ def test_connection_check_without_a_key_makes_no_request(api, cfg):
     assert api.post("/api/settings/test/nope").status_code == 404
 
 
-def test_the_h3_connection_check_goes_to_the_servers_health_endpoint(api, cfg, monkeypatch):
+def test_the_h3_connection_check_reads_the_box_and_the_servers_health(api, cfg, monkeypatch):
     from app.live import probe
     seen = []
     assert api.post("/api/settings/test/vast").json() == {"ok": False, "status": None, "message": "Anahtar tanımlı değil."}
     cfg.write_text(H3_ENV)
     rc._redis().incr(rc.VERSION_KEY)                                     # panel kaydetmiş gibi: süreç dosyayı yeniden okur
-    real, fake = probe.check, transport(200, seen)
-    monkeypatch.setattr(probe, "check", lambda service, key, transport=None: real(service, key, fake))
+
+    def handler(request):
+        seen.append(request)
+        if request.url.host == "console.vast.ai":
+            return httpx.Response(200, json={"instances": {"actual_status": "running", "dph_total": 0.87,
+                                                           "geolocation": "Norway, NO", "gpu_name": "RTX 5090"}})
+        return httpx.Response(200)
+    real = probe.check
+    monkeypatch.setattr(probe, "check", lambda service, key, transport=None: real(service, key, httpx.MockTransport(handler)))
     r = api.post("/api/settings/test/vast").json()
-    assert r["ok"] is True and [(q.method, str(q.url)) for q in seen] == [("GET", "https://h3.test/health")]
-    assert seen[0].headers["authorization"] == f"Bearer {H3_SECRET}"
+    assert r["ok"] is True and "Norway, NO" in r["message"] and r["message"].endswith("Sunucu hazır.")
+    assert [(q.method, str(q.url)) for q in seen] == [("GET", "https://console.vast.ai/api/v0/instances/4242"),
+                                                      ("GET", "https://h3.test/health")]
+    assert seen[0].headers["authorization"] == f"Bearer {VAST_SECRET}" and seen[1].headers["authorization"] == f"Bearer {H3_SECRET}"
+
+
+I2V = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}"}},
+       "8": {"class_type": "LoadImage", "inputs": {"image": "{{first_frame}}"}}}
+
+
+def test_comfyui_workflows_are_validated_before_they_are_saved(api, cfg, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "h3_comfy_workflow_dir", str(tmp_path / "comfy"))
+    flows = {w["kind"]: w for w in api.get("/api/settings").json()["comfy"]["workflows"]}
+    assert set(flows) == {"t2v", "i2v", "r2v", "keyframe"} and not any(w["present"] for w in flows.values())
+    bad = api.put("/api/settings/comfy/i2v", json={"text": json.dumps({"6": I2V["6"]})})
+    assert bad.status_code == 422 and "first_frame" in bad.json()["detail"]
+    ui = api.put("/api/settings/comfy/i2v", json={"text": json.dumps({"nodes": [], "links": []})})
+    assert ui.status_code == 422 and "Export (API)" in ui.json()["detail"]
+    ok = api.put("/api/settings/comfy/i2v", json={"text": json.dumps(I2V)})
+    assert ok.status_code == 200 and (tmp_path / "comfy" / "i2v.json").exists()
+    i2v = next(w for w in ok.json()["workflows"] if w["kind"] == "i2v")
+    assert i2v["present"] and i2v["placeholders"] == ["first_frame", "prompt"] and i2v["error"] is None
+    assert api.put("/api/settings/comfy/nope", json={"text": "{}"}).status_code == 422
+    assert api.delete("/api/settings/comfy/i2v").status_code == 200 and not (tmp_path / "comfy" / "i2v.json").exists()
+
+
+def test_the_box_cannot_be_started_or_stopped_in_free_mode(api, cfg):
+    r = api.post("/api/settings/vast/instance", json={"action": "start"})
+    assert r.status_code == 409 and "Ücretsiz modda" in r.json()["detail"]
+    assert api.post("/api/settings/vast/instance", json={"action": "reboot"}).status_code == 422
+
+
+def test_going_back_to_free_mode_stops_a_running_box(api, cfg, monkeypatch):
+    from app.api import services
+    from app.live import vast_api
+    from tests.h3_fake import FakeVast
+    fake = FakeVast()
+    cfg.write_text(H3_ENV.replace(VAST_SECRET, "test-vast_api_key"))
+    rc._redis().incr(rc.VERSION_KEY)
+    monkeypatch.setattr(services, "_busy", lambda s: [])
+    monkeypatch.setattr(vast_api, "TRANSPORT", fake.transport())
+    try:
+        assert api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION}).status_code == 200
+    finally:
+        back = api.post("/api/settings/mode", json={"paid": False}).json()
+    assert back["dry_run"] is True and fake.puts == [{"state": "stopped"}] and "durduruldu" in back["vast_note"]

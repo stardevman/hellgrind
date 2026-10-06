@@ -39,14 +39,25 @@ class Settings(BaseSettings):
     fal_lipsync_endpoint: str = "fal-ai/sync-lipsync/v2/pro"
     fal_wan_v2v_endpoint: str = "fal-ai/wan/v2.2-a14b/video-to-video"
     fal_kontext_endpoint: str = "fal-ai/flux-pro/kontext"     # karakterin referans görseliyle kare (görsel başına)
-    # MiniMax H3: yönetmenin kendi GPU sunucusu (ör. vast.ai) üzerinde SGLang'in /v1/videos ucu. Anahtar, sunucunun önündeki
-    # kimlik doğrulamanın belirtecidir (vast.ai Instance Portal: OPEN_BUTTON_TOKEN ya da WEB_PASSWORD).
-    h3_api_key: str = ""
-    h3_endpoint_url: str = ""          # FL2VA sunucusu: metinden ve ilk kareden video (ör. https://...trycloudflare.com)
-    h3_ref_endpoint_url: str = ""      # Ref2VA sunucusu: karakterlerin referans görselleriyle video; boşsa referans gitmez
+    # MiniMax H3: yönetmenin kendi GPU sunucusu (vast.ai). Arka uç SGLang (/v1/videos) ya da ComfyUI (/prompt, /history,
+    # /view; 127.0.0.1'de, SSH tüneli ya da portalın kimlik doğrulamalı vekili üzerinden). Ücretli kilidin anahtarı vast.ai
+    # API anahtarıdır (makineyi o faturalar; boşta durdurma ve otomatik başlatma da onunla yapılır). Portal belirteci
+    # (OPEN_BUTTON_TOKEN ya da WEB_PASSWORD) isteğe bağlıdır: SSH tünelinde gerekmez.
+    vast_api_key: str = ""
+    vast_instance_id: str = ""
+    h3_api_key: str = ""               # portal belirteci (Authorization: Bearer); boşsa gönderilmez
+    h3_backend: str = "sglang"         # sglang | comfyui
+    h3_endpoint_url: str = ""          # FL2VA (SGLang) ya da ComfyUI adresi
+    h3_ref_endpoint_url: str = ""      # Ref2VA sunucusu (SGLang); ComfyUI'de boşsa aynı adres kullanılır
+    h3_comfy_workflow_dir: str = "/config/comfy"   # ComfyUI iş akışları (API biçimi, yer tutuculu): t2v, i2v, r2v, keyframe
     h3_model: str = "MiniMaxAI/MiniMax-H3"
-    h3_steps: int = 20                 # sunucudaki kurulumla uyumlu olmalı (turbo LoRA: 9 ya da 5)
+    h3_model_revision: str = ""        # kayda ve klip meta verisine yazılır (ör. "fl2va pruned int8 convrot + turbo v4")
+    h3_steps: int = 9                  # sunucudaki kurulumla aynı olmalı: SGLang turbo LoRA 9 (8 değerlendirme), temel 20-50
     h3_timeout_s: int = 3600           # tek işin (kuyrukta bekleme dahil) en uzun süresi
+    h3_idle_stop_minutes: int = 10     # kuyruk bu kadar dakika boşsa makine durdurulur (0: kapalı)
+    h3_auto_start: bool = False        # iş gelince durmuş makine başlatılır
+    h3_start_timeout_s: int = 900      # otomatik başlatmada sunucunun hazır olmasının beklendiği en uzun süre
+    h3_territory_authorized: bool = False   # lisansın dışladığı bölgelerde (AB, BK, G. Kore, ABD) MiniMax'ten izin alındı
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""

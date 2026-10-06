@@ -239,6 +239,7 @@ def test_the_paid_storyboard_frame_is_one_flux_image_of_the_composed_prompt(samp
     sid = codes["S002_SH01"]
     prefix = activate_example_style(pid)
     go_paid(monkeypatch)
+    fake_scorer(monkeypatch)                                      # kare, videoyla aynı kalite kapısından geçer
     key = make_board(pid, sid, standalone=True)
     flux = [a for app, a, _ in studio.calls if app == fal_video.FLUX]
     assert len(flux) == 1 and flux[0]["prompt"] == composed_for(pid, sid).prompt and flux[0]["prompt"].startswith(prefix)
@@ -331,7 +332,7 @@ def test_a_blocked_paid_reference_answers_409_and_spends_nothing(api, sample_sce
     pid, _ = sample_scene()
     go_paid(monkeypatch)                                          # H3 anahtarı yok: karakter dönüşü üretilemez
     r = api.post(f"/api/assets/{asset_named(pid, 'Kerem').id}/references/placeholder")
-    assert r.status_code == 409 and "H3_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
+    assert r.status_code == 409 and "VAST_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
     monkeypatch.setattr(settings, "fal_key", "")                 # mekân görseli Flux'tan: fal anahtarı gerekir
     r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder")
     assert r.status_code == 409 and "FAL_KEY" in r.text and studio.calls == [] and ledger(pid) == []
@@ -416,5 +417,5 @@ def test_a_paid_first_frame_revision_of_an_h3_clip_is_an_fl2va_job(api, sample_s
                  headers={"content-type": "image/png"})
     assert r.status_code == 201, r.text
     (job,) = h3.submits
-    assert job["task"] == "fl2va" and job["prompt"] == winner.params["prompt"] and job["seed"] == winner.seed
+    assert job["task"] == "fl2va" and job["prompt"].startswith(winner.params["prompt"]) and job["seed"] == winner.seed
     assert commits(pid, f"h3:{winner.params['resolution']}:revision") == [pricing.estimate_gpu("h3", h3.inference_time_s)]

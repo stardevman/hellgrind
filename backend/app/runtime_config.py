@@ -26,6 +26,7 @@ AUDIT_LIMIT = 100
 PAID_CONFIRMATION = "ücretli moda geç"
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{1,159}$")
 SERVER_URL = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/-]*)?$")
+FREE_TEXT = re.compile(r"^[^\r\n\"'#\\]{0,160}$")
 SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 
 
@@ -33,7 +34,7 @@ SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 class Field:
     env: str                    # .env adı
     attr: str                   # settings alanı
-    kind: str                   # secret | model | url | choice | mode
+    kind: str                   # secret | model | url | text | choice | mode
     service: str                # vast | fal | elevenlabs | anthropic | core
     label: str
     choices: tuple[str, ...] = ()
@@ -42,11 +43,20 @@ class Field:
 
 FIELDS: tuple[Field, ...] = (
     Field("DRY_RUN", "dry_run", "mode", "core", "Ücretsiz mod"),
-    Field("H3_API_KEY", "h3_api_key", "secret", "vast", "Erişim anahtarı"),
-    Field("H3_ENDPOINT_URL", "h3_endpoint_url", "url", "vast", "Sunucu (FL2VA): metinden ve ilk kareden video"),
-    Field("H3_REF_ENDPOINT_URL", "h3_ref_endpoint_url", "url", "vast", "Referans sunucusu (Ref2VA, isteğe bağlı): karakter görselleriyle"),
+    Field("VAST_API_KEY", "vast_api_key", "secret", "vast", "vast.ai API anahtarı"),
+    Field("VAST_INSTANCE_ID", "vast_instance_id", "text", "vast", "Makine kimliği (instance ID)"),
+    Field("H3_BACKEND", "h3_backend", "choice", "vast", "Arka uç", ("sglang", "comfyui")),
+    Field("H3_ENDPOINT_URL", "h3_endpoint_url", "url", "vast", "Sunucu adresi (SGLang FL2VA ya da ComfyUI)"),
+    Field("H3_REF_ENDPOINT_URL", "h3_ref_endpoint_url", "url", "vast", "Ref2VA sunucusu (SGLang; ComfyUI'de boş: aynı sunucu)"),
+    Field("H3_API_KEY", "h3_api_key", "secret", "vast", "Portal belirteci (isteğe bağlı; SSH tünelinde gerekmez)"),
+    Field("H3_IDLE_STOP_MINUTES", "h3_idle_stop_minutes", "choice", "vast", "Boşta durdurma (dakika; 0: kapalı)",
+          ("0", "5", "10", "15", "30", "60")),
+    Field("H3_AUTO_START", "h3_auto_start", "choice", "vast", "İş gelince durmuş makineyi başlat", ("false", "true")),
     Field("H3_MODEL", "h3_model", "model", "vast", "Model", url="https://huggingface.co/{}"),
-    Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "30", "20", "9", "5")),
+    Field("H3_MODEL_REVISION", "h3_model_revision", "text", "vast", "Model sürümü (klip meta verisine yazılır)"),
+    Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),
+    Field("H3_TERRITORY_AUTHORIZED", "h3_territory_authorized", "choice", "vast",
+          "Bölge izni (AB, BK, G. Kore, ABD için MiniMax'ten izin alındı)", ("false", "true")),
     Field("FAL_KEY", "fal_key", "secret", "fal", "API anahtarı"),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
     Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 (yalnızca eski çekimler)", url="https://fal.ai/models/{}"),
@@ -101,6 +111,9 @@ def validate(env: str, value: str) -> str:
     elif f.kind == "model":
         if not MODEL_ID.match(value):
             raise ConfigError(f"{f.label}: geçerli bir model ya da uç nokta kimliği girin (ör. fal-ai/flux-lora)")
+    elif f.kind == "text":
+        if not FREE_TEXT.match(value):
+            raise ConfigError(f"{f.label}: en çok 160 karakter; satır sonu, tırnak ya da # içeremez")
     elif f.kind == "url":                                    # boş: tanımlı değil
         value = value.rstrip("/")
         if value and not SERVER_URL.match(value):
@@ -143,6 +156,23 @@ def write_env(path: str, updates: dict[str, str]) -> None:
         raise ConfigError(f".env dosyasına yazılamadı ({e.strerror}). docker-compose.yml'de ./.env bağlı mı?") from e
 
 
+def display(value) -> str:
+    """Ayar değerinin .env ve paneldeki metin hâli (açık/kapalı: true/false)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
+
+
+def _typed(f: Field, raw: str):
+    """Dosyadaki metni ayarın türüne çevirir (mod ve açık/kapalı seçimleri bool, sayılar int)."""
+    annotation = type(settings).model_fields[f.attr].annotation
+    if f.kind == "mode" or annotation is bool:
+        return _BOOL.validate_python(raw if raw != "" else f.kind == "mode")
+    if annotation is int:
+        return int(raw)
+    return raw
+
+
 def apply(values: dict[str, str]) -> None:
     """Dosyadaki beyaz liste değerlerini bu sürecin ayarlarına uygular (yalnızca beyaz liste: DB ve depo ayarlarına
     dokunulmaz)."""
@@ -151,7 +181,7 @@ def apply(values: dict[str, str]) -> None:
             continue
         raw = values[f.env]
         try:
-            setattr(settings, f.attr, _BOOL.validate_python(raw if raw != "" else True) if f.kind == "mode" else raw)
+            setattr(settings, f.attr, _typed(f, raw))
         except ValueError:
             log.warning("%s geçersiz (%r); eski değer korunuyor", f.env, raw if f.kind != "secret" else "***")
 
@@ -214,7 +244,7 @@ def update(values: dict[str, str]) -> list[dict]:
     current = read_env(path) if os.path.exists(path) else {}
     # Gizli anahtarlar yalnızca dosyadakiyle karşılaştırılır (değerleri app.live dışında okunmaz, kural 1).
     changed = {k: v for k, v in clean.items()
-               if current.get(k, "" if BY_ENV[k].kind == "secret" else str(getattr(settings, BY_ENV[k].attr) or "")) != v}
+               if current.get(k, "" if BY_ENV[k].kind == "secret" else display(getattr(settings, BY_ENV[k].attr))) != v}
     if not changed:
         return []
     write_env(path, changed)

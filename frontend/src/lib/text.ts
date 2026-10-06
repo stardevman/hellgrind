@@ -97,6 +97,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
       c: x.status === "approved" ? "good" : x.status === "changes_requested" ? "bad" : "",
     };
     case "board_required": return { t: `${where}kare onaylanmadan görüntü üretilmez` };
+    case "board_rejected": return { t: `${x.code}: storyboard karesi kalite kapısını geçemedi${x.score != null ? " (" + Number(x.score).toFixed(2) + ")" : ""}; video bu kareden üretilmez`, c: "bad" };
+    case "keyframe_required": return { t: `${where}H3 ilk karesi hazır değil: görüntü üretilmedi`, c: "bad" };
+    case "h3_started": return { t: "vast.ai makinesi başlatıldı (otomatik)", c: "good" };
+    case "h3_stopped": return { t: `vast.ai makinesi durduruldu (${x.reason === "idle" ? "boşta" : x.reason === "budget" ? "bütçe" : x.reason})` };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };

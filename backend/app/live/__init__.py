@@ -8,8 +8,8 @@ import sys
 
 from app.config import settings
 
-PAID_KEYS = ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key")
-# Servis başına ücretli paketler (requirements-live.txt). ElevenLabs ve H3 sunucusu yalnızca httpx kullanır.
+PAID_KEYS = ("vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key")
+# Servis başına ücretli paketler (requirements-live.txt). ElevenLabs, vast.ai ve H3 sunucusu yalnızca httpx kullanır.
 PACKAGES = {"vast": (), "fal": ("fal_client",), "anthropic": ("langgraph", "langchain_anthropic"), "elevenlabs": ()}
 
 
@@ -29,6 +29,16 @@ def guard(key_name: str) -> str:
     if not value:
         raise PaidCallBlocked(f"{key_name.upper()} tanımlı değil: .env dosyasına ekleyin.")
     return value
+
+
+def optional(key_name: str) -> str:
+    """İsteğe bağlı ikinci belirteç (ör. H3 portal belirteci): ücretsiz modda yine engellenir, boşsa boş döner. Çağrının
+    kilidi asıl anahtarın guard()'ıdır."""
+    if key_name not in PAID_KEYS:
+        raise ValueError(f"Bilinmeyen ücretli anahtar: {key_name!r}")
+    if settings.dry_run:
+        raise PaidCallBlocked(f"{key_name}: DRY_RUN=1 iken ücretli çağrı yapılmaz.")
+    return getattr(settings, key_name) or ""
 
 
 def key_state(key_name: str) -> dict:

@@ -77,6 +77,18 @@ export const PURGE_TR: Record<string, string> = {
 export const ENGINE_TR: Record<string, string> = {
   h3: "MiniMax H3 · vast.ai", seedance: "Seedance · fal.ai", fal_wan: "Wan 2.2 · fal.ai (eski)", higgsfield: "Higgsfield",
 };
+/** MiniMax H3 koşulu: kompozisyon seed'le değil koşulla kontrol edilir. */
+export const H3_MODE_TR: Record<string, string> = {
+  fl2va: "İlk kareden (FL2VA): storyboard karesi", ref2va: "Karakter referanslarıyla (Ref2VA)",
+};
+export const BOARD_SOURCE_TR: Record<string, string> = {
+  local: "yerel çizim", flux: "Flux (fal.ai)", comfyui: "H3 makinesi (ComfyUI)", upload: "yüklenen kare",
+};
+/** ComfyUI iş akışları (Ayarlar › MiniMax H3). */
+export const COMFY_KIND_TR: Record<string, string> = {
+  t2v: "Metinden video (t2v)", i2v: "İlk kareden video (i2v)", r2v: "Referanslarla video (r2v)", keyframe: "Storyboard ilk karesi (görsel)",
+};
+
 /** Yönetmenin çekim başına seçebildiği motorlar (ilki varsayılan). */
 export const ENGINE_CHOICES = ["h3", "seedance"] as const;
 
@@ -101,5 +113,6 @@ export const STEP_TR: Record<string, string> = {
   aspect_ratio: "En-boy oranı", generate_audio: "Yerleşik ses", loras: "LoRA", characters: "Karakter sayısı", voice_id: "Ses kimliği",
   emotion: "Duygu", voice: "Ses ayarları", http_status: "HTTP durumu", input_tokens: "Girdi belirteci",
   output_tokens: "Çıktı belirteci", reused: "Önceki denemeden", steps: "Adım sayısı", references: "Referans görsel", task: "Görev",
-  negative_dropped: "Negatif istem gönderilmedi", gpu_seconds: "GPU süresi (sn)",
+  negative_dropped: "Negatif istem gönderilmedi", gpu_seconds: "GPU süresi (sn)", backend: "Arka uç",
+  keyframe: "İlk kareden", negatives_unmapped: "Kısıta çevrilemeyen negatifler", idle_seconds: "Boşta süre (sn)",
 };

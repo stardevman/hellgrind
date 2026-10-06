@@ -29,6 +29,11 @@ def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict
     return round(per_second * duration_s, 4)
 
 
+def estimate_keyframe(engine: str = "h3", prices: dict | None = None) -> float:
+    """Kendi sunucusunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli."""
+    return estimate_gpu(engine, self_hosted(engine, prices).get("keyframe_seconds", 10), prices)
+
+
 def estimate_gpu(engine: str, gpu_seconds: float, prices: dict | None = None) -> float:
     """Kendi sunucusunda geçen GPU süresinin bedeli: saatlik ücret × süre. Ücretli modda işlenen tutar budur (sunucunun
     bildirdiği süreyle); makinenin boşta geçen süresi bütçeye yansımaz."""
@@ -113,6 +118,8 @@ def validate_table(text: str) -> dict:
             raise PricingError(f"self_hosted.{engine}.render_seconds eksik (çözünürlük: video saniyesi başına GPU saniyesi)")
         for res, value in seconds.items():
             _positive(value, f"self_hosted.{engine}.render_seconds.{res}")
+        if "keyframe_seconds" in row:
+            _positive(row["keyframe_seconds"], f"self_hosted.{engine}.keyframe_seconds")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")
     _positive((data.get("image_per_image") or {}).get("flux_kontext"), "image_per_image.flux_kontext")
     _positive(data.get("lipsync_per_minute"), "lipsync_per_minute")

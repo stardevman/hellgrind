@@ -69,12 +69,14 @@ def test_paid_call_blocked_is_a_runtime_error():
 # ---------- varsayılanlar ----------
 
 def test_free_mode_is_the_default_and_paid_keys_default_to_empty(monkeypatch):
-    for name in ("DRY_RUN", "HERMES_MODE", "TTS_ENGINE", "H3_API_KEY", "H3_ENDPOINT_URL", "FAL_KEY", "ANTHROPIC_API_KEY",
-                 "ELEVENLABS_API_KEY"):
+    for name in ("DRY_RUN", "HERMES_MODE", "TTS_ENGINE", "VAST_API_KEY", "H3_API_KEY", "H3_ENDPOINT_URL", "FAL_KEY",
+                 "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(name, raising=False)       # konteyner ortamı yönetmenin .env'inden gelir; varsayılanlar sınanır
     defaults = Settings(_env_file=None)
     assert defaults.dry_run is True and defaults.hermes_mode == "rules" and defaults.tts_engine == "espeak"
-    assert (defaults.h3_api_key, defaults.fal_key, defaults.anthropic_api_key, defaults.elevenlabs_api_key) == ("", "", "", "")
+    assert (defaults.vast_api_key, defaults.h3_api_key, defaults.fal_key, defaults.anthropic_api_key,
+            defaults.elevenlabs_api_key) == ("", "", "", "", "")
+    assert (defaults.h3_auto_start, defaults.h3_territory_authorized, defaults.h3_idle_stop_minutes) == (False, False, 10)
     assert defaults.h3_endpoint_url == ""
 
 
@@ -173,6 +175,6 @@ def test_env_is_never_committed():
         pytest.skip("depo kökü bağlı değil")
     assert ".env" in (root / ".gitignore").read_text().splitlines()
     env_example = (root / ".env.example").read_text()
-    for key in ("H3_API_KEY", "FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
+    for key in ("VAST_API_KEY", "H3_API_KEY", "FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
         assert f"\n{key}=\n" in env_example + "\n"                              # örnek dosyada anahtarlar boş
     assert "DRY_RUN=1" in env_example

@@ -10,6 +10,7 @@ x-backend: &backend
   volumes:
     - ./.env:/config/.env
     - ./backend/pricing.yaml:/app/pricing.yaml
+    - ./comfy-workflows:/config/comfy     # MiniMax H3 ComfyUI iş akışları (panelin Ayarlar sayfası yazar)
   depends_on:
     postgres: { condition: service_healthy }
     redis:    { condition: service_healthy }

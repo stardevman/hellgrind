@@ -3,6 +3,8 @@
 Her şey `.env` dosyasına (ve fiyatlar `pricing.yaml`'a) yazılır; bkz. app.runtime_config. Anahtarlar yanıtlarda yalnızca
 maskeli görünür. Ücretli moda geçiş açık onay ister ve üretim sürerken yapılmaz.
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field as PField
 from sqlalchemy import select, text
@@ -19,10 +21,12 @@ router = APIRouter(tags=["settings"])
 WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
 SERVICES = {
-    "vast": {"name": "MiniMax H3 · vast.ai", "purpose": "Video üretimi: MiniMax H3, kendi GPU sunucunuzda (SGLang)",
-             "key": "H3_API_KEY", "console": "https://cloud.vast.ai/instances/",
-             "used_by": ["Kurgu: görüntü üretimi (test ve tam tur)", "Varlıklar: hareket testi ve karakter dönüş videosu",
-                         "Elle düzeltme: düzenlenmiş ilk kareden video"]},
+    "vast": {"name": "MiniMax H3 · vast.ai", "purpose": "Video üretimi: MiniMax H3, kendi GPU makinenizde (SGLang ya da ComfyUI)",
+             "key": "VAST_API_KEY", "console": "https://cloud.vast.ai/instances/",
+             "used_by": ["Kurgu: görüntü üretimi (test ve tam tur; FL2VA ilk kareden, Ref2VA karakter referanslarıyla)",
+                         "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
+                         "Varlıklar: hareket testi ve karakter dönüş videosu", "Elle düzeltme: düzenlenmiş ilk kareden video",
+                         "Makine yönetimi: boşta durdurma, otomatik başlatma, boşta bekleme bedeli"]},
     "fal": {"name": "fal.ai", "purpose": "İsteğe bağlı: Seedance, Flux kareleri, previs aktarımı, dudak senkronu",
             "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
             "used_by": ["Kurgu: yönetmenin Seedance seçtiği çekimler (ilk kare Flux'tan)", "Storyboard kareleri (yoksa yerel çizilir)",
@@ -47,7 +51,7 @@ def _active(service: str) -> bool:
     """Servis ücretli modda gerçekten çağrılır mı (anahtar dolu ve ilgili motor seçili)."""
     has_key = _key(SERVICES[service]["key"])["set"]
     if service == "vast":
-        return has_key and bool(settings.h3_endpoint_url)
+        return has_key and bool(settings.h3_endpoint_url) and bool(settings.vast_instance_id)
     if service == "elevenlabs":
         return settings.tts_engine == "elevenlabs" and has_key
     if service == "anthropic":
@@ -128,15 +132,13 @@ def state(s: Session) -> dict:
             if f.kind == "secret":
                 item.update(_key(f.env))
             else:
-                value = getattr(settings, f.attr)
-                default = type(settings).model_fields[f.attr].default
-                if f.kind == "choice":                       # seçenekler metin; sayı alanları (adım sayısı) da
-                    value, default = str(value), str(default)
+                value = rc.display(getattr(settings, f.attr))      # seçenekler metin: sayılar ve açık/kapalı da
+                default = rc.display(type(settings).model_fields[f.attr].default)
                 item.update({"value": value, "default": default, "choices": list(f.choices),
                              "url": f.url.format(value) if f.url else None})
             fields.append(item)
         needed, why = _needed(sid)
-        services.append({"id": sid, "name": meta["name"], "needed": needed, "not_needed_reason": why,
+        services.append({"id": sid, "name": meta["name"], "key_env": meta["key"], "needed": needed, "not_needed_reason": why,
                          "missing_packages": _missing(sid), "purpose": meta["purpose"], "console": meta["console"],
                          "used_by": meta["used_by"], "fields": fields, "active": _active(sid),
                          "key_set": _key(meta["key"])["set"], "spent_usd": _sum(spend, {sid}, "real"),
@@ -147,7 +149,26 @@ def state(s: Session) -> dict:
         "spent_usd": _sum(spend, None, "real"), "virtual_usd": _sum(spend, None, "virtual"),
         "unknown_usd": _sum(spend, None, "unknown"), "audit": rc.audit(),
         "pricing_file": settings.pricing_file, "scorer": _scorer(), "translator": _translator(),
+        "comfy": _comfy(),
     }
+
+
+def _comfy() -> dict:
+    """ComfyUI iş akışlarının durumu (arka uç ComfyUI iken gerekir): dosya var mı, hangi yer tutucular var, eksik var mı."""
+    from app.live import vast_h3                         # iş akışı denetimi saf; ağ yok
+    flows = []
+    for kind in vast_h3.COMFY_KINDS:
+        path = vast_h3.workflow_path(kind)
+        item = {"kind": kind, "present": os.path.exists(path), "required": list(vast_h3.COMFY_REQUIRED[kind]),
+                "placeholders": [], "error": None}
+        if item["present"]:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    item["placeholders"] = sorted(vast_h3.placeholders(vast_h3.validate_workflow(kind, f.read())))
+            except (OSError, ValueError) as e:
+                item["error"] = str(e)
+        flows.append(item)
+    return {"backend": settings.h3_backend, "dir": settings.h3_comfy_workflow_dir, "workflows": flows}
 
 
 @router.get("/settings")
@@ -179,7 +200,10 @@ def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
     if body.paid and not _active("vast"):
         raise HTTPException(422, "MiniMax H3 sunucusu tanımlı değil: video H3 ile üretilir. Önce Ayarlar › MiniMax H3'ten "
-                                 "sunucu adresini ve erişim anahtarını girin.")
+                                 "vast.ai API anahtarını, makine kimliğini ve sunucu adresini girin.")
+    note = None
+    if not body.paid and not settings.dry_run and _active("vast") and int(settings.h3_idle_stop_minutes or 0) > 0:
+        note = _stop_box_before_free_mode()
     if body.paid:
         missing = [m for sid in SERVICES if _needed(sid)[0] for m in _missing(sid)]
         if missing:
@@ -189,7 +213,78 @@ def set_mode(body: ModeIn, s: Session = Depends(get_session)):
         result = rc.set_mode(body.paid, body.confirm, _busy(s) if body.paid else [])
     except rc.ConfigError as e:
         raise HTTPException(409 if "Üretim sürerken" in str(e) else 422, str(e))
-    return {**result, **state(s)}
+    return {**result, "vast_note": note, **state(s)}
+
+
+def _stop_box_before_free_mode() -> str | None:
+    """Ücretsiz moda dönerken (hâlâ ücretli moddayken) çalışan H3 makinesi durdurulur: ücretsiz modda hiçbir şey onu
+    kullanmaz ama vast.ai saatle faturalamaya devam ederdi. Başarısızlık mod değişimini engellemez."""
+    from app.live import vast_api                       # ücretli modül: yalnızca fonksiyon içinde
+    try:
+        if not vast_api.instance().running:
+            return None
+        vast_api.set_state("stopped")
+        return "vast.ai makinesi durduruldu (ücretsiz modda kullanılmaz)."
+    except Exception as e:                              # noqa: BLE001
+        return f"vast.ai makinesi durdurulamadı; vast.ai panelinden durdurun ({type(e).__name__})."
+
+
+class InstanceIn(BaseModel):
+    action: str = PField(pattern="^(start|stop)$")
+
+
+@router.post("/settings/vast/instance")
+def instance_action(body: InstanceIn):
+    """H3 makinesini başlatır ya da durdurur (yalnızca ücretli modda: vast.ai API'si ücretli kilitten geçer)."""
+    rc.refresh_if_changed()
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda makine başlatılıp durdurulamaz (vast.ai API'si ücretli kilitten geçer); "
+                                 "vast.ai panelini kullanın.")
+    from app.live import PaidCallBlocked, vast_api       # ücretli modül: yalnızca fonksiyon içinde
+    try:
+        vast_api.set_state("running" if body.action == "start" else "stopped")
+        box = vast_api.instance()
+    except PaidCallBlocked as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:                               # noqa: BLE001
+        raise HTTPException(502, f"vast.ai yanıt vermedi: {type(e).__name__}")
+    return {"status": box.status, "intended": box.intended, "geolocation": box.geolocation, "dph": box.dph}
+
+
+class WorkflowIn(BaseModel):
+    text: str = PField(min_length=2, max_length=2_000_000)
+
+
+@router.put("/settings/comfy/{kind}")
+def put_workflow(kind: str, body: WorkflowIn):
+    """ComfyUI iş akışını (Export (API) JSON'u, yer tutuculu) doğrular ve iş akışı klasörüne yazar."""
+    from app.live import vast_h3                         # iş akışı denetimi saf; ağ yok
+    try:
+        vast_h3.validate_workflow(kind, body.text)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    try:
+        os.makedirs(settings.h3_comfy_workflow_dir, exist_ok=True)
+        with open(vast_h3.workflow_path(kind), "w", encoding="utf-8") as f:
+            f.write(body.text)
+    except OSError as e:
+        raise HTTPException(422, f"İş akışı yazılamadı ({e.strerror}): {settings.h3_comfy_workflow_dir}")
+    try:
+        rc.bump([{"field": f"comfy/{kind}.json", "action": "set", "detail": f"ComfyUI iş akışı güncellendi: {kind}"}])
+    except Exception:                                     # Redis yoksa yalnızca kayıt eksik kalır
+        pass
+    return _comfy()
+
+
+@router.delete("/settings/comfy/{kind}")
+def delete_workflow(kind: str):
+    from app.live import vast_h3
+    if kind not in vast_h3.COMFY_KINDS:
+        raise HTTPException(404, "Bilinmeyen iş akışı")
+    path = vast_h3.workflow_path(kind)
+    if os.path.exists(path):
+        os.remove(path)
+    return _comfy()
 
 
 @router.get("/settings/pricing")

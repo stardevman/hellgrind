@@ -2,6 +2,7 @@
 import json
 from typing import Literal
 from collections import defaultdict
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
@@ -19,7 +20,9 @@ from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
 from app.core.hashing import grade_settings
+from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
+from app.engine.storyboard import clean_key
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
@@ -125,6 +128,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     ids = [sc.id for sc in scenes]
     cfg = project_settings(p.settings)
     variations, tracks, cast, items = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
+    refs = defaultdict(list)                          # sahne -> karakterlerin referans görselleri (Ref2VA seti)
     revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
@@ -138,12 +142,13 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         for t in s.scalars(select(AudioTrack).where(AudioTrack.scene_id.in_(ids), AudioTrack.is_active)
                            .order_by(AudioTrack.start_offset_s, AudioTrack.kind)):
             tracks[t.scene_id].append(t)
-        for scene_id, name, aid, status in s.execute(
-                select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status)
+        for scene_id, name, aid, status, images in s.execute(
+                select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status, Character.reference_images)
                 .join(Character, Character.id == SceneCharacter.character_id)
                 .outerjoin(Asset, Asset.id == Character.asset_id)
                 .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
             cast[scene_id].append(name)
+            refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or []))
             items[scene_id].append((str(aid) if aid else None, "character", name, status))
         for scene_id, aid, type_, name, status in s.execute(
                 select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status)
@@ -158,6 +163,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
+        "h3_mode": sc.h3_mode or "fl2va", "board_score": sc.board_score, "board_source": sc.board_source,
+        "keyframe_source": "upload" if sc.keyframe_key else ("board" if sc.board_key and sc.board_source else None),
+        "keyframe_url": _media(sc.keyframe_key or (clean_key(sc.board_key) if sc.board_key and sc.board_source else None)),
+        "h3_refs": [{"name": r["name"], "url": _media(r["key"])} for r in reference_set(refs[sc.id])],
         "guide_url": _media(sc.guide_key), "grade": grade_settings(sc.grade), "graded": bool(sc.graded_video_key),
         "lipsync_ready": bool(sc.lipsync_video_key),
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,

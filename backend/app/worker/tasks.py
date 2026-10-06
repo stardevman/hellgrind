@@ -7,6 +7,7 @@ import logging
 import traceback
 
 from app.budget import killswitch
+from app.config import settings
 from app.db import session_scope
 from app.models import Scene
 from app.worker.celery_app import celery
@@ -176,3 +177,12 @@ def watchdog():
 @celery.task(name="hg.reap_stale")
 def reap_stale():
     return killswitch.reap_stale_reservations()
+
+
+@celery.task(name="hg.h3_idle")
+def h3_idle():
+    """MiniMax H3 makinesi: boşta bekleme bedeli ve boşta durdurma (dakikada bir). Ücretsiz modda hiçbir şey yapmaz."""
+    if settings.dry_run or not settings.vast_instance_id:
+        return "skip"
+    from app.live import vast_box, vast_h3        # ücretli modüller: yalnızca fonksiyon içinde
+    return vast_box.idle_tick(queue_empty=vast_h3.queue_empty if settings.h3_endpoint_url else None)

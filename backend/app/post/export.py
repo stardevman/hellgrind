@@ -132,8 +132,10 @@ def _timeline_slices(placed: list[dict], kinds: tuple, clip: dict, work: str) ->
     return out
 
 
-def package(project_id: str, cut: dict, out_zip: str, work: str, curation_jsonl: str, continuity_jumps: set[str]) -> str:
-    """Çekim klasörleri ve üst düzey dosyalarla zip. Medya sıkıştırılmadan (ZIP_STORED) yazılır."""
+def package(project_id: str, cut: dict, out_zip: str, work: str, curation_jsonl: str, continuity_jumps: set[str],
+            notice: str | None = None) -> str:
+    """Çekim klasörleri ve üst düzey dosyalarla zip. Medya sıkıştırılmadan (ZIP_STORED) yazılır. notice: MiniMax H3
+    çıktısı içeren pakette lisans bildirimi (MINIMAX_H3.txt)."""
     from app.post.pipeline import ensure_bed_audio            # pipeline -> export döngüsünü önlemek için geç import
     with session_scope() as s:
         project = s.get(Project, project_id)
@@ -162,6 +164,8 @@ def package(project_id: str, cut: dict, out_zip: str, work: str, curation_jsonl:
         z.writestr("kesme_listesi.json", json.dumps(cut, ensure_ascii=False, indent=2))
         z.writestr("kurasyon.jsonl", curation_jsonl)
         z.writestr("BENIOKU.txt", README.format(title=title))
+        if notice:
+            z.writestr("MINIMAX_H3.txt", notice)
         for n, clip in enumerate(cut["clips"], start=1):
             sc, base = scenes[clip["scene_code"]], folder(n, clip["scene_code"])
             duration = clip["out_s"] - clip["in_s"]

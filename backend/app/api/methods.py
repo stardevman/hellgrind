@@ -58,6 +58,54 @@ def _apply_method(scene_id: str, method: str, **fields) -> dict:
     return {"method": method, **result}
 
 
+@router.post("/scenes/{scene_id}/keyframe")
+@curated("keyframe_upload")
+async def upload_keyframe(scene_id: SceneId, request: Request, filename: str = Query(..., min_length=1, max_length=200)):
+    """MiniMax H3 ilk karesi (ham gövde, ?filename=kare.png): storyboard karesinin yerine geçer; FL2VA ve Ref2VA videoları
+    bu kareden başlar (kompozisyon kareyle kontrol edilir). JPEG'e çevrilir; siyah ya da tek renk kare reddedilir.
+    Görsel özet değişir: uygulamak için sahne yeniden üretilir (kendiliğinden üretim başlamaz)."""
+    ext = extension(filename, IMAGE_EXTS, "İlk kare")
+    await run_in_threadpool(_ready, scene_id)
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        path = os.path.join(tmp, "upload" + ext)
+        await receive(request, path)
+
+        def store():
+            from PIL import Image, UnidentifiedImageError
+            from app.quality.anomaly import detect_frame_anomalies
+            jpg = os.path.join(tmp, "keyframe.jpg")
+            try:
+                with Image.open(path) as im:
+                    im.convert("RGB").save(jpg, "JPEG", quality=95)
+            except (UnidentifiedImageError, OSError):
+                raise HTTPException(422, "İlk kare okunamadı: PNG, JPEG ya da WebP yükleyin.")
+            anomalies = detect_frame_anomalies(jpg)
+            if anomalies:
+                found = ", ".join(sorted({a["type"] for a in anomalies}))
+                raise HTTPException(422, f"İlk kare kalite kontrolünden geçemedi ({found}).")
+            sha = sha_of(jpg)
+            key = f"keyframes/{scene_id}/{sha}.jpg"
+            if not storage.exists(key):
+                storage.put_file(jpg, key, "image/jpeg")
+            with session_scope() as s:
+                sc = s.get(Scene, scene_id)
+                sc.keyframe_key, sc.keyframe_hash = key, sha
+            return {"scene_id": scene_id, "keyframe_url": f"/api/media?key={key}",
+                    "hint": "İlk kare kaydedildi; uygulamak için sahneyi yeniden üret."}
+        return await run_in_threadpool(store)
+
+
+@router.delete("/scenes/{scene_id}/keyframe")
+@curated("keyframe_clear")
+def clear_keyframe(scene_id: SceneId, s: Session = Depends(get_session)):
+    """Yüklenen ilk kareyi kaldırır: video yeniden storyboard karesinden başlar."""
+    sc = scene_or_404(s, scene_id)
+    sc.keyframe_key = sc.keyframe_hash = None
+    s.commit()
+    return {"scene_id": scene_id, "hint": "Yüklenen ilk kare kaldırıldı; uygulamak için sahneyi yeniden üret."}
+
+
 @router.post("/scenes/{scene_id}/external")
 @curated("external_upload")
 async def upload_external(scene_id: SceneId, request: Request, filename: str = Query(..., min_length=1, max_length=200)):

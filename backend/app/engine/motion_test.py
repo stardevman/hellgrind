@@ -88,6 +88,7 @@ def run(project_id: str, variation_id: str) -> str:
                          extra={"emotion": "neutral", "camera": camera, "action": action,
                                 "lighting": v.params.get("lighting", ""),
                                 "characters": [asset.name] if asset.type == "character" else [],
+                                "project_id": project_id,
                                 "label": f"{asset.name} · hareket testi #{v.wave_no + 1}"})
         asset_id = str(asset.id)
         source = references.motion_source(asset.references or {})

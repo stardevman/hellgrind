@@ -176,6 +176,7 @@ def test_a_paid_storyboard_records_the_flux_request(sample_scene, studio, monkey
     from app.engine.storyboard import make_board
     pid, codes = sample_scene()
     go_paid(monkeypatch)
+    fake_scorer(monkeypatch)
     make_board(pid, codes["S001_SH01"], standalone=True)
     [row] = calls(pid)
     assert (row["service"], row["operation"], row["dry_run"], row["status"]) == ("fal", "storyboard", False, "succeeded")
@@ -389,10 +390,11 @@ def test_the_settings_page_separates_real_from_virtual_spend(api, api_project):
 
 
 
-def test_paid_h3_generation_records_each_job_with_its_gpu_time(sample_scene, h3, monkeypatch):
+def test_paid_h3_generation_records_each_job_with_its_gpu_time(sample_scene, h3, give_keyframe, monkeypatch):
     from app.engine.iteration import run_tiered_generation
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]
+    give_keyframe(sid)
     fake_scorer(monkeypatch)
     assert run_tiered_generation(pid, sid) == "refined"
     rows = [r for r in calls(pid) if r["scene_id"] == uuid.UUID(sid)]
@@ -404,4 +406,4 @@ def test_paid_h3_generation_records_each_job_with_its_gpu_time(sample_scene, h3,
     gpu = pricing.estimate_gpu("h3", h3.inference_time_s)
     assert all(float(r["amount_usd"]) == gpu for r in rows) and all(float(v.cost_usd) == gpu for v in made)
     steps = rows[0]["details"]["steps"]
-    assert steps[0]["task"] == "t2va" and steps[-1]["gpu_seconds"] == h3.inference_time_s
+    assert steps[0]["task"] == "fl2va" and steps[-1]["gpu_seconds"] == h3.inference_time_s       # ilk kareden

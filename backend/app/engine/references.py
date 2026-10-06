@@ -212,7 +212,7 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> t
     if asset.type == "character":
         provider = get_provider(DEFAULT_ENGINE)
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
-                         duration_s=TURNAROUND_S, extra=lora)
+                         duration_s=TURNAROUND_S, extra={**lora, "project_id": project_id})
         still = (asset.references or {}).get("still")
         if still:                                    # onaylı durağan görsel: dönüş o yüzden başlar
             with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:

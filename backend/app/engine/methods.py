@@ -230,7 +230,7 @@ def regenerate_from_frame(variation_id: str, frame: str, out: str) -> str:
         p = v.params or {}
         req = GenRequest(prompt=p.get("prompt", ""), negative=p.get("negative", ""), seed=v.seed,
                          resolution=p.get("resolution", "720p"), duration_s=float(p.get("duration_s") or sc.duration_s),
-                         image_url="(düzenlenmiş kare)")
+                         image_url="(düzenlenmiş kare)", extra={"project_id": project_id})
     provider = get_provider(engine)                     # ücretli modda: kilit burada, rezervasyondan önce
 
     def run():

@@ -3,14 +3,15 @@
 # DRY_RUN modunda da bu fiyatlar kullanılır; böylece Kill-Switch gerçekçi rakamlarla test edilir.
 
 # Kendi GPU sunucunuzda çalışan motorlar. vast.ai makineyi saatle faturalar: tahmin = saatlik ücret / 3600 × video
-# saniyesi başına GPU süresi × süre. Ücretli modda işlenen tutar, sunucunun her iş için bildirdiği GPU süresiyle
-# (inference_time_s) hesaplanır. Makinenin boşta geçen süresi bütçeye yansımaz: kullanmadığınızda vast.ai'de durdurun.
+# saniyesi başına GPU süresi × süre. Ücretli modda işlenen tutar, sunucunun her iş için bildirdiği GPU süresiyle hesaplanır;
+# makinenin boşta geçen süresi de (boşta bekleme, kuyruk boşken) aynı saatlik ücretle son etkin projeye yazılır.
 self_hosted:
-  h3:                 # MiniMax H3 (SGLang). Varsayılanlar tek RTX 5090 / 4090 sınıfı kart ve 20 adım içindir.
-    gpu_hourly_usd: 0.60      # kiraladığınız makinenin saatlik ücreti (vast.ai kartındaki $/hr); kendi makinenizle güncelleyin
-    render_seconds:           # bir video saniyesi için GPU saniyesi; ilk gerçek üretimden sonra servis geçmişindeki süreyle güncelleyin
-      "480p": 22              # SGLang tarifi: RTX 5090, 864x480, 5 sn, 20 adım: ~112 sn
-      "720p": 68              # 768p üretilir; RTX 4090 INT8, 1344x768, 4,5 sn, 20 adım: ~303 sn
+  h3:                 # MiniMax H3. Yönetmenin ölçümü (Ekim 2026): ComfyUI, tek RTX 5090, int8_convrot, Turbo 8 adım, 124 kare.
+    gpu_hourly_usd: 0.95      # vast.ai'deki 5090 makinesi 0,79-0,95 $/sa; bütçe tutucu olsun diye üst sınır
+    render_seconds:           # bir video saniyesi için GPU saniyesi (124 kare = 5,17 sn)
+      "480p": 8               # 864x480: 40,8 sn (model yüklemesi dahil)
+      "720p": 16.5            # 1280x704: 85 sn
+    keyframe_seconds: 10      # ComfyUI'de ilk kare (storyboard) iş akışının görsel başına GPU süresi; tahmini, ölçünce güncelleyin
 
 video_per_second:
   fal_wan:            # Wan 2.2 A14B image-to-video (yalnızca bu motorla açılmış eski çekimler)

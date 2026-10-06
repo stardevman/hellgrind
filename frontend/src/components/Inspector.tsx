@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
 import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
@@ -79,6 +79,60 @@ function Shot({ sc }: { sc: Scene }) {
           </button>
         )}
       </div>
+    </Section>
+  );
+}
+
+function H3({ sc }: { sc: Scene }) {
+  const { busy, frozen, act, note } = usePanel();
+  const pickMode = (h3_mode: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { h3_mode });
+    note("inspector", `${sc.scene_code}: ${H3_MODE_TR[h3_mode]}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+  }, "inspector");
+  const upload = (file: File) => act(async () => {
+    const r = await api.upload<{ hint: string }>(`/scenes/${sc.id}/keyframe?filename=${encodeURIComponent(file.name)}`, file);
+    note("inspector", r.hint, "ok");
+  }, "inspector");
+  const clear = () => act(async () => {
+    const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/keyframe`);
+    note("inspector", r.hint, "ok");
+  }, "inspector");
+  const source = sc.keyframe_source === "upload" ? "upload" : sc.board_source;
+  return (
+    <Section title="H3 koşulu" meta={sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"}>
+      <label className="field">Kompozisyon nereden gelsin
+        <select value={sc.h3_mode} disabled={busy || frozen} aria-label="H3 koşulu" onChange={(e) => pickMode(e.target.value)}>
+          {Object.entries(H3_MODE_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </label>
+      <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
+        {sc.keyframe_url
+          ? <img src={sc.keyframe_url} alt="İlk kare" style={{ width: 120, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 2 }} />
+          : <span className="faint small" style={{ width: 120 }}>İlk kare yok</span>}
+        <dl className="kv">
+          <dt>İlk kare</dt><dd>{source ? BOARD_SOURCE_TR[source] ?? source : "storyboard karesi bekleniyor"}</dd>
+          <dt>Skor</dt><dd className="mono">{sc.keyframe_source === "upload" ? "yönetmen" : sc.board_score != null ? sc.board_score.toFixed(3) : "—"}</dd>
+          <dt>Kare kararı</dt><dd>{sc.board_status === "changes_requested" ? <span className="warn">{sc.board_note || "değişiklik istendi"}</span> : sc.board_status === "approved" ? "onaylı" : "onay bekliyor"}</dd>
+        </dl>
+      </div>
+      <UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} />
+      {sc.keyframe_source === "upload" && <div className="row"><button className="btn ghost" type="button" disabled={busy} onClick={clear}>Yüklenen kareyi kaldır</button></div>}
+      {sc.h3_mode === "ref2va" && (
+        <>
+          <h4 className="small dim">Karakter referans seti ({sc.h3_refs.length}/9)</h4>
+          {sc.h3_refs.length ? (
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              {sc.h3_refs.map((r, i) => (
+                <figure key={`${r.name}-${i}`} style={{ margin: 0, textAlign: "center" }}>
+                  {r.url && <img src={r.url} alt={r.name} loading="lazy" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 2 }} />}
+                  <figcaption className="faint small">{r.name}</figcaption>
+                </figure>
+              ))}
+            </div>
+          ) : <p className="warn small">Çekimdeki karakterlerin referansı yok: Varlıklar'dan durağan görsel, ifade sayfası ya da dönüş videosu yükleyin.</p>}
+        </>
+      )}
     </Section>
   );
 }
@@ -374,6 +428,7 @@ export function Inspector({ className = "" }: { className?: string }) {
       <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
       <div className="pnl-b">
         <Shot sc={sc} />
+        {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
         <Pool sc={sc} />
         <Sound key={`s${sc.id}`} sc={sc} q={q} />
         {q && <SequenceBox q={q} />}

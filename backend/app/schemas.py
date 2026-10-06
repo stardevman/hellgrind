@@ -123,6 +123,7 @@ class ScenePatch(BaseModel):
     duration_s: float | None = Field(None, ge=2, le=10)
     prompt_spec: PromptSpecIn | None = None
     engine: Engine | None = None
+    h3_mode: Literal["fl2va", "ref2va"] | None = None
 
 
 class AudioIn(BaseModel):

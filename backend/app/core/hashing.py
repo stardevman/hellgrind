@@ -33,6 +33,9 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
 
     Yöntem (Faz 15): dış çekimin görüntüsünü yalnızca yüklenen dosya belirler (özeti, dosyanın içerik özetidir);
     previs rehberli çekimde rehber dosyanın özeti de girer.
+
+    MiniMax H3 koşulu: yönetmenin yüklediği ilk kare (özeti) ve Ref2VA seçimi yalnızca varsa girer; varsayılan FL2VA
+    (storyboard karesinden) özeti değiştirmez. Storyboard karesi zaten bu özetten türer.
     """
     method = getattr(scene, "method", None) or "generate"
     if method == "external":
@@ -52,6 +55,10 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
         payload["style"] = style_version
     if method == "previs_guide":
         payload["guide"] = scene.guide_hash
+    if getattr(scene, "keyframe_hash", None):
+        payload["keyframe"] = scene.keyframe_hash
+    if getattr(scene, "h3_mode", None) == "ref2va":
+        payload["h3_mode"] = "ref2va"
     return stable_hash(payload)
 
 
