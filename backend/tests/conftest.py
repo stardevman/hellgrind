@@ -284,8 +284,27 @@ def paid(monkeypatch, no_network):
     kalır, genel internete bağlantı yasaktır (no_network) ve ücretli sağlayıcı çağrıları testlerde sahtedir: gerçek servise
     hiçbir istek gitmez."""
     monkeypatch.setattr(settings, "dry_run", False)
-    for name in ("fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for name in ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, name, f"test-{name}")
+
+
+@pytest.fixture
+def h3(monkeypatch, tmp_path, paid):
+    """Ücretli mod + sahte MiniMax H3 sunucusu (httpx MockTransport; ağa çıkılmaz). Sunucu 4 sn'lik gerçek bir test
+    videosu döndürür ve her iş için 42 sn GPU süresi bildirir."""
+    from app.live import vast_h3
+    from tests.h3_fake import FakeH3
+    from tests.media_utils import make_video
+    video = make_video(tmp_path / "h3_source.mp4", seconds=4.0, size="320x180", fps=24)
+    fake = FakeH3(pathlib.Path(video).read_bytes())
+    monkeypatch.setattr(vast_h3, "TRANSPORT", fake.transport())
+    monkeypatch.setattr(vast_h3, "POLL_S", 0)
+    monkeypatch.setattr(vast_h3, "RETRY_BASE_S", 0)
+    monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
+    monkeypatch.setattr(settings, "h3_ref_endpoint_url", "")
+    monkeypatch.setattr(settings, "work_dir", str(tmp_path / "work"))
+    vast_h3._reference_uris.clear()
+    return fake
 
 
 @pytest.fixture

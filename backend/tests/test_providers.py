@@ -25,20 +25,20 @@ def request(seed=1, resolution="480p", duration=3.0, **extra):
 
 # ---------- yönlendirme ----------
 
-@pytest.mark.parametrize("complexity,engine", [(0.0, "fal_wan"), (0.3, "fal_wan"), (0.69, "fal_wan"),
-                                               (0.7, "seedance"), (0.8, "seedance"), (1.0, "seedance"),
-                                               (None, "fal_wan")])
-def test_route_engine_sends_high_action_to_seedance(complexity, engine):
-    assert route_engine(NS(action_complexity=complexity)) == engine
+@pytest.mark.parametrize("complexity", [0.0, 0.3, 0.69, 0.7, 0.8, 1.0, None])
+def test_every_new_shot_goes_to_minimax_h3_whatever_its_action(complexity):
+    assert route_engine(NS(action_complexity=complexity)) == "h3"
 
 
-def test_route_engine_ignores_an_engine_stored_on_the_scene():
-    assert route_engine(NS(action_complexity=0.9, engine="fal_wan")) == "seedance"
+@pytest.mark.parametrize("stored,routed", [(None, "h3"), ("h3", "h3"), ("seedance", "seedance"), ("fal_wan", "h3"),
+                                           ("higgsfield", "h3")])
+def test_only_a_seedance_chosen_by_the_director_survives_rerouting(stored, routed):
+    assert route_engine(NS(action_complexity=0.9, engine=stored)) == routed
 
 
 # ---------- get_provider ----------
 
-@pytest.mark.parametrize("engine", ["fal_wan", "seedance", "higgsfield"])
+@pytest.mark.parametrize("engine", ["h3", "fal_wan", "seedance", "higgsfield"])
 def test_free_mode_always_returns_the_local_provider(monkeypatch, engine):
     monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "fal_key", "gerçek-görünümlü-anahtar")     # anahtar tanımlı olsa bile
@@ -62,7 +62,20 @@ def test_unknown_resolution_is_priced_at_the_engines_most_expensive_rate():
 
 def test_generate_reports_the_estimate_as_its_cost(small):
     result = LocalProvider("seedance").generate(request(resolution="720p", duration=3.0))
-    assert result.cost_usd == pytest.approx(0.726) and result.engine == "seedance"
+    assert result.cost_usd == pytest.approx(0.968) and result.engine == "seedance"     # Seedance en az 4 sn üretir
+
+
+@pytest.mark.parametrize("engine,seconds,billed", [("h3", 3.0, 4.0), ("h3", 4.2, 5.0), ("h3", 20.0, 20.0),
+                                                   ("seedance", 2.0, 4.0), ("fal_wan", 3.0, 3.0)])
+def test_engines_with_a_minimum_length_are_billed_for_what_they_render(engine, seconds, billed):
+    assert providers.billed_seconds(engine, seconds) == billed
+
+
+def test_h3_is_priced_by_gpu_time_on_the_rented_machine():
+    hosted = pricing.self_hosted("h3")
+    per_video_second = hosted["gpu_hourly_usd"] / 3600 * hosted["render_seconds"]["720p"]
+    assert LocalProvider("h3").estimate(request(resolution="720p", duration=6.0)) == pytest.approx(round(per_video_second * 6, 4))
+    assert pricing.estimate_gpu("h3", 3600) == hosted["gpu_hourly_usd"]
 
 
 # ---------- üretim ----------

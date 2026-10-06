@@ -167,13 +167,13 @@ export interface DispatchAll {
 /* ---------- ayarlar (ücretli servisler) ---------- */
 
 export interface ServiceField {
-  env: string; label: string; kind: "secret" | "model" | "choice";
+  env: string; label: string; kind: "secret" | "model" | "url" | "choice";
   set?: boolean; masked?: string | null;                                  // secret
-  value?: string; default?: string; choices?: string[]; url?: string | null;   // model, choice
+  value?: string; default?: string; choices?: string[]; url?: string | null;   // model, url, choice
 }
 
 export interface Service {
-  id: "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
+  id: "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean;
   /** Gerçek harcama; sanal (ücretsiz mod) ve modu bilinmeyen ayrı. */
   spent_usd: number; virtual_usd: number; unknown_usd: number;
@@ -189,7 +189,11 @@ export interface SettingsState {
   translator?: { ready: boolean; message: string };
 }
 
+/** Kendi GPU sunucusunda çalışan motor (vast.ai'de MiniMax H3): saatlik ücret ve video saniyesi başına GPU saniyesi. */
+export interface SelfHosted { gpu_hourly_usd: number; render_seconds: Record<string, number> }
+
 export interface PricingTable {
+  self_hosted?: Record<string, SelfHosted>;
   video_per_second: Record<string, Record<string, number>>;
   image_per_megapixel: Record<string, number>;
   image_per_image?: Record<string, number>;

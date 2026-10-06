@@ -1,6 +1,10 @@
 """ÜCRETLİ video üretimi ve dudak senkronu (fal.ai). Bu modül hiçbir yerde çalıştırılmadı.
 
-Akış: Flux LoRA ile ilk kare, sonra bu kareden Wan 2.2 ya da Seedance ile video. Önce görsel, sonra video: iterasyon
+Varsayılan video motoru MiniMax H3'tür (app/live/vast_h3.py, yönetmenin kendi GPU sunucusu). fal.ai isteğe bağlıdır:
+yönetmenin Seedance seçtiği çekimler, eski Wan çekimleri, Flux storyboard ve referans kareleri, previs aktarımı ve dudak
+senkronu.
+
+Akış: Flux LoRA ile ilk kare, sonra bu kareden Seedance (ya da eski çekimlerde Wan 2.2) ile video. Önce görsel, sonra video: iterasyon
 ilk kareyi `first_frame()` ile ayrı üretip puanlar; video yalnızca eşiği geçen kareden (`image_url`) üretilir.
 Her giriş noktası önce `guard("fal_key")` çağırır (DRY_RUN=1 ya da boş anahtar: PaidCallBlocked); `fal_client` yalnızca
 fonksiyon içinde yüklenir.
@@ -277,6 +281,7 @@ class FalProvider:
     kareyi `first_frame(req)` ile ayrı üretip puanlar, videoyu yalnızca geçen kareden ister."""
 
     image_first = True
+    key_name = "fal_key"
 
     def __init__(self, engine: str):
         if engine not in ("fal_wan", "seedance"):

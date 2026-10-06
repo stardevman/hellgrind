@@ -73,8 +73,15 @@ export const PURGE_TR: Record<string, string> = {
   interrupted: "Yarıda kesildi", frozen: "Üretim durdurulunca kesildi", failed: "Üretilemedi", unknown: "Nedeni kayıtsız",
 };
 
+/** Video motorları: panelde görünen ad ve nerede çalıştığı. */
+export const ENGINE_TR: Record<string, string> = {
+  h3: "MiniMax H3 · vast.ai", seedance: "Seedance · fal.ai", fal_wan: "Wan 2.2 · fal.ai (eski)", higgsfield: "Higgsfield",
+};
+/** Yönetmenin çekim başına seçebildiği motorlar (ilki varsayılan). */
+export const ENGINE_CHOICES = ["h3", "seedance"] as const;
+
 export const KIND_TR: Record<string, string> = {
-  fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
+  h3: "MiniMax H3", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
   v2v: "Previs aktarımı", fal: "Dudak senkronu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)",
 };
 
@@ -87,11 +94,12 @@ export const GRADE_FIELDS = ["exposure", "contrast", "saturation", "gamma", "tem
 export const CALL_MODE_TR: Record<string, string> = { real: "Gerçek", virtual: "Sanal", unknown: "Bilinmiyor" };
 export const CALL_STATUS_TR: Record<string, string> = { running: "Sürüyor", succeeded: "Başarılı", failed: "Başarısız" };
 export const TIER_TR: Record<string, string> = { probe: "Test turu", full: "Tam tur" };
-/** Sağlayıcıya giden isteğin kayda geçen parametreleri (app/live: fal_video.NOTED_ARGUMENTS, elevenlabs, hermes_llm). */
+/** Sağlayıcıya giden isteğin kayda geçen parametreleri (app/live: vast_h3, fal_video.NOTED_ARGUMENTS, elevenlabs, hermes_llm). */
 export const STEP_TR: Record<string, string> = {
   resolution: "Çözünürlük", num_frames: "Kare sayısı", frames_per_second: "Kare hızı", duration: "Süre (sn)",
   image_size: "Görsel boyutu", num_images: "Görsel sayısı", seed: "Tohum", strength: "Rehbere bağlılık", sync_mode: "Senkron modu",
   aspect_ratio: "En-boy oranı", generate_audio: "Yerleşik ses", loras: "LoRA", characters: "Karakter sayısı", voice_id: "Ses kimliği",
   emotion: "Duygu", voice: "Ses ayarları", http_status: "HTTP durumu", input_tokens: "Girdi belirteci",
-  output_tokens: "Çıktı belirteci", reused: "Önceki denemeden",
+  output_tokens: "Çıktı belirteci", reused: "Önceki denemeden", steps: "Adım sayısı", references: "Referans görsel", task: "Görev",
+  negative_dropped: "Negatif istem gönderilmedi", gpu_seconds: "GPU süresi (sn)",
 };

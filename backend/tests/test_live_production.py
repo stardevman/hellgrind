@@ -1,4 +1,6 @@
-"""ÜCRETLİ üretim yolları (Faz 18), sahte fal ile ama gerçek veritabanı, nesne deposu ve FFmpeg ile.
+"""ÜCRETLİ üretim yolları (Faz 18), sahte fal ve sahte MiniMax H3 sunucusuyla ama gerçek veritabanı, nesne deposu ve
+FFmpeg ile. Varsayılan motor H3'tür (kendi GPU sunucumuz); fal yolunu (önce görsel: Flux karesi, sonra video) sınayan
+testler çekimi Seedance'e alır (`use_fal`): yönetmenin Seedance seçtiği çekimler bu yoldan geçer.
 
 Sahte fal gerçek medya döndürür: Flux kareleri gerçek görseldir (istenen sayıda kare bilerek siyahtır), videolar
 prosedürel motorla çizilir. Hiçbir test gerçek servise istek göndermez (`no_network`); kilit yalnızca bellekteki ayar
@@ -95,6 +97,13 @@ def studio(monkeypatch, tmp_path, no_network):
     return fake
 
 
+def use_fal(*sids, engine="seedance"):
+    """Çekimi fal.ai yoluna alır, yönetmenin panelde Seedance seçmesi gibi."""
+    with session_scope() as s:
+        for sid in sids:
+            s.get(Scene, sid).engine = engine
+
+
 def go_paid(monkeypatch):
     """Kilidi yalnızca bellekte açar (ortam DRY_RUN=1 kalır); `studio` genel internete bağlantıyı zaten yasaklar."""
     monkeypatch.setattr(settings, "dry_run", False)
@@ -145,6 +154,7 @@ def composed_for(pid, sid):
 def test_paid_generation_judges_each_first_frame_before_paying_for_its_video(sample_scene, studio, monkeypatch):
     pid, codes = sample_scene(probe_n=4, full_n=4, wave_size=4, refined_k=2, max_correction_rounds=0)
     sid = codes["S001_SH01"]
+    use_fal(sid)
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     studio.black_frames = 2
@@ -179,6 +189,7 @@ def test_a_video_that_keeps_failing_returns_its_reservations_but_keeps_the_paid_
     from tests.fal_fake import HTTPError
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]
+    use_fal(sid)
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     studio.behaviour[fal_video.WAN] = studio.behaviour[fal_video.SEEDANCE] = lambda args: HTTPError(503)
@@ -210,6 +221,7 @@ def test_with_the_real_scorer_noise_frames_are_rejected_before_any_video_is_paid
         pytest.skip(f"gerçek skorlayıcı yok: {scorer.unavailable()}")
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]
+    use_fal(sid)
     go_paid(monkeypatch)                                          # QUALITY_SCORER=auto: ücretli modda gerçek skor
     assert run_tiered_generation(pid, sid) == "needs_review"     # sahte fal'ın kareleri gürültü
     rows = variations(sid)
@@ -237,13 +249,12 @@ def test_the_paid_storyboard_frame_is_one_flux_image_of_the_composed_prompt(samp
     assert len(studio.calls) == 1
 
 
-def test_a_blocked_storyboard_leaves_no_trace_in_the_ledger(sample_scene, studio, monkeypatch):
+def test_without_a_fal_key_the_paid_storyboard_is_drawn_locally_for_free(sample_scene, studio, monkeypatch):
     pid, codes = sample_scene()
     go_paid(monkeypatch)
-    monkeypatch.setattr(settings, "fal_key", "")
-    with pytest.raises(PaidCallBlocked, match="FAL_KEY"):
-        make_board(pid, codes["S001_SH01"], standalone=True)
-    assert studio.calls == [] and ledger(pid) == []
+    monkeypatch.setattr(settings, "fal_key", "")                 # yalnızca MiniMax H3: fal.ai isteğe bağlı
+    key = make_board(pid, codes["S001_SH01"], standalone=True)
+    assert storage.exists(key) and studio.calls == [] and ledger(pid) == []
 
 
 # ---------- previs rehberi ----------
@@ -280,19 +291,30 @@ def asset_named(pid, name):
         return a
 
 
-def test_a_paid_character_reference_is_a_turnaround_from_a_flux_frame(api, sample_scene, studio, monkeypatch):
+def test_a_paid_character_reference_is_an_h3_turnaround(api, sample_scene, studio, h3, monkeypatch):
     pid, _ = sample_scene()
     kerem = asset_named(pid, "Kerem")
-    go_paid(monkeypatch)
     r = api.post(f"/api/assets/{kerem.id}/references/placeholder")
     assert r.status_code == 201, r.text
-    assert [app for app, _, _ in studio.calls] == [fal_video.FLUX, fal_video.WAN]
-    flux, wan = studio.calls[0][1], studio.calls[1][1]
-    assert "orbits 360 degrees" in flux["prompt"] and wan["image_url"] == f"https://fal.test/frame/{flux['seed']}.jpg"
-    assert (wan["resolution"], wan["num_frames"]) == ("480p", 64)
-    assert commits(pid, "fal_wan:480p:reference") == [references.reference_estimate("character")[1]]
+    assert studio.calls == []                                                          # fal.ai çağrılmadı
+    (job,) = h3.submits
+    assert job["task"] == "t2va" and "orbits 360 degrees" in job["prompt"]
+    assert (job["target"]["short_edge"], job["seconds"]) == (480, 4)
+    assert commits(pid, "h3:480p:reference") == [pricing.estimate_gpu("h3", h3.inference_time_s)]   # ölçülen GPU süresi
     turnaround = asset_named(pid, "Kerem").references["turnaround"]
     assert len(turnaround["frames"]) == references.SAMPLE_FRAMES and turnaround["key"].endswith(".mp4")
+
+
+def test_a_character_with_a_still_turns_around_from_that_still(api, sample_scene, h3, monkeypatch, tmp_path):
+    pid, _ = sample_scene()
+    kerem = asset_named(pid, "Kerem")
+    still = tmp_path / "still.png"
+    Image.new("RGB", (320, 180), (30, 140, 200)).save(still)
+    assert api.post(f"/api/assets/{kerem.id}/references?kind=still&filename=still.png", content=still.read_bytes()).status_code == 201
+    assert api.post(f"/api/assets/{kerem.id}/references/placeholder").status_code == 201
+    (job,) = h3.submits
+    assert job["task"] == "fl2va" and job["conditions"][0]["role"] == "keyframe"
+    assert job["conditions"][0]["uri"].startswith("data:image/jpeg;base64,")
 
 
 def test_a_paid_location_reference_is_a_single_flux_still(api, sample_scene, studio, monkeypatch):
@@ -307,28 +329,28 @@ def test_a_paid_location_reference_is_a_single_flux_still(api, sample_scene, stu
 
 def test_a_blocked_paid_reference_answers_409_and_spends_nothing(api, sample_scene, studio, monkeypatch):
     pid, _ = sample_scene()
-    go_paid(monkeypatch)
-    monkeypatch.setattr(settings, "fal_key", "")
+    go_paid(monkeypatch)                                          # H3 anahtarı yok: karakter dönüşü üretilemez
     r = api.post(f"/api/assets/{asset_named(pid, 'Kerem').id}/references/placeholder")
+    assert r.status_code == 409 and "H3_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
+    monkeypatch.setattr(settings, "fal_key", "")                 # mekân görseli Flux'tan: fal anahtarı gerekir
+    r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder")
     assert r.status_code == 409 and "FAL_KEY" in r.text and studio.calls == [] and ledger(pid) == []
 
 
-def test_a_paid_motion_test_starts_from_the_approved_reference(api, sample_scene, studio, monkeypatch):
+def test_a_paid_motion_test_starts_from_the_approved_reference(api, sample_scene, studio, h3, monkeypatch):
     pid, _ = sample_scene()
     place = asset_named(pid, "Çöken Köprü")
+    monkeypatch.setattr(settings, "dry_run", True)
     assert api.post(f"/api/assets/{place.id}/references/placeholder").status_code == 201        # ücretsiz taslak
-    go_paid(monkeypatch)
+    monkeypatch.setattr(settings, "dry_run", False)
     with session_scope() as s:
         a = s.get(Asset, place.id)
         vid = str(motion_test.create(s, a, project_settings(s.get(Project, pid).settings)).id)
     assert motion_test.run(pid, vid) == "passed"
-    assert [app for app, _, _ in studio.calls] == [fal_video.WAN]                                # Flux çağrılmadı
-    assert studio.calls[0][1]["image_url"] == "https://fal.test/upload/1" and len(studio.uploads) == 1
-    with session_scope() as s:
-        v = s.get(Variation, vid)
-        video_only = fal_video.FalProvider("fal_wan").estimate(SimpleNamespace(
-            image_url="x", resolution=v.params["resolution"], duration_s=v.params["duration_s"]))
-    assert commits(pid, "fal_wan:") == [video_only]
+    assert studio.calls == []                                                                    # Flux çağrılmadı
+    (job,) = h3.submits                                                                          # onaylı görselden başlar
+    assert job["task"] == "fl2va" and job["conditions"][0]["uri"].startswith("data:image/jpeg;base64,")
+    assert commits(pid, "h3:") == [pricing.estimate_gpu("h3", h3.inference_time_s)]
 
 
 # ---------- elle düzeltme: düzenlenmiş ilk kare ----------
@@ -337,6 +359,7 @@ def test_a_paid_first_frame_revision_regenerates_the_clip_from_the_edited_frame(
                                                                                tmp_path):
     pid, codes = sample_scene()
     sid = codes["S001_SH01"]
+    use_fal(sid)
     assert run_tiered_generation(pid, sid) == "refined"                    # ücretsiz modda üretildi
     winner = next(v for v in variations(sid) if v.refined_rank == 1)
     monkeypatch.setattr("app.api.plan.build_chain", lambda *a, **k: SimpleNamespace(apply_async=lambda: None))
@@ -376,3 +399,22 @@ def test_a_paid_first_frame_revision_without_a_key_answers_409(api, sample_scene
     assert r.status_code == 409 and studio.calls == [] and len(ledger(pid)) == spent
     with session_scope() as s:
         assert s.scalar(select(Revision).where(Revision.variation_id == winner.id)) is None
+
+
+def test_a_paid_first_frame_revision_of_an_h3_clip_is_an_fl2va_job(api, sample_scene, h3, monkeypatch, tmp_path):
+    pid, codes = sample_scene()
+    sid = codes["S001_SH01"]
+    monkeypatch.setattr(settings, "dry_run", True)
+    assert run_tiered_generation(pid, sid) == "refined"                    # ücretsiz modda, H3 motoruyla
+    monkeypatch.setattr(settings, "dry_run", False)
+    winner = next(v for v in variations(sid) if v.refined_rank == 1)
+    assert winner.engine == "h3"
+    monkeypatch.setattr("app.api.plan.build_chain", lambda *a, **k: SimpleNamespace(apply_async=lambda: None))
+    still = tmp_path / "f.png"
+    Image.new("RGB", (160, 90), (240, 20, 20)).save(still)
+    r = api.post(f"/api/variations/{winner.id}/revisions?kind=first_frame&filename=f.png", content=still.read_bytes(),
+                 headers={"content-type": "image/png"})
+    assert r.status_code == 201, r.text
+    (job,) = h3.submits
+    assert job["task"] == "fl2va" and job["prompt"] == winner.params["prompt"] and job["seed"] == winner.seed
+    assert commits(pid, f"h3:{winner.params['resolution']}:revision") == [pricing.estimate_gpu("h3", h3.inference_time_s)]

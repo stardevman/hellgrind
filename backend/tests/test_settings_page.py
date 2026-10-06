@@ -20,11 +20,16 @@ ENV = """# Ücretsiz aşama
 DATABASE_URL=postgresql+psycopg://hg:hg@postgres:5432/hellgrind
 DRY_RUN=1
 # Ücretli entegrasyonlar
+H3_API_KEY=
+H3_ENDPOINT_URL=
 FAL_KEY=
 ANTHROPIC_API_KEY=
 ELEVENLABS_API_KEY=
 """
 SECRET = "fal-key-1234567890abcdWXYZ"
+H3_SECRET = "vast-token-0987654321zyxQRST"
+# Ücretli moda geçmek için gereken tek servis: MiniMax H3 sunucusu (fal.ai isteğe bağlıdır)
+H3_ENV = ENV.replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}").replace("H3_ENDPOINT_URL=", "H3_ENDPOINT_URL=https://h3.test")
 
 
 @pytest.fixture
@@ -51,9 +56,9 @@ def cfg(tmp_path, monkeypatch, api):
 def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(api, cfg):
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))          # süreç ayarları dosyadan tazelenir
     body = api.get("/api/settings").json()
-    assert [s["id"] for s in body["services"]] == ["fal", "elevenlabs", "anthropic"]
+    assert [s["id"] for s in body["services"]] == ["vast", "fal", "elevenlabs", "anthropic"]
     assert body["dry_run"] is True and body["editable"] is True and body["confirmation"] == rc.PAID_CONFIRMATION
-    fal = body["services"][0]
+    fal = body["services"][1]
     key = next(f for f in fal["fields"] if f["env"] == "FAL_KEY")
     assert key == {"env": "FAL_KEY", "label": "API anahtarı", "kind": "secret", "set": True, "masked": "••••WXYZ"}
     endpoints = {f["env"]: f for f in fal["fields"] if f["kind"] == "model"}
@@ -64,13 +69,25 @@ def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(a
     assert SECRET not in json.dumps(body)
 
 
-def test_only_fal_is_needed_with_the_default_engines(api, cfg):
-    """Konuşma motoru espeak ve Hermes kural tabanlıyken yalnızca fal.ai anahtarı gerekir."""
+def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg):
+    cfg.write_text(H3_ENV)
+    vast = api.get("/api/settings").json()["services"][0]
+    assert vast["name"] == "MiniMax H3 · vast.ai" and vast["console"] == "https://cloud.vast.ai/instances/"
+    fields = {f["env"]: f for f in vast["fields"]}
+    assert fields["H3_API_KEY"] == {"env": "H3_API_KEY", "label": "Erişim anahtarı", "kind": "secret", "set": True, "masked": "••••QRST"}
+    assert fields["H3_ENDPOINT_URL"]["kind"] == "url" and fields["H3_ENDPOINT_URL"]["value"] == "https://h3.test"
+    assert fields["H3_REF_ENDPOINT_URL"]["value"] == "" and fields["H3_MODEL"]["url"] == "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+    assert fields["H3_STEPS"]["kind"] == "choice" and fields["H3_STEPS"]["value"] == fields["H3_STEPS"]["default"] == "20"
+    assert vast["active"] is True and H3_SECRET not in api.get("/api/settings").text
+
+
+def test_only_the_h3_server_is_needed_with_the_default_engines(api, cfg):
+    """Konuşma motoru espeak ve Hermes kural tabanlıyken yalnızca MiniMax H3 sunucusu gerekir; fal.ai isteğe bağlıdır."""
     body = api.get("/api/settings").json()
     needed = {s["id"]: s["needed"] for s in body["services"]}
-    assert needed == {"fal": True, "elevenlabs": False, "anthropic": False}
-    assert "espeak" in body["services"][1]["not_needed_reason"]
-    api.patch("/api/settings", json={"values": {"TTS_ENGINE": "elevenlabs", "HERMES_MODE": "llm"}})
+    assert needed == {"vast": True, "fal": False, "elevenlabs": False, "anthropic": False}
+    assert "isteğe bağlı" in body["services"][1]["not_needed_reason"] and "espeak" in body["services"][2]["not_needed_reason"]
+    api.patch("/api/settings", json={"values": {"FAL_KEY": SECRET, "TTS_ENGINE": "elevenlabs", "HERMES_MODE": "llm"}})
     assert all(s["needed"] for s in api.get("/api/settings").json()["services"])
     assert set(body["scorer"]) == {"ready", "message"}
 
@@ -103,6 +120,9 @@ def test_clearing_a_key_empties_it(api, cfg):
     ({"FAL_KEY": "short"}, "anahtar"),
     ({"FAL_WAN_ENDPOINT": "fal-ai/wan\nDRY_RUN=0"}, "model"),           # satır enjeksiyonu
     ({"HERMES_MODE": "magic"}, "rules, llm"),
+    ({"H3_ENDPOINT_URL": "ftp://1.2.3.4"}, "sunucu adresi"),
+    ({"H3_ENDPOINT_URL": "https://h3.test\nDRY_RUN=0"}, "sunucu adresi"),         # satır enjeksiyonu
+    ({"H3_STEPS": "7"}, "50, 30, 20, 9, 5"),
 ])
 def test_rejects_anything_outside_the_whitelist_or_malformed(api, cfg, values, needle):
     r = api.patch("/api/settings", json={"values": values})
@@ -127,14 +147,26 @@ def test_other_processes_pick_up_a_change_and_only_whitelisted_keys(cfg):
 
 # ---------- mod ----------
 
-def test_paid_mode_needs_a_fal_key(api, cfg):
+def test_a_server_address_is_saved_without_a_trailing_slash_and_can_be_cleared(api, cfg):
+    r = api.patch("/api/settings", json={"values": {"H3_ENDPOINT_URL": "http://203.0.113.7:40123/"}})
+    assert r.status_code == 200 and settings.h3_endpoint_url == "http://203.0.113.7:40123"
+    assert "\nH3_ENDPOINT_URL=http://203.0.113.7:40123\n" in cfg.read_text()
+    api.patch("/api/settings", json={"values": {"H3_ENDPOINT_URL": ""}})
+    assert settings.h3_endpoint_url == ""
+
+
+def test_paid_mode_needs_the_h3_server_not_a_fal_key(api, cfg):
+    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))       # fal anahtarı tek başına yetmez
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
-    assert r.status_code == 422 and "fal.ai anahtarı" in r.json()["detail"] and settings.dry_run is True
+    assert r.status_code == 422 and "MiniMax H3 sunucusu" in r.json()["detail"] and settings.dry_run is True
+    cfg.write_text(ENV.replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}"))   # adres olmadan da yetmez
+    r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
+    assert r.status_code == 422 and settings.dry_run is True
 
 
 def test_paid_mode_needs_the_paid_packages(api, cfg, monkeypatch):
     from app import live
-    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
+    cfg.write_text(H3_ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))      # fal anahtarı varsa paketi de gerekir
     monkeypatch.setattr(live, "missing_packages", lambda service: ["fal_client"] if service == "fal" else [])
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 422 and "fal_client" in r.json()["detail"] and settings.dry_run is True
@@ -154,7 +186,7 @@ def test_missing_paid_package_is_a_clear_blocked_call_not_an_import_error(monkey
 
 
 def test_paid_mode_needs_the_exact_confirmation(api, cfg):
-    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
+    cfg.write_text(H3_ENV)
     for confirm in (None, "evet", "ücretli mod"):
         r = api.post("/api/settings/mode", json={"paid": True, "confirm": confirm})
         assert r.status_code == 422 and rc.PAID_CONFIRMATION in r.json()["detail"]
@@ -163,7 +195,7 @@ def test_paid_mode_needs_the_exact_confirmation(api, cfg):
 
 def test_paid_mode_is_refused_while_production_runs(api, cfg, monkeypatch):
     from app.api import services
-    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
+    cfg.write_text(H3_ENV)
     monkeypatch.setattr(services, "_busy", lambda s: ["Film S001_SH01"])
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
     assert r.status_code == 409 and "S001_SH01" in r.json()["detail"] and settings.dry_run is True
@@ -171,7 +203,7 @@ def test_paid_mode_is_refused_while_production_runs(api, cfg, monkeypatch):
 
 def test_switching_to_paid_and_back_is_written_and_logged(api, cfg, monkeypatch):
     from app.api import services
-    cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))
+    cfg.write_text(H3_ENV)                                              # fal.ai anahtarı olmadan da
     monkeypatch.setattr(services, "_busy", lambda s: [])
     try:
         r = api.post("/api/settings/mode", json={"paid": True, "confirm": "Ücretli Moda Geç"})   # büyük/küçük harf duyarsız
@@ -209,6 +241,9 @@ def test_pricing_is_read_and_saved_with_comments_and_used_at_once(api, cfg, pric
     (lambda t: t.replace("  seedance:", "  seedanc:"), "video_per_second.seedance eksik"),
     (lambda t: t + "\n: : :\n", "YAML okunamadı"),
     (lambda t: t.replace("lipsync_per_minute: 5.0", "lipsync_per_minute: bedava"), "lipsync_per_minute"),
+    (lambda t: t.replace("self_hosted:\n  h3:", "self_hosted:\n  h4:"), "self_hosted.h3 eksik"),
+    (lambda t: t.replace("gpu_hourly_usd: 0.60", "gpu_hourly_usd: 0"), "self_hosted.h3.gpu_hourly_usd"),
+    (lambda t: t.replace('"480p": 22 ', '"480p": -5 '), "self_hosted.h3.render_seconds.480p"),
 ])
 def test_invalid_pricing_is_refused_and_the_file_is_kept(api, cfg, prices, mutate, needle):
     before = prices.read_text()
@@ -251,3 +286,16 @@ def test_connection_check_without_a_key_makes_no_request(api, cfg):
     settings.fal_key = ""
     assert api.post("/api/settings/test/fal").json()["ok"] is False
     assert api.post("/api/settings/test/nope").status_code == 404
+
+
+def test_the_h3_connection_check_goes_to_the_servers_health_endpoint(api, cfg, monkeypatch):
+    from app.live import probe
+    seen = []
+    assert api.post("/api/settings/test/vast").json() == {"ok": False, "status": None, "message": "Anahtar tanımlı değil."}
+    cfg.write_text(H3_ENV)
+    rc._redis().incr(rc.VERSION_KEY)                                     # panel kaydetmiş gibi: süreç dosyayı yeniden okur
+    real, fake = probe.check, transport(200, seen)
+    monkeypatch.setattr(probe, "check", lambda service, key, transport=None: real(service, key, fake))
+    r = api.post("/api/settings/test/vast").json()
+    assert r["ok"] is True and [(q.method, str(q.url)) for q in seen] == [("GET", "https://h3.test/health")]
+    assert seen[0].headers["authorization"] == f"Bearer {H3_SECRET}"

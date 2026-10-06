@@ -1,8 +1,10 @@
 """Video üretim sağlayıcıları.
 
 DRY_RUN=1 (varsayılan): LocalProvider, ücretsiz prosedürel render; hiçbir dış servise gitmez.
-DRY_RUN=0: app/live/fal_video.py içindeki ücretli sağlayıcı, yalnızca açık onayla.
+DRY_RUN=0, yalnızca açık onayla: MiniMax H3 yönetmenin kendi GPU sunucusunda (app/live/vast_h3.py, ör. vast.ai);
+yönetmenin seçtiği çekimlerde Seedance ve eski Wan çekimleri fal.ai'de (app/live/fal_video.py).
 """
+import math
 import os
 import random
 import uuid
@@ -14,7 +16,16 @@ from app.engine.procedural import render_clip, render_defect
 
 RESOLUTIONS = {"480p": (854, 480), "580p": (1032, 580), "720p": (1280, 720), "1080p": (1920, 1080)}
 DEFAULT_SIZE = RESOLUTIONS["720p"]
-HIGH_ACTION = 0.7
+DEFAULT_ENGINE = "h3"            # MiniMax H3: test ve tam tur, hareket testi, karakter dönüş videosu
+CHOSEN_ENGINES = ("seedance",)   # yalnızca yönetmen seçince kullanılır; yönlendirme seçimi korur
+MIN_SECONDS = {"h3": 4, "seedance": 4}   # bu motorlar daha kısa klip üretmez: fazlası da GPU'da (faturada) harcanır
+
+
+def billed_seconds(engine: str, duration_s: float) -> float:
+    """Motorun gerçekten ürettiği (ve ücretlendirilen) süre: en kısa süresi olan motorlarda tam saniyeye yuvarlanır."""
+    if engine not in MIN_SECONDS:
+        return duration_s
+    return float(max(MIN_SECONDS[engine], math.ceil(duration_s - 1e-6)))
 
 
 class TransientError(Exception):
@@ -48,7 +59,7 @@ class LocalProvider:
         self.engine = engine
 
     def estimate(self, req: GenRequest) -> float:
-        return pricing.estimate_video(self.engine, req.resolution, req.duration_s)
+        return pricing.estimate_video(self.engine, req.resolution, billed_seconds(self.engine, req.duration_s))
 
     def generate(self, req: GenRequest) -> GenResult:
         # Geçici hata seed'e bağlı DEĞİL: aynı isteği yeniden denemek gerçekte olduğu gibi kurtarabilmeli.
@@ -74,10 +85,15 @@ def get_provider(engine: str):
     """DRY_RUN açıkken her zaman LocalProvider; ücretli modül yalnızca kapalıyken ve görev içinde yüklenir."""
     if settings.dry_run:
         return LocalProvider(engine)
+    if engine == "h3":
+        from app.live.vast_h3 import get_live_provider as h3_provider
+        return h3_provider()
     from app.live.fal_video import get_live_provider
     return get_live_provider(engine)
 
 
 def route_engine(scene) -> str:
-    """Yoğun aksiyon (>= 0.7) Seedance'e, gerisi Wan'a (ücretsiz modda yalnızca sanal fiyatı değiştirir)."""
-    return "seedance" if (scene.action_complexity or 0) >= HIGH_ACTION else "fal_wan"
+    """Her çekim MiniMax H3'e gider. Seedance (fal.ai) yalnızca yönetmen seçince kullanılır ve yeniden yönlendirmede
+    korunur; eski Wan ya da Higgsfield çekimleri yeniden yönlendirilince H3'e geçer (ücretsiz modda yalnızca sanal fiyat)."""
+    engine = getattr(scene, "engine", None)
+    return engine if engine in CHOSEN_ENGINES else DEFAULT_ENGINE

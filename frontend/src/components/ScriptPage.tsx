@@ -26,10 +26,10 @@ export function ScriptPage() {
   const lines = text.split("\n").length, words = text.split(/\s+/).filter(Boolean).length;
   const { data: prices } = useSWR<{ table: PricingTable }>(intensity === "trial" ? "/settings/pricing" : null, fetcher, { revalidateOnFocus: false });
   const trial = meta?.presets.trial;
-  // Deneme: çekim başına en çok (test + tam) klip; her klip bir Flux karesi (1 MP) + 3 sn'lik 480p Wan videosu.
-  const perShot = trial && prices ? (Number(trial.probe_n) + Number(trial.full_n))
-    * (Math.max(prices.table.image_per_megapixel.flux_lora, prices.table.image_per_image?.flux_kontext ?? 0)
-      + prices.table.video_per_second.fal_wan["480p"] * 3) : null;
+  // Deneme: çekim başına en çok (test + tam) klip; her klip 480p MiniMax H3 videosu (en az 4 sn GPU'da üretilir).
+  const h3 = prices?.table.self_hosted?.h3;
+  const perShot = trial && h3 ? (Number(trial.probe_n) + Number(trial.full_n))
+    * (h3.gpu_hourly_usd / 3600) * (h3.render_seconds["480p"] ?? Math.max(...Object.values(h3.render_seconds))) * 4 : null;
   const pickIntensity = (x: string) => {
     setIntensity(x);
     if (x === "trial") {
@@ -105,23 +105,23 @@ export function ScriptPage() {
                 {trial && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
-                    <span><b>fal.ai denemesi</b><small>
+                    <span><b>MiniMax H3 denemesi</b><small>
                       {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır; ses yerel (espeak), dudak senkronu yok.`}
-                      {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(2)} (3 sn).`}
-                      {" "}Yalnızca fal.ai anahtarı gerekir.
+                      {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(3)} GPU süresi (3 sn'lik çekim 4 sn üretilir).`}
+                      {" "}Yalnızca MiniMax H3 sunucusu (vast.ai) gerekir.
                     </small></span>
                   </label>
                 )}
               </div>
               {intensity === "trial" && meta?.dry_run && (
                 <div className="note err">
-                  Ücretsiz moddasınız: bu proje fal.ai yerine yerel motorla üretilir. fal.ai ile denemek için önce Ayarlar'da
-                  fal.ai anahtarını girip ücretli moda geçin, sonra buraya dönün.
+                  Ücretsiz moddasınız: bu proje MiniMax H3 yerine yerel motorla üretilir. H3 ile denemek için önce Ayarlar'da
+                  sunucu adresini ve erişim anahtarını girip ücretli moda geçin, sonra buraya dönün.
                   <div className="row mt8"><button className="btn" type="button" onClick={() => setPage("settings")}>Ayarlar'ı aç</button></div>
                 </div>
               )}
               {intensity === "trial" && meta && !meta.dry_run && (
-                <div className="note ok">Ücretli mod açık: bu proje fal.ai ile gerçek harcamayla üretilir; sanal bütçe tavanı gerçek harcamanın da sınırıdır.</div>
+                <div className="note ok">Ücretli mod açık: bu proje MiniMax H3 sunucunuzda gerçek GPU süresiyle üretilir; sanal bütçe tavanı gerçek harcamanın da sınırıdır.</div>
               )}
             </>
           ) : (

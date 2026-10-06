@@ -1,6 +1,7 @@
 """Ücretli modüllerin güvenlik sözleşmesi: engellenen çağrı, ücretli pakete, ağa ya da LLM'e hiç dokunmadan durur.
 
-Tuzaklar: sahte `fal_client` modülü, `httpx.post` ve `make_llm` bir şeye dokunulursa testi patlatır.
+Tuzaklar: sahte `fal_client` modülü, `httpx.post`, H3 sunucusunun httpx taşıyıcısı ve `make_llm` bir şeye dokunulursa
+testi patlatır.
 """
 import pathlib
 import subprocess
@@ -11,7 +12,7 @@ import pytest
 
 from app.config import settings
 from app.engine.providers import GenRequest, get_provider
-from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm
+from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm, vast_h3
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 REQ = GenRequest(prompt="x", seed=1, resolution="720p", duration_s=3.0)
@@ -30,9 +31,14 @@ def booby_trapped(monkeypatch, no_network):
     monkeypatch.setattr(fal_video.httpx, "stream", boom)
     monkeypatch.setattr(hermes_llm, "make_llm", boom)
     monkeypatch.setattr(hermes_llm, "build_graph", boom)
+    monkeypatch.setattr(vast_h3, "TRANSPORT", __import__("httpx").MockTransport(boom))
+    monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
 
 
 ENTRY_POINTS = {
+    "h3_provider": lambda: vast_h3.get_live_provider(),
+    "H3Provider.generate": lambda: vast_h3.H3Provider().generate(REQ),
+    "get_provider_h3": lambda: get_provider("h3"),
     "get_live_provider": lambda: fal_video.get_live_provider("fal_wan"),
     "get_provider": lambda: get_provider("seedance"),
     "FalProvider.generate": lambda: fal_video.FalProvider("fal_wan").generate(REQ),
@@ -44,15 +50,16 @@ ENTRY_POINTS = {
     "tts": lambda: elevenlabs.tts("merhaba", "voice-1", "joy", "o.mp3"),
     "parse_with_llm": lambda: hermes_llm.parse_with_llm("İÇ. ODA\n\nKerem bekler.", "proje"),
 }
-KEY_OF = {"get_live_provider": "fal_key", "get_provider": "fal_key", "FalProvider.generate": "fal_key",
+KEY_OF = {"h3_provider": "h3_api_key", "H3Provider.generate": "h3_api_key", "get_provider_h3": "h3_api_key",
+          "get_live_provider": "fal_key", "get_provider": "fal_key", "FalProvider.generate": "fal_key",
           "lipsync": "fal_key", "tts": "elevenlabs_api_key", "parse_with_llm": "anthropic_api_key",
           "FalProvider.first_frame": "fal_key", "image": "fal_key", "upload": "fal_key", "restyle": "fal_key"}
 
 
-@pytest.mark.parametrize("name", [n for n in ENTRY_POINTS if n != "get_provider"])   # get_provider ücretsiz modda yerel döner: aşağıda
+@pytest.mark.parametrize("name", [n for n in ENTRY_POINTS if not n.startswith("get_provider")])   # yerel döner: aşağıda
 def test_free_mode_blocks_every_entry_point_even_with_keys_set(booby_trapped, monkeypatch, name):
     monkeypatch.setattr(settings, "dry_run", True)
-    for key in ("fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for key in ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, key, "gerçek-görünümlü-anahtar")
     with pytest.raises(PaidCallBlocked, match="DRY_RUN=1"):
         ENTRY_POINTS[name]()
@@ -70,11 +77,12 @@ def test_the_router_returns_the_local_provider_in_free_mode_and_never_builds_a_l
     from app.engine.providers import LocalProvider
     monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "fal_key", "anahtar")
-    assert isinstance(get_provider("seedance"), LocalProvider)
+    monkeypatch.setattr(settings, "h3_api_key", "anahtar")
+    assert isinstance(get_provider("seedance"), LocalProvider) and isinstance(get_provider("h3"), LocalProvider)
 
 
 def test_the_live_modules_import_without_loading_any_paid_package():
-    code = ("import sys\nimport app.live, app.live.fal_video, app.live.elevenlabs, app.live.hermes_llm\n"
+    code = ("import sys\nimport app.live, app.live.fal_video, app.live.elevenlabs, app.live.hermes_llm, app.live.vast_h3\n"
             "paid = {'fal_client', 'langgraph', 'langchain', 'langchain_anthropic', 'langchain_core', 'anthropic'}\n"
             "print(sorted(m for m in sys.modules if m.split('.')[0] in paid))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=BACKEND,
@@ -95,6 +103,8 @@ def test_pricing_has_a_rate_for_every_paid_call_the_code_reserves():
     from app.budget import pricing
     table = pricing.table()
     assert set(table["video_per_second"]) >= {"fal_wan", "seedance", "wan_v2v"} and table["image_per_megapixel"]["flux_lora"] > 0
+    h3 = table["self_hosted"]["h3"]
+    assert h3["gpu_hourly_usd"] > 0 and {"480p", "720p"} <= set(h3["render_seconds"])
     assert table["lipsync_per_minute"] > 0 and table["tts_per_1k_chars"] > 0 and {"input", "output"} <= set(table["llm_per_million_tokens"])
 
 

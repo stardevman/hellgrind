@@ -4,8 +4,8 @@ Varlık kilitlenmeden önce kısa, düşük çözünürlüklü bir klip üretili
 gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal) ve gerçek anomali tespitinden (siyah, donmuş) geçer. Kusurlu test
 onaylanamaz. Test, varlığın sürümüne bağlıdır: referans değişince eski test geçersiz olur.
 
-Ücretli modda (Faz 18) test, varlığın onaylı referans görselinden başlar (ilk kare olarak yüklenir, Flux çağrılmaz):
-sınanan, onaylanan referansın kendisidir.
+Ücretli modda (Faz 18) test, varlığın onaylı referans görselinden başlar (MiniMax H3'e ilk kare olarak verilir, Flux
+çağrılmaz): sınanan, onaylanan referansın kendisidir.
 """
 import logging
 import os
@@ -21,7 +21,7 @@ from app.core.hashing import seed_for
 from app.db import session_scope
 from app.engine import references
 from app.engine.iteration import make_thumb
-from app.engine.providers import GenRequest, TransientError, get_provider
+from app.engine.providers import DEFAULT_ENGINE, GenRequest, TransientError, get_provider
 from app.style import bible
 from app.style.composer import compose_prompt
 from app.models import Asset, Variation
@@ -30,7 +30,7 @@ from app.quality.anomaly import detect_anomalies
 log = logging.getLogger("hellgrind.motion_test")
 
 MOTION_TEST_S = 3.0
-ENGINE = "fal_wan"               # en ucuz motor: test yalnızca hareket altındaki tutarlılığı sınar
+ENGINE = DEFAULT_ENGINE          # filmi üreten motor (MiniMax H3): varlık, çekimlerde kullanılacağı motorla sınanır
 MAX_ATTEMPTS = 3
 RENDER = {   # tür -> (kamera, aksiyon): karakter koşar, mekânda vinç, nesne etrafında yörünge
     "character": ({"shot": "medium", "movement": "orbit"}, 0.8),

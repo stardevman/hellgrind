@@ -19,10 +19,15 @@ router = APIRouter(tags=["settings"])
 WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
 SERVICES = {
-    "fal": {"name": "fal.ai", "purpose": "İlk kare ve storyboard (Flux), video (Wan, Seedance), previs aktarımı, dudak senkronu",
+    "vast": {"name": "MiniMax H3 · vast.ai", "purpose": "Video üretimi: MiniMax H3, kendi GPU sunucunuzda (SGLang)",
+             "key": "H3_API_KEY", "console": "https://cloud.vast.ai/instances/",
+             "used_by": ["Kurgu: görüntü üretimi (test ve tam tur)", "Varlıklar: hareket testi ve karakter dönüş videosu",
+                         "Elle düzeltme: düzenlenmiş ilk kareden video"]},
+    "fal": {"name": "fal.ai", "purpose": "İsteğe bağlı: Seedance, Flux kareleri, previs aktarımı, dudak senkronu",
             "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
-            "used_by": ["Kurgu: görüntü üretimi (test ve tam tur)", "Storyboard kareleri", "Varlıklar: referans ve hareket testi",
-                        "Yöntem: previs rehberinden video", "Elle düzeltme: ilk kareden video", "Dudak senkronu"]},
+            "used_by": ["Kurgu: yönetmenin Seedance seçtiği çekimler (ilk kare Flux'tan)", "Storyboard kareleri (yoksa yerel çizilir)",
+                        "Varlıklar: mekân ve nesne referans görseli", "Yöntem: previs rehberinden video",
+                        "Dudak senkronu (yoksa video senkronsuz kullanılır)"]},
     "elevenlabs": {"name": "ElevenLabs", "purpose": "Türkçe diyalog seslendirme", "key": "ELEVENLABS_API_KEY",
                    "console": "https://elevenlabs.io/app",
                    "used_by": ["Ses: diyalog kanalları (konuşma motoru elevenlabs iken)"]},
@@ -41,6 +46,8 @@ def _key(env: str) -> dict:
 def _active(service: str) -> bool:
     """Servis ücretli modda gerçekten çağrılır mı (anahtar dolu ve ilgili motor seçili)."""
     has_key = _key(SERVICES[service]["key"])["set"]
+    if service == "vast":
+        return has_key and bool(settings.h3_endpoint_url)
     if service == "elevenlabs":
         return settings.tts_engine == "elevenlabs" and has_key
     if service == "anthropic":
@@ -78,6 +85,9 @@ def _missing(service: str) -> list[str]:
 
 def _needed(service: str) -> tuple[bool, str]:
     """Servis şu ayarlarla ücretli modda çağrılır mı; çağrılmıyorsa neden."""
+    if service == "fal" and not _key("FAL_KEY")["set"]:
+        return False, ("isteğe bağlı: anahtar yoksa Seedance seçilemez, storyboard karesi yerel çizilir ve dudak senkronu "
+                       "atlanır; video MiniMax H3 ile üretilir")
     if service == "elevenlabs" and settings.tts_engine != "elevenlabs":
         return False, f"konuşma motoru {settings.tts_engine}: ElevenLabs çağrılmaz, anahtar gerekmez"
     if service == "anthropic" and settings.hermes_mode != "llm":
@@ -120,6 +130,8 @@ def state(s: Session) -> dict:
             else:
                 value = getattr(settings, f.attr)
                 default = type(settings).model_fields[f.attr].default
+                if f.kind == "choice":                       # seçenekler metin; sayı alanları (adım sayısı) da
+                    value, default = str(value), str(default)
                 item.update({"value": value, "default": default, "choices": list(f.choices),
                              "url": f.url.format(value) if f.url else None})
             fields.append(item)
@@ -165,10 +177,11 @@ class ModeIn(BaseModel):
 @router.post("/settings/mode")
 def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
-    if body.paid and not _key("FAL_KEY")["set"]:
-        raise HTTPException(422, "fal.ai anahtarı tanımlı değil: görüntü ve video yalnızca fal.ai ile üretilir. Önce anahtarı girin.")
+    if body.paid and not _active("vast"):
+        raise HTTPException(422, "MiniMax H3 sunucusu tanımlı değil: video H3 ile üretilir. Önce Ayarlar › MiniMax H3'ten "
+                                 "sunucu adresini ve erişim anahtarını girin.")
     if body.paid:
-        missing = [m for sid in SERVICES if sid == "fal" or _needed(sid)[0] for m in _missing(sid)]
+        missing = [m for sid in SERVICES if _needed(sid)[0] for m in _missing(sid)]
         if missing:
             raise HTTPException(422, f"Ücretli paketler kurulu değil ({', '.join(missing)}): imajı yeniden derleyin "
                                      "(docker compose up -d --build).")

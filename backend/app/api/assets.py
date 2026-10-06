@@ -254,8 +254,8 @@ async def upload_reference(asset_id: AssetId, request: Request, kind: str = Quer
 @curated("asset_reference")
 def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
     """Referans üretir: karakter için dönüş videosu, mekân ve nesne için durağan görsel. Ücretsiz modda prosedürel
-    taslaktır ve ücretli karşılığının sanal fiyatı bütçeden düşer; ücretli modda Flux karesi ve (karakterde) yörünge
-    hareketli Wan videosudur (Faz 18)."""
+    taslaktır ve ücretli karşılığının sanal fiyatı bütçeden düşer; ücretli modda karakter için MiniMax H3'ten yörünge
+    hareketli dönüş videosu, mekân ve nesne için Flux karesidir (Faz 18)."""
     a = asset_or_404(s, asset_id)
     ensure_editable(a)
     pid = str(a.project_id)

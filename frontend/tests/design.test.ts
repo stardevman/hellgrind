@@ -68,6 +68,7 @@ describe("documented Turkish texts", () => {
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",
     "Model ve uç noktalar", "Fiyat tablosu", "Doğrula ve kaydet", "Değişiklik kaydı",
-    "fal.ai denemesi", "Deneme senaryosu", "Yalnızca fal.ai anahtarı gerekir", "gerekmez",
+    "MiniMax H3 denemesi", "Deneme senaryosu", "Yalnızca MiniMax H3 sunucusu (vast.ai) gerekir", "gerekmez",
+    "MiniMax H3 · vast.ai", "yalnızca seçtiğiniz çekimlerde", "Video motoru", "makinenin boşta geçen süresi",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

@@ -27,6 +27,7 @@ from app.core.state import advance_scene
 from app.db import session_scope
 from app.engine.iteration import make_thumb
 from app.engine.procedural import lighting_look
+from app.engine.providers import DEFAULT_ENGINE
 from app.models import Project, Revision, Scene, Variation
 from app.quality import gate
 from app.quality.anomaly import detect_anomalies, probe_duration
@@ -88,7 +89,7 @@ def register_external(scene_id: str, fingerprint: str) -> str:
         v = s.scalar(select(Variation).where(Variation.scene_id == scene_id,
                                              Variation.params["external_hash"].astext == sc.external_hash))
         if v is None:
-            v = Variation(id=uuid.uuid4(), scene_id=scene_id, tier="full", wave_no=0, engine=sc.engine or "fal_wan",
+            v = Variation(id=uuid.uuid4(), scene_id=scene_id, tier="full", wave_no=0, engine=sc.engine or DEFAULT_ENGINE,
                           seed=0, prompt_revision=sc.prompt_revision, status="passed", video_key=sc.external_key,
                           params={"source": "external", "external_hash": sc.external_hash}, anomalies=[], cost_usd=0)
             s.add(v)
@@ -217,11 +218,11 @@ def first_frame_clip(base_video: str, frame: str, out: str) -> str:
 
 
 def regenerate_from_frame(variation_id: str, frame: str, out: str) -> str:
-    """Ücretli ilk kare düzeltmesi (Faz 18): düzenlenmiş kare yüklenir ve varyasyonun prompt, seed, çözünürlük ve
-    süresiyle videoya çevrilir (Flux yeniden çağrılmaz). Bedel yalnızca videodur. Kilit rezervasyondan önce çalışır."""
+    """Ücretli ilk kare düzeltmesi (Faz 18): düzenlenmiş kare varyasyonun motoruna verilir (MiniMax H3'te ilk kare, fal.ai'de
+    yüklenmiş görsel) ve varyasyonun prompt, seed, çözünürlük ve süresiyle videoya çevrilir (Flux yeniden çağrılmaz).
+    Bedel yalnızca videodur. Kilit rezervasyondan önce çalışır."""
     from app.engine import paid
-    from app.engine.providers import GenRequest
-    from app.live.fal_video import FalProvider          # ücretli modül: yalnızca fonksiyon içinde
+    from app.engine.providers import GenRequest, get_provider
     with session_scope() as s:
         v = s.get(Variation, variation_id)
         sc = s.get(Scene, v.scene_id)
@@ -230,14 +231,15 @@ def regenerate_from_frame(variation_id: str, frame: str, out: str) -> str:
         req = GenRequest(prompt=p.get("prompt", ""), negative=p.get("negative", ""), seed=v.seed,
                          resolution=p.get("resolution", "720p"), duration_s=float(p.get("duration_s") or sc.duration_s),
                          image_url="(düzenlenmiş kare)")
-    provider = FalProvider(engine)
+    provider = get_provider(engine)                     # ücretli modda: kilit burada, rezervasyondan önce
 
     def run():
         made = provider.generate(replace(req, image_url=provider.upload(frame)))
         os.replace(made.local_path, out)
-        return out
-    return paid.call(project_id, provider.estimate(req), f"{engine}:{req.resolution}:revision", "fal_key", run,
-                     scene_id=scene_id, variation_id=variation_id)
+        return made                                     # bedeli (H3: ölçülen GPU süresi) deftere işlensin
+    paid.call(project_id, provider.estimate(req), f"{engine}:{req.resolution}:revision", provider.key_name, run,
+              scene_id=scene_id, variation_id=variation_id)
+    return out
 
 
 def add_revision(variation_id: str, kind: str, path: str, ext: str, sha: str, note: str | None) -> tuple[dict, bool]:

@@ -332,18 +332,15 @@ def test_a_frozen_project_stops_the_stage_without_overwriting_scene_status(refin
     assert scene_row(sid).status == "refined"
 
 
-def test_paid_mode_without_a_key_stops_before_any_reservation(refined, work, monkeypatch):
-    """Ücretli lipsync yolu bağlı; ama anahtar yoksa guard, rezervasyondan ÖNCE durdurur: deftere iz bile bırakmaz."""
-    from sqlalchemy import text
-
-    from app.live import PaidCallBlocked
+def test_paid_mode_without_a_fal_key_uses_the_video_unsynced_and_spends_nothing(refined, work, monkeypatch):
+    """Video MiniMax H3 ile kendi sunucumuzda üretilirken fal.ai isteğe bağlıdır: anahtarı yoksa dudak senkronu atlanır,
+    rezervasyon açılmaz. Senkronsuz kopya ayrı anahtardadır: anahtar sonradan girilince senkron gerçekten yapılır."""
     pid, sid = refined
     monkeypatch.setattr(settings, "dry_run", False)
     monkeypatch.setattr(settings, "fal_key", "")
     before = ledger_rows(pid)
-    with pytest.raises(PaidCallBlocked, match="FAL_KEY"):
-        voice_and_lipsync(sid)
-    assert scene_row(sid).lipsync_video_key is None and ledger_rows(pid) == before
+    key = voice_and_lipsync(sid)
+    assert key.endswith("_unsynced.mp4") and scene_row(sid).lipsync_video_key == key and ledger_rows(pid) == before
 
 
 def test_stages_leave_no_temporary_files_behind(refined, work):

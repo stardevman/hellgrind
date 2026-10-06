@@ -403,7 +403,7 @@ def test_a_motion_test_is_refused_in_a_frozen_project_and_is_charged_otherwise(a
     with session_scope() as s:
         rows = s.execute(text("SELECT provider, kind, scene_id FROM cost_ledger WHERE project_id = :p ORDER BY id"),
                          {"p": pid}).all()
-    assert ("fal_wan:480p:motion_test", "commit", None) in rows
+    assert ("h3:480p:motion_test", "commit", None) in rows
     assert ("flux_lora:reference", "commit", None) in rows
 
 

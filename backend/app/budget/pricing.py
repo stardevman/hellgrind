@@ -12,10 +12,27 @@ def table(path: str | None = None) -> dict:
         return yaml.safe_load(f)
 
 
+def self_hosted(engine: str, prices: dict | None = None) -> dict | None:
+    """Yönetmenin kendi GPU sunucusunda çalışan motor (ör. vast.ai'de MiniMax H3): saatlik ücret ve video saniyesi başına
+    GPU süresi. Diğer motorlar sağlayıcının video saniyesi fiyatıyla hesaplanır."""
+    return ((prices or table()).get("self_hosted") or {}).get(engine)
+
+
 def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict | None = None) -> float:
-    per_engine = (prices or table())["video_per_second"][engine]
+    prices = prices or table()
+    if (hosted := self_hosted(engine, prices)) is not None:
+        rows = hosted["render_seconds"]
+        gpu_seconds = rows.get(resolution, max(rows.values())) * duration_s      # bilinmeyen çözünürlük: en yavaşı
+        return estimate_gpu(engine, gpu_seconds, prices)
+    per_engine = prices["video_per_second"][engine]
     per_second = per_engine.get(resolution, max(per_engine.values()))  # bilinmeyen çözünürlük: en pahalısı
     return round(per_second * duration_s, 4)
+
+
+def estimate_gpu(engine: str, gpu_seconds: float, prices: dict | None = None) -> float:
+    """Kendi sunucusunda geçen GPU süresinin bedeli: saatlik ücret × süre. Ücretli modda işlenen tutar budur (sunucunun
+    bildirdiği süreyle); makinenin boşta geçen süresi bütçeye yansımaz."""
+    return round(self_hosted(engine, prices)["gpu_hourly_usd"] / 3600.0 * max(0.0, gpu_seconds), 4)
 
 
 def estimate_lipsync(duration_s: float, prices: dict | None = None) -> float:
@@ -49,6 +66,7 @@ def estimate_llm(input_tokens: int, output_tokens: int, prices: dict | None = No
 # ---------- panelden düzenleme ----------
 
 REQUIRED_ENGINES = ("fal_wan", "seedance", "wan_v2v")      # kodun fiyat sorduğu video motorları
+REQUIRED_SELF_HOSTED = ("h3",)                             # kendi sunucusunda çalışan motorlar (saatlik GPU ücreti)
 
 
 class PricingError(ValueError):
@@ -80,6 +98,21 @@ def validate_table(text: str) -> dict:
             raise PricingError(f"video_per_second.{engine}: çözünürlük -> fiyat sözlüğü olmalı")
         for res, price in rows.items():
             _positive(price, f"video_per_second.{engine}.{res}")
+    hosted = data.get("self_hosted") or {}
+    if not isinstance(hosted, dict):
+        raise PricingError("self_hosted: motor -> {gpu_hourly_usd, render_seconds} sözlüğü olmalı")
+    for engine in REQUIRED_SELF_HOSTED:
+        if not isinstance(hosted.get(engine), dict):
+            raise PricingError(f"self_hosted.{engine} eksik (gpu_hourly_usd ve render_seconds)")
+    for engine, row in hosted.items():
+        if not isinstance(row, dict):
+            raise PricingError(f"self_hosted.{engine}: gpu_hourly_usd ve render_seconds içeren bir sözlük olmalı")
+        _positive(row.get("gpu_hourly_usd"), f"self_hosted.{engine}.gpu_hourly_usd")
+        seconds = row.get("render_seconds")
+        if not isinstance(seconds, dict) or not seconds:
+            raise PricingError(f"self_hosted.{engine}.render_seconds eksik (çözünürlük: video saniyesi başına GPU saniyesi)")
+        for res, value in seconds.items():
+            _positive(value, f"self_hosted.{engine}.render_seconds.{res}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")
     _positive((data.get("image_per_image") or {}).get("flux_kontext"), "image_per_image.flux_kontext")
     _positive(data.get("lipsync_per_minute"), "lipsync_per_minute")

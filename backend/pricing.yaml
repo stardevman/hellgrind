@@ -1,11 +1,22 @@
 # Birim fiyatlar (USD). Kaynak: fal.ai model sayfaları, Ekim 2026.
 # Fiyatlar değişir: üretime geçmeden önce güncelle.
 # DRY_RUN modunda da bu fiyatlar kullanılır; böylece Kill-Switch gerçekçi rakamlarla test edilir.
+
+# Kendi GPU sunucunuzda çalışan motorlar. vast.ai makineyi saatle faturalar: tahmin = saatlik ücret / 3600 × video
+# saniyesi başına GPU süresi × süre. Ücretli modda işlenen tutar, sunucunun her iş için bildirdiği GPU süresiyle
+# (inference_time_s) hesaplanır. Makinenin boşta geçen süresi bütçeye yansımaz: kullanmadığınızda vast.ai'de durdurun.
+self_hosted:
+  h3:                 # MiniMax H3 (SGLang). Varsayılanlar tek RTX 5090 / 4090 sınıfı kart ve 20 adım içindir.
+    gpu_hourly_usd: 0.60      # kiraladığınız makinenin saatlik ücreti (vast.ai kartındaki $/hr); kendi makinenizle güncelleyin
+    render_seconds:           # bir video saniyesi için GPU saniyesi; ilk gerçek üretimden sonra servis geçmişindeki süreyle güncelleyin
+      "480p": 22              # SGLang tarifi: RTX 5090, 864x480, 5 sn, 20 adım: ~112 sn
+      "720p": 68              # 768p üretilir; RTX 4090 INT8, 1344x768, 4,5 sn, 20 adım: ~303 sn
+
 video_per_second:
-  fal_wan:            # Wan 2.2 A14B image-to-video
+  fal_wan:            # Wan 2.2 A14B image-to-video (yalnızca bu motorla açılmış eski çekimler)
     "480p": 0.04
     "720p": 0.08
-  seedance:           # Seedance 2.0 Fast, ~1.21 USD / 5 sn 720p
+  seedance:           # Seedance 2.0 Fast, ~1.21 USD / 5 sn 720p (yönetmenin Seedance seçtiği çekimler)
     "720p": 0.242
   wan_v2v:            # Wan 2.2 A14B video-to-video (previs rehberi), 16 fps'deki saniye başına
     "480p": 0.04

@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Emotion = Literal["neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension"]
-Engine = Literal["fal_wan", "seedance", "higgsfield"]
+Engine = Literal["h3", "seedance", "fal_wan", "higgsfield"]
 Shot = Literal["extreme_wide", "wide", "pov", "medium", "over_shoulder", "close_up", "extreme_close_up"]
 Movement = Literal["static", "dolly_in", "dolly_out", "pan", "tilt", "crane", "orbit", "tracking", "handheld"]
 Angle = Literal["low", "eye", "high"]

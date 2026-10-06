@@ -27,7 +27,8 @@ Kontroller:
      stem'ler çekim süresindedir; baştan üretim isteği de kaydedilir
   G. Servis geçmişi: projenin her sanal çağrısı tek satır; tutarlar harcamayla tutar, her satırın modeli var
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
-  7. 1 USD bütçeli projede sahne `frozen`, proje `paused` olur; harcama 1 USD'yi aşmaz, yeni render isteği 423 döner
+  7. Küçük bütçeli (0,05 USD; MiniMax H3 bir klibi birkaç sentlik GPU süresiyle üretir) projede sahne `frozen`, proje
+     `paused` olur; harcama bütçeyi aşmaz, yeni render isteği 423 döner
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
 """
 import os
@@ -80,14 +81,19 @@ def wait_scene(sid: str, changed_from: str | None = None, timeout: float = 300) 
     raise TimeoutError(sid)
 
 
+# MiniMax H3 (kendi GPU sunucumuz) bir klibi birkaç sentlik GPU süresiyle üretir (sanal): tavanlar birkaç klipte dolar.
+TINY_BUDGET = 0.05
+SEQUENCE_CAP = 0.10
+
+
 def spent(pid: str) -> float:
     return c.get(f"/projects/{pid}/budget").json()["spent"]
 
 
 def new_project(title: str, budget: float, **cfg) -> str:
     preset = c.get("/meta").json()["presets"]["preview"]
-    # Panelin formundaki gibi: hız bekçisi bütçenin yarısı. Örnek film saniyeler içinde ~22 sanal USD harcar ve
-    # varsayılan 20 USD / 10 dk sınırı filmi ortasında dondururdu.
+    # Panelin formundaki gibi: hız bekçisi bütçenin yarısı. Yerel motor saniyeler içinde üretir; varsayılan 10 dakikalık
+    # sınır, pahalı bir motor seçilmiş çekimlerde filmi ortasında dondurabilirdi.
     r = c.post("/projects", json={"title": f"{title} {int(time.time())}", "budget_limit_usd": budget,
                                   "settings": {**preset, "max_spend_per_10min": budget / 2, **cfg}})
     r.raise_for_status()
@@ -121,6 +127,7 @@ def main() -> int:
     check_sequences(pid)
     check(sorted(r.json()["blocked"]) == CODES, f"4 çekimin hepsi engellendi: {r.json()['blocked']}")
     ov = overview(pid)
+    check({s["engine"] for s in ov["scenes"]} == {"h3"}, f"bütün çekimler MiniMax H3'e yönlendi: {sorted({s['engine'] for s in ov['scenes']})}")
     check(all(s["status"] == "blocked" for s in ov["scenes"]) and spent(pid) == 0, "çekimler blocked, harcama 0")
     check(all(s["last_error"].startswith("Üretim engellendi") for s in ov["scenes"]), "eksikler Türkçe yazıldı: " + ov["scenes"][0]["last_error"][:90])
     style = c.get(f"/projects/{pid}/style").json()
@@ -340,26 +347,26 @@ def main() -> int:
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
     c.post(f"/projects/{capped}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
     seqs = {q["code"]: q for q in c.get(f"/projects/{capped}/sequences").json()}
-    c.patch(f"/sequences/{seqs['SEQ01']['id']}", json={"budget_cap_usd": 0.5}).raise_for_status()
+    c.patch(f"/sequences/{seqs['SEQ01']['id']}", json={"budget_cap_usd": SEQUENCE_CAP}).raise_for_status()
     c.post(f"/projects/{capped}/render-all").raise_for_status()
     ov = wait_scenes(capped, timeout=300)
     status = {s["scene_code"]: s["status"] for s in ov["scenes"]}
     seqs = {q["code"]: q for q in ov["sequences"]}
     check(status["S002_SH01"] == status["S002_SH02"] == "done", f"SEQ02 bitti: {status}")
     check("frozen" in (status["S001_SH01"], status["S001_SH02"]) and seqs["SEQ01"]["status"] == "capped",
-          f"SEQ01 tavanda durdu (harcama ${seqs['SEQ01']['spent_usd']:.2f} / tavan $0.50)")
-    check(seqs["SEQ01"]["spent_usd"] + seqs["SEQ01"]["reserved_usd"] <= 0.5, "sekans harcaması tavanı aşmadı")
+          f"SEQ01 tavanda durdu (harcama ${seqs['SEQ01']['spent_usd']:.3f} / tavan ${SEQUENCE_CAP})")
+    check(seqs["SEQ01"]["spent_usd"] + seqs["SEQ01"]["reserved_usd"] <= SEQUENCE_CAP, "sekans harcaması tavanı aşmadı")
     check(ov["project"]["status"] == "producing" and not ov["project"]["frozen"]
           and any(e["kind"] == "sequence_capped" for e in ov["events"]), "proje durmadı, olay yazıldı")
 
-    print("7) Kill-Switch: 1 USD'lik proje")
-    tiny = new_project("duman-testi-kucuk-butce", 1.0, lint_strictness="off")     # yalnızca bütçe sınanır
+    print(f"7) Kill-Switch: {TINY_BUDGET} USD'lik proje")
+    tiny = new_project("duman-testi-kucuk-butce", TINY_BUDGET, lint_strictness="off")     # yalnızca bütçe sınanır
     c.post(f"/projects/{tiny}/script", json={"text": meta["sample_script"]}).raise_for_status()
     ov = wait_scenes(tiny, timeout=300)
     project = ov["project"]
     check("frozen" in {s["status"] for s in ov["scenes"]}, "bir sahne frozen oldu")
     check(project["status"] == "paused" and project["frozen"], f"proje paused ve dondurulmuş (durum: {project['status']})")
-    check(project["spent_usd"] + project["reserved_usd"] <= 1.0, f"harcama 1 USD'yi aşmadı (${project['spent_usd']:.4f} + ayrılan ${project['reserved_usd']:.4f})")
+    check(project["spent_usd"] + project["reserved_usd"] <= TINY_BUDGET, f"harcama {TINY_BUDGET} USD'yi aşmadı (${project['spent_usd']:.4f} + ayrılan ${project['reserved_usd']:.4f})")
     r = c.post(f"/scenes/{ov['scenes'][0]['id']}/render")
     check(r.status_code == 423, f"yeni render isteği 423 döndü ({r.status_code})")
 

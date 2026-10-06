@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     fal_lipsync_endpoint: str = "fal-ai/sync-lipsync/v2/pro"
     fal_wan_v2v_endpoint: str = "fal-ai/wan/v2.2-a14b/video-to-video"
     fal_kontext_endpoint: str = "fal-ai/flux-pro/kontext"     # karakterin referans görseliyle kare (görsel başına)
+    # MiniMax H3: yönetmenin kendi GPU sunucusu (ör. vast.ai) üzerinde SGLang'in /v1/videos ucu. Anahtar, sunucunun önündeki
+    # kimlik doğrulamanın belirtecidir (vast.ai Instance Portal: OPEN_BUTTON_TOKEN ya da WEB_PASSWORD).
+    h3_api_key: str = ""
+    h3_endpoint_url: str = ""          # FL2VA sunucusu: metinden ve ilk kareden video (ör. https://...trycloudflare.com)
+    h3_ref_endpoint_url: str = ""      # Ref2VA sunucusu: karakterlerin referans görselleriyle video; boşsa referans gitmez
+    h3_model: str = "MiniMaxAI/MiniMax-H3"
+    h3_steps: int = 20                 # sunucudaki kurulumla uyumlu olmalı (turbo LoRA: 9 ya da 5)
+    h3_timeout_s: int = 3600           # tek işin (kuyrukta bekleme dahil) en uzun süresi
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""

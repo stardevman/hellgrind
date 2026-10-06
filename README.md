@@ -11,7 +11,7 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 3. **Tek bir stil dili kullanır.** Işık dili, hareket tarzı ve render kuralları projenin sürümlü *stil kılavuzundan* gelir ve her çekimin prompt'una aynı ifadeyle eklenir. Kılavuz değişince önce hangi çekimlerin yeniden üretileceği ve kaça mal olacağı gösterilir; yönetmen onaylamadan hiçbir şey üretilmez.
 4. **Önce storyboard, sonra kaba kurgu.** Her çekimin storyboard karesi yönetmen onayından geçer (istenirse zorunlu). Taslak geçiş yalnızca test turuyla filmin kaba kurgusunu çıkarır; yalnızca zayıf bulunan çekimler tam turla iyileştirilir.
 5. **Her çekim için yöntem seçtirir.** Çekim yapay zekâyla üretilebilir, bir previs (3D taslak) rehberinden çıkarılabilir ya da dışarıda bitirilip yüklenebilir. Üretilen klipler elle düzeltilip yeniden yüklenebilir; orijinal korunur.
-6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir.
+6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir; ücretli modda **MiniMax H3** kendi GPU sunucunuzda (ör. vast.ai) üretir, istenen çekimlerde Seedance (fal.ai).
 7. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
 8. **Rengi ve sürekliliği denetler.** Film geneli bir LUT ve çekim bazında renk ayarı uygular; ardışık çekimler arasındaki renk sıçramalarını bulur ve tek tıkla uygulanabilir bir düzeltme önerir.
 9. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
@@ -152,7 +152,7 @@ Senaryo İngilizce de yazılabilir: `INT.` / `EXT.`, `# SEQUENCE:`, `[CHARACTER:
 (afraid, angry, whisper...) ve aksiyon kelimeleri (run, jump, explode...) de tanınır. Türkçe harf içermeyen senaryoda adlar
 İngilizce kurallarla yazılır (`IRIS` → *Iris*).
 
-Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök sözlüğünden çıkarılır (korku, öfke, gerilim...). Aksiyon kelimeleri (koş, atla, patla, düş, kop, sarsıl...) çekimi geniş açı ve yüksek aksiyon yoğunluğuna çevirir. Yoğun aksiyon (≥ 0,7) Seedance'e, gerisi Wan'a yönlenir (ücretsiz modda yalnızca sanal fiyatı değiştirir).
+Karakter adındaki uzantılar (`KEREM (D.S.)`) atılır. Duygu, Türkçe kök sözlüğünden çıkarılır (korku, öfke, gerilim...). Aksiyon kelimeleri (koş, atla, patla, düş, kop, sarsıl...) çekimi geniş açı ve yüksek aksiyon yoğunluğuna çevirir. Her çekim MiniMax H3'e yönlenir; Seedance yalnızca yönetmen denetçiden seçerse kullanılır (ücretsiz modda yalnızca sanal fiyatı değiştirir).
 
 ## Testler
 
@@ -166,7 +166,7 @@ make smoke   # uçtan uca duman testi: gerçek HTTP ve worker ile (~2 dk)
 - **`make web-test`** panelin tip denetimini ve birim testlerini (metinler, karşılaştırma mantığı, tasarım sözleşmesi) çalıştırır; makinede Node 22 gerekir.
 - **`make test`**, veritabanı ve nesne deposu gerektiren testleri de çalıştırır. Geliştirme verinize dokunmaz: `hellgrind_test` adlı ayrı bir veritabanı ve `hellgrind-test` adlı ayrı bir kova kullanır. Depo kökündeki `db/` klasörünü bağlar ki testler şemayı kurabilsin; `frontend/src`'yi de bağlar ki `test_panel_next.py` panelin çağırdığı her uç noktanın arka uçta o yöntemle var olduğunu ve her durum, duygu, varlık ve olay değerinin Türkçe karşılığı olduğunu denetleyebilsin.
 - **CI** (`.github/workflows/ci.yml`) Ubuntu üzerinde FFmpeg ve espeak-ng ile `DRY_RUN=1 pytest -q` çalıştırır; ayrı bir iş paneli derler (`npm ci`, tip denetimi, birim testleri, `next build`). CI'da veritabanı servisi ve kalite skorlayıcısının modelleri yoktur; altyapı ya da gerçek model gerektiren testler kendiliğinden *atlanır*. Tam doğrulama `make test` iledir (imajda modeller hazırdır).
-- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; projenin her sanal çağrısı servis geçmişinde bir satırdır, işlenen tutarların toplamı harcamaya eşittir ve CSV her çağrıyı içerir; sekans tavanı dolunca yalnızca o sekans durur, diğeri biter; 1 USD'lik projede sahne `frozen`, proje `paused` olur, harcama 1 USD'yi aşmaz ve yeni render isteği 423 döner. Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez. Ücretli mod açıksa hiçbir şey başlatmadan durur (çıkış kodu 2): önce panelden ücretsiz moda dönün.
+- **`make smoke`** şunları denetler: ücretli çağrılar engelli; ana projede kare onayı zorunludur: onaysız çekimlerde hiçbir varyasyon üretilmez, storyboard PDF'i dört çekimi sırayla içerir, taslak geçiş yalnızca test turu çalıştırır ve kaba kurguyu kendiliğinden birleştirir, iyileştirme geçişi yalnızca işaretli çekimi tam tura alır; film altın saat stil kılavuzuyla üretilir ve iki farklı çekimin prompt'u aynı önekle başlar; stil değişince önizleme dört çekimi ve sanal maliyeti listeler, onaydan önce hiçbir şey üretilmez, etkinleştirince çekimler yeni önekle yeniden üretilir; yeni projede örnek senaryonun dört çekimi de engellenir ve hiçbir şey harcanmaz; taslak varlık kilitlenemez; gerçek bir dönüş videosu yüklenince 8 kare örneklenir; varlıklar hareket testinden geçip kilitlenince çekimler üretilir, panelden bağlanan taslak bir nesneyi içeren çekim kilitlenene dek engelli kalır ve hiç harcama yapmaz; örnek senaryo 4 sahneye ayrılıp hepsi `done` olur, her sahnede rafine havuz 1–3 klip, bilerek bozulan siyah ve donmuş klipler elenmiştir; yalnızca müzik değişince yalnızca montaj çalışır ve harcama değişmez; küratör seçimi yalnızca ses ve montajı çalıştırır; değişiklik yoksa plan boştur; film 4 sahneyle birleşir ve sekans müziği kesmelerde sürer; dış çekim üretim harcaması olmadan biter ve rafine #1'in elle düzeltmesi yalnızca ses ve montajı çalıştırır; renk değişince yalnızca renk ve montaj çalışır, bilerek farklı renklendirilen çekim süreklilik uyarısı üretir ve önerilen düzeltme uygulanınca uyarı kalkar; sekans müziği değişince yalnızca film yeniden birleştirilir; panel eylemleri (seçim, iyileştirme işareti, kare onayı ve değişiklik isteği, varlık kilidi, revizyon, stil etkinleştirme, baştan üretim) kürasyon kaydına sahne, varyasyon ve skor bağlamıyla düşer; metrikler panelin gördüğü sayılarla tutarlıdır; EDL dört çekimi doğru in/out zaman kodlarıyla içerir; çekim paketi zip'i açılır ve her çekimin diyalog, müzik ve efekt stem'leri çekim süresindedir; projenin her sanal çağrısı servis geçmişinde bir satırdır, işlenen tutarların toplamı harcamaya eşittir ve CSV her çağrıyı içerir; bütün çekimler MiniMax H3'e yönlenir; sekans tavanı (0,10 USD) dolunca yalnızca o sekans durur, diğeri biter; 0,05 USD'lik projede sahne `frozen`, proje `paused` olur, harcama bütçeyi aşmaz ve yeni render isteği 423 döner (H3 bir klibi birkaç sentlik sanal GPU süresiyle ürettiği için bütçeler küçüktür). Başarıyla biterse **TÜM KONTROLLER GEÇTİ** yazar. Geliştirme veritabanına `duman-testi` başlıklı projeler ekler, hiçbir şeyi silmez. Ücretli mod açıksa hiçbir şey başlatmadan durur (çıkış kodu 2): önce panelden ücretsiz moda dönün.
 
 ## Varlık kütüphanesi ve referans eksiksizliği
 
@@ -177,7 +177,7 @@ Referans verilmeyen bir taksiye model rastgele yolcular ekler. Bu yüzden:
 - Prompt'a her zaman "yalnızca listelenen karakterler" kısıtı eklenir; negatif prompt'a kalabalık ve fazladan kişiler yazılır.
 - **Karakter referans paketi:** 360° dönüş videosu, ifade sayfası, ses örneği ve `voice_id`. Dönüş videosundan eşit aralıkla 8 kare örneklenir; ilki yüz referansıdır. Vektörler ücretsiz modda karelerin HSV histogramlarından yerel olarak hesaplanır (gerçek yüz vektörleri ücretli aşamadadır). Ses kimliği karakterde kalır.
 - Görsel bir referans değişince varlığın **sürümü** artar ve varlık taslağa döner; sürüm görsel özete girdiği için o varlığı kullanan çekimler yeniden üretilir. Onay ve kilit durumu özete girmez: kilitlemek tek başına yeniden üretim tetiklemez. Aynı dosyayı yeniden yüklemek hiçbir şeyi değiştirmez. Kilitli varlık değiştirilemez; önce kilidi açılır.
-- **Hareket testi** her üretim gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal, Wan 480p fiyatıyla) ve gerçek anomali tespitinden geçer. Test varlığın sürümüne bağlıdır: referans ya da tarif değişince eski test onaylanamaz.
+- **Hareket testi** her üretim gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal, MiniMax H3'ün 480p GPU süresi fiyatıyla) ve gerçek anomali tespitinden geçer. Test varlığın sürümüne bağlıdır: referans ya da tarif değişince eski test onaylanamaz.
 - API: `GET/POST /api/projects/{id}/assets`, `GET/PATCH /api/assets/{id}`, `POST /api/assets/{id}/references?kind=still|turnaround|expressions|voice_sample&filename=...` (dosya istek gövdesinde), `POST /api/assets/{id}/references/placeholder`, `POST /api/assets/{id}/approve-still`, `/motion-test`, `/approve-motion`, `/lock`, `/unlock`, `POST /api/scenes/{id}/assets` ve `DELETE /api/scenes/{id}/assets/{asset_id}`.
 
 ## Sekanslar ve film düzeyinde ses
@@ -259,9 +259,9 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.
 - `spent ≥ limit × soft_budget_ratio` olunca *yumuşak limit* bayrağı kalkar: yeni tam dalga başlatılmaz, sahneler eldeki adaylarla tamamlanır.
-- Hız bekçisi 30 saniyede bir son 10 dakikanın harcamasına bakar; `max_spend_per_10min` aşılırsa projeyi dondurur. Panel, yeni projeyi bu sınır bütçenin yarısı olacak şekilde açar: örnek film saniyeler içinde yaklaşık 25-30 sanal USD harcar ve varsayılan 20 USD sınırı filmin ortasında projeyi dondururdu.
+- Hız bekçisi 30 saniyede bir son 10 dakikanın harcamasına bakar; `max_spend_per_10min` aşılırsa projeyi dondurur. Panel, yeni projeyi bu sınır bütçenin yarısı olacak şekilde açar: yerel motor saniyeler içinde üretir ve Seedance seçilmiş çekimler varsayılan 20 USD sınırını filmin ortasında doldurabilirdi.
 - Bayat rezervasyon toplayıcı 5 dakikada bir, 60 dakikadan eski ve eşi olmayan rezervasyonları iade eder.
-- Fiyatlar `backend/pricing.yaml` dosyasındadır (fal.ai, Ekim 2026). Periyodik olarak güncelleyin.
+- Fiyatlar `backend/pricing.yaml` dosyasındadır: fal.ai fiyatları (Ekim 2026) ve MiniMax H3 için kiraladığınız makinenin saatlik ücreti ile video saniyesi başına GPU süresi (`self_hosted.h3`). Periyodik olarak güncelleyin.
 
 ## Servis geçmişi (panelin Geçmiş sayfası)
 
@@ -274,7 +274,8 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 - **Ayrıntı:** sağlayıcıya gerçekten giden her istek (model ya da uç nokta, sağlayıcının istek kimliği, çözünürlük, kare sayısı,
   tohum, LoRA, belirteç ya da karakter sayısı, istem), tahmin ve işlenen tutar, süre, deneme numarası, bütçe rezervasyonu ve
   varsa hata (anahtar değerleri maskelenir). İstek kimliğiyle tutarı sağlayıcının panelinde doğrulayabilirsiniz; fal.ai yanıtı
-  fatura tutarı döndürmediği için işlenen tutar fiyat tablosundan hesaplanır.
+  fatura tutarı döndürmediği için işlenen tutar fiyat tablosundan hesaplanır. MiniMax H3 işlerinde görev (t2va, fl2va,
+  ref2va), adım sayısı ve sunucunun bildirdiği GPU süresi görünür; tutar bu süre × saatlik ücrettir.
 - **Özet:** gerçek ve sanal harcama, başarısız ve süren çağrılar; servis, model, işlem, proje ve gün dağılımı.
 - **CSV indir:** süzgece uyan bütün çağrılar (UTF-8, Excel uyumlu).
 
@@ -288,8 +289,8 @@ işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/his
 
 Üst banttaki **Ayarlar** düğmesi (ya da mod rozeti) bütün ücretli servisleri tek yerde gösterir ve düzenletir:
 
-- **Servisler:** fal.ai (Flux, Wan, Seedance, previs aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes
-  LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
+- **Servisler:** MiniMax H3 · vast.ai (video; kendi GPU sunucunuz), fal.ai (isteğe bağlı: Seedance, Flux kareleri, previs
+  aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
   (varsayılana dönme ve model sayfası bağlantısıyla), motor seçimi (`TTS_ENGINE`, `HERMES_MODE`), kullanıldığı yerler, ilgili
   fiyatlar, bugüne kadarki harcama ve sağlayıcının hesap paneli bağlantısı.
 - **Çalışma modu:** ücretsiz moddan ücretli moda geçiş, kutuya **ücretli moda geç** yazılarak onaylanır ve herhangi bir projede
@@ -302,28 +303,27 @@ Değişiklikler `.env` dosyasına (fiyatlar `backend/pricing.yaml`'a) yazılır;
 `beat` konteynerlerine bağlar. Servisler **yeniden başlatılmadan** yeni ayarı kullanır: kayıt Redis'teki bir sayacı artırır, API
 her istekte ve worker her görevden önce sayacı görüp `.env`'i yeniden okur. Panel yalnızca beyaz listedeki ücretli servis
 ayarlarını yazabilir; veritabanı ve depo ayarlarına dokunamaz. Bağlantı sınaması yalnızca ücretsiz, salt okunur doğrulama
-uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyruk durumu) ve üretim yapmaz.
+uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyruk durumu, H3 sunucusunun `/health` ucu) ve
+üretim yapmaz.
 
-### Yalnızca fal.ai ile ücretli deneme
+### MiniMax H3 ile ücretli deneme
 
-ElevenLabs ve Anthropic olmadan, yalnızca fal.ai anahtarıyla gerçek üretimi denemek için:
+ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek üretimi denemek için (sunucu kurulumu:
+*Video motoru: MiniMax H3* bölümü):
 
-1. **Ayarlar › fal.ai**: anahtarı yapıştırıp **Anahtarı kaydet**, ardından **Bağlantıyı sına**. Konuşma motoru `espeak` ve Hermes
-   `rules` kaldıkça ElevenLabs ve Anthropic çağrılmaz; Çalışma modu listesinde "gerekmez" görünür. Seslendirme yerel espeak ile,
-   senaryo ayrıştırma kural tabanlı yapılır.
-2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (fal.ai anahtarı ve kalite skorlayıcısı hazır değilse
+1. **Ayarlar › MiniMax H3 · vast.ai**: sunucu adresini ve erişim anahtarını girip kaydedin, ardından **Bağlantıyı sına**
+   ("Sunucu hazır" görünmeli). Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
+   çağrılmaz; Çalışma modu listesinde "gerekmez" görünür.
+2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (H3 sunucusu ve kalite skorlayıcısı hazır değilse
    düğme kapalıdır).
-3. **Senaryo › Yeni proje**: yoğunluk olarak **fal.ai denemesi** seçin. Bu seçim:
+3. **Senaryo › Yeni proje**: yoğunluk olarak **MiniMax H3 denemesi** seçin. Bu seçim:
    - bütçeyi 3 USD yapar;
-   - **Deneme senaryosu**nu doldurur: İngilizce, tek çekim, 3 saniye, diyalogsuz (dudak senkronu ücreti yok), sakin
-     (Seedance yerine Wan); Kerem `[CHARACTER: Kerem]` ile kadroya alınır;
+   - **Deneme senaryosu**nu doldurur: İngilizce, tek çekim, 3 saniye, diyalogsuz; Kerem `[CHARACTER: Kerem]` ile kadroya alınır;
    - çekim başına en çok 2 test ve 2 tam klip üretir, 480p, düzeltme turu yok;
    - varlık onay akışını ve hareket testlerini atlar (referans kontrolü yalnızca uyarır).
-   Panel çekim başına en yüksek maliyeti fiyat tablosundan hesaplar (şu anki fiyatlarla ~0,62 USD).
-   **Senaryoyu işle ve üret**'e basın.
-4. **Kurgu** sayfasında adayları izleyin. Her klip bir Flux ilk karesi ve bir Wan videosudur. Kalite kapısını geçemeyen karenin
-   videosu hiç istenmez.
-5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön**.
+   Panel çekim başına en yüksek GPU maliyetini fiyat tablosundan hesaplar. **Senaryoyu işle ve üret**'e basın.
+4. **Kurgu** sayfasında adayları izleyin. Her klip doğrudan H3'ten gelir ve videonun kendisi puanlanır.
+5. Bitince **Ayarlar › Çalışma modu › Ücretsiz moda dön** ve kullanmıyorsanız makineyi vast.ai'de durdurun.
 
 ### Karakter referansıyla üretim
 
@@ -331,7 +331,11 @@ Bir karakterin görünüşünü bir görselle sabitlemek için: **Varlıklar** s
 olarak yükleyin (ör. karakterin yüzünü net gösteren bir portre). Ücretli modda o karakterin geçtiği çekimlerin ilk
 kareleri ve storyboard karesi Flux LoRA yerine **Flux Kontext** (`fal-ai/flux-pro/kontext`, görsel başına 0,04 USD) ile
 bu görselden çizilir: yüz, saç, göz ve kıyafet korunur, sahne, poz ve kadraj prompt'tan gelir. Video yine bu kareden
-(Wan ya da Seedance) üretilir. Görsel fal deposuna bir kez yüklenir (ücretsiz).
+(Seedance) üretilir. Görsel fal deposuna bir kez yüklenir (ücretsiz).
+
+MiniMax H3 çekimlerinde (varsayılan) Flux kullanılmaz: Ayarlar'da bir **Ref2VA sunucusu** (`H3_REF_ENDPOINT_URL`)
+tanımlıysa çekimdeki bütün karakterlerin durağan görselleri (en çok 9) istekte referans olarak gider ve istemde
+`<Picture 1> is Kerem` gibi eşlenir. Ref2VA sunucusu yoksa karakterler yalnızca tarifle üretilir.
 
 - Kontext tek görsel alır: çekimde birden çok referanslı karakter varsa ilki kullanılır. LoRA'sı olan karakterde LoRA
   kazanır.
@@ -341,15 +345,15 @@ bu görselden çizilir: yüz, saç, göz ve kıyafet korunur, sahne, poz ve kadr
 - Uç nokta Ayarlar › fal.ai'den değiştirilebilir (`FAL_KONTEXT_ENDPOINT`), fiyatı `pricing.yaml`'da
   `image_per_image.flux_kontext`.
 
-### Ücretli ses kapalı (fal.ai denemesi)
+### Ücretli ses kapalı (deneme)
 
-`paid_audio: false` proje ayarıyla (fal.ai denemesi ön ayarında kapalıdır) ücretli modda bile konuşma yerel espeak ile
+`paid_audio: false` proje ayarıyla (deneme ön ayarında kapalıdır) ücretli modda bile konuşma yerel espeak ile
 üretilir ve dudak senkronu çağrılmaz: replikli çekimde rafine video olduğu gibi kullanılır. ElevenLabs ve fal dudak
-senkronu bu projede hiç çağrılmaz; yalnızca görüntü fal.ai'den gelir.
+senkronu bu projede hiç çağrılmaz. fal.ai anahtarı tanımlı değilse de dudak senkronu atlanır.
 
 ### Prompt çevirisi
 
-Görüntü modelleri (Flux, Wan, Seedance) İngilizce istemi izler; Türkçe tarifle sahneyle ilgisiz görüntü üretirler. Ücretli
+Görüntü modelleri (MiniMax H3, Flux, Seedance) İngilizce istemi izler; Türkçe tarifle sahneyle ilgisiz görüntü üretirler. Ücretli
 modda bestecinin çıktısındaki Türkçe metinler (çekim tarifi, mekân ve nesne adları ve tarifleri) sağlayıcıya gitmeden yerel
 bir modelle (Helsinki-NLP opus-mt-tr-en, Apache 2.0, imajda sabit sürümle; ücretsiz, ağ kullanmaz) İngilizceye çevrilir.
 Yalnızca Türkçe cümleler çevrilir; kamera ve stil ifadeleri ile İngilizce yazılmış senaryo olduğu gibi gider. Karakter adları
@@ -364,6 +368,68 @@ dolunca Kill-Switch üretimi durdurur.
 > Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
 > yazabildiği için paneli ağa açmayın.
 
+## Video motoru: MiniMax H3 (vast.ai)
+
+Ücretli modda test turu, tam tur, hareket testi, karakter dönüş videosu ve düzenlenmiş ilk kareden video **MiniMax H3**
+ile, kendi kiraladığınız GPU sunucusunda üretilir (açık ağırlıklı model, SGLang'in `/v1/videos` ucu). Yeni her çekim H3'e
+yönlenir; bir çekimi **Seedance** (fal.ai) ile üretmek isterseniz Kurgu › denetçi › **Motor** listesinden seçin, sonra
+**Bu sahneyi baştan üret**. Seçim, senaryo yeniden işlense de korunur. Eski Wan çekimleri senaryo yeniden işlenince H3'e geçer.
+
+> **Lisans: önce okuyun.** MiniMax H3 Community License, modelin ve **çıktılarının** (filmin) Avrupa Birliği, Birleşik
+> Krallık, Güney Kore ve ABD'de kullanılmasını, çalıştırılmasını, barındırılmasını, dağıtılmasını ve gösterilmesini ayrı
+> izin olmadan kapsamaz. vast.ai'de makineyi bu bölgelerin dışından seçin; filmi bu bölgelerde göstermeyi ya da dağıtmayı
+> planlıyorsanız MiniMax'ten önceden izin alın. Yıllık geliri 20 milyon USD'yi aşan ticari kullanım da yazılı izin ister ve
+> ticari ürünün arayüzünde "MiniMax H3" adı görünmelidir. Bu bir hukuki görüş değildir; lisans metni:
+> https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE
+
+**Sunucuyu kurmak (vast.ai):**
+
+1. Excluded bölgelerin dışında bir makine kiralayın. Tek kartla çalışır: RTX 5090 (32 GB) ya da RTX 4090 (24 GB) katman
+   katman bellek aktarımıyla ve en az 64 GB sistem belleğiyle; tek H100 80 GB daha hızlıdır. Model ağırlıkları onlarca GB'tır:
+   diski geniş seçin.
+2. vast.ai'nin *Instance Portal*'lı bir şablonunu kullanın (kimlik doğrulama ve TLS'i o yapar). SGLang'i kurup FL2VA
+   sunucusunu başlatın (SGLang tarifi, docs.sglang.io › MiniMax-H3), ör. RTX 5090 için:
+   ```bash
+   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+   sglang serve --model-path MiniMaxAI/MiniMax-H3 --model-variant fl2va --host 0.0.0.0 --port 18010 \
+     --performance-mode memory --layerwise-offload-components dit,text_encoder,vae \
+     --dit-layerwise-resident-layers 14 --layerwise-resident-layers video_vae=36 \
+     --warmup-resolutions 864x480 --warmup-num-frames 124
+   ```
+   RTX 4090'da tarifteki `--quantization convrot_int8 ... --dit-layerwise-resident-layers 0` bayraklarını kullanın
+   (`pip install comfy-kitchen` gerekir). Daha hızlı üretim için tarifteki turbo LoRA'yı sunucuya yükleyip panelde adım
+   sayısını 9 (ya da 5) yapın.
+3. Portu Instance Portal üzerinden açın (`PORTAL_CONFIG` girdisi, ör. `localhost:30010:18010:/:MiniMax H3`): portal onu
+   kimlik doğrulamalı bir adresle ve bir Cloudflare tünel adresiyle (`https://dort-rastgele-kelime.trycloudflare.com`)
+   yayınlar. Erişim anahtarı makinenin `OPEN_BUTTON_TOKEN`'ıdır (SSH ile `echo $OPEN_BUTTON_TOKEN`) ya da şablonda
+   verdiğiniz `WEB_PASSWORD`. Sunucuyu kimlik doğrulamasız açmayın.
+4. **Ayarlar › MiniMax H3 · vast.ai**: tünel adresini **Sunucu (FL2VA)**, belirteci **Erişim anahtarı** olarak girin ve
+   **Bağlantıyı sına**. Tünel adresi makine her yeniden başladığında değişir; değişince buradan güncelleyin.
+5. İsteğe bağlı: karakter referansları için ikinci bir sunucuyu `--model-variant ref2va` ile başlatıp adresini **Referans
+   sunucusu (Ref2VA)** alanına girin (ayrı GPU belleği ister).
+
+**Bütçe:** vast.ai makineyi saatle faturalar. `pricing.yaml`'daki `self_hosted.h3.gpu_hourly_usd` (makinenin $/saat
+ücreti) ve `render_seconds` (bir video saniyesi için GPU saniyesi) rezervasyonun tahminidir; işlenen tutar sunucunun her iş
+için bildirdiği GPU süresi × saatlik ücrettir. İlk gerçek üretimden sonra servis geçmişindeki GPU süresine bakıp
+`render_seconds`'ı güncelleyin. **Makinenin boşta geçen süresi bütçeye ve Kill-Switch'e yansımaz:** kullanmadığınızda
+makineyi vast.ai'de durdurun.
+
+**Bilinmesi gerekenler:**
+
+- **Hız:** tek kartta 20 adımda bir klip birkaç dakika sürer (SGLang tarifinde RTX 5090, 480p, 5 sn: ~112 sn; RTX 4090,
+  768p, 4,5 sn: ~300 sn). Brifing yoğunluğu (10 test + 50'ye kadar tam klip) çekim başına saatler demektir; önizleme ya da
+  deneme yoğunluğuyla başlayın. Bir çekimin görsel aşaması 6 saati aşarsa görev kuyruğa yeniden düşebilir (Celery
+  `visibility_timeout`); yoğunluğu buna göre seçin.
+- **Önce görsel yok:** H3 ilk kare üretmez; video doğrudan üretilir ve kalite kapısı videoyu puanlar. Flux karesiyle ön eleme
+  yalnızca Seedance çekimlerinde yapılır.
+- **Negatif istem gitmez:** model CFG damıtılmıştır; stil kılavuzunun negatifleri gönderilmez (servis geçmişinde not edilir).
+- **Süre 4–15 sn, 24 fps:** daha kısa çekim 4 sn üretilir ve indirilince çekim süresine kesilir (4 saniyenin GPU süresi yine
+  harcanır). 720p kademesi H3'ün doğal 768p çözünürlüğünde üretilir, film birleştirmede 1280×720'ye getirilir.
+- **H3'ün kendi sesi kullanılmaz:** montaj yalnızca görüntüyü alır; diyalog ve müzik hattın kendi sesidir.
+- **fal.ai isteğe bağlıdır:** anahtarı yoksa storyboard karesi yerel çizilir, dudak senkronu atlanır; Seedance, mekân ve nesne
+  referans görseli üretimi ve previs aktarımı ise fal.ai anahtarı ister (görselleri kendiniz de yükleyebilirsiniz).
+- Sunucuya ulaşılamazsa ya da anahtar reddedilirse çekim, yeniden denemeyle zaman kaybetmeden Türkçe bir hatayla durur.
+
 ## Ücretli mod kilitli
 
 `DRY_RUN=1` varsayılandır. Bu modda anahtar tanımlı olsa bile hiçbir ücretli API çağrılmaz:
@@ -377,7 +443,8 @@ dolunca Kill-Switch üretimi durdurur.
 
 | Modül | Ne yapar |
 |---|---|
-| `live/fal_video.py` | Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Wan 2.2 (`fal-ai/wan/v2.2-a14b/image-to-video`) ya da Seedance (`bytedance/seedance-2.0/fast/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`; previs aktarımı `fal-ai/wan/v2.2-a14b/video-to-video`. 429, 5xx ve zaman aşımı yeniden denenir. |
+| `live/vast_h3.py` | MiniMax H3, kendi GPU sunucunuzda (SGLang `/v1/videos`): t2va (metinden), fl2va (verilen ilk kareden), ref2va (karakter görselleriyle). İş gönderilir, durumu sorgulanır, video indirilir; tutar sunucunun bildirdiği GPU süresinden. Gönderilmiş iş yeniden denemede yeniden üretilmez. 429 ve 5xx yeniden denenir; bağlanamamak ve reddedilen anahtar Türkçe hatayla durur. |
+| `live/fal_video.py` | İsteğe bağlı. Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Seedance (`bytedance/seedance-2.0/fast/image-to-video`; eski çekimlerde Wan 2.2 `fal-ai/wan/v2.2-a14b/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`; previs aktarımı `fal-ai/wan/v2.2-a14b/video-to-video`. 429, 5xx ve zaman aşımı yeniden denenir. |
 | `live/elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. |
 | `live/hermes_llm.py` | LangGraph akışı: `Send` ile paralel çıkarma, doğrulama, en çok 2 tur onarım. Çıktı şeması kural tabanlı ayrıştırıcıyla aynı; replikler eksiltilemez ya da uydurulamaz. |
 
@@ -385,18 +452,19 @@ Uç nokta kimlikleri ve parametreler fal.ai ve ElevenLabs belgelerinden doğrula
 
 Ücretli modda akış:
 
-- **Önce görsel, sonra video:** her varyasyonun ilk karesi (Flux) ayrı üretilir, depoya konur ve videoyla aynı eşikle puanlanır (siyah ya da tek renk kare ve eşik altı skor elenir). Elenen karenin videosu hiç istenmez; panelde "ilk karede elendi, video üretilmedi" yazar. Video yalnızca geçen kareden üretilir; varyasyonun bedeli kare + videodur. Ücretsiz modda yerel motor doğrudan video çizer.
-- **Storyboard karesi** bestecinin prompt'uyla tek bir Flux karesidir; üzerine çekim bilgisi yazılır.
+- **Video:** varsayılan olarak MiniMax H3 doğrudan video üretir (bkz. *Video motoru: MiniMax H3*).
+- **Önce görsel, sonra video (Seedance çekimleri):** her varyasyonun ilk karesi (Flux) ayrı üretilir, depoya konur ve videoyla aynı eşikle puanlanır (siyah ya da tek renk kare ve eşik altı skor elenir). Elenen karenin videosu hiç istenmez; panelde "ilk karede elendi, video üretilmedi" yazar. Video yalnızca geçen kareden üretilir; varyasyonun bedeli kare + videodur. Ücretsiz modda yerel motor doğrudan video çizer.
+- **Storyboard karesi** bestecinin prompt'uyla tek bir Flux karesidir; üzerine çekim bilgisi yazılır. fal.ai anahtarı yoksa yerel kare çizilir (ücretsiz).
 - **Previs rehberi** Wan 2.2 video-to-video ile stile aktarılır (`strength` 0,65: hareket ve kompozisyon rehberden, görünüm stil kılavuzundan). Ücretsiz modda rehber renklendirilip kullanılır ve aynı uç noktanın fiyatı sanal olarak düşer.
-- **Referans üretimi** (*Varlıklar* sayfasında *Referans üret*): karakter için Flux karesinden yörünge hareketli 4 sn'lik dönüş videosu (karakterin LoRA'sı varsa onunla), mekân ve nesne için tek Flux karesi. Ücretsiz moddaki yerel taslak da artık bu fiyattan düşer.
-- **Hareket testi** varlığın onaylı referans görselinden başlar (yüklenir, Flux çağrılmaz): sınanan, onaylanan referansın kendisidir.
-- **Düzenlenmiş ilk kare** yüklenince varyasyonun prompt, seed, çözünürlük ve süresiyle videoya çevrilir; bedeli yalnızca videodur. Aynı kare yeniden yüklenirse yeniden ödenmez.
+- **Referans üretimi** (*Varlıklar* sayfasında *Referans üret*): karakter için MiniMax H3'ten yörünge hareketli 4 sn'lik dönüş videosu (durağan görseli varsa ondan başlar), mekân ve nesne için tek Flux karesi (fal.ai). Ücretsiz moddaki yerel taslak da artık bu fiyattan düşer.
+- **Hareket testi** varlığın onaylı referans görselinden başlar (H3'e ilk kare olarak verilir, Flux çağrılmaz): sınanan, onaylanan referansın kendisidir.
+- **Düzenlenmiş ilk kare** yüklenince varyasyonun motoruyla (H3'te fl2va) prompt, seed, çözünürlük ve süresiyle videoya çevrilir; bedeli yalnızca videodur. Aynı kare yeniden yüklenirse yeniden ödenmez.
 - İstek içindeki ücretli çağrının hataları Türkçe yanıtlanır: kilit 409, bütçe 423, sağlayıcının geçici hatası (3 denemeden sonra) 503.
 
 Bilinmesi gerekenler:
 
 - fal yanıtı fatura tutarı döndürmez; harcama `pricing.yaml` tahminidir. `tts_per_1k_chars` ve `llm_per_million_tokens` kalemleri doğrulanmış değildir: ücretli moda geçmeden önce kendi planınıza göre güncelleyin.
-- Seedance en az 4 sn üretir ve tohum kabul etmez; 3 sn'lik bir çekim 4 sn faturalanır. Wan 17–161 kare (16 fps) üretir.
+- Seedance en az 4 sn üretir ve tohum kabul etmez; 3 sn'lik bir çekim 4 sn faturalanır. MiniMax H3 de en az 4 sn üretir (kesilir), tohum alır. Wan (eski çekimler) 17–161 kare (16 fps) üretir.
 - **Ücretli modda kalite kapısı gerçek skorlayıcıyı kullanır** (bkz. *Kalite skoru*). Sahte skor ücretli modda hiçbir koşulda kabul edilmez; gerçek skorlayıcı kullanılamıyorsa (paket ya da model dosyası yok) kademeli üretim para harcanmadan önce durur. Sırada: düşük skorda istemi revize eden düzeltme grafiği, Pinecone ile karakter vektörleri ve iki katmanlı önbellek, kürasyon kayıtlarından projeye özel kalite modeli.
 - Ücretli entegrasyonları denemek için ayrıca `pip install -r backend/requirements-live.txt` gerekir. Bunu açık onay olmadan yapmayın; `DRY_RUN=0` ile hiçbir şeyi açık onay olmadan çalıştırmayın.
 
@@ -416,7 +484,10 @@ Bilinmesi gerekenler:
 | `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
 | `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |
-| `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir) |
+| `H3_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir); `H3_API_KEY` H3 sunucusunun önündeki kimlik doğrulamanın belirtecidir |
+| `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | MiniMax H3 sunucuları: FL2VA (zorunlu) ve Ref2VA (isteğe bağlı, karakter görselleriyle) |
+| `H3_MODEL` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / `20` | İstekteki model kimliği ve adım sayısı (sunucudaki kurulumla aynı olmalı; turbo LoRA ile 9 ya da 5) |
+| `H3_TIMEOUT_S` | `3600` | Tek işin (kuyrukta bekleme dahil) en uzun süresi |
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
@@ -455,7 +526,7 @@ backend/
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, history, export, services, panel,
                  plan, deps, uploads
     worker/      celery_app, tasks, dispatch
-    live/        ücretli kilit (guard), fal_video, elevenlabs, hermes_llm
+    live/        ücretli kilit (guard), vast_h3 (MiniMax H3 sunucusu), fal_video, elevenlabs, hermes_llm, probe
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama

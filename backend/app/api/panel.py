@@ -30,14 +30,14 @@ router = APIRouter(tags=["panel"])
 PRESETS = {
     "preview": {"probe_n": 4, "full_n": 8, "wave_size": 4, "max_correction_rounds": 2},
     "brief": {},           # proje varsayılanları: 10 test + 50'ye kadar tam varyasyon
-    # Yalnızca fal.ai anahtarıyla en ucuz ücretli deneme: çekim başına en çok 4 klip (2 test + 2 tam), 480p, düzeltme
-    # turu yok. Referans kontrolü uyarıya iner: varlık onay akışı ve hareket testleri (video ücreti) atlanır.
+    # Yalnızca MiniMax H3 sunucusuyla en ucuz ücretli deneme: çekim başına en çok 4 klip (2 test + 2 tam), 480p, düzeltme
+    # turu yok. Referans kontrolü uyarıya iner: varlık onay akışı ve hareket testleri (GPU süresi) atlanır. Ses yereldir.
     "trial": {"probe_n": 2, "full_n": 2, "wave_size": 2, "refined_k": 1, "max_correction_rounds": 0,
               "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn",
               "paid_audio": False},
 }
 
-# Diyalogsuz (dudak senkronu ücreti yok), aksiyonsuz (Wan, Seedance değil), 3 saniyelik tek çekimlik deneme senaryosu.
+# Diyalogsuz (dudak senkronu yok), aksiyonsuz, 3 saniyelik tek çekimlik deneme senaryosu (MiniMax H3 4 sn üretir, kesilir).
 # İngilizce: sağlayıcıya çeviri olmadan gider. Kerem konuşmadığı için işaretle kadroya alınır.
 TRIAL_SCRIPT = """# SEQUENCE: Trial
 

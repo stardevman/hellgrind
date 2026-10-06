@@ -2,8 +2,9 @@
 
 Revizyonu en ucuz aşamada yapmak maliyeti en çok düşüren adımdır: kare onaylanmadan (proje ayarı açıksa) görüntü
 üretilmez. Ücretsiz modda kare, prosedürel motorun çekim ortasındaki karesidir; ücretli modda bestecinin prompt'uyla
-çizilen tek bir Flux karesidir (Faz 18). İkisinde de üzerine çekim bilgisi yazılır. Ücretsiz modda kare, ücretli
-karşılığının fiyatıyla sanal olarak bütçeden düşer.
+çizilen tek bir Flux karesidir (Faz 18); fal.ai anahtarı yoksa (video MiniMax H3 ile kendi sunucumuzda üretilirken
+fal.ai isteğe bağlıdır) ücretli modda da yerel kare kullanılır ve ücret doğmaz. İkisinde de üzerine çekim bilgisi yazılır.
+Ücretsiz modda kare, ücretli karşılığının fiyatıyla sanal olarak bütçeden düşer.
 
 Kare içerik-adreslidir: storyboard/{sahne}/{görsel özet}.jpg. Görsel girdiler değişince yeni kare çizilir ve onay
 yeniden istenir (eski onay başka bir çekimi onaylamıştı).
@@ -22,6 +23,7 @@ from app.config import project_settings, settings
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
+from app.engine import paid
 from app.engine.procedural import _font, render_clip
 from app.models import AudioTrack, Character, Project, Scene
 from app.style import bible
@@ -72,7 +74,6 @@ def board_label(reference) -> str:
 def paid_board(out_path: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict, lines: list[str]) -> str:
     """Ücretli kare (Faz 18): bestecinin prompt'uyla tek bir kare, karakter LoRA'larıyla ya da karakterin referans
     görseliyle (Kontext); alt bantta çekim bilgisi. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
-    from app.engine import paid
     from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
     reference = extra.get("reference")
     frame = paid.call(project_id, board_estimate(reference), board_label(reference), "fal_key",
@@ -144,6 +145,8 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
                     with killswitch.spend(project_id, estimate, board_label(extra.get("reference")), scene_id=scene_id) as charge:
                         path = render_board(out, seed, info["render"], lines)
                         charge.actual = estimate
+                elif not paid.available("fal_key"):         # fal.ai isteğe bağlı: kare yerel çizilir, ücret doğmaz
+                    path = render_board(out, seed, info["render"], lines)
                 else:
                     path = paid_board(out, project_id, scene_id, seed, prompt, extra, lines)
                 storage.put_file(path, key, "image/jpeg")

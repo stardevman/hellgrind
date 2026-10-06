@@ -189,33 +189,40 @@ def reference_prompt(asset, style):
 
 
 def reference_estimate(asset_type: str) -> tuple[str, float]:
-    """(defter etiketi, tahmin): karakter = Flux karesi + 4 sn 480p Wan videosu; mekân ve nesne = tek Flux karesi.
-    Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
+    """(defter etiketi, tahmin): karakter = 4 sn 480p MiniMax H3 dönüş videosu (kendi GPU sunucumuzda); mekân ve nesne =
+    tek Flux karesi (fal.ai). Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
     from app.budget import pricing
-    image = pricing.estimate_image(1.0)
+    from app.engine.providers import DEFAULT_ENGINE
     if asset_type == "character":
-        return f"fal_wan:{TURNAROUND_RESOLUTION}:reference", round(
-            image + pricing.estimate_video("fal_wan", TURNAROUND_RESOLUTION, TURNAROUND_S), 4)
-    return "flux_lora:reference", image
+        return f"{DEFAULT_ENGINE}:{TURNAROUND_RESOLUTION}:reference", \
+            pricing.estimate_video(DEFAULT_ENGINE, TURNAROUND_RESOLUTION, TURNAROUND_S)
+    return "flux_lora:reference", pricing.estimate_image(1.0)
 
 
 def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> tuple[str, str, str]:
-    """Ücretli referans (Faz 18). Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir (ödenmiş kare yeniden
-    ödenmez). (tür, yol, dosya adı)."""
+    """Ücretli referans (Faz 18). Karakterin dönüş videosu MiniMax H3'ten (durağan görseli varsa ondan başlar); mekân ve
+    nesne görseli Flux'tan (fal.ai). Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir (gönderilmiş iş
+    yeniden ödenmez). (tür, yol, dosya adı)."""
+    from dataclasses import replace
     from app.engine import paid
-    from app.engine.providers import GenRequest
-    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
+    from app.engine.providers import DEFAULT_ENGINE, GenRequest, get_provider
     seed = seed_for(str(asset.id), asset.version, "reference")
     composed = reference_prompt(asset, style)
     label, estimate = reference_estimate(asset.type)
     if asset.type == "character":
-        provider = fal_video.FalProvider("fal_wan")
+        provider = get_provider(DEFAULT_ENGINE)
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
                          duration_s=TURNAROUND_S, extra=lora)
-        made = paid.call(project_id, estimate, label, "fal_key", lambda: provider.generate(req), asset_id=asset.id)
+        still = (asset.references or {}).get("still")
+        if still:                                    # onaylı durağan görsel: dönüş o yüzden başlar
+            with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+                local = storage.download(still["key"], os.path.join(tmp, "still" + os.path.splitext(still["key"])[1]))
+                req = replace(req, image_url=provider.upload(local))
+        made = paid.call(project_id, estimate, label, provider.key_name, lambda: provider.generate(req), asset_id=asset.id)
         path = os.path.join(out_dir, "turnaround.mp4")
         os.replace(made.local_path, path)
         return "turnaround", path, "turnaround.mp4"
+    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
     frame = paid.call(project_id, estimate, label, "fal_key", lambda: fal_video.image(composed.prompt, seed),
                       asset_id=asset.id)
     path = os.path.join(out_dir, "still.jpg")

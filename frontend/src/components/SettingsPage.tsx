@@ -20,6 +20,15 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
   if (!t) return [];
   if (id === "elevenlabs") return [["Konuşma (1000 karakter)", usd(t.tts_per_1k_chars)]];
   if (id === "anthropic") return [["Girdi (1M token)", usd(t.llm_per_million_tokens.input)], ["Çıktı (1M token)", usd(t.llm_per_million_tokens.output)]];
+  if (id === "vast") {
+    const h3 = t.self_hosted?.h3;
+    if (!h3) return [];
+    const rows: [string, string][] = [["GPU makinesi (saat)", `$${h3.gpu_hourly_usd}`]];
+    for (const [res, sec] of Object.entries(h3.render_seconds)) {
+      rows.push([`${res}: video saniyesi başına GPU süresi ${sec} sn (tahmin)`, `$${(h3.gpu_hourly_usd / 3600 * sec).toFixed(4)}`]);
+    }
+    return rows;
+  }
   const rows: [string, string][] = [];
   for (const [engine, byRes] of Object.entries(t.video_per_second)) {
     for (const [res, price] of Object.entries(byRes)) rows.push([`${engine} · ${res} (video saniyesi)`, `$${price}`]);
@@ -106,6 +115,7 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
                     </select>
                   ) : (
                     <input type="text" className="mono" style={{ width: "100%" }} spellCheck={false} disabled={!st.editable} aria-label={f.label}
+                      placeholder={f.kind === "url" ? "https://ornek-dort-kelime.trycloudflare.com" : undefined}
                       value={val(f)} onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })} />
                   )}
                   {f.default && val(f) !== f.default && <small>varsayılan: <span className="mono">{f.default}</span></small>}
@@ -133,6 +143,10 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
       <Section title="Fiyatlar" meta="pricing.yaml">
         <table className="tbl"><tbody>{priceRows(svc.id, prices).map(([k, v]) => <tr key={k}><td>{k}</td><td className="r mono">{v}</td></tr>)}</tbody></table>
         <p className="faint small">Bütçe rezervasyonu ve Kill-Switch bu fiyatlarla hesaplanır; Fiyat tablosu bölümünden düzenlenir.</p>
+        {svc.id === "vast" && (
+          <p className="faint small">vast.ai makineyi saatle faturalar. Her işin bedeli, sunucunun bildirdiği GPU süresi × saatlik ücrettir;
+            makinenin boşta geçen süresi bütçeye yansımaz. Kullanmadığınızda makineyi vast.ai'de durdurun.</p>
+        )}
       </Section>
     </Panel>
   );
@@ -148,8 +162,8 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
     setTyped(""); onSaved(); void mutate("/meta");
     note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : "Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.", paid ? "err" : "ok");
   }, "settings");
-  const fal = st.services.find((s) => s.id === "fal");
-  const missingPkgs = st.services.some((s) => (s.id === "fal" || s.needed) && Boolean(s.missing_packages?.length));
+  const h3 = st.services.find((s) => s.id === "vast");
+  const missingPkgs = st.services.some((s) => s.needed && Boolean(s.missing_packages?.length));
   return (
     <Panel title="Çalışma modu" meta={st.dry_run ? "ücretsiz" : "ücretli"}>
       <div className="pad stack">
@@ -172,7 +186,8 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
               {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
-              {fal && !fal.key_set && <li className="warn">En az fal.ai anahtarı gerekir: görüntü ve video yalnızca fal.ai ile üretilir.</li>}
+              {h3 && !h3.active && <li className="warn">MiniMax H3 sunucusu gerekir: video H3 ile üretilir. Ayarlar › MiniMax H3'ten sunucu adresini ve erişim anahtarını girin.</li>}
+              {h3?.active && <li>vast.ai makinesinin çalıştığını ve "Bağlantıyı sına" sonucunun "hazır" olduğunu doğrulayın.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>
               <li>Mod, servisler yeniden başlatılmadan geçerli olur; o andan sonra başlayan her ücretli çağrı gerçek harcamadır.</li>
@@ -184,9 +199,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                   <input type="text" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
                 </label>
                 <div className="row">
-                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !fal?.key_set || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
-                  {(!fal?.key_set || !st.scorer.ready) && <span className="faint small">Önce fal.ai anahtarını girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
-                  {fal?.key_set && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
+                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3?.active || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
+                  {(!h3?.active || !st.scorer.ready) && <span className="faint small">Önce MiniMax H3 sunucusunu tanımlayın{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                  {h3?.active && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
                 </div>
               </form>
             ) : <p className="faint small">Ayar dosyası bağlı değil; mod yalnızca .env elle düzenlenerek değişir.</p>}

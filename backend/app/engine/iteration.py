@@ -10,9 +10,10 @@ Taslak geçiş (mode="draft", Faz 14): yalnızca test turu çalışır; geçen i
 kurguda kullanılır. Tam tur hiç çalışmaz. Sonraki iyileştirme geçişi aynı seed'lerle başladığı için test turu klipleri
 yeniden kullanılır (yeniden üretilmez, yeniden ücretlendirilmez).
 
-Önce görsel, sonra video (Faz 18): ücretli sağlayıcıda (`image_first`) her varyasyonun ilk karesi ayrı üretilir ve aynı
-eşikle puanlanır. Geçemeyen kare kalite kapısında elenir (`params.stage="first_frame"`) ve videosu hiç üretilmez; video
-yalnızca geçen kareden istenir. Ücretsiz modda yerel motor doğrudan video çizer.
+Önce görsel, sonra video (Faz 18): fal.ai sağlayıcısında (`image_first`: Seedance ve eski Wan çekimleri) her varyasyonun
+ilk karesi ayrı üretilir ve aynı eşikle puanlanır. Geçemeyen kare kalite kapısında elenir (`params.stage="first_frame"`)
+ve videosu hiç üretilmez; video yalnızca geçen kareden istenir. Varsayılan motor MiniMax H3 (kendi GPU sunucumuz) ilk
+kare üretmez: video doğrudan üretilir ve kalite kapısı videoyu puanlar. Ücretsiz modda yerel motor doğrudan video çizer.
 
 Seed'ler girdilerden türetildiği için çalıştırma tekrarlanabilir: bir kesintiden (Kill-Switch, çökme) sonra aynı girdiyle
 yeniden başlayan çalıştırma, tamamlanmış varyasyonları yeniden üretmez ve bütçeden yeniden düşmez.
@@ -145,8 +146,11 @@ def reference_of(chars) -> dict | None:
 
 
 def loras_of(chars) -> dict:
+    """Karakter kimliğinin sağlayıcıya giden biçimleri: Flux için LoRA'lar ve tek Kontext referansı; MiniMax H3 (Ref2VA)
+    için çekimdeki bütün karakterlerin durağan görselleri."""
     out = {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale} for ch in chars if ch.lora_url],
-           "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger]}
+           "lora_triggers": [ch.lora_trigger for ch in chars if ch.lora_trigger],
+           "stills": [{"name": ch.name, "key": key} for ch in chars if (key := still_of(ch))]}
     if (reference := reference_of(chars)) is not None:
         out["reference"] = reference
     return out

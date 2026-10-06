@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, EMOTION_COLOR, EMOTION_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ASTATUS_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
 import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
@@ -37,6 +37,11 @@ function Shot({ sc }: { sc: Scene }) {
     setVar(null);
     note("inspector", resultText(r), r.blocked ? "err" : "ok");
   }, "inspector");
+  const engines: string[] = [...ENGINE_CHOICES, ...(sc.engine && !(ENGINE_CHOICES as readonly string[]).includes(sc.engine) ? [sc.engine] : [])];
+  const pickEngine = (engine: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { engine });
+    note("inspector", `${sc.scene_code} bundan sonra ${ENGINE_TR[engine] ?? engine} ile üretilecek. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+  }, "inspector");
   const upgrade = () => act(async () => {
     const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
     note("inspector", r.upgrade_requested ? `${sc.scene_code} iyileştirme geçişine alınacak.` : `${sc.scene_code} işareti kaldırıldı.`, "ok");
@@ -54,7 +59,14 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, <span className="mono">{cam.lens_mm ?? "—"} mm</span></dd>
         <dt>Süre</dt><dd className="mono">{Number(sc.duration_s).toFixed(1)} sn</dd>
         <dt>Aksiyon</dt><dd className="mono">{Number(sc.action_complexity).toFixed(2)}</dd>
-        <dt>Motor</dt><dd className="mono">{sc.engine || "—"}</dd>
+        <dt>Motor</dt>
+        <dd>
+          <select value={sc.engine ?? ENGINE_CHOICES[0]} disabled={busy || frozen} aria-label="Video motoru"
+            title="MiniMax H3 kendi GPU sunucunuzda çalışır; Seedance fal.ai'de, yalnızca seçtiğiniz çekimlerde"
+            onChange={(e) => pickEngine(e.target.value)}>
+            {engines.map((e) => <option key={e} value={e}>{ENGINE_TR[e] ?? e}</option>)}
+          </select>
+        </dd>
         <dt>Karakterler</dt><dd>{sc.characters.join(", ") || "—"}</dd>
         <dt>Kesim</dt><dd>{sc.cut_tier === "draft" ? "Taslak (kaba kurgu)" : sc.cut_tier === "final" ? "Final" : "—"}</dd>
         <dt>Harcama</dt><dd className="mono">{usd(sc.spent_usd)}</dd>

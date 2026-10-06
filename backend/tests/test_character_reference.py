@@ -1,5 +1,6 @@
-"""Karakter referansıyla üretim: karakterin durağan görseli varsa ücretli ilk kare ve storyboard karesi Flux Kontext ile
-o görselden çizilir. Ayrıca fal.ai denemesinde ses yereldir ve dudak senkronu çağrılmaz (`paid_audio`).
+"""Karakter referansıyla üretim: karakterin durağan görseli varsa fal yolunda (Seedance) ücretli ilk kare ve storyboard
+karesi Flux Kontext ile o görselden çizilir; MiniMax H3 yolunda görseller Ref2VA sunucusuna referans olarak gider. Ayrıca
+denemede ses yereldir ve dudak senkronu çağrılmaz (`paid_audio`); fal.ai anahtarı yoksa da çağrılmaz.
 
 Sahte fal ile, gerçek veritabanı, nesne deposu ve FFmpeg ile. Hiçbir test gerçek servise istek göndermez.
 """
@@ -19,7 +20,7 @@ from app.engine.storyboard import make_board
 from app.live import fal_video
 from app.models import AudioTrack, Character, Scene
 from app.post import pipeline
-from tests.test_live_production import asset_named, commits, fake_scorer, go_paid, studio, variations  # noqa: F401
+from tests.test_live_production import asset_named, commits, fake_scorer, go_paid, studio, use_fal, variations  # noqa: F401
 
 
 def char(name, refs=(), lora=None):
@@ -84,6 +85,7 @@ def test_a_still_upload_bumps_the_character_version_so_the_shot_is_redrawn(api, 
 def test_first_frames_are_drawn_from_the_character_still_with_kontext(api, sample_scene, studio, monkeypatch, tmp_path):
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]                                       # Kerem içeri girer
+    use_fal(sid)
     key = give_still(api, pid, "Kerem", tmp_path)
     studio.behaviour[fal_video.KONTEXT] = lambda args: {"images": [{"url": f"https://fal.test/frame/{args['seed']}.jpg"}]}
     go_paid(monkeypatch)
@@ -97,7 +99,7 @@ def test_first_frames_are_drawn_from_the_character_still_with_kontext(api, sampl
     assert {a["image_url"] for a in kontext} == {"https://fal.test/upload/1"} and len(studio.uploads) == 1   # bir kez yüklenir
     assert all(a["aspect_ratio"] == "16:9" and "Keep Kerem's face" in a["prompt"] for a in kontext)
     assert len({a["seed"] for a in kontext}) == 4
-    videos = [a for app, a, _ in studio.calls if app == fal_video.WAN]
+    videos = [a for app, a, _ in studio.calls if app == fal_video.SEEDANCE]
     assert sorted(a["image_url"] for a in videos) == sorted(f"https://fal.test/frame/{a['seed']}.jpg" for a in kontext)
     assert commits(pid, "flux_kontext:first_frame") == [0.04] * 4 and commits(pid, "flux_lora") == []
     assert storage.exists(key)
@@ -134,6 +136,7 @@ def refine(pid, sid):
 def test_without_paid_audio_a_dialogue_shot_is_voiced_locally_and_never_lip_synced(sample_scene, studio, monkeypatch):
     pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0, paid_audio=False)
     sid = codes["S002_SH01"]                                       # Kerem: "Atla! Şimdi!"
+    use_fal(sid)
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     monkeypatch.setattr(settings, "tts_engine", "elevenlabs")
@@ -152,11 +155,39 @@ def test_without_paid_audio_a_dialogue_shot_is_voiced_locally_and_never_lip_sync
 def test_with_paid_audio_the_same_shot_is_lip_synced_on_fal(sample_scene, studio, monkeypatch):
     pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
     sid = codes["S002_SH01"]
+    use_fal(sid)
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     refine(pid, sid)
     key = pipeline.voice_and_lipsync(sid)
     assert not key.endswith("_unsynced.mp4") and fal_video.LIPSYNC in [app for app, _, _ in studio.calls]
+
+
+def test_an_h3_shot_without_a_fal_key_is_never_lip_synced(sample_scene, studio, h3, monkeypatch):
+    pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
+    sid = codes["S002_SH01"]
+    monkeypatch.setattr(settings, "fal_key", "")                  # yalnızca MiniMax H3: fal.ai isteğe bağlı
+    fake_scorer(monkeypatch)
+    refine(pid, sid)
+    key = pipeline.voice_and_lipsync(sid)
+    assert key.endswith("_unsynced.mp4") and storage.exists(key) and studio.calls == []
+    assert len(h3.submits) == 2 and commits(pid, "fal:") == []
+
+
+def test_h3_sends_every_character_still_to_the_ref2va_server(api, sample_scene, h3, monkeypatch, tmp_path):
+    pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
+    sid = codes["S002_SH01"]                                       # köprü: Kerem ve Ayşe
+    monkeypatch.setattr(settings, "dry_run", True)
+    give_still(api, pid, "Kerem", tmp_path)
+    monkeypatch.setattr(settings, "dry_run", False)
+    monkeypatch.setattr(settings, "h3_ref_endpoint_url", "https://h3-ref.test")
+    fake_scorer(monkeypatch)
+    refine(pid, sid)
+    assert h3.hosts == ["https://h3-ref.test"] * 2 and {j["task"] for j in h3.submits} == {"ref2va"}
+    for job in h3.submits:
+        (ref,) = job["conditions"]
+        assert ref["role"] == "reference" and ref["uri"].startswith("data:image/jpeg;base64,")
+        assert job["prompt"].startswith("Character references: <Picture 1> is Kerem.")
 
 
 def test_paid_audio_is_a_validated_project_setting(api):

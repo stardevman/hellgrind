@@ -8,9 +8,9 @@ import sys
 
 from app.config import settings
 
-PAID_KEYS = ("fal_key", "anthropic_api_key", "elevenlabs_api_key")
-# Servis başına ücretli paketler (requirements-live.txt). ElevenLabs yalnızca httpx kullanır.
-PACKAGES = {"fal": ("fal_client",), "anthropic": ("langgraph", "langchain_anthropic"), "elevenlabs": ()}
+PAID_KEYS = ("h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key")
+# Servis başına ücretli paketler (requirements-live.txt). ElevenLabs ve H3 sunucusu yalnızca httpx kullanır.
+PACKAGES = {"vast": (), "fal": ("fal_client",), "anthropic": ("langgraph", "langchain_anthropic"), "elevenlabs": ()}
 
 
 class PaidCallBlocked(RuntimeError):

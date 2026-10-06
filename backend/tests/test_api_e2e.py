@@ -13,6 +13,8 @@ from tests.media_utils import probe
 from tests.scene_utils import load_scenes, plans
 
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
+# MiniMax H3 (kendi GPU sunucumuz) bir test klibini birkaç sentlik GPU süresiyle üretir: bütçe birkaç klipte biter.
+TINY_BUDGET = 0.05
 SMALL = dict(probe_n=3, full_n=6, wave_size=3, refined_k=2, max_correction_rounds=2, max_spend_per_10min=10_000)
 
 
@@ -114,14 +116,14 @@ def test_regenerating_a_scene_replaces_its_pool_and_keeps_the_ranks_unique(api, 
     assert all(v["video_url"].startswith("/api/media?key=quarantine/") for v in retired)
 
 
-def test_a_one_dollar_budget_freezes_the_project_and_answers_423(api, api_project, fast, eager):
-    pid = api_project(1.0, **SMALL)
+def test_a_tiny_budget_freezes_the_project_and_answers_423(api, api_project, fast, eager):
+    pid = api_project(TINY_BUDGET, **SMALL)
     r = api.post(f"/api/projects/{pid}/script", json={"text": rules.SAMPLE_SCRIPT})
     assert r.status_code == 200 and r.json()["frozen"] is True                  # senaryo işlendi; üretim bütçede durdu
     ov = overview(api, pid)
     assert ov["project"]["frozen"] is True and ov["project"]["status"] == "paused"
     assert {"frozen"} <= {s["status"] for s in ov["scenes"]}
-    assert ov["project"]["spent_usd"] + ov["project"]["reserved_usd"] <= 1.0
+    assert ov["project"]["spent_usd"] + ov["project"]["reserved_usd"] <= TINY_BUDGET
     sid = ov["scenes"][0]["id"]
     assert api.post(f"/api/scenes/{sid}/render").status_code == 423
     assert "frozen" in [e["kind"] for e in ov["events"]]

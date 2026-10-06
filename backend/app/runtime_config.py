@@ -25,6 +25,7 @@ AUDIT_KEY = "hg:config:audit"
 AUDIT_LIMIT = 100
 PAID_CONFIRMATION = "ücretli moda geç"
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{1,159}$")
+SERVER_URL = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/-]*)?$")
 SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 
 
@@ -32,8 +33,8 @@ SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 class Field:
     env: str                    # .env adı
     attr: str                   # settings alanı
-    kind: str                   # secret | model | choice | mode
-    service: str                # fal | elevenlabs | anthropic | core
+    kind: str                   # secret | model | url | choice | mode
+    service: str                # vast | fal | elevenlabs | anthropic | core
     label: str
     choices: tuple[str, ...] = ()
     url: str | None = None      # model sayfası (doğrulamak için)
@@ -41,10 +42,15 @@ class Field:
 
 FIELDS: tuple[Field, ...] = (
     Field("DRY_RUN", "dry_run", "mode", "core", "Ücretsiz mod"),
+    Field("H3_API_KEY", "h3_api_key", "secret", "vast", "Erişim anahtarı"),
+    Field("H3_ENDPOINT_URL", "h3_endpoint_url", "url", "vast", "Sunucu (FL2VA): metinden ve ilk kareden video"),
+    Field("H3_REF_ENDPOINT_URL", "h3_ref_endpoint_url", "url", "vast", "Referans sunucusu (Ref2VA, isteğe bağlı): karakter görselleriyle"),
+    Field("H3_MODEL", "h3_model", "model", "vast", "Model", url="https://huggingface.co/{}"),
+    Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "30", "20", "9", "5")),
     Field("FAL_KEY", "fal_key", "secret", "fal", "API anahtarı"),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
-    Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 image-to-video", url="https://fal.ai/models/{}"),
-    Field("FAL_SEEDANCE_ENDPOINT", "fal_seedance_endpoint", "model", "fal", "Video: Seedance (yoğun aksiyon)", url="https://fal.ai/models/{}"),
+    Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 (yalnızca eski çekimler)", url="https://fal.ai/models/{}"),
+    Field("FAL_SEEDANCE_ENDPOINT", "fal_seedance_endpoint", "model", "fal", "Video: Seedance (yönetmenin seçtiği çekimler)", url="https://fal.ai/models/{}"),
     Field("FAL_LIPSYNC_ENDPOINT", "fal_lipsync_endpoint", "model", "fal", "Dudak senkronu", url="https://fal.ai/models/{}"),
     Field("FAL_WAN_V2V_ENDPOINT", "fal_wan_v2v_endpoint", "model", "fal", "Previs rehberinden video (v2v)", url="https://fal.ai/models/{}"),
     Field("FAL_KONTEXT_ENDPOINT", "fal_kontext_endpoint", "model", "fal", "Karakter referansıyla kare (Flux Kontext)", url="https://fal.ai/models/{}"),
@@ -95,6 +101,11 @@ def validate(env: str, value: str) -> str:
     elif f.kind == "model":
         if not MODEL_ID.match(value):
             raise ConfigError(f"{f.label}: geçerli bir model ya da uç nokta kimliği girin (ör. fal-ai/flux-lora)")
+    elif f.kind == "url":                                    # boş: tanımlı değil
+        value = value.rstrip("/")
+        if value and not SERVER_URL.match(value):
+            raise ConfigError(f"{f.label}: http:// ya da https:// ile başlayan bir sunucu adresi girin "
+                              "(ör. https://ornek.trycloudflare.com ya da http://1.2.3.4:40123)")
     elif f.kind == "choice" and value not in f.choices:
         raise ConfigError(f"{f.label}: {', '.join(f.choices)} değerlerinden biri olmalı")
     return value
@@ -203,7 +214,7 @@ def update(values: dict[str, str]) -> list[dict]:
     current = read_env(path) if os.path.exists(path) else {}
     # Gizli anahtarlar yalnızca dosyadakiyle karşılaştırılır (değerleri app.live dışında okunmaz, kural 1).
     changed = {k: v for k, v in clean.items()
-               if current.get(k, "" if BY_ENV[k].kind == "secret" else getattr(settings, BY_ENV[k].attr) or "") != v}
+               if current.get(k, "" if BY_ENV[k].kind == "secret" else str(getattr(settings, BY_ENV[k].attr) or "")) != v}
     if not changed:
         return []
     write_env(path, changed)

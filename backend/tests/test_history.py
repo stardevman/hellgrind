@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.budget import history, killswitch, pricing
 from app.config import settings
 from app.db import session_scope
-from tests.test_live_production import asset_named, fake_scorer, go_paid, studio, variations  # noqa: F401 (fikstür)
+from tests.test_live_production import asset_named, fake_scorer, go_paid, studio, use_fal, variations  # noqa: F401 (fikstür)
 
 MIGRATION = pathlib.Path(__file__).resolve().parents[1] / "migrations" / "010_service_calls.sql"
 
@@ -31,6 +31,10 @@ def ledger_kinds(pid) -> list[str]:
 # ---------- etiketler (veritabanı gerekmez) ----------
 
 @pytest.mark.parametrize("label, service, operation, models, resolution", [
+    ("h3:720p", "vast", "video", ("h3_model",), "720p"),
+    ("h3:480p:reference", "vast", "reference", ("h3_model",), "480p"),
+    ("h3:480p:motion_test", "vast", "motion_test", ("h3_model",), "480p"),
+    ("h3:720p:revision", "vast", "revision", ("h3_model",), "720p"),
     ("fal_wan:720p", "fal", "video", ("fal_wan_endpoint",), "720p"),
     ("seedance:720p", "fal", "video", ("fal_seedance_endpoint",), "720p"),
     ("flux_lora:first_frame:480p", "fal", "first_frame", ("fal_flux_endpoint",), "480p"),
@@ -163,7 +167,7 @@ def test_a_reference_names_its_asset(api, sample_scene):
     assert api.post(f"/api/assets/{kerem.id}/references/placeholder").status_code == 201
     [row] = calls(pid)
     assert (row["operation"], row["subject"], row["asset_id"]) == ("reference", "Kerem", kerem.id)
-    assert row["model"] == f"{settings.fal_flux_endpoint} + {settings.fal_wan_endpoint}" and row["dry_run"] is True
+    assert (row["service"], row["model"], row["dry_run"]) == ("vast", settings.h3_model, True)    # H3 dönüş videosu
 
 
 # ---------- ücretli yollar (sahte istemciler) ----------
@@ -187,6 +191,7 @@ def test_paid_generation_records_each_first_frame_and_video_with_its_request(sam
     from app.live import fal_video
     pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
     sid = codes["S001_SH01"]
+    use_fal(sid)
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     run_tiered_generation(pid, sid)
@@ -222,6 +227,7 @@ def test_a_failing_video_records_every_attempt(sample_scene, studio, monkeypatch
     from app.live import fal_video
     from tests.fal_fake import HTTPError
     pid, codes = sample_scene(probe_n=1, full_n=1, wave_size=1, refined_k=1, max_correction_rounds=0)
+    use_fal(codes["S001_SH01"])
     go_paid(monkeypatch)
     fake_scorer(monkeypatch)
     studio.behaviour[fal_video.WAN] = studio.behaviour[fal_video.SEEDANCE] = lambda args: HTTPError(503)
@@ -381,3 +387,21 @@ def test_the_settings_page_separates_real_from_virtual_spend(api, api_project):
     assert round(fal(after)["virtual_usd"] - fal(before)["virtual_usd"], 4) == 0.8
     assert round(after["spent_usd"] - before["spent_usd"], 4) == 0.4
 
+
+
+def test_paid_h3_generation_records_each_job_with_its_gpu_time(sample_scene, h3, monkeypatch):
+    from app.engine.iteration import run_tiered_generation
+    pid, codes = sample_scene(probe_n=2, full_n=2, wave_size=2, refined_k=1, max_correction_rounds=0)
+    sid = codes["S001_SH01"]
+    fake_scorer(monkeypatch)
+    assert run_tiered_generation(pid, sid) == "refined"
+    rows = [r for r in calls(pid) if r["scene_id"] == uuid.UUID(sid)]
+    made = variations(sid)
+    assert len(rows) == len(made) == 4 and {r["operation"] for r in rows} == {"video"}       # önce görsel yok
+    assert all((r["service"], r["model"], r["dry_run"], r["status"]) == ("vast", settings.h3_model, False, "succeeded")
+               for r in rows)
+    assert {r["request_id"] for r in rows} == {v.external_request_id for v in made}
+    gpu = pricing.estimate_gpu("h3", h3.inference_time_s)
+    assert all(float(r["amount_usd"]) == gpu for r in rows) and all(float(v.cost_usd) == gpu for v in made)
+    steps = rows[0]["details"]["steps"]
+    assert steps[0]["task"] == "t2va" and steps[-1]["gpu_seconds"] == h3.inference_time_s

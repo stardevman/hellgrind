@@ -1,6 +1,6 @@
 """Prompt çevirisi: sağlayıcıya giden Türkçe tarifler yerel ve ücretsiz bir modelle İngilizceye çevrilir.
 
-Görüntü modelleri (Flux, Wan, Seedance) İngilizce istemi izler; Türkçe tarif verilince sahneyle ilgisiz görüntü
+Görüntü modelleri (MiniMax H3, Flux, Seedance) İngilizce istemi izler; Türkçe tarif verilince sahneyle ilgisiz görüntü
 üretirler. Çeviri yalnızca bestecinin çıktısına uygulanır (style/composer.py): senaryo, çekim tarifi ve görsel özet
 Türkçe kalır, böylece çeviri hiçbir çekimin yeniden üretilmesine yol açmaz.
 

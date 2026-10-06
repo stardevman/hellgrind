@@ -39,7 +39,7 @@ def test_sample_script_creates_cast_scenes_links_and_tracks(mk_project):
     assert list(scenes) == result["created"]
     assert [sc.seq_order for sc, _, _ in scenes.values()] == [1, 2, 3, 4]
     assert all(sc.status == "pending" for sc, _, _ in scenes.values())
-    assert [sc.engine for sc, _, _ in scenes.values()] == ["fal_wan", "fal_wan", "seedance", "seedance"]
+    assert [sc.engine for sc, _, _ in scenes.values()] == ["h3"] * 4               # yoğun aksiyon da MiniMax H3
     assert [{c.name for c in chars} for _, chars, _ in scenes.values()] == [
         {"Kerem"}, {"Ayşe"}, {"Kerem", "Ayşe"}, {"Kerem", "Ayşe"}]
 
@@ -76,6 +76,17 @@ def test_engine_is_routed_from_action_complexity_at_ingest_so_the_visual_fingerp
         s.execute(text("UPDATE scenes SET engine = 'higgsfield' WHERE project_id = :p AND scene_code = 'S001_SH01'"),
                   {"p": pid})
     assert plans(pid)["S001_SH01"] == Stage.STORYBOARD | Stage.VISUAL | Stage.LIPSYNC | Stage.MUX
+
+
+def test_reingesting_keeps_a_chosen_seedance_and_moves_old_wan_shots_to_h3(mk_project):
+    pid = mk_project()
+    ingest(pid, rules.SAMPLE_SCRIPT)
+    with session_scope() as s:
+        s.execute(text("UPDATE scenes SET engine = 'seedance' WHERE project_id = :p AND scene_code = 'S002_SH01'"), {"p": pid})
+        s.execute(text("UPDATE scenes SET engine = 'fal_wan' WHERE project_id = :p AND scene_code = 'S001_SH01'"), {"p": pid})
+    ingest(pid, rules.SAMPLE_SCRIPT)
+    engines = {code: sc.engine for code, (sc, _, _) in load_scenes(pid).items()}
+    assert engines == {"S001_SH01": "h3", "S001_SH02": "h3", "S002_SH01": "seedance", "S002_SH02": "h3"}
 
 
 def test_script_source_and_scene_text_are_stored(mk_project):

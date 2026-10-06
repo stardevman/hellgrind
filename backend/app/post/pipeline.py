@@ -91,8 +91,14 @@ def _set_track(track_id, **fields) -> None:
 
 def paid_audio(cfg: dict | None) -> bool:
     """Ses için ücretli servis (ElevenLabs, fal dudak senkronu) çağrılabilir mi: ücretli mod ve projenin `paid_audio`
-    ayarı (fal.ai denemesi ön ayarında kapalı)."""
+    ayarı (deneme ön ayarında kapalı)."""
     return not settings.dry_run and bool((cfg or {}).get("paid_audio", True))
+
+
+def paid_lipsync(cfg: dict | None) -> bool:
+    """Dudak senkronu (fal.ai) çağrılır mı: ücretli ses açık ve fal.ai anahtarı tanımlı. Video MiniMax H3 ile kendi
+    sunucumuzda üretildiğinde fal.ai isteğe bağlıdır; anahtarı yoksa video senkronsuz kullanılır."""
+    return paid_audio(cfg) and paid.available("fal_key")
 
 
 def effective_tts_engine(cfg: dict | None = None) -> str:
@@ -187,11 +193,12 @@ def voice_and_lipsync(scene_id: str) -> str:
                 ensure_dialogue_audio(t, scene, tmp, snap.cfg)
 
         # Ücretli modda senkronsuz kopya ayrı anahtardadır: ücretli ses sonradan açılınca senkron gerçekten yapılır.
-        unsynced = "" if settings.dry_run or paid_audio(snap.cfg) else "_unsynced"
+        sync = paid_lipsync(snap.cfg)
+        unsynced = "" if settings.dry_run or sync else "_unsynced"
         out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}{unsynced}.mp4"
         if not storage.exists(out_key):
             advance_scene(project_id, scene_id, status="lipsync")
-            _lipsync(scene, video_key, out_key, tmp, sync=paid_audio(snap.cfg))
+            _lipsync(scene, video_key, out_key, tmp, sync=sync)
     fields = dict(lipsync_video_key=out_key, dialogue_hash=snap.fp.dialogue)
     if scene.lipsync_video_key != out_key:     # kaynak video değişti: eski renk ve montaj geçersiz, plan yeniden yapsın
         fields.update(final_video_key=None, graded_video_key=None, grade_hash=None)

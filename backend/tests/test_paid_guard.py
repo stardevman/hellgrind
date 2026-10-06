@@ -69,21 +69,24 @@ def test_paid_call_blocked_is_a_runtime_error():
 # ---------- varsayılanlar ----------
 
 def test_free_mode_is_the_default_and_paid_keys_default_to_empty(monkeypatch):
-    for name in ("DRY_RUN", "HERMES_MODE", "TTS_ENGINE", "FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
+    for name in ("DRY_RUN", "HERMES_MODE", "TTS_ENGINE", "H3_API_KEY", "H3_ENDPOINT_URL", "FAL_KEY", "ANTHROPIC_API_KEY",
+                 "ELEVENLABS_API_KEY"):
         monkeypatch.delenv(name, raising=False)       # konteyner ortamı yönetmenin .env'inden gelir; varsayılanlar sınanır
     defaults = Settings(_env_file=None)
     assert defaults.dry_run is True and defaults.hermes_mode == "rules" and defaults.tts_engine == "espeak"
-    assert (defaults.fal_key, defaults.anthropic_api_key, defaults.elevenlabs_api_key) == ("", "", "")
+    assert (defaults.h3_api_key, defaults.fal_key, defaults.anthropic_api_key, defaults.elevenlabs_api_key) == ("", "", "", "")
+    assert defaults.h3_endpoint_url == ""
 
 
 def test_the_test_run_itself_is_in_free_mode():
     assert settings.dry_run is True
 
 
-@pytest.mark.parametrize("engine", ["fal_wan", "seedance", "higgsfield"])
+@pytest.mark.parametrize("engine", ["h3", "fal_wan", "seedance", "higgsfield"])
 def test_get_provider_returns_the_local_provider_in_free_mode(monkeypatch, engine):
     monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "fal_key", "anahtar")
+    monkeypatch.setattr(settings, "h3_api_key", "anahtar")
     assert isinstance(get_provider(engine), LocalProvider)
 
 
@@ -170,6 +173,6 @@ def test_env_is_never_committed():
         pytest.skip("depo kökü bağlı değil")
     assert ".env" in (root / ".gitignore").read_text().splitlines()
     env_example = (root / ".env.example").read_text()
-    for key in ("FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
+    for key in ("H3_API_KEY", "FAL_KEY", "ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY"):
         assert f"\n{key}=\n" in env_example + "\n"                              # örnek dosyada anahtarlar boş
     assert "DRY_RUN=1" in env_example

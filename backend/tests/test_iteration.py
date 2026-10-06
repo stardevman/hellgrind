@@ -23,7 +23,13 @@ from app.engine.providers import LocalProvider, TransientError
 from app.models import Scene, Variation
 from tests.media_utils import anomalies
 
-BRIDGE = "S002_SH01"     # seedance'e yönlenen yüksek aksiyonlu sahne
+BRIDGE = "S002_SH01"     # yüksek aksiyonlu köprü sahnesi (o da MiniMax H3'e yönlenir)
+
+
+def choose(sid, engine):
+    """Yönetmenin panelde çekim için motor seçmesi gibi."""
+    with session_scope() as s:
+        s.get(Scene, sid).engine = engine
 
 
 def variations(sid):
@@ -90,7 +96,7 @@ def test_variation_rows_carry_everything_the_panel_and_audit_need(scene):
     for v in pool:
         assert v.status == "refined" and v.video_key and storage.exists(v.video_key)
         assert v.keyframe_key == f"thumbs/{sid}/{v.id}.jpg" and storage.exists(v.keyframe_key)
-        assert v.external_request_id.startswith("local-") and v.engine == "seedance"
+        assert v.external_request_id.startswith("local-") and v.engine == "h3"
         assert v.clip_score == v.composite_score == pytest.approx(0.95) and v.anomalies == []
         assert float(v.cost_usd) > 0 and v.params["resolution"] == "720p" and v.params["provider_meta"] == {"planted_defect": None}
     assert pool[0].composite_score >= pool[1].composite_score
@@ -304,6 +310,7 @@ def test_soft_limit_reached_during_the_round_stops_the_next_wave(sample_scene, m
     monkeypatch.setattr(settings, "dry_run_score_mean", 0.90)
     pid, codes = sample_scene(limit=10.0, full_n=12, wave_size=3, refined_k=2, soft_budget_ratio=0.2)
     sid = codes[BRIDGE]
+    choose(sid, "seedance")                                            # pahalı motor: tutarlar birkaç klipte birikir
     run_tiered_generation(pid, sid)                                    # test turu ~2,5 USD harcar: %20 = 2 USD aşıldı
     assert ks.is_soft_limited(pid)
     assert len(by(variations(sid), tier="full")) == 3                  # yalnızca ilk dalga
@@ -421,6 +428,7 @@ def test_non_transient_errors_fail_the_variation_and_propagate(scene, monkeypatc
 def test_budget_exhaustion_freezes_the_project_and_never_overspends(sample_scene):
     pid, codes = sample_scene(limit=1.0)
     sid = codes[BRIDGE]
+    choose(sid, "seedance")                                            # pahalı motor: 1 USD birkaç klipte biter
     with pytest.raises(ks.ProjectFrozen):                              # BudgetExceeded ya da onun ardından gelen donma
         run_tiered_generation(pid, sid)
     spent, reserved = project_money(pid)
@@ -522,16 +530,17 @@ def test_the_provider_matches_the_scenes_routed_engine(sample_scene, monkeypatch
     chosen = []
     real = iteration.get_provider
     monkeypatch.setattr(iteration, "get_provider", lambda engine: chosen.append(engine) or real(engine))
+    choose(codes[BRIDGE], "seedance")                                  # yönetmen bu çekimde Seedance seçti
     run_tiered_generation(pid, codes["S001_SH01"])
     run_tiered_generation(pid, codes[BRIDGE])
-    assert chosen == ["fal_wan", "seedance"]
+    assert chosen == ["h3", "seedance"]
 
 
 def test_a_scene_without_an_engine_gets_one_before_its_fingerprint_is_taken(mk_project, mk_scene, fast):
     pid = mk_project(probe_n=2, full_n=2, wave_size=2, refined_k=1)
     sid = mk_scene(pid)
     run_tiered_generation(pid, sid)
-    assert scene_row(sid).engine == "fal_wan"
+    assert scene_row(sid).engine == "h3"
 
 
 def test_paid_mode_stops_before_any_spend_or_variation_row(scene, monkeypatch):

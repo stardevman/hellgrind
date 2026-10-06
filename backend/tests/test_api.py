@@ -175,12 +175,12 @@ def test_scene_is_created_with_a_routed_engine_and_unique_code(api, api_project)
     cid = api.post(f"/api/projects/{pid}/characters", json={"name": "Kerem"}).json()["id"]
     body = {"scene_code": "S001_SH01", "seq_order": 1, "action_complexity": 0.9, "character_ids": [cid]}
     r = api.post(f"/api/projects/{pid}/scenes", json=body)
-    assert r.status_code == 201 and r.json()["engine"] == "seedance"
+    assert r.status_code == 201 and r.json()["engine"] == "h3"                  # yoğun aksiyon da MiniMax H3'e gider
     assert api.post(f"/api/projects/{pid}/scenes", json=body).status_code == 409
     calm = api.post(f"/api/projects/{pid}/scenes", json={**body, "scene_code": "S001_SH02", "action_complexity": 0.2}).json()
-    assert calm["engine"] == "fal_wan"
-    pinned = api.post(f"/api/projects/{pid}/scenes", json={**body, "scene_code": "S001_SH03", "engine": "higgsfield"}).json()
-    assert pinned["engine"] == "higgsfield"
+    assert calm["engine"] == "h3"
+    pinned = api.post(f"/api/projects/{pid}/scenes", json={**body, "scene_code": "S001_SH03", "engine": "seedance"}).json()
+    assert pinned["engine"] == "seedance"                                       # yönetmenin seçimi
     assert scene_row(r.json()["id"]).status == "pending"
 
 
@@ -376,11 +376,11 @@ def test_render_of_an_unknown_scene_is_404(api):
 def test_scene_can_be_read_in_full(sample, api):
     _, ids = sample
     body = api.get(f"/api/scenes/{ids['S002_SH01']}").json()
-    assert body["scene_code"] == "S002_SH01" and body["engine"] == "seedance" and body["camera"]["shot"] == "wide"
+    assert body["scene_code"] == "S002_SH01" and body["engine"] == "h3" and body["camera"]["shot"] == "wide"
     assert {"visual_hash", "dialogue_hash", "bed_hash", "mux_hash", "lipsync_video_key", "final_video_key"} <= set(body)
 
 
-def test_patch_updates_fields_keeps_prompt_extras_and_reroutes_the_engine(sample, api):
+def test_patch_updates_fields_keeps_prompt_extras_and_keeps_h3_when_complexity_changes(sample, api):
     _, ids = sample
     sid = ids["S001_SH01"]
     with session_scope() as s:
@@ -389,8 +389,18 @@ def test_patch_updates_fields_keeps_prompt_extras_and_reroutes_the_engine(sample
                                               "prompt_spec": {"prompt": "yeni istem"}, "action_complexity": 0.9})
     assert r.status_code == 200 and "yeniden üret" in r.json()["hint"]
     sc = scene_row(sid)
-    assert (sc.description, sc.emotion, sc.duration_s, sc.engine) == ("yeni", "fear", 7.5, "seedance")
+    assert (sc.description, sc.emotion, sc.duration_s, sc.engine) == ("yeni", "fear", 7.5, "h3")
     assert sc.prompt_spec["prompt"] == "yeni istem" and sc.prompt_spec["loras"] == ["x"]
+
+
+def test_a_chosen_seedance_survives_a_later_complexity_change(sample, api):
+    _, ids = sample
+    sid = ids["S001_SH01"]
+    assert api.patch(f"/api/scenes/{sid}", json={"engine": "seedance"}).status_code == 200
+    api.patch(f"/api/scenes/{sid}", json={"action_complexity": 0.1})
+    assert scene_row(sid).engine == "seedance"
+    api.patch(f"/api/scenes/{sid}", json={"engine": "h3"})
+    assert scene_row(sid).engine == "h3"
 
 
 def test_an_explicit_engine_is_kept_when_complexity_changes_with_it(sample, api):
@@ -599,7 +609,7 @@ def test_overview_feeds_the_whole_panel_in_one_call(pool, api):
     assert body["project"]["id"] == pid and body["project"]["dry_run"] is True and body["project"]["settings"]["probe_n"] == 10
     assert [s["scene_code"] for s in body["scenes"]] == CODES
     scene = next(s for s in body["scenes"] if s["id"] == sid)
-    assert scene["status"] == "done" and scene["engine"] == "seedance" and scene["characters"] == ["Ayşe", "Kerem"]
+    assert scene["status"] == "done" and scene["engine"] == "h3" and scene["characters"] == ["Ayşe", "Kerem"]
     assert scene["heading"].startswith("DIŞ. ÇÖKEN KÖPRÜ") and scene["final_url"] == "/api/media?key=f.mp4"
     assert {t["kind"] for t in scene["tracks"]} == {"dialogue", "music"}
     assert [t["character"] for t in scene["tracks"] if t["kind"] == "dialogue"] == ["Kerem"] and [t["character"] for t in scene["tracks"] if t["kind"] == "music"] == [None]

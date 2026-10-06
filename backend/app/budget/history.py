@@ -28,7 +28,7 @@ OPERATIONS = {                       # işlem -> panelde ve CSV'de görünen ad
     "other": "Diğer",
 }
 PURPOSES = ("first_frame", "storyboard", "reference", "motion_test", "previs", "revision", "lipsync")
-VIDEO_ENGINES = ("fal_wan", "seedance", "higgsfield")
+VIDEO_ENGINES = ("fal_wan", "seedance", "higgsfield")      # fal.ai motorları; MiniMax H3 kendi sunucumuzda ("vast")
 MAX_ERROR = 600
 
 
@@ -45,11 +45,13 @@ class Described:
 
 
 def describe(label: str) -> Described:
-    """Defter etiketinden (ör. "fal_wan:720p", "flux_lora:first_frame:480p", "fal:lipsync") servis, işlem ve ücretli modda
+    """Defter etiketinden (ör. "h3:720p", "flux_lora:first_frame:480p", "fal:lipsync") servis, işlem ve ücretli modda
     çağrılan model(ler). Modeller çağrı anındaki ayarlardan (panelin Ayarlar sayfası) okunur."""
     head, *rest = label.split(":")
     purpose = next((p for p in rest if p in PURPOSES), None)
     resolution = next((p for p in rest if p.endswith("p") and p[:-1].isdigit()), None)
+    if head == "h3":                           # MiniMax H3, yönetmenin GPU sunucusunda (vast.ai)
+        return Described("vast", purpose or "video", (settings.h3_model,), resolution)
     if head == "elevenlabs":
         return Described("elevenlabs", "tts", (settings.elevenlabs_model,))
     if head == "anthropic":
