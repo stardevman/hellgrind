@@ -50,7 +50,8 @@ def _h3_one(token: str, url: str, transport) -> dict:
     path = "/system_stats" if settings.h3_backend == "comfyui" else "/health"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        with httpx.Client(timeout=TIMEOUT, transport=transport, follow_redirects=True) as client:
+        with httpx.Client(timeout=TIMEOUT, transport=transport, follow_redirects=True,
+                          verify=bool(settings.h3_tls_verify)) as client:
             r = client.get(f"{url.rstrip('/')}{path}", headers=headers)
     except httpx.ConnectError:
         how = "SSH tüneli açık mı?" if settings.h3_backend == "comfyui" else "makine çalışıyor mu, adres güncel mi?"
@@ -60,7 +61,8 @@ def _h3_one(token: str, url: str, transport) -> dict:
     if r.status_code in (401, 403):
         return {"ok": False, "status": r.status_code, "message": "Sunucu erişimi reddetti (portal belirteci)."}
     if r.status_code == 200:
-        return {"ok": True, "status": 200, "message": "Sunucu hazır."}
+        return {"ok": True, "status": 200, "message": "Sunucu hazır." if settings.h3_backend == "comfyui"
+                else "Sunucu hazır (SGLang arka ucu deneysel)."}
     if r.status_code == 503:
         return {"ok": None, "status": 503, "message": "Sunucu açılıyor (model yükleniyor); birkaç dakika sonra yeniden deneyin."}
     if r.status_code == 530:

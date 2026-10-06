@@ -10,6 +10,10 @@ Dosyaları panelden yükleyin (Ayarlar › MiniMax H3 › ComfyUI iş akışlar�
 | `r2v.json` | Karakter referanslarıyla video (Ref2VA) | `{{prompt}}`, `{{reference_1}}` |
 | `keyframe.json` | Storyboard ilk karesi (bir görsel modeliyle; isteğe bağlı) | `{{prompt}}` |
 
+`keyframe.json` için hazır örnekler `examples/` altında: `keyframe.qwen-image-2512.json` (önerilen) ve
+`keyframe.flux-schnell.json`. İkisi de Apache 2.0 lisanslı modelleri kullanır ve `backend/vast/setup.sh`'nin kurduğu dosya
+adlarıyla eşleşir. ComfyUI'de bir kez açıp çalıştığını görün, sonra panelden `keyframe` olarak yükleyin.
+
 Hazırlamak için: ComfyUI'de H3 şablonunu (Template Library › MiniMax H3) açın, çalıştığını görün, sonra
 **Workflow › Export (API)** ile kaydedin. JSON'u bir metin düzenleyicide açıp değişen değerleri yer tutucuyla değiştirin:
 

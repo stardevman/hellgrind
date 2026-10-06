@@ -101,6 +101,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "keyframe_required": return { t: `${where}H3 ilk karesi hazır değil: görüntü üretilmedi`, c: "bad" };
     case "h3_started": return { t: "vast.ai makinesi başlatıldı (otomatik)", c: "good" };
     case "h3_stopped": return { t: `vast.ai makinesi durduruldu (${x.reason === "idle" ? "boşta" : x.reason === "budget" ? "bütçe" : x.reason})` };
+    case "h3_replacement_proposed": return { t: `Makine açılamadı; yedek makine önerisi onay bekliyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})`, c: "bad" };
+    case "h3_replacing": return { t: `Yedek makine kiralanıyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})` };
+    case "h3_replaced": return { t: `Yedek makine hazır (${x.new_instance_id}); eski makine silindi`, c: "good" };
+    case "h3_replace_failed": return { t: `Yedek makine kurulamadı: ${x.error}`, c: "bad" };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };

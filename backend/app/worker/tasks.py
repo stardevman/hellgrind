@@ -186,3 +186,13 @@ def h3_idle():
         return "skip"
     from app.live import vast_box, vast_h3        # ücretli modüller: yalnızca fonksiyon içinde
     return vast_box.idle_tick(queue_empty=vast_h3.queue_empty if settings.h3_endpoint_url else None)
+
+
+@celery.task(name="hg.h3_replace")
+def h3_replace(offer_id: int):
+    """Yedek MiniMax H3 makinesi: teklifi kiralar, setup.sh kurulumunu bekler, Ayarlar'ı günceller, eski makineyi siler.
+    Kurulum (modeller ~100 GB) bir saati bulabilir. Ücretsiz modda hiçbir şey yapmaz."""
+    if settings.dry_run:
+        return "skip"
+    from app.live import vast_box                 # ücretli modül: yalnızca fonksiyon içinde
+    return vast_box.replace(offer_id)

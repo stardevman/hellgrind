@@ -405,14 +405,19 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
 listed characters are present"); istenmeyen şeyin adı isteme yazılmaz. Tanınmayan terimler servis geçmişinde "kısıta
 çevrilemeyen negatifler" olarak görünür: kılavuzda pozitif bir ifadeyle yeniden yazın (`backend/app/style/constraints.py`).
 
-### Sunucu: SGLang ya da ComfyUI
+### Sunucu: ComfyUI (varsayılan) ya da SGLang (deneysel)
 
 Ayarlar › MiniMax H3 › **Arka uç**:
 
-- **SGLang** (resmî sunucu, `/v1/videos`). Tek RTX 5090 için planım: ağırlıklar SGLang'in kendi indirdiği resmî BF16
-  bileşenler, DiT doğrusal katmanları çalışırken `--quantization convrot_int8` ile INT8'e çevrilir (5090'da SGLang'in
-  JIT ConvRot çekirdekleri), turbo LoRA (`larryvrh/MiniMax-H3-Turbo-Lora`, 9 adım = 8 değerlendirme) ve katman katman
-  bellek aktarımı (`--layerwise-offload-components dit,text_encoder,vae`):
+- **ComfyUI** (varsayılan; `/upload/image`, `/prompt`, `/history`, `/view`). Kendi ölçtüğünüz kurulum (int8_convrot, Turbo
+  8 adım) bu arka uçla kullanılır. İş akışlarını ComfyUI'de **Workflow › Export (API)** ile kaydedip değişen değerleri yer
+  tutucuyla değiştirin ve Ayarlar › MiniMax H3 › **ComfyUI iş akışları**ndan yükleyin (`t2v`, `i2v`, `r2v`, `keyframe`;
+  ayrıntı: `comfy-workflows/README.md`). `keyframe` için hazır örnekler `comfy-workflows/examples/` altındadır. GPU süresi
+  ComfyUI geçmişindeki başlangıç ve bitiş zamanından okunur.
+- **SGLang** (deneysel; resmî sunucu, `/v1/videos`). Tek RTX 5090'da benim tarafımdan ölçülmedi: SGLang tarifindeki
+  ölçümler BF16 + aktarım (5090, 480p, 20 adım: 112 sn) ve INT8 (4090, 768p, 20 adım: ~300 sn) içindir. Denemek için tek
+  5090'da planım: resmî BF16 bileşenler, çalışırken `--quantization convrot_int8`, turbo LoRA (9 adım) ve katman katman
+  aktarım:
   ```bash
   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   sglang serve --model-path MiniMaxAI/MiniMax-H3 --model-variant fl2va --host 127.0.0.1 --port 18010 \
@@ -421,29 +426,70 @@ Ayarlar › MiniMax H3 › **Arka uç**:
     --lora-path larryvrh/MiniMax-H3-Turbo-Lora --lora-weight-name minimax_h3_turbo_v4_step600_ema.safetensors \
     --lora-merge-mode auto --warmup-resolutions 1280x704 --warmup-num-frames 124
   ```
-  Bu bayrak birleşimi tek 5090'da benim tarafımdan ölçülmedi; SGLang tarifindeki ölçümler BF16 + aktarım (5090, 480p, 20
-  adım: 112 sn) ve INT8 (4090, 768p, 20 adım: ~300 sn) içindir. Yavaş kalırsa ComfyUI arka ucunu kullanın.
-- **ComfyUI** (`/prompt`, `/history`, `/view`, `/upload/image`). Kendi ölçtüğünüz kurulum (int8_convrot, Turbo 8 adım) bu
-  arka uçla doğrudan kullanılır. İş akışlarını ComfyUI'de **Workflow › Export (API)** ile kaydedip değişen değerleri yer
-  tutucuyla değiştirin ve Ayarlar › MiniMax H3 › **ComfyUI iş akışları**ndan yükleyin (`t2v`, `i2v`, `r2v`, isteğe bağlı
-  `keyframe`; ayrıntı: `comfy-workflows/README.md`). GPU süresi ComfyUI geçmişindeki başlangıç ve bitiş zamanından okunur.
 
-**Erişim (açık port yok):** sunucu makinede `127.0.0.1`'de dinler. Ya SSH tüneli
-(`ssh -N -L 8188:127.0.0.1:8188 -p <SSH portu> root@<makine IP>`; adres `http://host.docker.internal:8188`) ya da
-vast.ai Instance Portal'ın kimlik doğrulamalı vekili (`PORTAL_CONFIG` girdisi; adres portal ya da Cloudflare tünel
-adresi, **Portal belirteci** `OPEN_BUTTON_TOKEN` ya da `WEB_PASSWORD`). Otomatik başlatma kullanacaksanız adres makine
-yeniden başladığında değişmemeli (SSH tüneli ya da sabit adlı Cloudflare tüneli; geçici trycloudflare adresi değişir) ve
-sunucu makine açılışında kendiliğinden başlamalı (supervisor ya da onstart betiği).
+**Erişim (açık port yok):** ComfyUI makinede `127.0.0.1`'de dinler. Ya SSH tüneli
+(`ssh -N -L 8188:127.0.0.1:8188 -p <SSH portu> root@<makine IP>`; adres `http://host.docker.internal:8188`) ya da vast.ai
+Instance Portal'ın kimlik doğrulamalı vekili (`PORTAL_CONFIG` girdisi `localhost:8188:18188:/:ComfyUI`; adres
+`https://<IP>:<8188'in dış portu>`, **Portal belirteci** `WEB_PASSWORD` ya da `OPEN_BUTTON_TOKEN`). Portal kendinden imzalı
+sertifika kullanır: o adreste **Sunucu sertifikasını doğrula** `false` olmalıdır (trafik şifreli kalır ama sunucunun kimliği
+doğrulanmaz; bunu istemiyorsanız SSH tüneli ya da sabit adlı bir Cloudflare tüneli kullanın).
 
 **Makine gereksinimi:**
 
-| | SGLang | ComfyUI (int8) |
+| | ComfyUI (int8, `setup.sh`) | SGLang (deneysel) |
 |---|---|---|
-| GPU | RTX 5090 32 GB (ya da 24 GB+ ve aktarım) | RTX 5090 32 GB |
-| Sistem belleği | en az 64 GB; 128 GB önerilir (SGLang ~117 GB ağırlığı belleğe sabitleyebilince en hızlı) | en az 64 GB |
-| Disk | en az 250 GB (FL2VA + Ref2VA resmî BF16 bileşenleri: metin kodlayıcı ~46 GB, her DiT ~62 GB, VAE'ler ~10 GB, önbellek) | en az 150 GB (budanmış INT8 DiT'ler, NVFP4 metin kodlayıcı, VAE'ler, turbo LoRA, ComfyUI) |
+| GPU | RTX 5090 32 GB | RTX 5090 32 GB (ya da 24 GB+ ve aktarım) |
+| Sistem belleği | en az 64 GB | en az 64 GB; 128 GB önerilir |
+| Disk | en az 150 GB: H3 budanmış int8 FL2VA + Ref2VA DiT (2 × 21 GB), NVFP4 metin kodlayıcı (15,7 GB), VAE'ler (3,4 GB), turbo LoRA'lar (4 GB), Qwen-Image-2512 fp8 + metin kodlayıcı + VAE (~30 GB), ComfyUI ve PyTorch | en az 250 GB (resmî BF16 bileşenleri) |
 
-Disk ve bellek rakamları SGLang tarifindeki ve model kartındaki ağırlık boyutlarından türetildi, ölçülmedi.
+Dosya boyutları Hugging Face'teki dosya listelerinden alındı (Ekim 2026); kurulumun kendisi ölçülmedi.
+
+### Yedek makine ve `setup.sh`
+
+vast.ai'de durdurulan makinenin GPU'su başkasına kiralanabilir; o zaman makine yeniden açılmaz. **Otomatik başlatma** açıksa
+ve makine 5 dakikada açılmazsa (ya da vast.ai başlatmayı reddederse) Hell Grind yedek makine arar:
+
+1. **Teklif:** aynı GPU tipinde (**Yedek makinenin GPU'su** boşsa eski makineninki), **fiyat tavanı** (varsayılan 0,95 $/sa)
+   altında, en az **RAM** (64 GB), **disk** (150 GB) ve **indirme hızı** (300 Mbps; modeller ~100 GB), güvenilirliği
+   %98+, doğrulanmış ve AB/BK/G. Kore/ABD dışındaki tekliflerden en ucuzu. Bölge süzgeci vast.ai'de ve burada iki kez
+   uygulanır; konumu bilinmeyen teklif hiç seçilmez.
+2. **Onay:** **Yedek makine** ayarı `ask` (varsayılan) ise öneri Ayarlar › MiniMax H3 › **Makine**'de **Onayla ve kirala**
+   ile onay bekler; `auto` ise tavan altındaki teklif sormadan kiralanır; `off` yedek makineyi kapatır. Çekim bu arada
+   Türkçe bir açıklamayla durur.
+3. **Kiralama ve kurulum:** teklif `vastai/base-image` ile kiralanır; `backend/vast/setup.sh` isteğe gömülür (gzip +
+   base64, vast.ai'nin 16 KB onstart sınırı içinde; ya da **setup.sh adresi**nden indirilir). Betik ComfyUI'yi (güncel),
+   PyTorch'u (CUDA 12.8), MiniMax H3 modellerini (Comfy-Org: `minimax_h3_fl2va_pruned_int8_convrot`,
+   `minimax_h3_ref2va_pruned_int8_convrot`, `qwen3vl_32b_minimax_h3_nvfp4_awq`, `minimax_h3_video_vae_int8_convrot`,
+   `minimax_h3_audio_vae_fp32`, FL2V turbo 8 adım ve Ref2V turbo 4 adım LoRA'ları) ve görsel modelini kurar, ComfyUI'yi
+   `127.0.0.1:18188`'de bir supervisor servisi olarak başlatır. Portal `8188`'den kimlik doğrulayarak açar; parola mevcut
+   portal belirteciniz (yoksa üretilip Ayarlar'a yazılır).
+4. **Ayarlar:** yeni makine kimliği, adresi (`https://<IP>:<dış port>`), portal belirteci ve sertifika ayarı `.env`'e yazılır;
+   bütün servisler yeniden başlatılmadan yeni makineyi kullanır. Kurulum sürerken boşta durdurma devre dışıdır (indirme
+   süresi boşta bekleme olarak bütçeye yazılır).
+5. **Eski makine:** yeni makine yanıt verince eski makine (çalışmıyorsa) **silinir**: diski ve üzerindeki her şey gider, disk
+   ücreti durur. Kurulum başarısız olursa yeni makine durdurulur, eskisi silinmez; durum Ayarlar'da yazar.
+
+`setup.sh`'yi elle de kullanabilirsiniz: kendi makinenize kopyalayıp `bash setup.sh` (ortam: `HG_IMAGE_MODEL`,
+`HG_H3_TEXT_ENCODER`, `HG_COMFY_PORT`, `HF_TOKEN`; günlük `/var/log/hellgrind-setup.log`). İlk kez kendi gözetiminizde
+deneyin: bu akış sahte bir vast.ai'yle sınandı, gerçek bir kiralamada çalıştırılmadı.
+
+### Storyboard görsel modeli ve lisanslar
+
+FL2VA'nın ilk karesi bir görsel modelinden gelir. Hell Grind kendi makinenizde yalnızca Apache 2.0 lisanslı modeller kurar
+(**Storyboard görsel modeli** ayarı; lisanslar Hugging Face model kartlarından doğrulandı, Ekim 2026):
+
+| Model | Lisans | ComfyUI dosyaları | Not |
+|---|---|---|---|
+| **Qwen-Image-2512** (önerilen, varsayılan) | Apache 2.0 | `qwen_image_2512_fp8_e4m3fn` (20,4 GB), `qwen_2.5_vl_7b_fp8_scaled` (9,4 GB), `qwen_image_vae` | İstem bağlılığı ve kompozisyonu güçlü; örnek iş akışı `comfy-workflows/examples/keyframe.qwen-image-2512.json` (20 adım) |
+| FLUX.1 [schnell] | Apache 2.0 | `flux1-schnell-fp8` (17,2 GB) | 4 adımda hızlı, kalite ve istem bağlılığı daha düşük; `keyframe.flux-schnell.json` |
+| FLUX.1 [dev] | FLUX.1 [dev] Non-Commercial License v1.1.1 | kurulmaz | Model ticari amaçla çalıştırılamaz (BFL'den ayrı lisans gerekir); çıktıları ticari kullanılabilir ama rakip model eğitiminde kullanılamaz |
+
+Örnek iş akışlarını ComfyUI'de bir kez açıp çalıştığını görün, sonra Ayarlar'dan `keyframe` olarak yükleyin.
+
+**fal.ai üzerinden Flux:** fal'ın FLUX.1 [dev] LoRA sayfası çıktıların ticari kullanıma açık olduğunu belirtir ("All
+generated images are cleared for commercial use"); Flux Kontext [pro] BFL'in ücretli API modelidir. fal yolunu kullanırken
+model ve çıktı lisansı fal'ın kullanım koşullarına bağlıdır; ticari dağıtımdan önce fal ve BFL koşullarını kendiniz
+doğrulayın. Bu bir hukuki görüş değildir.
 
 ### Makine yönetimi ve bütçe
 
@@ -484,8 +530,8 @@ süresi × saatlik ücrettir.
   `visibility_timeout`).
 - **Süre 4-15 sn, 24 fps:** daha kısa çekim 4 sn üretilir ve çekim süresine kesilir.
 - **H3'ün kendi sesi kullanılmaz:** montaj yalnızca görüntüyü alır.
-- **fal.ai isteğe bağlıdır:** anahtarı yoksa storyboard karesi H3 makinesinde (keyframe.json) ya da yerel çizilir, dudak
-  senkronu atlanır; Seedance, mekân ve nesne referans görseli üretimi ve previs aktarımı fal.ai anahtarı ister.
+- **fal.ai isteğe bağlıdır:** anahtarı yoksa storyboard karesi H3 makinesinde (keyframe.json, Qwen-Image-2512) ya da yerel
+  çizilir, dudak senkronu atlanır; Seedance, mekân ve nesne referans görseli üretimi ve previs aktarımı fal.ai anahtarı ister.
 
 ## Ücretli mod kilitli
 
@@ -501,7 +547,7 @@ süresi × saatlik ücrettir.
 | Modül | Ne yapar |
 |---|---|
 | `live/vast_h3.py` | MiniMax H3, vast.ai makinesinde; arka uç SGLang (`/v1/videos`) ya da ComfyUI (`/prompt`, `/history`, `/view`). t2va, fl2va (ilk kareden), ref2va (karakter referans setiyle); negatifler pozitif kısıt olur; her klibe kaynak bilgisi yazılır. Tutar ölçülen GPU süresinden. Gönderilmiş iş yeniden denemede yeniden üretilmez. |
-| `live/vast_box.py`, `live/vast_api.py` | Makine yönetimi: iş kaydı, boşta bekleme bedeli, boşta durdurma, otomatik başlatma, bölge denetimi; vast.ai API'si (durum, başlat, durdur). |
+| `live/vast_box.py`, `live/vast_api.py` | Makine yönetimi: iş kaydı, boşta bekleme bedeli, boşta durdurma, otomatik başlatma, bölge denetimi, yedek makine (teklif, onay, kiralama, `vast/setup.sh` ile kurulum, eski makineyi silme); vast.ai API'si. |
 | `live/fal_video.py` | İsteğe bağlı. Flux LoRA ile ilk kare (`fal-ai/flux-lora`), sonra Seedance (`bytedance/seedance-2.0/fast/image-to-video`; eski çekimlerde Wan 2.2 `fal-ai/wan/v2.2-a14b/image-to-video`); dudak senkronu `fal-ai/sync-lipsync/v2/pro`; previs aktarımı `fal-ai/wan/v2.2-a14b/video-to-video`. 429, 5xx ve zaman aşımı yeniden denenir. |
 | `live/elevenlabs.py` | `eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. |
 | `live/hermes_llm.py` | LangGraph akışı: `Send` ile paralel çıkarma, doğrulama, en çok 2 tur onarım. Çıktı şeması kural tabanlı ayrıştırıcıyla aynı; replikler eksiltilemez ya da uydurulamaz. |
@@ -544,12 +590,17 @@ Bilinmesi gerekenler:
 | `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |
 | `VAST_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir); MiniMax H3'ün kilidi vast.ai API anahtarıdır |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
-| `H3_BACKEND` | `sglang` | `sglang` ya da `comfyui` |
+| `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
 | `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |
 | `H3_API_KEY` | boş | Portal belirteci (isteğe bağlı; SSH tünelinde gerekmez) |
 | `H3_MODEL` / `H3_MODEL_REVISION` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / boş / `9` | Model kimliği, klip meta verisine yazılan sürüm, adım sayısı (sunucudaki kurulumla aynı) |
 | `H3_IDLE_STOP_MINUTES` / `H3_AUTO_START` | `10` / `false` | Boşta durdurma süresi (0: kapalı) ve iş gelince durmuş makineyi başlatma |
 | `H3_TERRITORY_AUTHORIZED` | `false` | Makine lisansın dışladığı bölgedeyse yalnızca MiniMax'ten izin alındıysa `true` |
+| `H3_TLS_VERIFY` | `true` | Sunucu sertifikasını doğrula; portalın kendinden imzalı sertifikasında (yedek makine) `false` |
+| `H3_REPLACE_MODE` | `ask` | Yedek makine: `ask` (her zaman sor), `auto` (fiyat tavanı altındaysa sormadan), `off` |
+| `H3_MAX_DPH` / `H3_MIN_RAM_GB` / `H3_MIN_DISK_GB` / `H3_MIN_INET_MBPS` | `0.95` / `64` / `150` / `300` | Yedek makine koşulları |
+| `H3_GPU_NAME` / `H3_BOX_IMAGE` / `H3_SETUP_SCRIPT_URL` | boş / `vastai/base-image:@vastai-automatic-tag` / boş | Yedek makinenin GPU'su (boş: eskisininki), imajı ve setup.sh adresi (boş: isteğe gömülür) |
+| `H3_IMAGE_MODEL` / `H3_SETUP_TIMEOUT_S` | `qwen-image-2512` / `5400` | setup.sh'nin kurduğu storyboard görsel modeli; kurulumun en uzun süresi |
 | `H3_TIMEOUT_S` / `H3_START_TIMEOUT_S` / `H3_COMFY_WORKFLOW_DIR` | `3600` / `900` / `/config/comfy` | Tek işin en uzun süresi, otomatik başlatmada bekleme, ComfyUI iş akışı klasörü (`./comfy-workflows`) |
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
@@ -563,6 +614,7 @@ Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excelle
 ```
 docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
+comfy-workflows/               MiniMax H3 ComfyUI iş akışları (panel yazar); examples/: hazır keyframe iş akışları
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
   src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
@@ -593,6 +645,7 @@ backend/
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama
+  vast/setup.sh                MiniMax H3 makinesi kurulumu (ComfyUI, H3 int8 modelleri, görsel modeli)
   tests/
 ```
 

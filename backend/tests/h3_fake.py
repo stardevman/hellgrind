@@ -137,25 +137,67 @@ class FakeComfy:
 
 
 class FakeVast:
-    """Sahte vast.ai API'si: GET/PUT /api/v0/instances/{id}."""
+    """Sahte vast.ai API'si: makine durumu, başlat/durdur, teklif arama, kiralama, silme. Varsayılan makine "4242"dir;
+    kiralanan makine önce "loading", sonra "running" olur ve portalın 8188 portu dışarıda 41234'e eşlenir."""
 
     def __init__(self, status: str = "running", geolocation: str = "Norway, NO", dph: float = 0.87):
         self.status, self.geolocation, self.dph = status, geolocation, dph
+        self.start_fails = False                      # durdurulan makinenin GPU'su başkasına kiralanmış
         self.requests: list[httpx.Request] = []
         self.puts: list[dict] = []
+        self.searches: list[dict] = []
+        self.rents: list[tuple[str, dict]] = []
+        self.deletes: list[str] = []
+        self.offers: list[dict] = [
+            {"id": 7001, "ask_contract_id": 7001, "gpu_name": "RTX 5090", "dph_total": 0.81, "geolocation": "Norway, NO",
+             "cpu_ram": 128000, "disk_space": 400, "reliability": 0.995, "inet_down": 900},
+        ]
+        self.new: dict[str, dict] = {}                # kiralanan makineler: kimlik -> durum
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
+
+    def _instance(self, iid: str) -> dict:
+        if iid in self.new:
+            box = self.new[iid]
+            if box["boot"]:
+                box["status"] = box["boot"].pop(0)
+            return {"id": int(iid), "actual_status": box["status"], "dph_total": 0.81, "geolocation": "Norway, NO",
+                    "gpu_name": "RTX 5090", "public_ipaddr": "203.0.113.9",
+                    "ports": {"8188/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41234"}],
+                              "1111/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41235"}]}}
+        if iid in self.deletes:
+            return {}
+        return {"id": 1, "actual_status": self.status, "intended_status": self.status, "dph_total": self.dph,
+                "geolocation": self.geolocation, "gpu_name": "RTX 5090"}
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if request.headers.get("Authorization") != "Bearer test-vast_api_key":
             return httpx.Response(401, json={"error": "bad key"})
+        path = request.url.path
+        if request.method == "POST" and path.endswith("/bundles"):
+            self.searches.append(json.loads(request.content))
+            return httpx.Response(200, json={"offers": self.offers})
+        if request.method == "PUT" and "/asks/" in path:
+            offer = path.rsplit("/", 1)[1]
+            self.rents.append((offer, json.loads(request.content)))
+            iid = str(9000 + len(self.rents))
+            self.new[iid] = {"status": "loading", "boot": ["loading", "running"]}
+            return httpx.Response(200, json={"success": True, "new_contract": int(iid)})
+        iid = path.rsplit("/", 1)[1]
+        if request.method == "DELETE":
+            self.deletes.append(iid)
+            return httpx.Response(200, json={"success": True, "msg": "Instance destroyed successfully"})
         if request.method == "PUT":
             body = json.loads(request.content)
-            self.puts.append(body)
-            self.status = body["state"]
+            self.puts.append({**body, **({"id": iid} if iid in self.new else {})})
+            if iid in self.new:
+                self.new[iid]["status"], self.new[iid]["boot"] = body["state"], []
+            elif not (self.start_fails and body["state"] == "running"):
+                self.status = body["state"]
             return httpx.Response(200, json={"success": True})
-        return httpx.Response(200, json={"instances": {"id": 1, "actual_status": self.status, "intended_status": self.status,
-                                                        "dph_total": self.dph, "geolocation": self.geolocation,
-                                                        "gpu_name": "RTX 5090"}})
+        data = self._instance(iid)
+        if not data:
+            return httpx.Response(404, json={"error": "no such instance"})
+        return httpx.Response(200, json={"instances": data})

@@ -1,7 +1,7 @@
 """ÜCRETLİ video üretimi: MiniMax H3, yönetmenin vast.ai'de kiraladığı GPU sunucusunda. Bu modül hiçbir yerde çalıştırılmadı.
 
-İki arka uç (Ayarlar › MiniMax H3 › Arka uç):
-- **SGLang** (docs.sglang.io › MiniMax-H3, Ekim 2026): POST /v1/videos -> {id}; GET /v1/videos/{id} (queued | completed |
+İki arka uç (Ayarlar › MiniMax H3 › Arka uç; varsayılan ComfyUI):
+- **SGLang** (deneysel; docs.sglang.io › MiniMax-H3, Ekim 2026): POST /v1/videos -> {id}; GET /v1/videos/{id} (queued | completed |
   failed; tamamlanınca inference_time_s); GET /v1/videos/{id}/content (MP4). Görseller istekte data URI olarak gider.
 - **ComfyUI** (127.0.0.1'de; SSH tüneli ya da portalın kimlik doğrulamalı vekili üzerinden): POST /upload/image, POST
   /prompt, GET /history/{id}, GET /view. İş akışları yönetmenin ComfyUI'den "Export (API)" ile aldığı JSON'lardır
@@ -249,7 +249,9 @@ def build_job(req: GenRequest) -> Job:
 
 def _client(url: str, token: str) -> httpx.Client:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return httpx.Client(base_url=url, headers=headers, timeout=TIMEOUT, transport=TRANSPORT, follow_redirects=True)
+    # Yedek makinenin portalı kendinden imzalı sertifika kullanır: orada H3_TLS_VERIFY=false yazılır (trafik yine şifreli).
+    return httpx.Client(base_url=url, headers=headers, timeout=TIMEOUT, transport=TRANSPORT, follow_redirects=True,
+                        verify=bool(settings.h3_tls_verify))
 
 
 def _note(job: Job, job_id: str, negative: str) -> None:

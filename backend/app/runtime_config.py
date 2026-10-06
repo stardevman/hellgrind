@@ -27,6 +27,7 @@ PAID_CONFIRMATION = "ücretli moda geç"
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{1,159}$")
 SERVER_URL = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/-]*)?$")
 FREE_TEXT = re.compile(r"^[^\r\n\"'#\\]{0,160}$")
+NUMBER = re.compile(r"^\d{1,6}(\.\d{1,4})?$")
 SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 
 
@@ -34,7 +35,7 @@ SECRET_VALUE = re.compile(r"^[^\s\"'#\\]{8,400}$")
 class Field:
     env: str                    # .env adı
     attr: str                   # settings alanı
-    kind: str                   # secret | model | url | text | choice | mode
+    kind: str                   # secret | model | url | text | number | choice | mode
     service: str                # vast | fal | elevenlabs | anthropic | core
     label: str
     choices: tuple[str, ...] = ()
@@ -45,7 +46,7 @@ FIELDS: tuple[Field, ...] = (
     Field("DRY_RUN", "dry_run", "mode", "core", "Ücretsiz mod"),
     Field("VAST_API_KEY", "vast_api_key", "secret", "vast", "vast.ai API anahtarı"),
     Field("VAST_INSTANCE_ID", "vast_instance_id", "text", "vast", "Makine kimliği (instance ID)"),
-    Field("H3_BACKEND", "h3_backend", "choice", "vast", "Arka uç", ("sglang", "comfyui")),
+    Field("H3_BACKEND", "h3_backend", "choice", "vast", "Arka uç (sglang: deneysel)", ("comfyui", "sglang")),
     Field("H3_ENDPOINT_URL", "h3_endpoint_url", "url", "vast", "Sunucu adresi (SGLang FL2VA ya da ComfyUI)"),
     Field("H3_REF_ENDPOINT_URL", "h3_ref_endpoint_url", "url", "vast", "Ref2VA sunucusu (SGLang; ComfyUI'de boş: aynı sunucu)"),
     Field("H3_API_KEY", "h3_api_key", "secret", "vast", "Portal belirteci (isteğe bağlı; SSH tünelinde gerekmez)"),
@@ -57,6 +58,20 @@ FIELDS: tuple[Field, ...] = (
     Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),
     Field("H3_TERRITORY_AUTHORIZED", "h3_territory_authorized", "choice", "vast",
           "Bölge izni (AB, BK, G. Kore, ABD için MiniMax'ten izin alındı)", ("false", "true")),
+    Field("H3_TLS_VERIFY", "h3_tls_verify", "choice", "vast", "Sunucu sertifikasını doğrula (yedek makinede false)",
+          ("true", "false")),
+    Field("H3_REPLACE_MODE", "h3_replace_mode", "choice", "vast",
+          "Yedek makine (otomatik başlatma başarısız olursa): off, ask (her zaman sor), auto (tavan altındaysa)",
+          ("ask", "auto", "off")),
+    Field("H3_MAX_DPH", "h3_max_dph", "number", "vast", "Yedek makine fiyat tavanı ($/sa)"),
+    Field("H3_MIN_RAM_GB", "h3_min_ram_gb", "number", "vast", "Yedek makine en az RAM (GB)"),
+    Field("H3_MIN_DISK_GB", "h3_min_disk_gb", "number", "vast", "Yedek makine disk (GB)"),
+    Field("H3_MIN_INET_MBPS", "h3_min_inet_mbps", "number", "vast", "Yedek makine en az indirme hızı (Mbps)"),
+    Field("H3_GPU_NAME", "h3_gpu_name", "text", "vast", "Yedek makinenin GPU'su (boş: eskisiyle aynı)"),
+    Field("H3_IMAGE_MODEL", "h3_image_model", "choice", "vast", "Storyboard görsel modeli (setup.sh kurar; Apache 2.0)",
+          ("qwen-image-2512", "flux-schnell", "none")),
+    Field("H3_BOX_IMAGE", "h3_box_image", "text", "vast", "Yedek makinenin Docker imajı"),
+    Field("H3_SETUP_SCRIPT_URL", "h3_setup_script_url", "url", "vast", "setup.sh adresi (boş: isteğe gömülür)"),
     Field("FAL_KEY", "fal_key", "secret", "fal", "API anahtarı"),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
     Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 (yalnızca eski çekimler)", url="https://fal.ai/models/{}"),
@@ -111,6 +126,9 @@ def validate(env: str, value: str) -> str:
     elif f.kind == "model":
         if not MODEL_ID.match(value):
             raise ConfigError(f"{f.label}: geçerli bir model ya da uç nokta kimliği girin (ör. fal-ai/flux-lora)")
+    elif f.kind == "number":
+        if not NUMBER.match(value) or float(value) <= 0:
+            raise ConfigError(f"{f.label}: sıfırdan büyük bir sayı girin (ör. 0.95)")
     elif f.kind == "text":
         if not FREE_TEXT.match(value):
             raise ConfigError(f"{f.label}: en çok 160 karakter; satır sonu, tırnak ya da # içeremez")
@@ -169,7 +187,9 @@ def _typed(f: Field, raw: str):
     if f.kind == "mode" or annotation is bool:
         return _BOOL.validate_python(raw if raw != "" else f.kind == "mode")
     if annotation is int:
-        return int(raw)
+        return int(float(raw))
+    if annotation is float:
+        return float(raw)
     return raw
 
 

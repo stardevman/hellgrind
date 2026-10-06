@@ -194,6 +194,16 @@ export interface SettingsState {
   comfy?: ComfyState;
 }
 
+export interface ReplacementOffer {
+  offer_id: number; gpu: string; dph: number; geolocation: string | null; ram_gb: number; disk_gb: number;
+  reliability: number | null; inet_mbps: number | null; reason: string; old_instance_id: string | null; at: number;
+}
+export interface ReplacementJob {
+  state: string; offer?: ReplacementOffer; old_instance_id?: string | null; new_instance_id?: string | null;
+  url?: string | null; message?: string | null; started_at?: number; updated_at?: number;
+}
+export interface ReplacementState { mode: string; proposal: ReplacementOffer | null; job: ReplacementJob | null; states: Record<string, string> }
+
 export interface ComfyWorkflow { kind: string; present: boolean; required: string[]; placeholders: string[]; error: string | null }
 export interface ComfyState { backend: string; dir: string; workflows: ComfyWorkflow[] }
 

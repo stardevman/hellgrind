@@ -26,7 +26,8 @@ SERVICES = {
              "used_by": ["Kurgu: görüntü üretimi (test ve tam tur; FL2VA ilk kareden, Ref2VA karakter referanslarıyla)",
                          "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
                          "Varlıklar: hareket testi ve karakter dönüş videosu", "Elle düzeltme: düzenlenmiş ilk kareden video",
-                         "Makine yönetimi: boşta durdurma, otomatik başlatma, boşta bekleme bedeli"]},
+                         "Makine yönetimi: boşta durdurma, otomatik başlatma, boşta bekleme bedeli",
+                         "Yedek makine: teklif arama, onaylı kiralama, setup.sh ile kurulum, eski makineyi silme"]},
     "fal": {"name": "fal.ai", "purpose": "İsteğe bağlı: Seedance, Flux kareleri, previs aktarımı, dudak senkronu",
             "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
             "used_by": ["Kurgu: yönetmenin Seedance seçtiği çekimler (ilk kare Flux'tan)", "Storyboard kareleri (yoksa yerel çizilir)",
@@ -249,6 +250,38 @@ def instance_action(body: InstanceIn):
     except Exception as e:                               # noqa: BLE001
         raise HTTPException(502, f"vast.ai yanıt vermedi: {type(e).__name__}")
     return {"status": box.status, "intended": box.intended, "geolocation": box.geolocation, "dph": box.dph}
+
+
+@router.get("/settings/vast/replacement")
+def replacement_state():
+    """Yedek makine: onay bekleyen öneri ve kiralama/kurulum durumu (yalnızca kayıt okunur; vast.ai çağrılmaz)."""
+    rc.refresh_if_changed()
+    from app.live import vast_box                       # Redis kaydı; ağ yok
+    return {"mode": settings.h3_replace_mode, "proposal": vast_box.proposal(), "job": vast_box.job(),
+            "states": vast_box.JOB_TR}
+
+
+class ReplacementIn(BaseModel):
+    action: str = PField(pattern="^(approve|reject)$")
+
+
+@router.post("/settings/vast/replacement")
+def replacement_decision(body: ReplacementIn):
+    """Yönetmenin kararı: öneriyi onaylarsa yeni makine kiralanır ve kurulur (yalnızca ücretli modda); reddederse öneri silinir."""
+    rc.refresh_if_changed()
+    from app.live import vast_box
+    prop = vast_box.proposal()
+    if prop is None:
+        raise HTTPException(404, "Onay bekleyen yedek makine önerisi yok.")
+    if body.action == "reject":
+        vast_box._r().delete(vast_box._k("proposal"))
+        return {"proposal": None, "job": vast_box.job()}
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda makine kiralanmaz.")
+    current = vast_box.job()
+    if current and current.get("state") in vast_box.ACTIVE_JOB:
+        raise HTTPException(409, f"Yeni makine zaten {vast_box.JOB_TR[current['state']]}.")
+    return {"proposal": prop, "job": vast_box.start_replacement(prop)}
 
 
 class WorkflowIn(BaseModel):

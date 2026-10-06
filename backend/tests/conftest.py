@@ -307,6 +307,10 @@ def h3(monkeypatch, tmp_path, paid):
     monkeypatch.setattr(settings, "h3_comfy_workflow_dir", str(tmp_path / "comfy"))
     monkeypatch.setattr(settings, "work_dir", str(tmp_path / "work"))
     vast_h3._reference_uris.clear()
+    from app.live import vast_box                                # önceki testin makine kaydı sızmasın
+    for name in ("inflight", "last_activity", "last_project", "tick", "box", "starting", "proposal", "replacement",
+                 "replacing"):
+        vast_box._r().delete(vast_box._k(name))
     return fake
 
 

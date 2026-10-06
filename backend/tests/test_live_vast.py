@@ -477,7 +477,8 @@ def routed(vast: FakeVast | None, server_status: int):
 
 def test_the_probe_reports_the_box_and_the_server(box, monkeypatch):
     r = probe.check("vast", "test-vast_api_key", routed(box, 200))
-    assert r["ok"] is True and r["message"] == "Makine: running · 0,87 $/sa · Norway, NO · RTX 5090 Sunucu hazır."
+    assert r["ok"] is True and r["message"] == ("Makine: running · 0,87 $/sa · Norway, NO · RTX 5090 Sunucu hazır "
+                                                "(SGLang arka ucu deneysel).")
     box.geolocation = "Virginia, US"
     r = probe.check("vast", "test-vast_api_key", routed(box, 200))
     assert r["ok"] is False and "lisansının dışında" in r["message"]

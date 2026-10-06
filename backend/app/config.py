@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     vast_api_key: str = ""
     vast_instance_id: str = ""
     h3_api_key: str = ""               # portal belirteci (Authorization: Bearer); boşsa gönderilmez
-    h3_backend: str = "sglang"         # sglang | comfyui
+    h3_backend: str = "comfyui"        # comfyui | sglang (deneysel)
     h3_endpoint_url: str = ""          # FL2VA (SGLang) ya da ComfyUI adresi
     h3_ref_endpoint_url: str = ""      # Ref2VA sunucusu (SGLang); ComfyUI'de boşsa aynı adres kullanılır
     h3_comfy_workflow_dir: str = "/config/comfy"   # ComfyUI iş akışları (API biçimi, yer tutuculu): t2v, i2v, r2v, keyframe
@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     h3_auto_start: bool = False        # iş gelince durmuş makine başlatılır
     h3_start_timeout_s: int = 900      # otomatik başlatmada sunucunun hazır olmasının beklendiği en uzun süre
     h3_territory_authorized: bool = False   # lisansın dışladığı bölgelerde (AB, BK, G. Kore, ABD) MiniMax'ten izin alındı
+    h3_tls_verify: bool = True         # yedek makinenin portalı kendinden imzalı sertifika kullanır: orada false yazılır
+    # Yedek makine: otomatik başlatma başarısız olursa (durdurulan makinenin GPU'su başkasına kiralanmış olabilir) uygun
+    # bölgelerde aynı GPU tipinde yeni bir teklif bulunur, kiralanır, setup.sh ile kurulur; eski makine silinir.
+    h3_replace_mode: str = "ask"       # off | ask (her zaman sor) | auto (fiyat tavanı altındaysa sormadan kirala)
+    h3_max_dph: float = 0.95           # yeni makinenin saatlik fiyat tavanı ($/sa, vast.ai dph_total)
+    h3_min_ram_gb: int = 64
+    h3_min_disk_gb: int = 150          # H3 int8 FL2VA + Ref2VA (~65 GB) + görsel modeli (~30 GB) + ComfyUI
+    h3_min_inet_mbps: int = 300        # modeller ~100 GB: yavaş bağlantıda kurulum saatler sürer
+    h3_gpu_name: str = ""              # boşsa eski makinenin GPU'su (ör. "RTX 5090")
+    h3_box_image: str = "vastai/base-image:@vastai-automatic-tag"
+    h3_setup_script_url: str = ""      # boşsa setup.sh isteğe gömülür (gzip + base64)
+    h3_image_model: str = "qwen-image-2512"   # storyboard ilk karesi: qwen-image-2512 | flux-schnell | none (Apache 2.0)
+    h3_setup_timeout_s: int = 5400     # yeni makinede kurulumun (model indirme dahil) en uzun süresi
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""

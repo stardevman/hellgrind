@@ -82,7 +82,10 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
     assert fields["VAST_API_KEY"] == {"env": "VAST_API_KEY", "label": "vast.ai API anahtarı", "kind": "secret", "set": True,
                                       "masked": "••••QRST"}
     assert fields["H3_API_KEY"]["kind"] == "secret" and fields["H3_API_KEY"]["masked"] == "••••PQRS"
-    assert fields["VAST_INSTANCE_ID"]["value"] == "4242" and fields["H3_BACKEND"]["value"] == "sglang"
+    assert fields["VAST_INSTANCE_ID"]["value"] == "4242" and fields["H3_BACKEND"]["value"] == "comfyui"   # SGLang deneysel
+    assert fields["H3_BACKEND"]["choices"] == ["comfyui", "sglang"] and "deneysel" in fields["H3_BACKEND"]["label"]
+    assert (fields["H3_REPLACE_MODE"]["value"], fields["H3_MAX_DPH"]["value"], fields["H3_MIN_RAM_GB"]["value"]) == ("ask", "0.95", "64")
+    assert fields["H3_IMAGE_MODEL"]["choices"] == ["qwen-image-2512", "flux-schnell", "none"]
     assert fields["H3_ENDPOINT_URL"]["kind"] == "url" and fields["H3_ENDPOINT_URL"]["value"] == "https://h3.test"
     assert fields["H3_REF_ENDPOINT_URL"]["value"] == "" and fields["H3_MODEL"]["url"] == "https://huggingface.co/MiniMaxAI/MiniMax-H3"
     assert fields["H3_STEPS"]["kind"] == "choice" and fields["H3_STEPS"]["value"] == fields["H3_STEPS"]["default"] == "9"
@@ -90,6 +93,14 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
     assert fields["H3_TERRITORY_AUTHORIZED"]["choices"] == ["false", "true"]
     text = api.get("/api/settings").text
     assert vast["active"] is True and H3_SECRET not in text and VAST_SECRET not in text
+
+
+def test_replacement_settings_are_typed(api, cfg):
+    r = api.patch("/api/settings", json={"values": {"H3_MAX_DPH": "0.8", "H3_MIN_RAM_GB": "96", "H3_REPLACE_MODE": "auto",
+                                                    "H3_TLS_VERIFY": "false", "H3_GPU_NAME": "RTX 5090"}})
+    assert r.status_code == 200, r.text
+    assert (settings.h3_max_dph, settings.h3_min_ram_gb, settings.h3_replace_mode) == (0.8, 96, "auto")
+    assert settings.h3_tls_verify is False and settings.h3_gpu_name == "RTX 5090"
 
 
 def test_on_off_and_number_settings_are_typed_when_applied(api, cfg):
@@ -146,7 +157,10 @@ def test_clearing_a_key_empties_it(api, cfg):
     ({"H3_ENDPOINT_URL": "ftp://1.2.3.4"}, "sunucu adresi"),
     ({"H3_ENDPOINT_URL": "https://h3.test\nDRY_RUN=0"}, "sunucu adresi"),         # satır enjeksiyonu
     ({"H3_STEPS": "7"}, "50, 20, 9, 8, 5"),
-    ({"H3_BACKEND": "vllm"}, "sglang, comfyui"),
+    ({"H3_BACKEND": "vllm"}, "comfyui, sglang"),
+    ({"H3_MAX_DPH": "ucuz"}, "sıfırdan büyük bir sayı"),
+    ({"H3_MIN_DISK_GB": "0"}, "sıfırdan büyük bir sayı"),
+    ({"H3_REPLACE_MODE": "always"}, "ask, auto, off"),
     ({"H3_MODEL_REVISION": "kötü\nDRY_RUN=0"}, "satır sonu"),
 ])
 def test_rejects_anything_outside_the_whitelist_or_malformed(api, cfg, values, needle):
@@ -333,7 +347,7 @@ def test_the_h3_connection_check_reads_the_box_and_the_servers_health(api, cfg, 
     r = api.post("/api/settings/test/vast").json()
     assert r["ok"] is True and "Norway, NO" in r["message"] and r["message"].endswith("Sunucu hazır.")
     assert [(q.method, str(q.url)) for q in seen] == [("GET", "https://console.vast.ai/api/v0/instances/4242"),
-                                                      ("GET", "https://h3.test/health")]
+                                                      ("GET", "https://h3.test/system_stats")]          # ComfyUI
     assert seen[0].headers["authorization"] == f"Bearer {VAST_SECRET}" and seen[1].headers["authorization"] == f"Bearer {H3_SECRET}"
 
 

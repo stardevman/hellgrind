@@ -8,7 +8,7 @@ import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { clock, usd, usdExact } from "@/lib/text";
 import { COMFY_KIND_TR } from "@/lib/i18n";
-import type { ComfyState, PricingTable, ProbeResult, Service, ServiceField, SettingsState } from "@/lib/types";
+import type { ComfyState, PricingTable, ProbeResult, ReplacementState, Service, ServiceField, SettingsState } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -122,7 +122,8 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
                     </select>
                   ) : (
                     <input type="text" className="mono" style={{ width: "100%" }} spellCheck={false} disabled={!st.editable} aria-label={f.label}
-                      placeholder={f.kind === "url" ? "https://ornek-dort-kelime.trycloudflare.com" : undefined}
+                      placeholder={f.env === "H3_SETUP_SCRIPT_URL" ? "boş: backend/vast/setup.sh isteğe gömülür"
+                        : f.kind === "url" ? "https://ornek-dort-kelime.trycloudflare.com" : undefined}
                       value={val(f)} onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })} />
                   )}
                   {f.default && val(f) !== f.default && <small>varsayılan: <span className="mono">{f.default}</span></small>}
@@ -162,6 +163,14 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
 /** H3 makinesi: elle başlat / durdur (yalnızca ücretli modda; vast.ai API'si ücretli kilitten geçer). */
 function BoxSection({ st }: { st: SettingsState }) {
   const { busy, act, note } = usePanel();
+  const { data: rep, mutate: refreshRep } = useSWR<ReplacementState>("/settings/vast/replacement", fetcher, { refreshInterval: POLL_MS * 2 });
+  const decide = (action: "approve" | "reject") => act(async () => {
+    await api.post("/settings/vast/replacement", { action });
+    await refreshRep();
+    note("settings", action === "approve" ? "Yeni makine kiralanıyor; kurulum (modeller ~100 GB) 30-60 dk sürebilir." : "Öneri reddedildi.", "ok");
+  }, "settings");
+  const p = rep?.proposal, j = rep?.job;
+  const active = j && ["queued", "renting", "booting", "installing"].includes(j.state);
   const run = (action: "start" | "stop") => act(async () => {
     const r = await api.post<{ status: string; geolocation: string | null }>("/settings/vast/instance", { action });
     note("settings", `vast.ai makinesi: ${action === "start" ? "başlatılıyor" : "durduruluyor"} (şu an: ${r.status}${r.geolocation ? ", " + r.geolocation : ""}).`, "ok");
@@ -175,6 +184,28 @@ function BoxSection({ st }: { st: SettingsState }) {
         <button className="btn" type="button" disabled={busy || st.dry_run} onClick={() => run("stop")}>Makineyi durdur</button>
         {st.dry_run && <span className="faint small">Ücretsiz modda makine buradan yönetilmez; vast.ai panelini kullanın.</span>}
       </div>
+      {p && !active && (
+        <div className="note warn" style={{ marginTop: 10 }}>
+          <b>Yedek makine önerisi</b> · {p.reason}
+          <dl className="kv" style={{ marginTop: 6 }}>
+            <dt>Teklif</dt><dd className="mono">{p.gpu} · {p.dph.toFixed(3)} $/sa · {p.geolocation ?? "konum bilinmiyor"}</dd>
+            <dt>Makine</dt><dd className="mono">{p.ram_gb} GB RAM · {p.disk_gb} GB disk{p.inet_mbps ? ` · ${Math.round(p.inet_mbps)} Mbps` : ""}{p.reliability ? ` · güvenilirlik ${(p.reliability * 100).toFixed(1)}%` : ""}</dd>
+            <dt>Sonra</dt><dd>setup.sh ComfyUI'yi, H3 modellerini ve görsel modelini kurar; hazır olunca eski makine{p.old_instance_id ? ` (${p.old_instance_id})` : ""} silinir.</dd>
+          </dl>
+          <div className="row">
+            <button className="btn primary" type="button" disabled={busy || st.dry_run} onClick={() => decide("approve")}>Onayla ve kirala</button>
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => decide("reject")}>Reddet</button>
+          </div>
+        </div>
+      )}
+      {j && (
+        <p className={`small ${j.state === "failed" ? "warn" : "dim"}`} style={{ marginTop: 8 }}>
+          Yedek makine: <b>{rep?.states[j.state] ?? j.state}</b>
+          {j.new_instance_id ? <> · yeni makine <span className="mono">{j.new_instance_id}</span></> : null}
+          {j.url ? <> · <span className="mono">{j.url}</span></> : null}
+          {j.message ? <> · {j.message}</> : null}
+        </p>
+      )}
     </Section>
   );
 }
