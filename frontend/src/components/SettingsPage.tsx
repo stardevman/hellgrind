@@ -6,9 +6,9 @@ import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
-import { clock, usd, usdExact } from "@/lib/text";
+import { bytesText, clock, durText, stepDurations, usd, usdExact, whenText } from "@/lib/text";
 import { COMFY_KIND_TR } from "@/lib/i18n";
-import type { ComfyState, PricingTable, ProbeResult, ReplacementState, Service, ServiceField, SettingsState } from "@/lib/types";
+import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -107,7 +107,7 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
         </div>
         {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env} />)}
       </div>
-      {svc.id === "vast" && <BoxSection st={st} />}
+      {svc.id === "vast" && <BoxSection st={st} svc={svc} />}
       {svc.id === "vast" && st.comfy && <ComfySection comfy={st.comfy} editable={st.editable} onSaved={onSaved} />}
       <Section title="Model ve uç noktalar" meta={`${others.length}`}>
         <table className="tbl">
@@ -120,6 +120,9 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
                     <select value={val(f)} disabled={!st.editable} aria-label={f.label} onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })}>
                       {(f.choices ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
+                  ) : f.kind === "number" ? (
+                    <input type="number" className="mono" style={{ width: 140 }} disabled={!st.editable} aria-label={f.label}
+                      min={f.minimum ?? 0} step="any" value={val(f)} onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })} />
                   ) : (
                     <input type="text" className="mono" style={{ width: "100%" }} spellCheck={false} disabled={!st.editable} aria-label={f.label}
                       placeholder={f.env === "H3_SETUP_SCRIPT_URL" ? "boş: backend/vast/setup.sh isteğe gömülür"
@@ -127,6 +130,7 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
                       value={val(f)} onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })} />
                   )}
                   {f.default && val(f) !== f.default && <small>varsayılan: <span className="mono">{f.default}</span></small>}
+                  {f.minimum != null && Number(val(f)) < f.minimum && <small className="bad">en az {f.minimum}</small>}
                 </td>
                 <td className="r" style={{ whiteSpace: "nowrap" }}>
                   {f.default && val(f) !== f.default && st.editable && (
@@ -160,37 +164,50 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
   );
 }
 
-/** H3 makinesi: elle başlat / durdur (yalnızca ücretli modda; vast.ai API'si ücretli kilitten geçer). */
-function BoxSection({ st }: { st: SettingsState }) {
+/** H3 makinesi: elle başlat / durdur, yeni makine kiralama (teklif → onay → kiralama → setup.sh), kurulum günlüğü, çıktı
+    güvencesi ve sertifika sabitleme. Makineye dokunan her eylem yalnızca ücretli modda (vast.ai API'si ücretli kilitten
+    geçer); kayıtlar ücretsiz modda da okunur. */
+function BoxSection({ st, svc }: { st: SettingsState; svc: Service }) {
   const { busy, act, note } = usePanel();
   const { data: rep, mutate: refreshRep } = useSWR<ReplacementState>("/settings/vast/replacement", fetcher, { refreshInterval: POLL_MS * 2 });
+  const p = rep?.proposal, j = rep?.job;
+  const active = Boolean(j && ["queued", "renting", "booting", "installing"].includes(j.state));
   const decide = (action: "approve" | "reject") => act(async () => {
     await api.post("/settings/vast/replacement", { action });
     await refreshRep();
-    note("settings", action === "approve" ? "Yeni makine kiralanıyor; kurulum (modeller ~100 GB) 30-60 dk sürebilir." : "Öneri reddedildi.", "ok");
+    note("settings", action === "approve" ? "Yeni makine kiralanıyor; kurulumu aşağıdaki günlükten izleyin (modeller ~105 GB)." : "Öneri reddedildi.", "ok");
   }, "settings");
-  const p = rep?.proposal, j = rep?.job;
-  const active = j && ["queued", "renting", "booting", "installing"].includes(j.state);
+  const provision = () => act(async () => {
+    await api.post("/settings/vast/provision");
+    await refreshRep();
+    note("settings", "Uygun teklif bulundu: aşağıda onayınızı bekliyor. Onaylamadan hiçbir şey kiralanmaz.", "ok");
+  }, "settings");
   const run = (action: "start" | "stop") => act(async () => {
     const r = await api.post<{ status: string; geolocation: string | null }>("/settings/vast/instance", { action });
     note("settings", `vast.ai makinesi: ${action === "start" ? "başlatılıyor" : "durduruluyor"} (şu an: ${r.status}${r.geolocation ? ", " + r.geolocation : ""}).`, "ok");
   }, "settings");
+  const initial = p?.kind === "initial";
   return (
-    <Section title="Makine" meta="vast.ai">
+    <Section title="Makine" meta={rep?.instance_id ? `vast.ai · ${rep.instance_id}` : "vast.ai · makine yok"}>
       <p className="faint small">Kuyruk ayarlanan süre boş kalırsa makine kendiliğinden durdurulur; boşta geçen süre son etkin projenin
         bütçesine yazılır ve Kill-Switch'e yansır. Durdurulmuş makinenin diski vast.ai'de ücretlenmeye devam eder.</p>
       <div className="row">
-        <button className="btn" type="button" disabled={busy || st.dry_run} onClick={() => run("start")}>Makineyi başlat</button>
-        <button className="btn" type="button" disabled={busy || st.dry_run} onClick={() => run("stop")}>Makineyi durdur</button>
-        {st.dry_run && <span className="faint small">Ücretsiz modda makine buradan yönetilmez; vast.ai panelini kullanın.</span>}
+        <button className="btn" type="button" disabled={busy || st.dry_run || !rep?.instance_id} onClick={() => run("start")}>Makineyi başlat</button>
+        <button className="btn" type="button" disabled={busy || st.dry_run || !rep?.instance_id} onClick={() => run("stop")}>Makineyi durdur</button>
+        <button className="btn" type="button" disabled={busy || st.dry_run || !svc.key_set || active || Boolean(p)} onClick={provision}
+          title="Uygun teklifi bulur ve onayınıza sunar; onaylarsanız kiralanır ve setup.sh ile kurulur. Hiçbir makine silinmez.">Yeni makine kirala</button>
+        {st.dry_run && <span className="faint small">Ücretsiz modda makine buradan yönetilmez ve kiralanmaz.</span>}
       </div>
+      {rep?.conditions && <p className="faint small">Teklif koşulları: {rep.conditions} (Model ve uç noktalar'dan değiştirilir).</p>}
       {p && !active && (
         <div className="note warn" style={{ marginTop: 10 }}>
-          <b>Yedek makine önerisi</b> · {p.reason}
+          <b>{initial ? "Yeni makine önerisi" : "Yedek makine önerisi"}</b> · {p.reason}
           <dl className="kv" style={{ marginTop: 6 }}>
             <dt>Teklif</dt><dd className="mono">{p.gpu} · {p.dph.toFixed(3)} $/sa · {p.geolocation ?? "konum bilinmiyor"}</dd>
             <dt>Makine</dt><dd className="mono">{p.ram_gb} GB RAM · {p.disk_gb} GB disk{p.inet_mbps ? ` · ${Math.round(p.inet_mbps)} Mbps` : ""}{p.reliability ? ` · güvenilirlik ${(p.reliability * 100).toFixed(1)}%` : ""}</dd>
-            <dt>Sonra</dt><dd>setup.sh ComfyUI'yi, H3 modellerini ve görsel modelini kurar; hazır olunca eski makine{p.old_instance_id ? ` (${p.old_instance_id})` : ""} silinir.</dd>
+            <dt>Sonra</dt><dd>{initial
+              ? "setup.sh ComfyUI'yi, H3 modellerini ve görsel modelini kurar; kimlik, adres ve belirteç Ayarlar'a yazılır. Hiçbir makine silinmez."
+              : `setup.sh ComfyUI'yi, H3 modellerini ve görsel modelini kurar; hazır olunca eski makine${p.old_instance_id ? ` (${p.old_instance_id})` : ""} yalnızca ürettiği her çıktı yerel depoda doğrulanmışsa silinir.`}</dd>
           </dl>
           <div className="row">
             <button className="btn primary" type="button" disabled={busy || st.dry_run} onClick={() => decide("approve")}>Onayla ve kirala</button>
@@ -198,17 +215,159 @@ function BoxSection({ st }: { st: SettingsState }) {
           </div>
         </div>
       )}
-      {j && (
-        <p className={`small ${j.state === "failed" ? "warn" : "dim"}`} style={{ marginTop: 8 }}>
-          Yedek makine: <b>{rep?.states[j.state] ?? j.state}</b>
-          {j.new_instance_id ? <> · yeni makine <span className="mono">{j.new_instance_id}</span></> : null}
-          {j.url ? <> · <span className="mono">{j.url}</span></> : null}
-          {j.message ? <> · {j.message}</> : null}
-        </p>
-      )}
+      {j && <JobView rep={rep!} st={st} />}
+      {rep?.outputs && <OutputsView rep={rep} st={st} onDone={() => void refreshRep()} />}
+      {rep?.tls && <TlsView rep={rep} editable={st.editable} onDone={() => void refreshRep()} />}
     </Section>
   );
 }
+
+/** Kiralama ve kurulum: aşamalar ve süreleri, setup.sh günlüğü (portalın kimlik doğrulamalı günlük portundan). */
+function JobView({ rep, st }: { rep: ReplacementState; st: SettingsState }) {
+  const j = rep.job!;
+  const watching = !st.dry_run && Boolean(j.log_url) && (j.state === "installing" || j.state === "ready" || j.state === "failed");
+  const live = j.state === "installing";
+  const { data: log } = useSWR<SetupLog>(watching ? "/settings/vast/setup-log" : null, fetcher, { refreshInterval: live ? 5000 : 0 });
+  const now = Date.now() / 1000;
+  const steps = stepDurations(j.steps, now);
+  const total = j.started_at ? (["ready", "failed"].includes(j.state) ? (j.updated_at ?? now) : now) - j.started_at : null;
+  return (
+    <div className={`note ${j.state === "failed" || j.retained ? "err" : j.state === "ready" ? "ok" : ""}`} style={{ marginTop: 10 }}>
+      <div className="row">
+        <b>{j.kind === "initial" ? "Yeni makine" : "Yedek makine"}: {rep.states[j.state] ?? j.state}</b>
+        {j.new_instance_id && <span className="mono small">· {j.new_instance_id}</span>}
+        {j.url && <span className="mono small">· {j.url}</span>}
+        <span className="grow" />
+        {total != null && <span className="mono small" title="Kiralama isteğinden bu yana">{durText(total)}</span>}
+      </div>
+      {steps.length > 1 && (
+        <p className="small dim" style={{ margin: "6px 0 0" }}>
+          {steps.map(([name, secs], i) => <span key={name}>{i ? " → " : ""}{rep.states[name] ?? name} <span className="mono">{durText(secs)}</span></span>)}
+        </p>
+      )}
+      {j.message && <p className="small" style={{ margin: "6px 0 0" }}>{j.message}</p>}
+      {j.retained && <p className="small bad" style={{ margin: "6px 0 0" }}>Makine {j.retained.instance_id} silinmeden önce: aşağıdaki Çıktı güvencesi'nden eksikleri indirin ya da kaybı kabul edin.</p>}
+      {(jobActive(j) || j.log_url) && (
+        <details open={live} style={{ marginTop: 8 }}>
+          <summary className="small">Kurulum günlüğü (setup.sh){log?.step ? ` · ${log.step}` : ""}{log?.done ? ` · bitti: ${durText(log.total_s)}${log.ok ? "" : " (eksik)"}` : ""}</summary>
+          {log?.phases && log.phases.length > 0 && (
+            <p className="small dim" style={{ margin: "6px 0" }}>{log.phases.map((ph) => `${ph.name}: ${durText(ph.seconds)}`).join(" · ")}</p>
+          )}
+          {log?.available
+            ? <pre className="mono small" style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap", margin: "6px 0 0" }}>{log.lines.slice(-60).join("\n")}</pre>
+            : <p className="faint small">{st.dry_run ? "Ücretsiz modda makineye bağlanılmaz." : log?.message ?? "Makine açılınca günlük burada görünür."}</p>}
+          <p className="faint small">Makinede: vast.ai konsolunda makinenin terminali ya da SSH ile <span className="mono">tail -f /var/log/hellgrind/setup.log</span>.
+            Satırlar başlangıçtan geçen süreyi, her indirmenin hızını ve sonda toplam kurulum süresini gösterir.</p>
+        </details>
+      )}
+    </div>
+  );
+}
+
+const jobActive = (j: ReplacementJob) => ["queued", "renting", "booting", "installing"].includes(j.state);
+
+/** Çıktı güvencesi: her H3 çıktısı indirilip yerel depoda doğrulanır; eksik çıktısı olan makine silinmez. */
+function OutputsView({ rep, st, onDone }: { rep: ReplacementState; st: SettingsState; onDone: () => void }) {
+  const { busy, act, note } = usePanel();
+  const [sure, setSure] = useState<string | null>(null);
+  const o = rep.outputs!, r = rep.retrieval;
+  const retrieving = Boolean(r && ["starting", "waiting", "downloading"].includes(r.state));
+  const go = (instance_id: string, action: "retrieve" | "abandon", destroy_after = false) => act(async () => {
+    const res = await api.post<{ lost?: number }>("/settings/vast/outputs", { action, instance_id, destroy_after });
+    setSure(null); onDone();
+    note("settings", action === "retrieve" ? "Eksik çıktılar indiriliyor; makine çalışmıyorsa başlatılır." : `Makine ${instance_id} silindi; ${res.lost ?? 0} çıktının kaybı kabul edildi.`, action === "retrieve" ? "ok" : "err");
+  }, "settings");
+  const unsafeTotal = o.machines.reduce((n, m) => n + m.unsafe, 0);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3 className="small">Çıktı güvencesi {unsafeTotal ? <span className="tag bad">{unsafeTotal} çıktı yalnızca makinede</span> : <span className="tag ok">bütün çıktılar yerel depoda</span>}</h3>
+      <p className="faint small">Her video ve storyboard karesi iş biter bitmez indirilir; boyutu sunucunun bildirdiğiyle, depodaki kopyası SHA-256 ile
+        doğrulanır (meta veri dahil). Eski makine yalnızca ürettiği her çıktı doğrulanmışsa silinir.</p>
+      {o.machines.length > 0 && (
+        <table className="tbl">
+          <thead><tr><th>Makine</th><th className="r">Yerel depoda</th><th className="r">Yalnızca makinede</th><th className="r">Üretilemedi / kayıp</th><th /></tr></thead>
+          <tbody>
+            {o.machines.map((m) => {
+              const id = m.instance_id ?? "";
+              return (
+                <tr key={id || "yok"}>
+                  <td className="mono">{id || "yönetimsiz"}{m.current && <small>Ayarlardaki makine</small>}</td>
+                  <td className="r mono">{m.stored}<small>{bytesText(m.stored_bytes)}</small></td>
+                  <td className={`r mono ${m.unsafe ? "bad" : ""}`}>{m.unsafe}</td>
+                  <td className="r mono">{m.failed} / {m.lost}</td>
+                  <td className="r" style={{ whiteSpace: "nowrap" }}>
+                    {m.unsafe > 0 && id && (m.current
+                      ? <button className="btn" type="button" disabled={busy || st.dry_run || retrieving} onClick={() => go(id, "retrieve")}>Eksikleri indir</button>
+                      : <>
+                        <button className="btn" type="button" disabled={busy || st.dry_run || retrieving} onClick={() => go(id, "retrieve", true)}
+                          title="Makine çalışmıyorsa başlatılır (saatlik ücret işler); hepsi indirilip doğrulanınca makine silinir">Eksikleri indir, sonra sil</button>
+                        {sure === id
+                          ? <button className="btn danger" type="button" disabled={busy || st.dry_run} onClick={() => go(id, "abandon")}>Eminim: {m.unsafe} çıktıyı kaybet ve sil</button>
+                          : <button className="btn ghost" type="button" disabled={busy || st.dry_run} onClick={() => setSure(id)}>Kayıp say ve sil</button>}
+                      </>)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {r && <p className={`small ${r.state === "failed" ? "bad" : "dim"}`}>Yeniden indirme ({r.instance_id}): <b>{rep.retrieval_states?.[r.state] ?? r.state}</b>{r.message ? ` · ${r.message}` : ""}</p>}
+      {o.unsafe.length > 0 && (
+        <details>
+          <summary className="small">Yerel depoda olmayan çıktılar ({o.unsafe.length}{o.unsafe.length >= 50 ? "+" : ""})</summary>
+          <table className="tbl">
+            <tbody>
+              {o.unsafe.slice(0, 20).map((u) => (
+                <tr key={u.id}>
+                  <td className="mono small">{u.instance_id ?? "—"}</td>
+                  <td className="small">{u.kind === "video" ? "video" : "storyboard karesi"}{u.task ? ` · ${u.task}` : ""}<small className="mono">{u.job_id}</small></td>
+                  <td className="small">{u.status === "completed" ? "bitti, indirilemedi" : "gönderildi"}{u.error ? <small>{u.error}</small> : null}</td>
+                  <td className="r small mono">{whenText(u.submitted_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** Sunucu sertifikası: doğrula / sabitle / kapalı; sabitlenen parmak izi ve uyarılar. */
+function TlsView({ rep, editable, onDone }: { rep: ReplacementState; editable: boolean; onDone: () => void }) {
+  const { busy, act, note } = usePanel();
+  const t = rep.tls!;
+  const reset = () => act(async () => {
+    await api.del("/settings/vast/tls-pin");
+    onDone();
+    note("settings", "Sertifika sabitlemesi sıfırlandı: bir sonraki başarılı bağlantı yeniden sabitler.", "ok");
+  }, "settings");
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3 className="small">Sunucu sertifikası <span className={`tag ${t.mode === "off" || t.fallback ? "warn" : "ok"}`}>{TLS_TR[t.mode]}</span></h3>
+      {t.mismatch && (
+        <div className="note err small">Sertifika değişti ({t.mismatch.endpoint}): beklenen <span className="mono">{t.mismatch.expected.slice(0, 23)}…</span>,
+          gelen <span className="mono">{t.mismatch.seen.slice(0, 23)}…</span>. İstek gönderilmedi; üretim durdu. Makineyi bilerek yenilediyseniz
+          (setup.sh günlüğündeki parmak iziyle karşılaştırın) sabitlemeyi sıfırlayın.</div>
+      )}
+      {t.fallback && !t.mismatch && (
+        <div className="note warn small">Sertifika sabitlenemedi ({t.fallback.endpoint}: {t.fallback.reason}); bağlantı doğrulamasız sürüyor (trafik yine şifreli).</div>
+      )}
+      {t.mode === "pin" && (
+        <p className="small dim">{t.pin
+          ? <>Sabitlenen parmak izi ({t.endpoint}, {whenText(t.pin.pinned_at)}): <span className="mono" style={{ wordBreak: "break-all" }}>{t.pin.sha256}</span></>
+          : <>Henüz sabitlenmedi: ilk başarılı bağlantıda {t.endpoint ?? "sunucu"} sertifikasının SHA-256 parmak izi kaydedilir.</>}</p>
+      )}
+      {t.mode === "off" && <p className="small warn">Doğrulama kapalı: sunucunun kimliği denetlenmez. Kendinden imzalı portalda "pin" önerilir.</p>}
+      {editable && t.mode === "pin" && (t.pin || t.mismatch) && (
+        <button className="btn ghost" type="button" disabled={busy} onClick={reset}>Sabitlemeyi sıfırla</button>
+      )}
+    </div>
+  );
+}
+
+const TLS_TR: Record<TlsState["mode"], string> = { verify: "doğrulanıyor", pin: "parmak izi sabitleme", off: "doğrulama kapalı" };
 
 /** ComfyUI iş akışları: ComfyUI'de Workflow › Export (API) ile kaydedilen JSON, değişen değerler yer tutucuyla. */
 function ComfySection({ comfy, editable, onSaved }: { comfy: ComfyState; editable: boolean; onSaved: () => void }) {
@@ -290,7 +449,8 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
               {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
-              {h3 && !h3.active && <li className="warn">MiniMax H3 sunucusu gerekir: video H3 ile üretilir. Ayarlar › MiniMax H3'ten vast.ai API anahtarını, makine kimliğini ve sunucu adresini girin.</li>}
+              {h3 && !h3.key_set && <li className="warn">vast.ai API anahtarı gerekir: video MiniMax H3 ile vast.ai makinesinde üretilir.</li>}
+              {h3?.key_set && !h3.active && <li className="warn">Makine henüz tanımlı değil: ücretli moda geçtikten sonra MiniMax H3 › Makine › <b>Yeni makine kirala</b> ile kurun ya da makine kimliğini ve sunucu adresini girin. Makine hazır olana dek üretim başlamaz.</li>}
               {h3?.active && <li>vast.ai makinesinin çalıştığını ve "Bağlantıyı sına" sonucunun "hazır" olduğunu doğrulayın.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>
@@ -303,9 +463,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                   <input type="text" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
                 </label>
                 <div className="row">
-                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3?.active || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
-                  {(!h3?.active || !st.scorer.ready) && <span className="faint small">Önce MiniMax H3 sunucusunu tanımlayın{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
-                  {h3?.active && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
+                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3?.key_set || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
+                  {(!h3?.key_set || !st.scorer.ready) && <span className="faint small">Önce vast.ai API anahtarını girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                  {h3?.key_set && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
                 </div>
               </form>
             ) : <p className="faint small">Ayar dosyası bağlı değil; mod yalnızca .env elle düzenlenerek değişir.</p>}

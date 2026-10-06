@@ -289,3 +289,25 @@ class CurationEvent(Base):
     action: Mapped[str] = mapped_column(Text)
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class H3Output(Base):
+    """MiniMax H3 makinesinde üretilen bir çıktının yerel depoya indirilip doğrulanma kaydı (çıktı güvencesi)."""
+    __tablename__ = "h3_outputs"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    instance_id: Mapped[str | None] = mapped_column(Text)
+    server: Mapped[str] = mapped_column(Text)
+    backend: Mapped[str] = mapped_column(Text)
+    job_id: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text)
+    task: Mapped[str | None] = mapped_column(Text)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(Text, default="submitted")
+    remote: Mapped[dict] = mapped_column(JSONB, default=dict)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    sha256: Mapped[str | None] = mapped_column(Text)
+    storage_key: Mapped[str | None] = mapped_column(Text)
+    meta_key: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    stored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

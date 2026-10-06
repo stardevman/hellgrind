@@ -40,6 +40,7 @@ class Field:
     label: str
     choices: tuple[str, ...] = ()
     url: str | None = None      # model sayfası (doğrulamak için)
+    minimum: float | None = None   # sayılar: izin verilen en küçük değer (yoksa sıfırdan büyük)
 
 
 FIELDS: tuple[Field, ...] = (
@@ -58,19 +59,23 @@ FIELDS: tuple[Field, ...] = (
     Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),
     Field("H3_TERRITORY_AUTHORIZED", "h3_territory_authorized", "choice", "vast",
           "Bölge izni (AB, BK, G. Kore, ABD için MiniMax'ten izin alındı)", ("false", "true")),
-    Field("H3_TLS_VERIFY", "h3_tls_verify", "choice", "vast", "Sunucu sertifikasını doğrula (yedek makinede false)",
-          ("true", "false")),
+    Field("H3_TLS_MODE", "h3_tls_mode", "choice", "vast",
+          "Sunucu sertifikası: verify (doğrula), pin (ilk bağlantıda parmak izini sabitle; yeni makine), off (doğrulama yok)",
+          ("verify", "pin", "off")),
     Field("H3_REPLACE_MODE", "h3_replace_mode", "choice", "vast",
           "Yedek makine (otomatik başlatma başarısız olursa): off, ask (her zaman sor), auto (tavan altındaysa)",
           ("ask", "auto", "off")),
-    Field("H3_MAX_DPH", "h3_max_dph", "number", "vast", "Yedek makine fiyat tavanı ($/sa)"),
-    Field("H3_MIN_RAM_GB", "h3_min_ram_gb", "number", "vast", "Yedek makine en az RAM (GB)"),
-    Field("H3_MIN_DISK_GB", "h3_min_disk_gb", "number", "vast", "Yedek makine disk (GB)"),
-    Field("H3_MIN_INET_MBPS", "h3_min_inet_mbps", "number", "vast", "Yedek makine en az indirme hızı (Mbps)"),
-    Field("H3_GPU_NAME", "h3_gpu_name", "text", "vast", "Yedek makinenin GPU'su (boş: eskisiyle aynı)"),
+    Field("H3_MAX_DPH", "h3_max_dph", "number", "vast", "Yeni makine fiyat tavanı ($/sa)"),
+    Field("H3_MIN_RAM_GB", "h3_min_ram_gb", "number", "vast",
+          "Yeni makine en az RAM (GB; önerilen 128, en az 96: yalnızca H3 ~94 GB kullandı)", minimum=96),
+    Field("H3_MIN_DISK_GB", "h3_min_disk_gb", "number", "vast", "Yeni makine disk (GB; en az 150: modeller ~105 GB)",
+          minimum=150),
+    Field("H3_MIN_INET_MBPS", "h3_min_inet_mbps", "number", "vast",
+          "Yeni makine en az indirme hızı (Mbps; 1000 = 1 Gbps)", minimum=100),
+    Field("H3_GPU_NAME", "h3_gpu_name", "text", "vast", "Yeni makinenin GPU'su (boş: eskisiyle aynı; ilk makinede RTX 5090)"),
     Field("H3_IMAGE_MODEL", "h3_image_model", "choice", "vast", "Storyboard görsel modeli (setup.sh kurar; Apache 2.0)",
           ("qwen-image-2512", "flux-schnell", "none")),
-    Field("H3_BOX_IMAGE", "h3_box_image", "text", "vast", "Yedek makinenin Docker imajı"),
+    Field("H3_BOX_IMAGE", "h3_box_image", "text", "vast", "Yeni makinenin Docker imajı"),
     Field("H3_SETUP_SCRIPT_URL", "h3_setup_script_url", "url", "vast", "setup.sh adresi (boş: isteğe gömülür)"),
     Field("FAL_KEY", "fal_key", "secret", "fal", "API anahtarı"),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
@@ -129,6 +134,8 @@ def validate(env: str, value: str) -> str:
     elif f.kind == "number":
         if not NUMBER.match(value) or float(value) <= 0:
             raise ConfigError(f"{f.label}: sıfırdan büyük bir sayı girin (ör. 0.95)")
+        if f.minimum is not None and float(value) < f.minimum:
+            raise ConfigError(f"{f.label}: en az {f.minimum:g} olmalı")
     elif f.kind == "text":
         if not FREE_TEXT.match(value):
             raise ConfigError(f"{f.label}: en çok 160 karakter; satır sonu, tırnak ya da # içeremez")

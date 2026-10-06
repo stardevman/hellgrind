@@ -12,7 +12,7 @@ from app.core.state import load_assets, load_characters
 from app.hermes import lint
 from app.models import AudioTrack, Project, Scene, Sequence
 from app.style import bible
-from app.worker.dispatch import build_chain, claim_dispatch, release_dispatch
+from app.worker.dispatch import Batch, batch_holding, build_chain, claim_dispatch, release_dispatch
 
 # Bu durumlardaki sahne bir worker tarafından işleniyor olabilir.
 ACTIVE_STATUSES = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
@@ -76,7 +76,7 @@ def ensure_idle(sc: Scene) -> None:
 
 
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
-                      mode: str = "full", allowed: Stage | None = None) -> list[str]:
+                      mode: str = "full", allowed: Stage | None = None, batch: Batch | None = None) -> list[str]:
     """Planlanan aşamaların adlarını döndürür ve zinciri kuyruğa verir; yapılacak iş yoksa [] döner.
 
     force_visual: görüntüyü baştan üretir. prompt_revision artar, böylece seed'ler (ve klipler) yenilenir; görsel özet
@@ -84,6 +84,7 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     rerun_visual: görsel aşamayı aynı seed'lerle yeniden çalıştırır (iyileştirme geçişi: taslağın test klipleri yeniden
     kullanılır, üstüne tam tur gelir). mode="draft": görsel aşama yalnızca test turunu çalıştırır.
     allowed: plan bu aşamaların dışına çıkıyorsa hiçbir şey kuyruğa verilmez (ör. LUT değişince yalnızca renk ve montaj).
+    batch: çok sahneli dağıtım; zincir hemen kuyruğa verilmez, `batch.launch()` önce kareleri sonra videoları verir.
     Onay zorunluyken kare onaylı değilse görüntü üretilmez: gerekirse yalnızca kare çizilir ve AwaitingBoard fırlatılır."""
     pid = str(sc.project_id)
     ensure_not_frozen(pid)
@@ -112,13 +113,19 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
                 raise AwaitingBoard(sc.scene_code, [])
     locked = Stage.VISUAL in stages
     if locked and not claim_dispatch(sc.id):
+        if batch_holding(sc.id):
+            raise Busy(f"{sc.scene_code} toplu üretimde: önce bütün storyboard kareleri çiziliyor, video kareler bitince "
+                       "kendiliğinden başlayacak.")
         raise Busy(f"{sc.scene_code} için üretim zaten sıraya alındı; birkaç saniye sonra yeniden dene.")
     try:
         if force_visual and locked:
             sc.prompt_revision += 1
         sc.status, sc.last_error = "pending", None
         s.commit()
-        build_chain(pid, str(sc.id), stages, mode=mode).apply_async()
+        if batch is not None:
+            batch.add(sc.id, stages, mode)
+        else:
+            build_chain(pid, str(sc.id), stages, mode=mode).apply_async()
     except Exception:
         if locked:
             release_dispatch(sc.id)
@@ -143,14 +150,34 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
     referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
     kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin. Bütçe tavanındaki sekansın
     sahneleri `capped` altında bildirilir; diğer sekanslar üretmeye devam eder. Onay zorunluyken onaysız karesi olan
-    sahneler `awaiting_board` altındadır (yalnızca kareleri çizilir)."""
-    planned, busy, blocked, capped, awaiting, frozen = {}, [], {}, [], [], False
+    sahneler `awaiting_board` altındadır (yalnızca kareleri çizilir).
+
+    Kuyruk sırası (toplu dağıtım): önce bütün storyboard kareleri, videolar son kare bitince (GPU'da model değişimi her
+    çekimde değil, bir kez olur)."""
+    planned, busy, blocked, capped, awaiting = {}, [], {}, [], []
+    batch = Batch(project_id)
+    try:
+        frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting)
+        batched = batch.launch()
+        frozen = frozen or killswitch.is_frozen(project_id)    # kuyruğa verilen ilk işler bütçeyi bitirmiş olabilir
+    except Exception:
+        for sid, stages, _ in batch.items:   # kuyruğa verilemeyen sahneler kilitte kalmasın
+            if Stage.VISUAL in stages:
+                release_dispatch(sid)
+        raise
+    return {"planned": planned, "busy": busy, "blocked": blocked, "capped": capped, "awaiting_board": awaiting,
+            "frozen": frozen, "batched": batched is not None}
+
+
+def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, batch: Batch, planned: dict, busy: list,
+              blocked: dict, capped: list, awaiting: list) -> bool:
+    frozen = False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
             frozen, planned[sc.scene_code] = True, []
             continue
         try:
-            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode, allowed=allowed)
+            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode, allowed=allowed, batch=batch)
         except AwaitingBoard as e:
             planned[sc.scene_code] = e.stages
             awaiting.append(sc.scene_code)
@@ -163,5 +190,4 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
         except SequenceCapped:
             planned[sc.scene_code] = []
             capped.append(sc.scene_code)
-    return {"planned": planned, "busy": busy, "blocked": blocked, "capped": capped, "awaiting_board": awaiting,
-            "frozen": frozen}
+    return frozen

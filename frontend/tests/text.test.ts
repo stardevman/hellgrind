@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callAmountText, dispatchText, eventText, impactText, measureText, passText, resultText, stagesText, stepValue, tileSpec, usdExact, whenText } from "@/lib/text";
+import { bytesText, callAmountText, dispatchText, durText, eventText, stepDurations, impactText, measureText, passText, resultText, stagesText, stepValue, tileSpec, usdExact, whenText } from "@/lib/text";
 import type { Variation } from "@/lib/types";
 
 const v = (over: Partial<Variation> = {}): Variation => ({
@@ -117,5 +117,30 @@ describe("service history", () => {
     expect(stepValue("loras", [{ path: "https://x/kerem.safetensors", scale: 0.8 }])).toBe("https://x/kerem.safetensors ×0.8");
     expect(stepValue("voice", { stability: 0.25, style: 0.7 })).toBe("stability 0.25, style 0.7");
     expect(stepValue("num_frames", 81)).toBe("81");
+  });
+});
+
+describe("makine metinleri", () => {
+  it("süreleri, baytları ve kurulum aşamalarını okunur yazar", () => {
+    expect(durText(42)).toBe("42 sn");
+    expect(durText(27 * 60 + 5)).toBe("27 dk 05 sn");
+    expect(durText(3600 + 3 * 60)).toBe("1 sa 03 dk");
+    expect(durText(null)).toBe("—");
+    expect(bytesText(512 * 1024)).toBe("512 KB");
+    expect(bytesText(38.4 * 1024 ** 2)).toBe("38,4 MB");
+    expect(stepDurations({ queued: 0, renting: 10, booting: 70, installing: 400 }, 1000))
+      .toEqual([["queued", 10], ["renting", 60], ["booting", 330], ["installing", 600]]);
+    expect(stepDurations({ installing: 0, ready: 1800 }, 5000)).toEqual([["installing", 1800], ["ready", 0]]);
+  });
+
+  it("çıktı güvencesi, sertifika ve toplu üretim olaylarını anlatır", () => {
+    const codes = {};
+    expect(eventText({ kind: "h3_outputs_retained", ts: 0, instance_id: "4242", missing: 3 }, codes))
+      .toEqual({ t: "Eski makine 4242 silinmedi: 3 çıktı yerel depoda yok", c: "bad" });
+    expect(eventText({ kind: "h3_tls_mismatch", ts: 0, endpoint: "1.2.3.4:41234" }, codes).c).toBe("bad");
+    expect(eventText({ kind: "batched", ts: 0, boards: 4, videos: 4 }, codes).t)
+      .toBe("Toplu üretim: önce 4 storyboard karesi, sonra 4 çekimin videosu");
+    expect(eventText({ kind: "h3_replacement_proposed", ts: 0, gpu: "RTX 5090", dph: 0.81, geolocation: "Norway, NO", initial: true }, codes).c)
+      .toBeUndefined();
   });
 });

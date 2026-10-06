@@ -58,14 +58,14 @@ class Settings(BaseSettings):
     h3_auto_start: bool = False        # iş gelince durmuş makine başlatılır
     h3_start_timeout_s: int = 900      # otomatik başlatmada sunucunun hazır olmasının beklendiği en uzun süre
     h3_territory_authorized: bool = False   # lisansın dışladığı bölgelerde (AB, BK, G. Kore, ABD) MiniMax'ten izin alındı
-    h3_tls_verify: bool = True         # yedek makinenin portalı kendinden imzalı sertifika kullanır: orada false yazılır
+    h3_tls_mode: str = "verify"        # verify | pin (ilk başarılı bağlantıda sertifikayı sabitle; yeni makine) | off
     # Yedek makine: otomatik başlatma başarısız olursa (durdurulan makinenin GPU'su başkasına kiralanmış olabilir) uygun
     # bölgelerde aynı GPU tipinde yeni bir teklif bulunur, kiralanır, setup.sh ile kurulur; eski makine silinir.
     h3_replace_mode: str = "ask"       # off | ask (her zaman sor) | auto (fiyat tavanı altındaysa sormadan kirala)
     h3_max_dph: float = 0.95           # yeni makinenin saatlik fiyat tavanı ($/sa, vast.ai dph_total)
-    h3_min_ram_gb: int = 64
-    h3_min_disk_gb: int = 150          # H3 int8 FL2VA + Ref2VA (~65 GB) + görsel modeli (~30 GB) + ComfyUI
-    h3_min_inet_mbps: int = 300        # modeller ~100 GB: yavaş bağlantıda kurulum saatler sürer
+    h3_min_ram_gb: int = 128           # ilk gerçek deneme: yalnızca H3 ~94 GB (sayfa önbelleği dahil); Qwen-Image +~30 GB
+    h3_min_disk_gb: int = 200          # H3 int8 FL2VA + Ref2VA + metin kodlayıcı (~75 GB) + görsel modeli (~30 GB) + ortam
+    h3_min_inet_mbps: int = 1000       # modeller ~105 GB: 1 Gbps'te ~15 dk, yavaş bağlantıda saatler
     h3_gpu_name: str = ""              # boşsa eski makinenin GPU'su (ör. "RTX 5090")
     h3_box_image: str = "vastai/base-image:@vastai-automatic-tag"
     h3_setup_script_url: str = ""      # boşsa setup.sh isteğe gömülür (gzip + base64)

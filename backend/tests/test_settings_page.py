@@ -84,7 +84,8 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
     assert fields["H3_API_KEY"]["kind"] == "secret" and fields["H3_API_KEY"]["masked"] == "••••PQRS"
     assert fields["VAST_INSTANCE_ID"]["value"] == "4242" and fields["H3_BACKEND"]["value"] == "comfyui"   # SGLang deneysel
     assert fields["H3_BACKEND"]["choices"] == ["comfyui", "sglang"] and "deneysel" in fields["H3_BACKEND"]["label"]
-    assert (fields["H3_REPLACE_MODE"]["value"], fields["H3_MAX_DPH"]["value"], fields["H3_MIN_RAM_GB"]["value"]) == ("ask", "0.95", "64")
+    assert (fields["H3_REPLACE_MODE"]["value"], fields["H3_MAX_DPH"]["value"], fields["H3_MIN_RAM_GB"]["value"]) == ("ask", "0.95", "128")
+    assert fields["H3_MIN_RAM_GB"]["minimum"] == 96 and fields["H3_TLS_MODE"]["choices"] == ["verify", "pin", "off"]
     assert fields["H3_IMAGE_MODEL"]["choices"] == ["qwen-image-2512", "flux-schnell", "none"]
     assert fields["H3_ENDPOINT_URL"]["kind"] == "url" and fields["H3_ENDPOINT_URL"]["value"] == "https://h3.test"
     assert fields["H3_REF_ENDPOINT_URL"]["value"] == "" and fields["H3_MODEL"]["url"] == "https://huggingface.co/MiniMaxAI/MiniMax-H3"
@@ -97,10 +98,24 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
 
 def test_replacement_settings_are_typed(api, cfg):
     r = api.patch("/api/settings", json={"values": {"H3_MAX_DPH": "0.8", "H3_MIN_RAM_GB": "96", "H3_REPLACE_MODE": "auto",
-                                                    "H3_TLS_VERIFY": "false", "H3_GPU_NAME": "RTX 5090"}})
+                                                    "H3_TLS_MODE": "pin", "H3_GPU_NAME": "RTX 5090"}})
     assert r.status_code == 200, r.text
     assert (settings.h3_max_dph, settings.h3_min_ram_gb, settings.h3_replace_mode) == (0.8, 96, "auto")
-    assert settings.h3_tls_verify is False and settings.h3_gpu_name == "RTX 5090"
+    assert settings.h3_tls_mode == "pin" and settings.h3_gpu_name == "RTX 5090"
+
+
+@pytest.mark.parametrize("env,value", [("H3_MIN_RAM_GB", "64"), ("H3_MIN_DISK_GB", "120"), ("H3_MIN_INET_MBPS", "50")])
+def test_machine_minimums_have_floors(api, cfg, env, value):
+    r = api.patch("/api/settings", json={"values": {env: value}})
+    assert r.status_code == 422 and "en az" in r.json()["detail"]
+
+
+def test_new_machine_defaults_fit_h3_and_the_image_model():
+    from app.config import Settings
+    defaults = {k: Settings.model_fields[k].default for k in ("h3_min_ram_gb", "h3_min_disk_gb", "h3_min_inet_mbps")}
+    assert defaults == {"h3_min_ram_gb": 128, "h3_min_disk_gb": 200, "h3_min_inet_mbps": 1000}
+    floors = {f.env: f.minimum for f in rc.FIELDS if f.minimum is not None}
+    assert floors["H3_MIN_RAM_GB"] == 96
 
 
 def test_on_off_and_number_settings_are_typed_when_applied(api, cfg):
@@ -194,14 +209,21 @@ def test_a_server_address_is_saved_without_a_trailing_slash_and_can_be_cleared(a
     assert settings.h3_endpoint_url == ""
 
 
-def test_paid_mode_needs_the_h3_server_not_a_fal_key(api, cfg):
+def test_paid_mode_needs_the_vast_key_not_a_fal_key(api, cfg, monkeypatch):
+    from app.api import services
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))       # fal anahtarı tek başına yetmez
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
-    assert r.status_code == 422 and "MiniMax H3 sunucusu" in r.json()["detail"] and settings.dry_run is True
-    cfg.write_text(H3_ENV.replace("VAST_INSTANCE_ID=4242", "VAST_INSTANCE_ID="))   # makine kimliği olmadan da yetmez
+    assert r.status_code == 422 and "vast.ai API anahtarı" in r.json()["detail"] and settings.dry_run is True
+    # Makine henüz yokken de geçilir: ilk makine ücretli modda "Yeni makine kirala" ile kurulur.
+    cfg.write_text(H3_ENV.replace("VAST_INSTANCE_ID=4242", "VAST_INSTANCE_ID="))
     rc._redis().incr(rc.VERSION_KEY)
-    r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
-    assert r.status_code == 422 and settings.dry_run is True
+    monkeypatch.setattr(services, "_busy", lambda s: [])
+    try:
+        r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
+        assert r.status_code == 200 and settings.dry_run is False
+    finally:
+        api.post("/api/settings/mode", json={"paid": False})
+    assert settings.dry_run is True
 
 
 def test_paid_mode_needs_the_paid_packages(api, cfg, monkeypatch):

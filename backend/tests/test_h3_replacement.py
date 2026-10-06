@@ -55,7 +55,7 @@ def vast(h3, env, monkeypatch, tmp_path):
         monkeypatch.setattr(vast_box, name, value)
     r = vast_box._r()
     for name in ("inflight", "last_activity", "last_project", "tick", "box", "starting", "proposal", "replacement",
-                 "replacing"):
+                 "replacing", "retrieval"):
         r.delete(vast_box._k(name))
     flows = tmp_path / "comfy"
     flows.mkdir(exist_ok=True)
@@ -110,7 +110,7 @@ def test_auto_mode_rents_without_asking_when_under_the_cap(vast, monkeypatch):
 def test_without_a_suitable_offer_or_with_replacement_off_the_reason_is_explained(vast, monkeypatch):
     vast.start_fails = True
     vast.offers = []
-    with pytest.raises(PaidCallBlocked, match="Uygun yedek teklif bulunamadı.*0.95 \\$/sa.*64 GB RAM"):
+    with pytest.raises(PaidCallBlocked, match="Uygun yedek teklif bulunamadı.*0.95 \\$/sa.*128 GB RAM.*200 GB disk.*1000 Mbps"):
         H3Provider().generate(request())
     monkeypatch.setattr(settings, "h3_replace_mode", "off")
     with pytest.raises(PaidCallBlocked, match="Yedek makine kapalı"):
@@ -132,17 +132,21 @@ def test_the_replacement_is_rented_installed_written_to_settings_and_the_old_box
     assert vast_box.replace(7001) == "ready"
     (offer, body), = vast.rents
     assert offer == "7001" and body["image"] == settings.h3_box_image and body["runtype"] == "ssh_direct"
-    assert body["disk"] == 150 and body["env"]["WEB_PASSWORD"] == "test-h3_api_key"          # portal belirteci korunur
-    assert body["env"]["PORTAL_CONFIG"] == "localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI"
-    assert body["env"]["-p 8188:8188"] == "1" and body["env"]["HG_IMAGE_MODEL"] == "qwen-image-2512"
+    assert body["disk"] == 200 and body["env"]["WEB_PASSWORD"] == "test-h3_api_key"          # portal belirteci korunur
+    assert body["env"]["OPEN_BUTTON_TOKEN"] == "test-h3_api_key"
+    assert body["env"]["PORTAL_CONFIG"] == ("localhost:1111:11111:/:Instance Portal|localhost:8188:18188:/:ComfyUI"
+                                            "|localhost:8189:18189:/:Hellgrind kurulum")
+    assert body["env"]["-p 8188:8188"] == "1" and body["env"]["-p 8189:8189"] == "1"
+    assert body["env"]["HG_IMAGE_MODEL"] == "qwen-image-2512" and body["env"]["HG_LOG_PORT"] == "18189"
     assert body["onstart"].endswith("entrypoint.sh")
     written = rc.read_env(str(env))
     assert written["VAST_INSTANCE_ID"] == "9001" and written["H3_ENDPOINT_URL"] == "https://203.0.113.9:41234"
-    assert written["H3_TLS_VERIFY"] == "false" and settings.h3_backend == "comfyui"
-    assert settings.vast_instance_id == "9001" and settings.h3_tls_verify is False
+    assert written["H3_TLS_MODE"] == "pin" and settings.h3_backend == "comfyui"
+    assert settings.vast_instance_id == "9001" and settings.h3_tls_mode == "pin"
     assert vast.deletes == ["4242"] and vast_box.proposal() is None
     job = vast_box.job()
-    assert job["state"] == "ready" and job["new_instance_id"] == "9001" and "silindi" in job["message"]
+    assert job["state"] == "ready" and job["new_instance_id"] == "9001" and "4242 silindi" in job["message"]
+    assert job["log_url"] == "https://203.0.113.9:41236" and {"renting", "booting", "installing", "ready"} <= set(job["steps"])
     assert any(r.url.path == "/system_stats" and r.url.host == "203.0.113.9" for r in vast.comfy.requests)
 
 

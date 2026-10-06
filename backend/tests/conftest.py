@@ -215,6 +215,12 @@ def dispatched(monkeypatch):
 
     monkeypatch.setattr("app.api.plan.build_chain",
                         lambda pid, sid, stages, mode="full": Job(pid, sid, stages, mode) if stages else None)
+
+    def launch(batch):                    # toplu dağıtımın sırası kendi testlerinde (test_batching.py) sınanır
+        for sid, stages, mode in batch.items:
+            Job(batch.project_id, sid, stages, mode).apply_async()
+
+    monkeypatch.setattr("app.worker.dispatch.Batch.launch", launch)
     monkeypatch.setattr("app.worker.tasks.assemble_timeline.delay", lambda pid: jobs.append((pid, None, ["ASSEMBLE"])))
     return jobs
 
@@ -290,7 +296,7 @@ def paid(monkeypatch, no_network):
 
 
 @pytest.fixture
-def h3(monkeypatch, tmp_path, paid):
+def h3(monkeypatch, tmp_path, paid, s3):
     """Ücretli mod + sahte MiniMax H3 sunucusu (httpx MockTransport; ağa çıkılmaz). Sunucu 4 sn'lik gerçek bir test
     videosu döndürür ve her iş için 42 sn GPU süresi bildirir."""
     from app.live import vast_h3
@@ -307,9 +313,14 @@ def h3(monkeypatch, tmp_path, paid):
     monkeypatch.setattr(settings, "h3_comfy_workflow_dir", str(tmp_path / "comfy"))
     monkeypatch.setattr(settings, "work_dir", str(tmp_path / "work"))
     vast_h3._reference_uris.clear()
+    from sqlalchemy import text
+    from app.db import session_scope
+    with session_scope() as s:                                   # çıktı kaydı ve sertifika sabitlemesi testten teste taşınmasın
+        s.execute(text("DELETE FROM h3_outputs"))
+        s.execute(text("DELETE FROM h3_tls_pins"))
     from app.live import vast_box                                # önceki testin makine kaydı sızmasın
     for name in ("inflight", "last_activity", "last_project", "tick", "box", "starting", "proposal", "replacement",
-                 "replacing"):
+                 "replacing", "retrieval", "tls_fallback", "tls_mismatch"):
         vast_box._r().delete(vast_box._k(name))
     return fake
 

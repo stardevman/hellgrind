@@ -47,13 +47,20 @@ def check(service: str, key: str, transport: httpx.BaseTransport | None = None) 
 
 
 def _h3_one(token: str, url: str, transport) -> dict:
+    from app.live import tls_pin
     path = "/system_stats" if settings.h3_backend == "comfyui" else "/health"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    observer = tls_pin.observer_for(url) if transport is None else None
+    options = {"transport": transport} if transport is not None else tls_pin.client_options(url, observer)
     try:
-        with httpx.Client(timeout=TIMEOUT, transport=transport, follow_redirects=True,
-                          verify=bool(settings.h3_tls_verify)) as client:
+        with httpx.Client(timeout=TIMEOUT, follow_redirects=True, **options) as client:
             r = client.get(f"{url.rstrip('/')}{path}", headers=headers)
-    except httpx.ConnectError:
+    except tls_pin.PinMismatch as e:
+        return {"ok": False, "status": None, "message": str(e)}
+    except httpx.ConnectError as e:
+        if "CERTIFICATE_VERIFY_FAILED" in str(e):
+            return {"ok": False, "status": None, "message": "Sertifika doğrulanamadı (kendinden imzalı portal): TLS kipini "
+                                                            "\"pin\" yapın."}
         how = "SSH tüneli açık mı?" if settings.h3_backend == "comfyui" else "makine çalışıyor mu, adres güncel mi?"
         return {"ok": False, "status": None, "message": f"Sunucuya bağlanılamadı: {how}"}
     except httpx.HTTPError as e:
@@ -61,6 +68,8 @@ def _h3_one(token: str, url: str, transport) -> dict:
     if r.status_code in (401, 403):
         return {"ok": False, "status": r.status_code, "message": "Sunucu erişimi reddetti (portal belirteci)."}
     if r.status_code == 200:
+        if observer is not None:
+            observer.confirm()                       # ilk başarılı bağlantı: sertifika sabitlenir
         return {"ok": True, "status": 200, "message": "Sunucu hazır." if settings.h3_backend == "comfyui"
                 else "Sunucu hazır (SGLang arka ucu deneysel)."}
     if r.status_code == 503:

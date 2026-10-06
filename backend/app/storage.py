@@ -85,3 +85,17 @@ def presign(key: str, ttl: int = 3600) -> str:
 
 def read_bytes(key: str) -> bytes:
     return client().get_object(Bucket=settings.s3_bucket, Key=key)["Body"].read()
+
+
+def size_of(key: str) -> int:
+    return int(client().head_object(Bucket=settings.s3_bucket, Key=key)["ContentLength"])
+
+
+def sha256_of(key: str) -> str:
+    """Depodaki nesnenin SHA-256'sı (akışla okunur): yazılan kopyanın doğrulanması için."""
+    import hashlib
+    digest = hashlib.sha256()
+    body = client().get_object(Bucket=settings.s3_bucket, Key=key)["Body"]
+    for chunk in iter(lambda: body.read(1 << 20), b""):
+        digest.update(chunk)
+    return digest.hexdigest()

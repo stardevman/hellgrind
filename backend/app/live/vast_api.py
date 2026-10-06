@@ -101,16 +101,17 @@ def instance(instance_id: str | None = None) -> Box:
     return read(key, instance_id)
 
 
-def set_state(state: str) -> None:
+def set_state(state: str, instance_id: str | None = None) -> None:
     """Makineyi başlatır ("running") ya da durdurur ("stopped"). Durdurulmuş makinenin diski vast.ai'de ücretlenmeye
-    devam eder; başlatma, makinenin GPU'su başkasına kiralanmışsa başarısız olabilir."""
+    devam eder; başlatma, makinenin GPU'su başkasına kiralanmışsa başarısız olabilir. Kimlik verilmezse Ayarlar'daki makine."""
     if state not in ("running", "stopped"):
         raise ValueError(state)
     key = guard("vast_api_key")
-    if not settings.vast_instance_id:
+    instance_id = instance_id or settings.vast_instance_id
+    if not instance_id:
         raise PaidCallBlocked("vast.ai makine kimliği tanımlı değil: Ayarlar › MiniMax H3'ten girin.")
     with _client(key) as c:
-        r = c.put(f"/instances/{settings.vast_instance_id}", json={"state": state})
+        r = c.put(f"/instances/{instance_id}", json={"state": state})
     if r.status_code in (401, 403):
         raise PaidCallBlocked("vast.ai API anahtarı reddedildi: Ayarlar › MiniMax H3'ten anahtarı kontrol edin.")
     r.raise_for_status()
@@ -167,7 +168,7 @@ def search_offers(gpu: str, max_dph: float, min_ram_gb: int, min_disk_gb: int, m
                       ram_gb=round(float(o.get("cpu_ram") or 0) / 1000, 1), disk_gb=float(o.get("disk_space") or 0),
                       reliability=o.get("reliability"), inet_mbps=o.get("inet_down"))
         if offer.country and offer.country not in EXCLUDED and offer.dph <= max_dph and offer.ram_gb >= min_ram_gb \
-                and offer.disk_gb >= min_disk_gb:
+                and offer.disk_gb >= min_disk_gb and (offer.inet_mbps is None or offer.inet_mbps >= min_inet_mbps):
             offers.append(offer)
     return sorted(offers, key=lambda o: o.dph)
 

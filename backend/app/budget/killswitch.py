@@ -105,6 +105,8 @@ def freeze(project_id: str, reason: str) -> None:
     if task_ids:
         from app.worker.celery_app import celery  # döngüsel importu önlemek için geç import
         celery.control.revoke(task_ids)           # kuyrukta bekleyenler hiç başlamaz
+    from app.worker.dispatch import drop_batches  # kareleri bekleyen videolar da kuyruğa girmez
+    drop_batches(project_id)
     event(project_id, "frozen", reason=reason, revoked=len(task_ids))
     log.warning("KILL-SWITCH project=%s reason=%s revoked=%d", project_id, reason, len(task_ids))
 

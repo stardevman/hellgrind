@@ -171,9 +171,10 @@ export interface DispatchAll {
 /* ---------- ayarlar (ücretli servisler) ---------- */
 
 export interface ServiceField {
-  env: string; label: string; kind: "secret" | "model" | "url" | "text" | "choice";
+  env: string; label: string; kind: "secret" | "model" | "url" | "text" | "choice" | "number";
   set?: boolean; masked?: string | null;                                  // secret
   value?: string; default?: string; choices?: string[]; url?: string | null;   // model, url, choice
+  minimum?: number | null;                                                // number: izin verilen en küçük değer
 }
 
 export interface Service {
@@ -197,12 +198,46 @@ export interface SettingsState {
 export interface ReplacementOffer {
   offer_id: number; gpu: string; dph: number; geolocation: string | null; ram_gb: number; disk_gb: number;
   reliability: number | null; inet_mbps: number | null; reason: string; old_instance_id: string | null; at: number;
+  /** initial: "Yeni makine kirala" (hiçbir makine silinmez); replacement: açılamayan makinenin yerine. */
+  kind?: "initial" | "replacement";
 }
 export interface ReplacementJob {
-  state: string; offer?: ReplacementOffer; old_instance_id?: string | null; new_instance_id?: string | null;
-  url?: string | null; message?: string | null; started_at?: number; updated_at?: number;
+  state: string; offer?: ReplacementOffer; kind?: "initial" | "replacement"; old_instance_id?: string | null;
+  new_instance_id?: string | null; url?: string | null; log_url?: string | null; message?: string | null;
+  started_at?: number; updated_at?: number;
+  /** Aşamaya giriş zamanları (sn, epoch): kurulum süresini ölçmek için. */
+  steps?: Record<string, number>;
+  /** Eski makine silinmedi: ürettiği çıktıların bir kısmı yerel depoda yok. */
+  retained?: { instance_id: string; missing: number } | null;
 }
-export interface ReplacementState { mode: string; proposal: ReplacementOffer | null; job: ReplacementJob | null; states: Record<string, string> }
+/** Çıktı güvencesi: makine başına üretilen çıktıların yerel depodaki durumu. */
+export interface OutputMachine {
+  instance_id: string | null; current: boolean; stored: number; unsafe: number; failed: number; lost: number; stored_bytes: number;
+}
+export interface UnsafeOutput {
+  id: number; instance_id: string | null; kind: "video" | "keyframe"; task: string | null; job_id: string;
+  status: "submitted" | "completed"; error: string | null; submitted_at: string;
+}
+export interface RetrievalState {
+  state: string; instance_id: string; destroy_after: boolean; message: string | null; url?: string;
+  counts?: { stored: number; failed: number; running: number; missing: number; error: number; remaining: number } | null;
+}
+export interface TlsState {
+  mode: "verify" | "pin" | "off"; endpoint: string | null; pin: { sha256: string; pinned_at: string } | null;
+  fallback: { endpoint: string; reason: string; at: number } | null;
+  mismatch: { endpoint: string; expected: string; seen: string; at: number } | null;
+}
+export interface ReplacementState {
+  mode: string; proposal: ReplacementOffer | null; job: ReplacementJob | null; states: Record<string, string>;
+  conditions?: string; instance_id?: string | null;
+  outputs?: { machines: OutputMachine[]; unsafe: UnsafeOutput[] };
+  retrieval?: RetrievalState | null; retrieval_states?: Record<string, string>; tls?: TlsState;
+}
+/** Kiralanan makinenin kurulum günlüğü (setup.sh). */
+export interface SetupLog {
+  available: boolean; lines: string[]; message?: string; step?: string | null; done?: boolean; ok?: boolean | null;
+  total_s?: number | null; phases?: { name: string; seconds: number }[];
+}
 
 export interface ComfyWorkflow { kind: string; present: boolean; required: string[]; placeholders: string[]; error: string | null }
 export interface ComfyState { backend: string; dir: string; workflows: ComfyWorkflow[] }

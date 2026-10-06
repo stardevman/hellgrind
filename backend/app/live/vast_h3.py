@@ -18,6 +18,9 @@ Model CFG damıtılmıştır, negatif istem almaz: negatifler istemin sonuna poz
 Süre 4-15 sn (24 fps); daha kısa çekim kesilir. Her klibin MP4 meta verisine ve kaydına kaynak bilgisi yazılır (model,
 sürüm, arka uç, sunucu konumu, lisans; başka modelleri eğitmek için kullanılamaz, Lisans §V.3).
 
+Çıktı güvencesi (app/live/h3_outputs.py): her iş gönderilince kayda geçer; çıktı bitince hemen indirilir, boyutu sunucunun
+Content-Length'iyle, depodaki kopyası SHA-256 ile doğrulanır. Bağlantı: TLS doğrula / sabitle / kapalı (app/live/tls_pin.py).
+
 Kilit: `guard("vast_api_key")` (makineyi vast.ai hesabı faturalar). Portal belirteci (`h3_api_key`) isteğe bağlıdır.
 Bütçe: rezervasyon = saatlik ücret × video saniyesi başına GPU süresi × süre; işlenen tutar = ölçülen GPU süresi × saatlik
 ücret. Boşta bekleme ve makine yönetimi: app/live/vast_box.py. Gönderilmiş iş yeniden denemede yeniden üretilmez.
@@ -44,7 +47,7 @@ from app.budget import history, pricing
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.engine.providers import GenRequest, GenResult, TransientError
-from app.live import PaidCallBlocked, guard, optional, vast_box
+from app.live import PaidCallBlocked, guard, h3_outputs, optional, tls_pin, vast_box
 from app.style.constraints import constrained_prompt
 
 log = logging.getLogger("hellgrind.live.h3")
@@ -74,6 +77,8 @@ COMFY_CLIENT_ID = "hellgrind"
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
 PLACEHOLDER = re.compile(r"\{\{\s*([a-z_0-9]+)\s*\}\}")
+NOT_FOUND = object()                 # sunucu işi tanımıyor (yeniden indirmede)
+_AUTO = object()
 
 
 # ---------- hatalar ----------
@@ -101,6 +106,11 @@ def account_problem(exc: BaseException) -> str | None:
     if status in (401, 403):
         return ("H3 sunucusu erişimi reddetti: Ayarlar › MiniMax H3'te portal belirtecini (OPEN_BUTTON_TOKEN ya da "
                 "WEB_PASSWORD) ve \"Bağlantıyı sına\" sonucunu kontrol edin.")
+    if isinstance(exc, tls_pin.PinMismatch):
+        return str(exc)
+    if isinstance(exc, httpx.ConnectError) and "CERTIFICATE_VERIFY_FAILED" in str(exc):
+        return ("H3 sunucusunun sertifikası doğrulanamadı (kendinden imzalı portal): Ayarlar › MiniMax H3 › TLS'yi "
+                "\"pin\" (ilk bağlantıda sabitle) yapın.")
     if status == 530 or isinstance(exc, httpx.ConnectError):
         how = ("SSH tüneli açık mı (ssh -N -L 8188:127.0.0.1:8188 ...) ya da portal adresi doğru mu?"
                if settings.h3_backend == "comfyui" else "vast.ai'de makine çalışıyor mu ve sunucu adresi güncel mi?")
@@ -247,11 +257,20 @@ def build_job(req: GenRequest) -> Job:
     return Job(task=task, url=settings.h3_endpoint_url.rstrip("/"), prompt=prompt, **common)
 
 
-def _client(url: str, token: str) -> httpx.Client:
+def _client(url: str, token: str, observer=_AUTO) -> httpx.Client:
+    """H3 sunucusu istemcisi. pin kipinde her bağlantının sertifikası el sıkışmada sabitlenen parmak iziyle karşılaştırılır;
+    adres henüz sabitlenmediyse önce kimlik doğrulamalı sağlık sorgusu yapılır (ilk başarılı bağlantı sabitler)."""
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    # Yedek makinenin portalı kendinden imzalı sertifika kullanır: orada H3_TLS_VERIFY=false yazılır (trafik yine şifreli).
-    return httpx.Client(base_url=url, headers=headers, timeout=TIMEOUT, transport=TRANSPORT, follow_redirects=True,
-                        verify=bool(settings.h3_tls_verify))
+    if TRANSPORT is not None:                         # testlerin sahte sunucusu
+        options: dict = {"transport": TRANSPORT}
+    else:
+        if observer is _AUTO:
+            observer = tls_pin.observer_for(url)
+            if observer is not None and observer.expected is None:
+                healthy(url, token)                   # başarılıysa sabitler
+                observer = tls_pin.observer_for(url)
+        options = tls_pin.client_options(url, observer)
+    return httpx.Client(base_url=url, headers=headers, timeout=TIMEOUT, follow_redirects=True, **options)
 
 
 def _note(job: Job, job_id: str, negative: str) -> None:
@@ -261,6 +280,21 @@ def _note(job: Job, job_id: str, negative: str) -> None:
                  references=len(job.references) or None, keyframe=bool(job.keyframe) or None,
                  negative_dropped=bool(negative) or None, negatives_unmapped=list(job.unmapped) or None,
                  prompt=job.prompt[:NOTED_PROMPT_CHARS])
+
+
+def _register(job: Job, job_id: str, kind: str, project_id: str | None, prefix: str | None = None) -> None:
+    h3_outputs.submitted(job.url, job_id, kind, job.task, project_id,
+                         {"seed": job.seed, "resolution": f"{job.width}x{job.height}", "seconds": job.seconds,
+                          **({"prefix": prefix} if prefix else {})})
+
+
+@dataclass
+class Download:
+    """Sunucudan indirilen çıktı: yerel yol, bayt sayısı (Content-Length ile doğrulandı), SHA-256, sunucudaki adı."""
+    path: str
+    size: int
+    sha256: str
+    name: str
 
 
 # ---------- SGLang ----------
@@ -301,8 +335,8 @@ class SGLang:
             raise JobFailed(f"H3 işi başarısız ({job_id}): {str(message)[:300]}")
         return None
 
-    def fetch(self, job_id: str, done: dict, image: bool = False) -> str:
-        return _stream(self.c, f"/v1/videos/{job_id}/content", None, ".mp4")
+    def download(self, job_id: str, done: dict, image: bool = False) -> Download:
+        return _stream(self.c, f"/v1/videos/{job_id}/content", None, ".mp4", f"{job_id}.mp4")
 
     def queue_empty(self) -> bool:
         r = self.c.get("/v1/videos")
@@ -408,7 +442,7 @@ class Comfy:
     def values(self, job: Job, kind: str) -> dict:
         values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "fps": FPS,
                   "duration": job.seconds, "frames": frames_for(job.seconds), "steps": job.steps,
-                  "filename_prefix": f"hellgrind/{kind}_{job.seed}"}
+                  "filename_prefix": prefix_for(job, kind)}
         if job.keyframe:
             values["first_frame"] = self.upload(job.keyframe)
         names = [self.upload(uri) for _, uri in job.references]
@@ -418,7 +452,7 @@ class Comfy:
         return values
 
     def submit(self, job: Job, kind: str | None = None) -> str:
-        kind = kind or {"t2va": "t2v", "fl2va": "i2v", "ref2va": "r2v"}[job.task]
+        kind = kind or comfy_kind(job)
         workflow = fill(copy.deepcopy(load_workflow(kind)), self.values(job, kind))
         r = self.c.post("/prompt", json={"prompt": workflow, "client_id": COMFY_CLIENT_ID})
         if r.status_code == 400:
@@ -442,9 +476,18 @@ class Comfy:
             raise JobFailed(f"ComfyUI işi başarısız ({prompt_id}): {str(message)[:300]}")
         if not status.get("completed", True) and status.get("status_str") != "success":
             return None
-        return {"gpu_seconds": comfy_seconds(entry), "outputs": entry.get("outputs") or {}}
+        return {"gpu_seconds": comfy_seconds(entry), "outputs": entry.get("outputs") or {},
+                "status": {"status_str": status.get("status_str"), "messages": status.get("messages")}}
 
-    def fetch(self, prompt_id: str, done: dict, image: bool = False) -> str:
+    def queued(self, prompt_id: str) -> bool:
+        """İş sunucunun kuyruğunda mı (çalışıyor ya da bekliyor)."""
+        r = self.c.get("/queue")
+        r.raise_for_status()
+        q = r.json()
+        return any(isinstance(item, list) and len(item) > 1 and item[1] == prompt_id
+                   for item in (q.get("queue_running") or []) + (q.get("queue_pending") or []))
+
+    def download(self, prompt_id: str, done: dict, image: bool = False) -> Download:
         wanted = IMAGE_EXT if image else VIDEO_EXT
         files = [item for out in done["outputs"].values() for items in out.values() if isinstance(items, list)
                  for item in items if isinstance(item, dict) and str(item.get("filename", "")).lower().endswith(wanted)]
@@ -454,11 +497,9 @@ class Comfy:
                                "bir kaydetme düğümü olmalı.")
         f = files[0]
         suffix = os.path.splitext(f["filename"])[1].lower()
-        path = _stream(self.c, "/view", {"filename": f["filename"], "subfolder": f.get("subfolder", ""),
-                                         "type": f.get("type", "output")}, suffix)
-        if not image and suffix != ".mp4":
-            path = _to_mp4(path)
-        return path
+        name = f"{f.get('subfolder')}/{f['filename']}" if f.get("subfolder") else f["filename"]
+        return _stream(self.c, "/view", {"filename": f["filename"], "subfolder": f.get("subfolder", ""),
+                                         "type": f.get("type", "output")}, suffix, name)
 
     def queue_empty(self) -> bool:
         r = self.c.get("/queue")
@@ -467,24 +508,47 @@ class Comfy:
         return not q.get("queue_running") and not q.get("queue_pending")
 
 
+def comfy_kind(job: Job) -> str:
+    return {"t2va": "t2v", "fl2va": "i2v", "ref2va": "r2v"}.get(job.task, job.task)
+
+
+def prefix_for(job: Job, kind: str) -> str:
+    """Kaydetme düğümünün işe özgü dosya öneki: ComfyUI geçmişi kaybolsa da çıktı makinede bulunabilir."""
+    return f"hellgrind/{kind}_{job.key()[:16]}"
+
+
 def backend_for(client: httpx.Client):
     return Comfy(client) if settings.h3_backend == "comfyui" else SGLang(client)
 
 
-def _stream(client: httpx.Client, path: str, params: dict | None, suffix: str) -> str:
-    """Dosyayı indirir; ağ kesintisinde yeniden dener (iş sunucuda durur, yeniden üretilmez)."""
+class ShortDownload(TransientError):
+    """İndirilen bayt sayısı sunucunun bildirdiğinden farklı (yarım indirme)."""
+
+
+def _stream(client: httpx.Client, path: str, params: dict | None, suffix: str, name: str) -> Download:
+    """Dosyayı indirir, bayt sayısını sunucunun Content-Length'iyle doğrular ve SHA-256'sını hesaplar; ağ kesintisinde ya
+    da yarım indirmede yeniden dener (iş sunucuda durur, yeniden üretilmez)."""
     os.makedirs(settings.work_dir, exist_ok=True)
     out = os.path.join(settings.work_dir, f"{uuid.uuid4()}{suffix}")
     last: BaseException | None = None
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         try:
+            digest, size = hashlib.sha256(), 0
             with client.stream("GET", path, params=params, timeout=DOWNLOAD_TIMEOUT) as response:
                 response.raise_for_status()
+                expected = response.headers.get("content-length")
+                encoded = response.headers.get("content-encoding", "identity") not in ("", "identity")
                 with open(out, "wb") as f:
                     for chunk in response.iter_bytes():
                         f.write(chunk)
-            return out
-        except (httpx.TransportError, httpx.HTTPStatusError) as e:
+                        digest.update(chunk)
+                        size += len(chunk)
+            if expected and expected.isdigit() and not encoded and int(expected) != size:
+                raise ShortDownload(f"yarım indirme: {size} / {expected} bayt ({name})")
+            if size == 0:
+                raise ShortDownload(f"boş dosya ({name})")
+            return Download(path=out, size=size, sha256=digest.hexdigest(), name=name)
+        except (httpx.TransportError, httpx.HTTPStatusError, ShortDownload) as e:
             last = e
             if os.path.exists(out):
                 os.remove(out)
@@ -492,7 +556,7 @@ def _stream(client: httpx.Client, path: str, params: dict | None, suffix: str) -
                 raise
             log.warning("H3 indirme hatası (deneme %d/%d): %s", attempt, DOWNLOAD_ATTEMPTS, e)
             time.sleep(min(RETRY_BASE_S * 2 ** (attempt - 1), 8))
-    raise TransientError(f"H3 videosu indirilemedi: {last}")
+    raise TransientError(f"H3 çıktısı indirilemedi: {last}")
 
 
 def _to_mp4(path: str) -> str:
@@ -517,8 +581,22 @@ def _wait(backend, job_id: str, job_key: str) -> dict:
 
 
 def healthy(url: str, token: str) -> bool:
-    with _client(url, token) as c:
-        return c.get(backend_for(c).health_path).status_code == 200
+    """Sunucu hazır mı (kimlik doğrulamalı sağlık sorgusu). pin kipinde ilk başarılı yanıt sertifikayı sabitler."""
+    observer = tls_pin.observer_for(url) if TRANSPORT is None else None
+    with _client(url, token, observer) as c:
+        ok = c.get(backend_for(c).health_path).status_code == 200
+    if ok and observer is not None:
+        observer.confirm()
+    return ok
+
+
+def collect(backend, job: Job, job_id: str, done: dict, image: bool = False, extra: dict | None = None) -> str:
+    """Çıktıyı indirir, doğrular ve yerel depoya yazar (çıktı güvencesi); kullanıma hazır yerel yol (video: MP4)."""
+    download = backend.download(job_id, done, image=image)
+    h3_outputs.archive(job.url, job_id, download, extra)
+    if not image and not download.path.endswith(".mp4"):
+        return _to_mp4(download.path)
+    return download.path
 
 
 # ---------- kaynak bilgisi (lisans) ----------
@@ -586,6 +664,8 @@ class H3Provider:
                 if job_id is None:
                     job_id = backend.submit(job)
                     _note(job, job_id, req.negative)
+                    _register(job, job_id, "video", req.extra.get("project_id"),
+                              prefix_for(job, comfy_kind(job)) if isinstance(backend, Comfy) else None)
                     with self._lock:
                         self._jobs[key] = job_id
                 else:
@@ -593,11 +673,13 @@ class H3Provider:
                 vast_box.track(key, req.extra.get("project_id"))
                 try:
                     done = _wait(backend, job_id, key)
-                except JobFailed:
+                except JobFailed as e:
                     with self._lock:
                         self._jobs.pop(key, None)            # başarısız iş yeniden gönderilir
+                    h3_outputs.failed(job.url, job_id, str(e))
                     raise
-                path = backend.fetch(job_id, done)
+                h3_outputs.completed(job.url, job_id, done)
+                path = collect(backend, job, job_id, done, extra={"provenance": provenance(job, box)})
         except Exception as e:
             _reraise(e)
         finally:
@@ -634,9 +716,15 @@ def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> Gen
             prompt_id = backend.submit(job, kind="keyframe")
             history.step(f"ComfyUI keyframe.json", prompt_id, seed=seed, resolution=f"{width}x{height}",
                          prompt=prompt[:NOTED_PROMPT_CHARS])
+            _register(job, prompt_id, "keyframe", project_id, prefix_for(job, "keyframe"))
             vast_box.track(key, project_id)
-            done = _wait(backend, prompt_id, key)
-            path = backend.fetch(prompt_id, done, image=True)
+            try:
+                done = _wait(backend, prompt_id, key)
+            except JobFailed as e:
+                h3_outputs.failed(job.url, prompt_id, str(e))
+                raise
+            h3_outputs.completed(job.url, prompt_id, done)
+            path = collect(backend, job, prompt_id, done, image=True)
     except Exception as e:
         _reraise(e)
     finally:

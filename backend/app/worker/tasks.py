@@ -54,11 +54,21 @@ def _guard(task, project_id: str, scene_id: str, work):
 # ---------- sahne aşamaları ----------
 
 @celery.task(bind=True, name="hg.storyboard_scene")
-def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False):
+def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False, batch: str | None = None):
+    """batch: toplu dağıtımın parçası; bitince (başarılı ya da değil) bariyere haber verir, son kareden sonra videolar
+    kuyruğa girer."""
     def work():
         from app.engine.storyboard import make_board
         return make_board(project_id, scene_id, standalone=standalone)
-    return _guard(self, project_id, scene_id, work)
+    ok = False
+    try:
+        result = _guard(self, project_id, scene_id, work)
+        ok = result != "frozen"
+        return result
+    finally:
+        if batch:
+            from app.worker.dispatch import batch_done
+            batch_done(batch, scene_id, ok)
 
 
 @celery.task(bind=True, name="hg.generate_scene")
@@ -196,3 +206,13 @@ def h3_replace(offer_id: int):
         return "skip"
     from app.live import vast_box                 # ücretli modül: yalnızca fonksiyon içinde
     return vast_box.replace(offer_id)
+
+
+@celery.task(name="hg.h3_retrieve")
+def h3_retrieve(instance_id: str, destroy_after: bool = False):
+    """Çıktı güvencesi: makinenin yerel depoda olmayan çıktılarını indirir ve doğrular (makine gerekirse başlatılır);
+    destroy_after ve hepsi indirildiyse eski makine silinir. Ücretsiz modda hiçbir şey yapmaz."""
+    if settings.dry_run:
+        return "skip"
+    from app.live import vast_box                 # ücretli modül: yalnızca fonksiyon içinde
+    return vast_box.retrieve_outputs(instance_id, destroy_after)

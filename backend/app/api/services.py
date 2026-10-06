@@ -27,7 +27,8 @@ SERVICES = {
                          "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
                          "Varlıklar: hareket testi ve karakter dönüş videosu", "Elle düzeltme: düzenlenmiş ilk kareden video",
                          "Makine yönetimi: boşta durdurma, otomatik başlatma, boşta bekleme bedeli",
-                         "Yedek makine: teklif arama, onaylı kiralama, setup.sh ile kurulum, eski makineyi silme"]},
+                         "Yeni ve yedek makine: teklif arama, onaylı kiralama, setup.sh ile kurulum, eski makineyi silme",
+                         "Çıktı güvencesi: her çıktı indirilip yerel depoda doğrulanır; eksik çıktılı makine silinmez"]},
     "fal": {"name": "fal.ai", "purpose": "İsteğe bağlı: Seedance, Flux kareleri, previs aktarımı, dudak senkronu",
             "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
             "used_by": ["Kurgu: yönetmenin Seedance seçtiği çekimler (ilk kare Flux'tan)", "Storyboard kareleri (yoksa yerel çizilir)",
@@ -136,7 +137,7 @@ def state(s: Session) -> dict:
                 value = rc.display(getattr(settings, f.attr))      # seçenekler metin: sayılar ve açık/kapalı da
                 default = rc.display(type(settings).model_fields[f.attr].default)
                 item.update({"value": value, "default": default, "choices": list(f.choices),
-                             "url": f.url.format(value) if f.url else None})
+                             "url": f.url.format(value) if f.url else None, "minimum": f.minimum})
             fields.append(item)
         needed, why = _needed(sid)
         services.append({"id": sid, "name": meta["name"], "key_env": meta["key"], "needed": needed, "not_needed_reason": why,
@@ -199,9 +200,10 @@ class ModeIn(BaseModel):
 @router.post("/settings/mode")
 def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
-    if body.paid and not _active("vast"):
-        raise HTTPException(422, "MiniMax H3 sunucusu tanımlı değil: video H3 ile üretilir. Önce Ayarlar › MiniMax H3'ten "
-                                 "vast.ai API anahtarını, makine kimliğini ve sunucu adresini girin.")
+    if body.paid and not _key("VAST_API_KEY")["set"]:
+        raise HTTPException(422, "vast.ai API anahtarı tanımlı değil: video MiniMax H3 ile vast.ai makinesinde üretilir. "
+                                 "Önce Ayarlar › MiniMax H3'ten anahtarı girin; makineyi sonra \"Yeni makine kirala\" ile "
+                                 "kurabilir ya da kimliğini ve adresini elle girebilirsiniz.")
     note = None
     if not body.paid and not settings.dry_run and _active("vast") and int(settings.h3_idle_stop_minutes or 0) > 0:
         note = _stop_box_before_free_mode()
@@ -254,11 +256,92 @@ def instance_action(body: InstanceIn):
 
 @router.get("/settings/vast/replacement")
 def replacement_state():
-    """Yedek makine: onay bekleyen öneri ve kiralama/kurulum durumu (yalnızca kayıt okunur; vast.ai çağrılmaz)."""
+    """Makine: onay bekleyen öneri, kiralama/kurulum durumu, çıktı güvencesi ve sertifika sabitleme (yalnızca kayıt
+    okunur; vast.ai ve makine çağrılmaz)."""
     rc.refresh_if_changed()
-    from app.live import vast_box                       # Redis kaydı; ağ yok
+    from app.live import h3_outputs, tls_pin, vast_box  # Redis ve veritabanı kaydı; ağ yok
     return {"mode": settings.h3_replace_mode, "proposal": vast_box.proposal(), "job": vast_box.job(),
-            "states": vast_box.JOB_TR}
+            "states": vast_box.JOB_TR, "conditions": vast_box.conditions(), "outputs": h3_outputs.summary(),
+            "retrieval": vast_box.retrieval(), "retrieval_states": vast_box.RETRIEVAL_TR, "tls": tls_pin.state(),
+            "instance_id": settings.vast_instance_id or None}
+
+
+@router.post("/settings/vast/provision")
+def provision():
+    """"Yeni makine kirala": uygun teklifi bulur ve onaya sunar (yedek makine akışı; hiçbir makine silinmez). Yalnızca
+    ücretli modda: teklif arama ve kiralama vast.ai API'sinin ücretli kilidinden geçer."""
+    rc.refresh_if_changed()
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda makine kiralanmaz: önce ücretli moda geçin.")
+    from app.live import PaidCallBlocked, vast_box
+    current = vast_box.job()
+    if current and current.get("state") in vast_box.ACTIVE_JOB:
+        raise HTTPException(409, f"Yeni makine zaten {vast_box.JOB_TR[current['state']]}.")
+    try:
+        prop = vast_box.propose_initial()
+    except PaidCallBlocked as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:                               # noqa: BLE001
+        raise HTTPException(502, f"vast.ai yanıt vermedi: {type(e).__name__}")
+    return {"proposal": prop, "job": current}
+
+
+@router.get("/settings/vast/setup-log")
+def setup_log():
+    """Kiralanan makinenin kurulum günlüğü (setup.sh; portalın kimlik doğrulamalı günlük portundan). Yalnızca ücretli modda."""
+    rc.refresh_if_changed()
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda makineye bağlanılmaz.")
+    from app.live import PaidCallBlocked, vast_box
+    try:
+        return vast_box.setup_log()
+    except PaidCallBlocked as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:                               # noqa: BLE001 — makine açılırken bağlantı hatası olağan
+        return {"available": False, "lines": [], "message": f"Günlüğe ulaşılamadı ({type(e).__name__}); makine "
+                                                            "açılıyor olabilir."}
+
+
+class OutputsIn(BaseModel):
+    action: str = PField(pattern="^(retrieve|abandon)$")
+    instance_id: str = PField(min_length=1, max_length=40, pattern=r"^[0-9A-Za-z_-]+$")
+    destroy_after: bool = False
+
+
+@router.post("/settings/vast/outputs")
+def outputs_action(body: OutputsIn):
+    """Çıktı güvencesi: makinenin eksik çıktılarını indir (gerekirse makine başlatılır; destroy_after: hepsi inince eski
+    makine silinir) ya da kaybı kabul edip eski makineyi sil. Yalnızca ücretli modda."""
+    rc.refresh_if_changed()
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda makineye bağlanılmaz.")
+    from app.live import PaidCallBlocked, vast_box
+    if body.action == "retrieve":
+        running = vast_box.retrieval()
+        if running and running.get("state") in ("starting", "waiting", "downloading"):
+            raise HTTPException(409, "Eksik çıktılar zaten indiriliyor.")
+        return {"retrieval": vast_box.start_retrieval(body.instance_id, body.destroy_after)}
+    try:
+        return vast_box.abandon(body.instance_id)
+    except PaidCallBlocked as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:                               # noqa: BLE001
+        raise HTTPException(502, f"vast.ai yanıt vermedi: {type(e).__name__}")
+
+
+@router.delete("/settings/vast/tls-pin")
+def reset_pin():
+    """Sunucu sertifikası sabitlemesini sıfırlar (makine bilerek yenilendiyse): bir sonraki başarılı bağlantı yeniden
+    sabitler. Yalnızca kayıt silinir; ağ yok."""
+    rc.refresh_if_changed()
+    from app.live import tls_pin
+    endpoint = tls_pin.state()["endpoint"]
+    tls_pin.forget(endpoint) if endpoint else tls_pin.forget()
+    try:
+        rc.bump([{"field": "h3_tls_pin", "action": "clear", "detail": f"sertifika sabitlemesi sıfırlandı ({endpoint or 'hepsi'})"}])
+    except Exception:                                     # Redis yoksa yalnızca kayıt eksik kalır
+        pass
+    return tls_pin.state()
 
 
 class ReplacementIn(BaseModel):

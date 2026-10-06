@@ -10,6 +10,29 @@ export const clock = (ts: number) => new Date(ts * 1000).toLocaleTimeString("tr-
 export const pct = (x: number | null | undefined) => (x == null ? "—" : `%${Math.round(x * 100)}`);
 export const ratio = (x: number | null | undefined, unit = "") => (x == null ? "—" : `${String(x).replace(".", ",")}${unit}`);
 export const lowerTr = (s: string) => s.toLocaleLowerCase("tr");
+/** Süre: "42 sn", "27 dk 05 sn", "1 sa 03 dk". */
+export function durText(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return "—";
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} sn`;
+  if (s < 3600) return `${Math.floor(s / 60)} dk ${String(s % 60).padStart(2, "0")} sn`;
+  return `${Math.floor(s / 3600)} sa ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} dk`;
+}
+/** Bayt: "512 KB", "38,4 MB", "1,2 GB". */
+export function bytesText(n: number | null | undefined): string {
+  const b = Number(n || 0);
+  if (b < 1024 ** 2) return `${Math.round(b / 1024)} KB`;
+  if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1).replace(".", ",")} MB`;
+  return `${(b / 1024 ** 3).toFixed(1).replace(".", ",")} GB`;
+}
+/** Kiralama işinin aşama süreleri: her aşamadan bir sonrakine (son aşama şimdiye ya da bitişe) geçen süre. */
+export function stepDurations(steps: Record<string, number> | undefined, now: number, end?: string[]): [string, number][] {
+  const order = Object.entries(steps ?? {}).sort((a, b) => a[1] - b[1]);
+  return order.map(([name, at], i) => {
+    const next = order[i + 1]?.[1] ?? ((end ?? ["ready", "failed"]).includes(name) ? at : now);
+    return [name, next - at] as [string, number];
+  });
+}
 
 /** Bir eylemden sonra hangi aşamaların çalışacağını yönetmenin dilinde söyler. */
 const STAGE_TR: Record<string, string> = {
@@ -101,10 +124,20 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "keyframe_required": return { t: `${where}H3 ilk karesi hazır değil: görüntü üretilmedi`, c: "bad" };
     case "h3_started": return { t: "vast.ai makinesi başlatıldı (otomatik)", c: "good" };
     case "h3_stopped": return { t: `vast.ai makinesi durduruldu (${x.reason === "idle" ? "boşta" : x.reason === "budget" ? "bütçe" : x.reason})` };
-    case "h3_replacement_proposed": return { t: `Makine açılamadı; yedek makine önerisi onay bekliyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})`, c: "bad" };
-    case "h3_replacing": return { t: `Yedek makine kiralanıyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})` };
-    case "h3_replaced": return { t: `Yedek makine hazır (${x.new_instance_id}); eski makine silindi`, c: "good" };
-    case "h3_replace_failed": return { t: `Yedek makine kurulamadı: ${x.error}`, c: "bad" };
+    case "h3_replacement_proposed": return x.initial
+      ? { t: `Yeni makine önerisi onay bekliyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})` }
+      : { t: `Makine açılamadı; yedek makine önerisi onay bekliyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})`, c: "bad" };
+    case "h3_replacing": return { t: `Yeni makine kiralanıyor (${x.gpu}, ${Number(x.dph).toFixed(2)} $/sa, ${x.geolocation})` };
+    case "h3_replaced": return { t: `Yeni makine hazır (${x.new_instance_id})${x.old_instance_id ? "" : "; kurulum bitti"}`, c: "good" };
+    case "h3_replace_failed": return { t: `Yeni makine kurulamadı: ${x.error}`, c: "bad" };
+    case "h3_outputs_retained": return { t: `Eski makine ${x.instance_id} silinmedi: ${x.missing} çıktı yerel depoda yok`, c: "bad" };
+    case "h3_outputs_retrieved": return { t: `Makineden ${x.stored} çıktı indirildi ve doğrulandı${x.remaining ? `; ${x.remaining} eksik` : ""}`, c: x.remaining ? "bad" : "good" };
+    case "h3_outputs_abandoned": return { t: `Eski makine ${x.instance_id} silindi; ${x.lost} çıktının kaybı kabul edildi`, c: "bad" };
+    case "h3_tls_pinned": return { t: `H3 sunucusunun sertifikası sabitlendi (${String(x.fingerprint ?? "").slice(0, 23)}…)`, c: "good" };
+    case "h3_tls_mismatch": return { t: `H3 sunucusunun sertifikası değişti (${x.endpoint}): istek gönderilmedi`, c: "bad" };
+    case "h3_tls_fallback": return { t: `Sertifika sabitlenemedi (${x.reason}); doğrulamasız sürüyor`, c: "bad" };
+    case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi, sonra ${x.videos} çekimin videosu` };
+    case "batch_videos": return { t: `Kareler bitti: ${x.videos} çekimin videosu kuyruğa alındı` };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };

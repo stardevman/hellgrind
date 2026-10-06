@@ -315,8 +315,10 @@ ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek 
    portal belirtecini) girip kaydedin, ardından **Bağlantıyı sına** (makine "running", konum lisansın kapsadığı bir bölge,
    "Sunucu hazır" görünmeli). Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
    çağrılmaz; Çalışma modu listesinde "gerekmez" görünür.
-2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (H3 makinesi ve kalite skorlayıcısı hazır değilse
-   düğme kapalıdır).
+   Makineniz yoksa bu adımda yalnızca API anahtarını girin; makineyi 2. adımdan sonra **Makine › Yeni makine kirala** ile
+   kurup kurulum günlüğünü panelden izleyin (*Yedek makine ve `setup.sh`*).
+2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (vast.ai API anahtarı ve kalite skorlayıcısı hazır
+   değilse düğme kapalıdır).
 3. **Senaryo › Yeni proje**: yoğunluk olarak **MiniMax H3 denemesi** seçin. Bu seçim:
    - bütçeyi 3 USD yapar;
    - **Deneme senaryosu**nu doldurur: İngilizce, tek çekim, 3 saniye, diyalogsuz; Kerem `[CHARACTER: Kerem]` ile kadroya alınır;
@@ -431,26 +433,28 @@ Ayarlar › MiniMax H3 › **Arka uç**:
 (`ssh -N -L 8188:127.0.0.1:8188 -p <SSH portu> root@<makine IP>`; adres `http://host.docker.internal:8188`) ya da vast.ai
 Instance Portal'ın kimlik doğrulamalı vekili (`PORTAL_CONFIG` girdisi `localhost:8188:18188:/:ComfyUI`; adres
 `https://<IP>:<8188'in dış portu>`, **Portal belirteci** `WEB_PASSWORD` ya da `OPEN_BUTTON_TOKEN`). Portal kendinden imzalı
-sertifika kullanır: o adreste **Sunucu sertifikasını doğrula** `false` olmalıdır (trafik şifreli kalır ama sunucunun kimliği
-doğrulanmaz; bunu istemiyorsanız SSH tüneli ya da sabit adlı bir Cloudflare tüneli kullanın).
+sertifika kullanır: o adreste **Sunucu sertifikası** `pin` olmalıdır (bkz. *Sertifika sabitleme*).
 
 **Makine gereksinimi:**
 
 | | ComfyUI (int8, `setup.sh`) | SGLang (deneysel) |
 |---|---|---|
 | GPU | RTX 5090 32 GB | RTX 5090 32 GB (ya da 24 GB+ ve aktarım) |
-| Sistem belleği | en az 64 GB | en az 64 GB; 128 GB önerilir |
-| Disk | en az 150 GB: H3 budanmış int8 FL2VA + Ref2VA DiT (2 × 21 GB), NVFP4 metin kodlayıcı (15,7 GB), VAE'ler (3,4 GB), turbo LoRA'lar (4 GB), Qwen-Image-2512 fp8 + metin kodlayıcı + VAE (~30 GB), ComfyUI ve PyTorch | en az 250 GB (resmî BF16 bileşenleri) |
+| Sistem belleği | **128 GB** (en az 96): ilk gerçek denemede yalnızca H3 kapsayıcıda ~94 GB kullandı (sayfa önbelleği dahil); Qwen-Image ~30 GB ekler | en az 128 GB |
+| Disk | **200 GB** (en az 150): H3 budanmış int8 FL2VA + Ref2VA DiT (2 × 21 GB), NVFP4 metin kodlayıcı (15,7 GB), VAE'ler (3,4 GB), turbo LoRA'lar (4 GB), Qwen-Image-2512 fp8 + metin kodlayıcı + VAE (~30 GB), ComfyUI ve PyTorch | en az 250 GB (resmî BF16 bileşenleri) |
+| İndirme | **1 Gbps**: modeller ~105 GB (1 Gbps'te ~15 dk; yavaş bağlantıda saatler) | aynı |
 
-Dosya boyutları Hugging Face'teki dosya listelerinden alındı (Ekim 2026); kurulumun kendisi ölçülmedi.
+Bu üç koşul Ayarlar › MiniMax H3'ten değiştirilir (`H3_MIN_RAM_GB`, `H3_MIN_DISK_GB`, `H3_MIN_INET_MBPS`; RAM 96'nın, disk
+150'nin altına inmez). Dosya boyutları Hugging Face'teki dosya listelerinden alındı (Ekim 2026); RAM ölçümü sizin ilk
+denemenizden.
 
 ### Yedek makine ve `setup.sh`
 
 vast.ai'de durdurulan makinenin GPU'su başkasına kiralanabilir; o zaman makine yeniden açılmaz. **Otomatik başlatma** açıksa
 ve makine 5 dakikada açılmazsa (ya da vast.ai başlatmayı reddederse) Hell Grind yedek makine arar:
 
-1. **Teklif:** aynı GPU tipinde (**Yedek makinenin GPU'su** boşsa eski makineninki), **fiyat tavanı** (varsayılan 0,95 $/sa)
-   altında, en az **RAM** (64 GB), **disk** (150 GB) ve **indirme hızı** (300 Mbps; modeller ~100 GB), güvenilirliği
+1. **Teklif:** aynı GPU tipinde (**Yeni makinenin GPU'su** boşsa eski makineninki), **fiyat tavanı** (varsayılan 0,95 $/sa)
+   altında, en az **RAM** (128 GB), **disk** (200 GB) ve **indirme hızı** (1000 Mbps; modeller ~105 GB), güvenilirliği
    %98+, doğrulanmış ve AB/BK/G. Kore/ABD dışındaki tekliflerden en ucuzu. Bölge süzgeci vast.ai'de ve burada iki kez
    uygulanır; konumu bilinmeyen teklif hiç seçilmez.
 2. **Onay:** **Yedek makine** ayarı `ask` (varsayılan) ise öneri Ayarlar › MiniMax H3 › **Makine**'de **Onayla ve kirala**
@@ -463,15 +467,65 @@ ve makine 5 dakikada açılmazsa (ya da vast.ai başlatmayı reddederse) Hell Gr
    `minimax_h3_audio_vae_fp32`, FL2V turbo 8 adım ve Ref2V turbo 4 adım LoRA'ları) ve görsel modelini kurar, ComfyUI'yi
    `127.0.0.1:18188`'de bir supervisor servisi olarak başlatır. Portal `8188`'den kimlik doğrulayarak açar; parola mevcut
    portal belirteciniz (yoksa üretilip Ayarlar'a yazılır).
-4. **Ayarlar:** yeni makine kimliği, adresi (`https://<IP>:<dış port>`), portal belirteci ve sertifika ayarı `.env`'e yazılır;
+4. **Ayarlar:** yeni makine kimliği, adresi (`https://<IP>:<dış port>`), portal belirteci ve sertifika ayarı (`pin`) `.env`'e yazılır;
    bütün servisler yeniden başlatılmadan yeni makineyi kullanır. Kurulum sürerken boşta durdurma devre dışıdır (indirme
    süresi boşta bekleme olarak bütçeye yazılır).
-5. **Eski makine:** yeni makine yanıt verince eski makine (çalışmıyorsa) **silinir**: diski ve üzerindeki her şey gider, disk
-   ücreti durur. Kurulum başarısız olursa yeni makine durdurulur, eskisi silinmez; durum Ayarlar'da yazar.
+5. **Eski makine:** yeni makine yanıt verince eski makine **yalnızca ürettiği her çıktı yerel depoda doğrulanmışsa** (bkz.
+   *Çıktı güvencesi*) ve çalışmıyorsa **silinir**: diski ve üzerindeki her şey gider, disk ücreti durur. Eksik çıktı varsa
+   makine silinmez ve Ayarlar'da işaretlenir. Kurulum başarısız olursa yeni makine durdurulur, eskisi silinmez.
+
+**İlk makine (Yeni makine kirala):** Ayarlar › MiniMax H3 › **Makine** › **Yeni makine kirala** aynı akışı ilk makine için
+çalıştırır: teklif aranır (yukarıdaki koşullar), öneri onayınıza sunulur, onaylarsanız kiralanır ve `setup.sh` ile kurulur;
+kimlik, adres, belirteç ve `pin` Ayarlar'a yazılır. Hiçbir makine silinmez (Ayarlar'da bir makine varsa o da kalır). Ücretli
+mod gerekir; ücretli moda geçmek için artık yalnızca vast.ai API anahtarı yeterlidir (makine yokken üretim başlamaz).
+
+**Kurulumu izleme:** kiralama aşamaları ve süreleri (sırada → kiralanıyor → açılıyor → kuruluyor → hazır) Makine bölümünde
+görünür. `setup.sh` günlüğü (`/var/log/hellgrind/setup.log`) portalın kimlik doğrulamalı **8189** portundan okunur
+(`PORTAL_CONFIG` girdisi `localhost:8189:18189:/:Hellgrind kurulum`, makinede `python3 -m http.server` yalnızca
+`127.0.0.1:18189`'da) ve panelde **Kurulum günlüğü** altında 5 sn'de bir tazelenir: aşama süreleri, her indirmenin boyutu,
+süresi ve hızı, sonda **toplam kurulum süresi** ve portal sertifikasının SHA-256 parmak izi. Makinede doğrudan:
+`tail -f /var/log/hellgrind/setup.log` (vast.ai konsolundaki terminal ya da SSH).
 
 `setup.sh`'yi elle de kullanabilirsiniz: kendi makinenize kopyalayıp `bash setup.sh` (ortam: `HG_IMAGE_MODEL`,
-`HG_H3_TEXT_ENCODER`, `HG_COMFY_PORT`, `HF_TOKEN`; günlük `/var/log/hellgrind-setup.log`). İlk kez kendi gözetiminizde
-deneyin: bu akış sahte bir vast.ai'yle sınandı, gerçek bir kiralamada çalıştırılmadı.
+`HG_H3_TEXT_ENCODER`, `HG_COMFY_PORT`, `HG_LOG_PORT`, `HF_TOKEN`). İlk kez kendi gözetiminizde deneyin: bu akış sahte bir
+vast.ai'yle sınandı, gerçek bir kiralamada çalıştırılmadı.
+
+### Çıktı güvencesi
+
+Makinede üretilen hiçbir çıktı yalnızca makinede kalmaz:
+
+- Her H3 işi (video ve storyboard karesi) gönderilir gönderilmez kayda geçer (`h3_outputs`: makine, sunucu, iş kimliği).
+- İş bitince sunucunun yanıtı (çıktı dosyaları, GPU süresi) kayda yazılır ve çıktı **hemen** indirilir. İndirilen bayt sayısı
+  sunucunun bildirdiği `Content-Length` ile karşılaştırılır (yarım indirme yeniden denenir).
+- Ham çıktı ve iş meta verisi (sunucu yanıtı, kaynak bilgisi; JSON) yerel nesne deposuna içerik adresli yazılır
+  (`h3-outputs/ab/<sha256>.mp4|.png|.json`); depodaki kopyaların boyutu ve SHA-256'sı yeniden okunarak doğrulanır. Ancak o
+  zaman kayıt `stored` olur. Doğrulanamayan çıktı üretimi geçici hatayla durdurur; yeniden denemede aynı iş beklenir,
+  yeniden üretilmez.
+- Ham kopya, varyasyonun (meta verisi yazılmış, gerekirse kesilmiş) videosundan ayrıdır ve elenen varyasyonlarla silinmez:
+  yerel depo kabaca iki kat büyür.
+- Makine çalışırken boşta bekleme görevi, yarım kalmış indirmeleri (worker çöktü, indirme hatası) yeniden dener. ComfyUI
+  yeniden başlayıp geçmişini kaybettiyse çıktı, işe özgü dosya önekinden (`{{filename_prefix}}` = `hellgrind/<tür>_<iş özeti>`)
+  bulunur; bu yüzden iş akışlarınızın kaydetme düğümünde `{{filename_prefix}}` kullanın.
+- Ayarlar › MiniMax H3 › Makine › **Çıktı güvencesi**: makine başına yerel depodaki, yalnızca makinedeki ve üretilemeyen
+  çıktılar. Eksik çıktısı olan eski makine için **Eksikleri indir, sonra sil** (makine çalışmıyorsa başlatılır, saatlik ücret
+  işler; hepsi doğrulanınca silinir) ya da **Kayıp say ve sil** (açık onayla).
+
+### Sertifika sabitleme
+
+**Sunucu sertifikası** ayarı (`H3_TLS_MODE`): `verify` (olağan doğrulama; gerçek sertifikalı adres), `pin` (panelden kiralanan
+makinenin varsayılanı), `off` (doğrulama yok). `pin` kipinde ilk başarılı bağlantıda (kimlik doğrulamalı sağlık yanıtı 200)
+portal sertifikasının SHA-256 parmak izi adres başına kaydedilir; sonraki her bağlantıda el sıkışmadan hemen sonra, istek ve
+belirteç gönderilmeden önce karşılaştırılır. Farklı sertifika üretimi durdurur ve panelde uyarı çıkar: makineyi bilerek
+yenilediyseniz `setup.sh` günlüğündeki parmak iziyle karşılaştırıp **Sabitlemeyi sıfırla**'ya basın. Sertifika el sıkışmadan
+okunamazsa ya da kaydedilemezse bağlantı doğrulamasız sürer ve panelde uyarı görünür. vast.ai'nin makine yeniden
+başlatılınca sertifikayı yenileyip yenilemediği gerçek bir makinede doğrulanmadı; yenilerse ilk bağlantı uyuşmazlıkla durur.
+
+### Toplu üretim: önce kareler, sonra videolar
+
+Birden çok sahne birlikte işlenirken (**Hepsini üret**, senaryo işleme, taslak geçiş, stil ve renk değişikliği) önce bütün
+storyboard kareleri (H3 makinesinde görsel modeliyle) kuyruğa girer; videolar (H3) ancak son kare bitince kuyruğa alınır. GPU'da
+model her çekimde değil bir kez değişir. Karesi başarısız olan sahnenin videosu düşer; dondurma (Kill-Switch) bekleyen videoları
+da iptal eder. Bu arada aynı sahne ikinci kez kuyruğa verilmez ("toplu üretimde" yanıtı). Tek sahnelik üretim eskisi gibidir.
 
 ### Storyboard görsel modeli ve lisanslar
 
@@ -596,9 +650,9 @@ Bilinmesi gerekenler:
 | `H3_MODEL` / `H3_MODEL_REVISION` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / boş / `9` | Model kimliği, klip meta verisine yazılan sürüm, adım sayısı (sunucudaki kurulumla aynı) |
 | `H3_IDLE_STOP_MINUTES` / `H3_AUTO_START` | `10` / `false` | Boşta durdurma süresi (0: kapalı) ve iş gelince durmuş makineyi başlatma |
 | `H3_TERRITORY_AUTHORIZED` | `false` | Makine lisansın dışladığı bölgedeyse yalnızca MiniMax'ten izin alındıysa `true` |
-| `H3_TLS_VERIFY` | `true` | Sunucu sertifikasını doğrula; portalın kendinden imzalı sertifikasında (yedek makine) `false` |
+| `H3_TLS_MODE` | `verify` | Sunucu sertifikası: `verify`, `pin` (ilk bağlantıda parmak izini sabitle; panelden kiralanan makine), `off` |
 | `H3_REPLACE_MODE` | `ask` | Yedek makine: `ask` (her zaman sor), `auto` (fiyat tavanı altındaysa sormadan), `off` |
-| `H3_MAX_DPH` / `H3_MIN_RAM_GB` / `H3_MIN_DISK_GB` / `H3_MIN_INET_MBPS` | `0.95` / `64` / `150` / `300` | Yedek makine koşulları |
+| `H3_MAX_DPH` / `H3_MIN_RAM_GB` / `H3_MIN_DISK_GB` / `H3_MIN_INET_MBPS` | `0.95` / `128` / `200` / `1000` | Yeni ve yedek makine koşulları (RAM en az 96, disk en az 150) |
 | `H3_GPU_NAME` / `H3_BOX_IMAGE` / `H3_SETUP_SCRIPT_URL` | boş / `vastai/base-image:@vastai-automatic-tag` / boş | Yedek makinenin GPU'su (boş: eskisininki), imajı ve setup.sh adresi (boş: isteğe gömülür) |
 | `H3_IMAGE_MODEL` / `H3_SETUP_TIMEOUT_S` | `qwen-image-2512` / `5400` | setup.sh'nin kurduğu storyboard görsel modeli; kurulumun en uzun süresi |
 | `H3_TIMEOUT_S` / `H3_START_TIMEOUT_S` / `H3_COMFY_WORKFLOW_DIR` | `3600` / `900` / `/config/comfy` | Tek işin en uzun süresi, otomatik başlatmada bekleme, ComfyUI iş akışı klasörü (`./comfy-workflows`) |

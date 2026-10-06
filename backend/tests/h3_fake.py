@@ -56,6 +56,9 @@ class FakeH3:
                 error = self.content_errors.pop(0)
                 if isinstance(error, BaseException):
                     raise error
+                if error == "short":                  # bağlantı yarıda kesildi: bildirilenden az bayt
+                    return httpx.Response(200, content=self.video[: len(self.video) // 2],
+                                          headers={"content-type": "video/mp4", "content-length": str(len(self.video))})
                 return httpx.Response(error)
             return httpx.Response(200, content=self.video, headers={"content-type": "video/mp4"})
         if request.method == "GET" and path.startswith("/v1/videos/"):
@@ -88,6 +91,9 @@ class FakeComfy:
         self.reject_next = False
         self.output_ext = ".mp4"
         self.queue_running: list = []
+        self.view_errors: list[int] = []          # sıradaki /view indirmelerinin HTTP durumları
+        self.files_missing = False                # makinedeki çıktı dosyaları yok (/view 404)
+        self.setup_log = ""                       # setup.sh günlüğü (portalın günlük portu)
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -115,8 +121,12 @@ class FakeComfy:
             self.failing -= int(failed)
             self.polls[prompt_id] = -1000 if failed else 0
             return httpx.Response(200, json={"prompt_id": prompt_id, "number": len(self.prompts), "node_errors": {}})
+        if path == "/setup.log":
+            return httpx.Response(200, text=self.setup_log) if self.setup_log else httpx.Response(404)
         if path.startswith("/history/"):
             prompt_id = path.rsplit("/", 1)[1]
+            if prompt_id not in self.polls:             # ComfyUI yeniden başladı: geçmiş bellekteydi
+                return httpx.Response(200, json={})
             if self.polls[prompt_id] < 0:
                 return httpx.Response(200, json={prompt_id: {"status": {"status_str": "error", "completed": False,
                     "messages": [["execution_error", {"exception_message": "Allocation on device failed"}]]}, "outputs": {}}})
@@ -132,6 +142,10 @@ class FakeComfy:
                 "outputs": {"9": {kind: [{"filename": name, "subfolder": "hellgrind", "type": "output"}]}}}})
         if path == "/view":
             name = request.url.params["filename"]
+            if self.view_errors:
+                return httpx.Response(self.view_errors.pop(0))
+            if self.files_missing:
+                return httpx.Response(404)
             return httpx.Response(200, content=self.image if name.endswith((".png", ".jpg")) else self.video)
         return httpx.Response(404)
 
@@ -150,7 +164,7 @@ class FakeVast:
         self.deletes: list[str] = []
         self.offers: list[dict] = [
             {"id": 7001, "ask_contract_id": 7001, "gpu_name": "RTX 5090", "dph_total": 0.81, "geolocation": "Norway, NO",
-             "cpu_ram": 128000, "disk_space": 400, "reliability": 0.995, "inet_down": 900},
+             "cpu_ram": 128000, "disk_space": 400, "reliability": 0.995, "inet_down": 1200},
         ]
         self.new: dict[str, dict] = {}                # kiralanan makineler: kimlik -> durum
 
@@ -165,7 +179,8 @@ class FakeVast:
             return {"id": int(iid), "actual_status": box["status"], "dph_total": 0.81, "geolocation": "Norway, NO",
                     "gpu_name": "RTX 5090", "public_ipaddr": "203.0.113.9",
                     "ports": {"8188/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41234"}],
-                              "1111/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41235"}]}}
+                              "1111/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41235"}],
+                              "8189/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41236"}]}}
         if iid in self.deletes:
             return {}
         return {"id": 1, "actual_status": self.status, "intended_status": self.status, "dph_total": self.dph,
