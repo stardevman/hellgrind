@@ -12,7 +12,7 @@ import pytest
 
 from app.config import settings
 from app.engine.providers import GenRequest, get_provider
-from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm, vast_api, vast_h3
+from app.live import PaidCallBlocked, elevenlabs, fal_video, hermes_llm, runpod_h3, vast_api, vast_h3
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 REQ = GenRequest(prompt="x", seed=1, resolution="720p", duration_s=3.0)
@@ -33,6 +33,8 @@ def booby_trapped(monkeypatch, no_network):
     monkeypatch.setattr(hermes_llm, "build_graph", boom)
     monkeypatch.setattr(vast_h3, "TRANSPORT", __import__("httpx").MockTransport(boom))
     monkeypatch.setattr(vast_api, "TRANSPORT", __import__("httpx").MockTransport(boom))
+    monkeypatch.setattr(runpod_h3, "TRANSPORT", __import__("httpx").MockTransport(boom))
+    monkeypatch.setattr(settings, "runpod_endpoint_id", "ep123")
     monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
     monkeypatch.setattr(settings, "vast_instance_id", "4242")
 
@@ -41,6 +43,11 @@ ENTRY_POINTS = {
     "h3_provider": lambda: vast_h3.get_live_provider(),
     "H3Provider.generate": lambda: vast_h3.H3Provider().generate(REQ),
     "get_provider_h3": lambda: get_provider("h3"),
+    "runpod_provider": lambda: runpod_h3.get_live_provider(),
+    "RunpodProvider.generate": lambda: runpod_h3.RunpodProvider().generate(REQ),
+    "runpod_keyframe": lambda: runpod_h3.keyframe_image("kare", 1),
+    "runpod_apply": lambda: runpod_h3.apply_config(),
+    "runpod_retrieve": lambda: runpod_h3.retrieve_row({"job_id": "j", "kind": "video", "id": 1, "server": "runpod://ep123"}),
     "keyframe_image": lambda: vast_h3.keyframe_image("kare", 1),
     "vast_start": lambda: vast_api.set_state("running"),
     "vast_instance": lambda: vast_api.instance(),
@@ -55,7 +62,9 @@ ENTRY_POINTS = {
     "tts": lambda: elevenlabs.tts("merhaba", "voice-1", "joy", "o.mp3"),
     "parse_with_llm": lambda: hermes_llm.parse_with_llm("İÇ. ODA\n\nKerem bekler.", "proje"),
 }
-KEY_OF = {"h3_provider": "vast_api_key", "H3Provider.generate": "vast_api_key", "get_provider_h3": "vast_api_key",
+KEY_OF = {"h3_provider": "vast_api_key", "H3Provider.generate": "vast_api_key", "get_provider_h3": "runpod_api_key",
+          "runpod_provider": "runpod_api_key", "RunpodProvider.generate": "runpod_api_key", "runpod_keyframe": "runpod_api_key",
+          "runpod_apply": "runpod_api_key", "runpod_retrieve": "runpod_api_key",
           "keyframe_image": "vast_api_key", "vast_start": "vast_api_key", "vast_instance": "vast_api_key",
           "get_live_provider": "fal_key", "get_provider": "fal_key", "FalProvider.generate": "fal_key",
           "lipsync": "fal_key", "tts": "elevenlabs_api_key", "parse_with_llm": "anthropic_api_key",
@@ -65,7 +74,7 @@ KEY_OF = {"h3_provider": "vast_api_key", "H3Provider.generate": "vast_api_key", 
 @pytest.mark.parametrize("name", [n for n in ENTRY_POINTS if not n.startswith("get_provider")])   # yerel döner: aşağıda
 def test_free_mode_blocks_every_entry_point_even_with_keys_set(booby_trapped, monkeypatch, name):
     monkeypatch.setattr(settings, "dry_run", True)
-    for key in ("vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for key in ("runpod_api_key", "vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, key, "gerçek-görünümlü-anahtar")
     with pytest.raises(PaidCallBlocked, match="DRY_RUN=1"):
         ENTRY_POINTS[name]()

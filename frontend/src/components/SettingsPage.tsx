@@ -2,13 +2,13 @@
 /* Ayarlar: ücretli servislerin bağlantıları (anahtar, model ve uç noktalar, motor seçimi), ücretsiz/ücretli mod ve
    fiyat tablosu. Her şey .env (fiyatlar pricing.yaml) dosyasına yazılır ve servisler yeniden başlatılmadan geçerli
    olur. Anahtarlar yalnızca maskeli görünür; ücretli moda geçiş açık onay ister. */
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { bytesText, clock, durText, stepDurations, usd, usdExact, whenText } from "@/lib/text";
 import { COMFY_KIND_TR } from "@/lib/i18n";
-import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
+import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, RunpodState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -21,6 +21,19 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
   if (!t) return [];
   if (id === "elevenlabs") return [["Konuşma (1000 karakter)", usd(t.tts_per_1k_chars)]];
   if (id === "anthropic") return [["Girdi (1M token)", usd(t.llm_per_million_tokens.input)], ["Çıktı (1M token)", usd(t.llm_per_million_tokens.output)]];
+  if (id === "runpod") {
+    const rp = t.serverless?.runpod;
+    if (!rp) return [];
+    const rows: [string, string][] = Object.entries(rp.per_second).map(([gpu, rate]) => [`${gpu} (saat · saniye)`, `$${(rate * 3600).toFixed(2)} · $${rate}`]);
+    const top = Math.max(...Object.values(rp.per_second));
+    for (const [res, sec] of Object.entries(rp.render_seconds)) {
+      rows.push([`${res}: video saniyesi başına GPU süresi ${sec} sn (rezervasyon, en pahalı tip)`, `$${(top * sec).toFixed(4)}`]);
+    }
+    if (rp.keyframe_seconds) rows.push([`Storyboard ilk karesi (${rp.keyframe_seconds} sn, tahmin)`, `$${(top * rp.keyframe_seconds).toFixed(4)}`]);
+    if (rp.cold_start_seconds) rows.push([`Soğuk başlatma (${rp.cold_start_seconds} sn, tahmin; işlenen tutar worker'ın bildirdiği)`, `$${(top * rp.cold_start_seconds).toFixed(4)}`]);
+    rows.push(["Boşta bekleyen worker (dakika, en pahalı tip)", `$${(top * 60).toFixed(4)}`]);
+    return rows;
+  }
   if (id === "vast") {
     const h3 = t.self_hosted?.h3;
     if (!h3) return [];
@@ -108,7 +121,8 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
         {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env} />)}
       </div>
       {svc.id === "vast" && <BoxSection st={st} svc={svc} />}
-      {svc.id === "vast" && st.comfy && <ComfySection comfy={st.comfy} editable={st.editable} onSaved={onSaved} />}
+      {svc.id === "runpod" && <RunpodSection st={st} svc={svc} />}
+      {st.comfy && svc.id === (st.comfy.platform ?? "runpod") && <ComfySection comfy={st.comfy} editable={st.editable} onSaved={onSaved} />}
       <Section title="Model ve uç noktalar" meta={`${others.length}`}>
         <table className="tbl">
           <tbody>
@@ -155,12 +169,56 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
       <Section title="Fiyatlar" meta="pricing.yaml">
         <table className="tbl"><tbody>{priceRows(svc.id, prices).map(([k, v]) => <tr key={k}><td>{k}</td><td className="r mono">{v}</td></tr>)}</tbody></table>
         <p className="faint small">Bütçe rezervasyonu ve Kill-Switch bu fiyatlarla hesaplanır; Fiyat tablosu bölümünden düzenlenir.</p>
+        {svc.id === "runpod" && (
+          <p className="faint small">RunPod worker'ı saniye saniye faturalar: açılış (model yükleme), işler ve boşta bekleme. İşin bedeli RunPod'un
+            bildirdiği çalışma süresi ve soğuk başlatma × GPU tipinin ücretidir; boşta bekleyen worker'lar dakikalık görevle son etkin projeye yazılır.</p>
+        )}
         {svc.id === "vast" && (
           <p className="faint small">vast.ai makineyi saatle faturalar. Her işin bedeli, sunucunun bildirdiği GPU süresi × saatlik ücrettir;
             makinenin boşta geçen süresi bütçeye yansımaz. Kullanmadığınızda makineyi vast.ai'de durdurun.</p>
         )}
       </Section>
     </Panel>
+  );
+}
+
+/** RunPod Serverless: uç nokta ayarı ve bölge denetimi, bakiye, worker ve kuyruk; ayarları uç noktaya uygulama ve çıktı
+    güvencesi. Durum kayıttan okunur (dakikalık görev ve "Durumu yenile" tazeler); RunPod'a dokunan eylemler yalnızca ücretli
+    modda. */
+function RunpodSection({ st, svc }: { st: SettingsState; svc: Service }) {
+  const { busy, act, note } = usePanel();
+  const { data: rp, mutate } = useSWR<RunpodState>("/settings/runpod", fetcher, { refreshInterval: POLL_MS * 5 });
+  const run = (action: "refresh" | "apply") => act(async () => {
+    await mutate(await api.post<RunpodState>("/settings/runpod", { action }), { revalidate: false });
+    note("settings", action === "apply" ? "Uç nokta ayarları RunPod'a yazıldı." : "RunPod durumu yenilendi.", "ok");
+  }, "settings");
+  if (!rp) return null;
+  const cfg = rp.config, h = rp.health;
+  return (
+    <Section title="Uç nokta" meta={rp.endpoint_id ? `RunPod · ${rp.endpoint_id}` : "RunPod · uç nokta yok"}>
+      {rp.platform !== "runpod" && <p className="warn small">Platform vast (deneysel) seçili: RunPod çağrılmaz.</p>}
+      {rp.region_problem && <div className="note err small">{rp.region_problem}</div>}
+      {rp.balance_low && <div className="note err small">RunPod bakiyesi {rp.balance!.usd.toFixed(2)} $: eşiğin ({rp.min_balance} $) altında, yeni iş başlamaz.</div>}
+      <dl className="kv">
+        <dt>İzinli veri merkezleri</dt><dd className="mono">{rp.allowed_datacenters.join(", ")}</dd>
+        <dt>Veri merkezi</dt><dd className="mono">{cfg ? (cfg.datacenters.join(", ") || "kısıt yok") : "okunmadı"} <span className="dim">(Ayarlar: {rp.datacenter})</span></dd>
+        <dt>GPU</dt><dd className="mono">{cfg ? (cfg.pools.join(", ") || "?") : "okunmadı"}</dd>
+        <dt>Worker</dt><dd className="mono">{cfg ? `en az ${cfg.workers_min ?? "?"} · en çok ${cfg.workers_max ?? "?"} · boşta ${cfg.idle_timeout ?? "?"} sn` : "okunmadı"}
+          {h && <span className="dim"> · şu an {h.workers.idle ?? 0} boşta, {h.workers.running ?? 0} çalışıyor; kuyrukta {h.jobs.inQueue ?? 0}</span>}</dd>
+        <dt>Network Volume</dt><dd className="mono">{cfg ? (cfg.volumes.join(", ") || "yok") : "okunmadı"}</dd>
+        <dt>Bakiye</dt><dd className="mono">{rp.balance ? `${rp.balance.usd.toFixed(2)} $` : "okunmadı"} <span className="dim">(eşik {rp.min_balance} $)</span></dd>
+        {rp.tick && <><dt>Son kontrol</dt><dd className="small">{clock(rp.tick.at)} · boşta {rp.tick.idle_workers} worker{rp.tick.charged_usd ? ` · ${usdExact(rp.tick.charged_usd)} yazıldı` : ""}</dd></>}
+      </dl>
+      {rp.desired_error && <p className="bad small">{rp.desired_error}</p>}
+      <div className="row">
+        <button className="btn" type="button" disabled={busy || st.dry_run || !svc.key_set || !rp.endpoint_id} onClick={() => run("refresh")}
+          title="Bakiye, uç nokta ayarı ve worker durumu okunur; worker başlatılmaz">Durumu yenile</button>
+        <button className="btn" type="button" disabled={busy || st.dry_run || !svc.key_set || !rp.endpoint_id || Boolean(rp.desired_error)} onClick={() => run("apply")}
+          title="GPU tipleri, veri merkezi, volume, en az 0 worker ve boşta bekleme süresi uç noktaya yazılır">Ayarları uç noktaya uygula</button>
+        {st.dry_run && <span className="faint small">Ücretsiz modda RunPod çağrılmaz.</span>}
+      </div>
+      {rp.outputs && <OutputsView rep={rp} st={st} onDone={() => void mutate()} />}
+    </Section>
   );
 }
 
@@ -228,7 +286,12 @@ function JobView({ rep, st }: { rep: ReplacementState; st: SettingsState }) {
   const watching = !st.dry_run && Boolean(j.log_url) && (j.state === "installing" || j.state === "ready" || j.state === "failed");
   const live = j.state === "installing";
   const { data: log } = useSWR<SetupLog>(watching ? "/settings/vast/setup-log" : null, fetcher, { refreshInterval: live ? 5000 : 0 });
-  const now = Date.now() / 1000;
+  const now = useNow(jobActive(j) ? 1000 : 0);
+  const pre = useRef<HTMLPreElement>(null);
+  const pinned = useRef(true);                          // kullanıcı yukarı kaydırmadıkça en alttaki satır görünür
+  useLayoutEffect(() => {
+    if (pre.current && pinned.current) pre.current.scrollTop = pre.current.scrollHeight;
+  }, [log?.lines]);
   const steps = stepDurations(j.steps, now);
   const total = j.started_at ? (["ready", "failed"].includes(j.state) ? (j.updated_at ?? now) : now) - j.started_at : null;
   return (
@@ -254,7 +317,9 @@ function JobView({ rep, st }: { rep: ReplacementState; st: SettingsState }) {
             <p className="small dim" style={{ margin: "6px 0" }}>{log.phases.map((ph) => `${ph.name}: ${durText(ph.seconds)}`).join(" · ")}</p>
           )}
           {log?.available
-            ? <pre className="mono small" style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap", margin: "6px 0 0" }}>{log.lines.slice(-60).join("\n")}</pre>
+            ? <pre ref={pre} className="mono small" style={{ maxHeight: 260, overflow: "auto", whiteSpace: "pre-wrap", margin: "6px 0 0" }}
+                onScroll={(e) => { const el = e.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>
+                {log.lines.slice(-60).join("\n")}</pre>
             : <p className="faint small">{st.dry_run ? "Ücretsiz modda makineye bağlanılmaz." : log?.message ?? "Makine açılınca günlük burada görünür."}</p>}
           <p className="faint small">Makinede: vast.ai konsolunda makinenin terminali ya da SSH ile <span className="mono">tail -f /var/log/hellgrind/setup.log</span>.
             Satırlar başlangıçtan geçen süreyi, her indirmenin hızını ve sonda toplam kurulum süresini gösterir.</p>
@@ -264,10 +329,26 @@ function JobView({ rep, st }: { rep: ReplacementState; st: SettingsState }) {
   );
 }
 
+/** Saniyede bir güncellenen saat (sn). Arka plandaki sekmede tarayıcı zamanlayıcıyı yavaşlatır: sekmeye dönünce hemen
+    güncellenir, sayaç geride kalmaz. interval 0: güncellenmez. */
+function useNow(interval: number): number {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    if (!interval) { setNow(Date.now() / 1000); return; }
+    const tick = () => setNow(Date.now() / 1000);
+    const id = window.setInterval(tick, interval);
+    document.addEventListener("visibilitychange", tick);
+    return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", tick); };
+  }, [interval]);
+  return now;
+}
+
 const jobActive = (j: ReplacementJob) => ["queued", "renting", "booting", "installing"].includes(j.state);
 
 /** Çıktı güvencesi: her H3 çıktısı indirilip yerel depoda doğrulanır; eksik çıktısı olan makine silinmez. */
-function OutputsView({ rep, st, onDone }: { rep: ReplacementState; st: SettingsState; onDone: () => void }) {
+type OutputsSource = Pick<ReplacementState, "outputs" | "retrieval" | "retrieval_states">;
+
+function OutputsView({ rep, st, onDone }: { rep: OutputsSource; st: SettingsState; onDone: () => void }) {
   const { busy, act, note } = usePanel();
   const [sure, setSure] = useState<string | null>(null);
   const o = rep.outputs!, r = rep.retrieval;
@@ -275,7 +356,9 @@ function OutputsView({ rep, st, onDone }: { rep: ReplacementState; st: SettingsS
   const go = (instance_id: string, action: "retrieve" | "abandon", destroy_after = false) => act(async () => {
     const res = await api.post<{ lost?: number }>("/settings/vast/outputs", { action, instance_id, destroy_after });
     setSure(null); onDone();
-    note("settings", action === "retrieve" ? "Eksik çıktılar indiriliyor; makine çalışmıyorsa başlatılır." : `Makine ${instance_id} silindi; ${res.lost ?? 0} çıktının kaybı kabul edildi.`, action === "retrieve" ? "ok" : "err");
+    const rp = instance_id.startsWith("runpod:");
+    note("settings", action === "retrieve" ? (rp ? "Eksik çıktılar RunPod'dan indiriliyor (sonuçlar 30 dk tutulur)." : "Eksik çıktılar indiriliyor; makine çalışmıyorsa başlatılır.")
+      : rp ? `${res.lost ?? 0} çıktının kaybı kabul edildi.` : `Makine ${instance_id} silindi; ${res.lost ?? 0} çıktının kaybı kabul edildi.`, action === "retrieve" ? "ok" : "err");
   }, "settings");
   const unsafeTotal = o.machines.reduce((n, m) => n + m.unsafe, 0);
   return (
@@ -291,12 +374,19 @@ function OutputsView({ rep, st, onDone }: { rep: ReplacementState; st: SettingsS
               const id = m.instance_id ?? "";
               return (
                 <tr key={id || "yok"}>
-                  <td className="mono">{id || "yönetimsiz"}{m.current && <small>Ayarlardaki makine</small>}</td>
+                  <td className="mono">{id || "yönetimsiz"}{m.current && <small>Ayarlardaki makine</small>}{id.startsWith("runpod:") && <small>RunPod uç noktası</small>}</td>
                   <td className="r mono">{m.stored}<small>{bytesText(m.stored_bytes)}</small></td>
                   <td className={`r mono ${m.unsafe ? "bad" : ""}`}>{m.unsafe}</td>
                   <td className="r mono">{m.failed} / {m.lost}</td>
                   <td className="r" style={{ whiteSpace: "nowrap" }}>
-                    {m.unsafe > 0 && id && (m.current
+                    {m.unsafe > 0 && id && id.startsWith("runpod:") && <>
+                      <button className="btn" type="button" disabled={busy || st.dry_run || retrieving} onClick={() => go(id, "retrieve")}
+                        title="RunPod sonuçları tamamlandıktan sonra 30 dk tutulur">Eksikleri indir</button>
+                      {sure === id
+                        ? <button className="btn danger" type="button" disabled={busy || st.dry_run} onClick={() => go(id, "abandon")}>Eminim: {m.unsafe} çıktıyı kayıp say</button>
+                        : <button className="btn ghost" type="button" disabled={busy || st.dry_run} onClick={() => setSure(id)}>Kayıp say</button>}
+                    </>}
+                    {m.unsafe > 0 && id && !id.startsWith("runpod:") && (m.current
                       ? <button className="btn" type="button" disabled={busy || st.dry_run || retrieving} onClick={() => go(id, "retrieve")}>Eksikleri indir</button>
                       : <>
                         <button className="btn" type="button" disabled={busy || st.dry_run || retrieving} onClick={() => go(id, "retrieve", true)}
@@ -425,7 +515,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
     setTyped(""); onSaved(); void mutate("/meta");
     note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : `Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.${r.vast_note ? " " + r.vast_note : ""}`, paid ? "err" : "ok");
   }, "settings");
-  const h3 = st.services.find((s) => s.id === "vast");
+  const platform = st.comfy?.platform ?? "runpod";
+  const h3 = st.services.find((s) => s.id === platform);
+  const h3Ready = platform === "runpod" ? Boolean(h3?.active) : Boolean(h3?.key_set);
   const missingPkgs = st.services.some((s) => s.needed && Boolean(s.missing_packages?.length));
   return (
     <Panel title="Çalışma modu" meta={st.dry_run ? "ücretsiz" : "ücretli"}>
@@ -449,9 +541,11 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
               {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
-              {h3 && !h3.key_set && <li className="warn">vast.ai API anahtarı gerekir: video MiniMax H3 ile vast.ai makinesinde üretilir.</li>}
-              {h3?.key_set && !h3.active && <li className="warn">Makine henüz tanımlı değil: ücretli moda geçtikten sonra MiniMax H3 › Makine › <b>Yeni makine kirala</b> ile kurun ya da makine kimliğini ve sunucu adresini girin. Makine hazır olana dek üretim başlamaz.</li>}
-              {h3?.active && <li>vast.ai makinesinin çalıştığını ve "Bağlantıyı sına" sonucunun "hazır" olduğunu doğrulayın.</li>}
+              {platform === "runpod" && !h3Ready && <li className="warn">RunPod gerekir: video MiniMax H3 ile RunPod Serverless'ta üretilir. MiniMax H3 · RunPod'dan API anahtarını ve uç nokta kimliğini girin (kurulum: backend/runpod/README.md).</li>}
+              {platform === "runpod" && h3Ready && <li>"Bağlantıyı sına" ile bakiyeyi, uç noktanın veri merkezini (izinli liste) ve worker durumunu doğrulayın.</li>}
+              {platform === "vast" && h3 && !h3.key_set && <li className="warn">vast.ai API anahtarı gerekir: video MiniMax H3 ile vast.ai makinesinde üretilir (deneysel).</li>}
+              {platform === "vast" && h3?.key_set && !h3.active && <li className="warn">Makine henüz tanımlı değil: ücretli moda geçtikten sonra MiniMax H3 › Makine › <b>Yeni makine kirala</b> ile kurun ya da makine kimliğini ve sunucu adresini girin. Makine hazır olana dek üretim başlamaz.</li>}
+              {platform === "vast" && h3?.active && <li>vast.ai makinesinin çalıştığını ve "Bağlantıyı sına" sonucunun "hazır" olduğunu doğrulayın.</li>}
               <li>Fiyat tablosunu sağlayıcıların güncel fiyatlarıyla karşılaştırın; rezervasyonlar bu fiyatlarla yapılır.</li>
               <li>Projelerin bütçe limitlerini ve hız bekçisini (10 dakikalık harcama sınırı) gözden geçirin.</li>
               <li>Mod, servisler yeniden başlatılmadan geçerli olur; o andan sonra başlayan her ücretli çağrı gerçek harcamadır.</li>
@@ -463,9 +557,9 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                   <input type="text" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
                 </label>
                 <div className="row">
-                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3?.key_set || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
-                  {(!h3?.key_set || !st.scorer.ready) && <span className="faint small">Önce vast.ai API anahtarını girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
-                  {h3?.key_set && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
+                  <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3Ready || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
+                  {(!h3Ready || !st.scorer.ready) && <span className="faint small">Önce {platform === "runpod" ? "RunPod API anahtarını ve uç nokta kimliğini" : "vast.ai API anahtarını"} girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                  {h3Ready && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
                 </div>
               </form>
             ) : <p className="faint small">Ayar dosyası bağlı değil; mod yalnızca .env elle düzenlenerek değişir.</p>}

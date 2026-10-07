@@ -192,7 +192,7 @@ def reap_stale():
 @celery.task(name="hg.h3_idle")
 def h3_idle():
     """MiniMax H3 makinesi: boşta bekleme bedeli ve boşta durdurma (dakikada bir). Ücretsiz modda hiçbir şey yapmaz."""
-    if settings.dry_run or not settings.vast_instance_id:
+    if settings.dry_run or settings.h3_platform != "vast" or not settings.vast_instance_id:
         return "skip"
     from app.live import vast_box, vast_h3        # ücretli modüller: yalnızca fonksiyon içinde
     return vast_box.idle_tick(queue_empty=vast_h3.queue_empty if settings.h3_endpoint_url else None)
@@ -216,3 +216,13 @@ def h3_retrieve(instance_id: str, destroy_after: bool = False):
         return "skip"
     from app.live import vast_box                 # ücretli modül: yalnızca fonksiyon içinde
     return vast_box.retrieve_outputs(instance_id, destroy_after)
+
+
+@celery.task(name="hg.runpod_tick")
+def runpod_tick():
+    """RunPod Serverless: boşta bekleyen worker'ların bedeli, bakiye ve uç nokta ayarı, yarım kalmış indirmeler (dakikada
+    bir). Ücretsiz modda ya da platform RunPod değilse hiçbir şey yapmaz."""
+    if settings.dry_run or settings.h3_platform != "runpod" or not settings.runpod_endpoint_id:
+        return "skip"
+    from app.live import runpod_h3                # ücretli modül: yalnızca fonksiyon içinde
+    return runpod_h3.tick()

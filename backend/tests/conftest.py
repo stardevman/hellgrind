@@ -290,7 +290,7 @@ def paid(monkeypatch, no_network):
     kalır, genel internete bağlantı yasaktır (no_network) ve ücretli sağlayıcı çağrıları testlerde sahtedir: gerçek servise
     hiçbir istek gitmez."""
     monkeypatch.setattr(settings, "dry_run", False)
-    for name in ("vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
+    for name in ("runpod_api_key", "vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, name, f"test-{name}")
     monkeypatch.setattr(settings, "vast_instance_id", "")       # makine yönetimi kapalı: testler vast.ai'yi sahteler
 
@@ -307,6 +307,7 @@ def h3(monkeypatch, tmp_path, paid, s3):
     monkeypatch.setattr(vast_h3, "TRANSPORT", fake.transport())
     monkeypatch.setattr(vast_h3, "POLL_S", 0)
     monkeypatch.setattr(vast_h3, "RETRY_BASE_S", 0)
+    monkeypatch.setattr(settings, "h3_platform", "vast")              # bu sahte vast.ai'nin H3 sunucusu (deneysel arka uç)
     monkeypatch.setattr(settings, "h3_endpoint_url", "https://h3.test")
     monkeypatch.setattr(settings, "h3_ref_endpoint_url", "")
     monkeypatch.setattr(settings, "h3_backend", "sglang")

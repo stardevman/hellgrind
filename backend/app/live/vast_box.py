@@ -34,6 +34,7 @@ import time
 from sqlalchemy.engine import make_url
 
 from app.budget import killswitch, pricing
+from app.core import regions
 from app.config import settings
 from app.live import PaidCallBlocked, h3_outputs, key_state, optional, vast_api
 
@@ -72,7 +73,8 @@ def _r():
 
 
 def configured() -> bool:
-    return bool(settings.vast_instance_id) and key_state("vast_api_key")["set"]
+    """vast.ai makine yönetimi açık mı: platform vast (deneysel) seçili, anahtar ve makine kimliği tanımlı."""
+    return settings.h3_platform == "vast" and bool(settings.vast_instance_id) and key_state("vast_api_key")["set"]
 
 
 # ---------- iş kaydı ----------
@@ -125,10 +127,11 @@ def cached() -> dict | None:
 
 
 def territory_problem(box: vast_api.Box) -> str | None:
-    if box.excluded and not settings.h3_territory_authorized:
-        return (f"H3 makinesi lisansın dışladığı bir bölgede ({box.geolocation}): MiniMax H3 Community License AB, Birleşik "
-                "Krallık, Güney Kore ve ABD'de kullanımı ayrı izin olmadan kapsamaz. Başka bölgeden makine seçin ya da "
-                "MiniMax'ten izin aldıysanız Ayarlar › MiniMax H3 › Bölge izni'ni açın.")
+    from app.core import regions
+    if box.excluded:
+        return (f"H3 makinesinin konumu izinli listede değil ({box.geolocation or 'konum bilinmiyor'}): yalnızca "
+                f"{regions.allowed_text()} kabul edilir (MiniMax H3 lisansı AB, BK, G. Kore, ABD ve denizaşırı "
+                "topraklarını kapsamaz). Başka bölgeden makine seçin.")
     return None
 
 
@@ -213,7 +216,7 @@ def _set_job(**fields) -> dict:
 def conditions() -> str:
     return (f"{settings.h3_gpu_name or (cached() or {}).get('gpu') or 'aynı GPU'}, en çok {settings.h3_max_dph} $/sa, "
             f"en az {settings.h3_min_ram_gb} GB RAM, {settings.h3_min_disk_gb} GB disk, {settings.h3_min_inet_mbps} Mbps, "
-            "AB/BK/G. Kore/ABD dışı")
+            f"yalnızca izinli ülkeler: {', '.join(regions.COUNTRY_TR.get(c, c) for c in regions.vast_countries())}")
 
 
 def find_offer() -> vast_api.Offer | None:
@@ -418,6 +421,16 @@ def retrieve_outputs(instance_id: str, destroy_after: bool = False) -> str:
     if settings.dry_run:
         return "skip"
     instance_id = str(instance_id)
+    if instance_id.startswith("runpod:"):                        # RunPod: makine yok, sonuç /status'tan alınır
+        try:
+            _set_retrieval(state="downloading")
+            counts = h3_outputs.retrieve(instance_id, "", "")
+            _set_retrieval(state="done", counts=counts, message=f"{counts['stored']} çıktı indirildi ve doğrulandı; "
+                                                                f"{counts['remaining']} eksik kaldı.")
+            return "done"
+        except Exception as e:                                   # noqa: BLE001
+            _set_retrieval(state="failed", message=f"{type(e).__name__}: {str(e)[:300]}")
+            return "failed"
     current = instance_id == str(settings.vast_instance_id)
     started = False
     try:
@@ -516,11 +529,14 @@ def parse_setup_log(lines: list[str]) -> dict:
         if "[hellgrind" not in line:
             continue
         if m := re.search(r"KURULUM_BITTI durum=(\w+) sure=(\d+)", line):
-            out.update(done=True, ok=m.group(1) == "ok", total_s=int(m.group(2)))
+            out.update(done=True, ok=m.group(1) == "ok", total_s=int(m.group(2)), step=None)
         elif m := re.search(r"== (.+?) bitti \((\d+) sn\) ==", line):
             out["phases"].append({"name": m.group(1), "seconds": int(m.group(2))})
+            if out["step"] == m.group(1):            # biten aşama "şu an" diye gösterilmesin (son aşama 4/4)
+                out["step"] = None
         elif m := re.search(r"\] == (.+?) ==$", line):
             out["step"] = m.group(1)
+            out.update(done=False, ok=None, total_s=None)   # yeniden açılışta yeni kurulum turu
     return out
 
 

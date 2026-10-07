@@ -51,8 +51,9 @@ def describe(label: str) -> Described:
     head, *rest = label.split(":")
     purpose = next((p for p in rest if p in PURPOSES), None)
     resolution = next((p for p in rest if p.endswith("p") and p[:-1].isdigit()), None)
-    if head == "h3":                           # MiniMax H3, yönetmenin GPU sunucusunda (vast.ai)
-        return Described("vast", purpose or "video", (settings.h3_model,), resolution)
+    if head == "h3":                           # MiniMax H3: RunPod Serverless (varsayılan) ya da vast.ai (deneysel)
+        return Described("vast" if settings.h3_platform == "vast" else "runpod", purpose or "video", (settings.h3_model,),
+                         resolution)
     if head == "elevenlabs":
         return Described("elevenlabs", "tts", (settings.elevenlabs_model,))
     if head == "anthropic":

@@ -49,6 +49,8 @@ def vast(h3, env, monkeypatch, tmp_path):
     comfy = FakeComfy(open(make_video(tmp_path / "c.mp4", seconds=4.0, size="320x180", fps=24), "rb").read())
     monkeypatch.setattr(vast_h3, "TRANSPORT", comfy.transport())
     for name, value in dict(vast_instance_id="4242", h3_auto_start=True, h3_replace_mode="ask", h3_backend="comfyui",
+                            h3_min_ram_gb=128, h3_min_disk_gb=200, h3_min_inet_mbps=1000, h3_max_dph=0.95, h3_gpu_name="",
+                            h3_allow_nordic=False, h3_tls_mode="verify", h3_idle_stop_minutes=10,
                             h3_setup_timeout_s=60, h3_start_timeout_s=60, dry_run=False).items():
         monkeypatch.setattr(settings, name, value)
     for name, value in dict(START_POLL_S=0, SETUP_POLL_S=0, BOOT_WAIT_S=0).items():
@@ -72,16 +74,20 @@ def test_the_offer_query_asks_for_the_same_gpu_in_allowed_regions_under_the_cap(
     q = vast_api.offer_query("RTX 5090", 0.95, 64, 150, 300)
     assert q["gpu_name"] == {"in": ["RTX 5090", "RTX_5090"]} and q["dph_total"] == {"lte": 0.95}
     assert q["cpu_ram"] == {"gte": 64000} and q["disk_space"] == {"gte": 150} and q["inet_down"] == {"gte": 300}
-    assert {"US", "GB", "KR", "DE", "FR"} <= set(q["geolocation"]["notin"]) and q["rentable"] == {"eq": True}
+    assert q["geolocation"] == {"in": ["CA"]} and q["rentable"] == {"eq": True}
     assert q["order"] == [["dph_total", "asc"]] and q["num_gpus"] == {"eq": 1}
 
 
-def test_offers_from_excluded_or_unknown_regions_never_come_back(vast):
+def test_offers_from_excluded_or_unknown_regions_never_come_back(vast, monkeypatch):
     vast.offers = [{"id": 1, "gpu_name": "RTX 5090", "dph_total": 0.7, "geolocation": "Texas, US", "cpu_ram": 128000, "disk_space": 400},
                    {"id": 2, "gpu_name": "RTX 5090", "dph_total": 0.6, "geolocation": None, "cpu_ram": 128000, "disk_space": 400},
                    {"id": 3, "gpu_name": "RTX 5090", "dph_total": 0.9, "geolocation": "Quebec, CA", "cpu_ram": 128000, "disk_space": 400},
                    {"id": 4, "gpu_name": "RTX 5090", "dph_total": 0.8, "geolocation": "Norway, NO", "cpu_ram": 128000, "disk_space": 400},
                    {"id": 5, "gpu_name": "RTX 5090", "dph_total": 0.5, "geolocation": "Serbia, RS", "cpu_ram": 32000, "disk_space": 400}]
+    vast.offers.append({"id": 6, "gpu_name": "RTX 5090", "dph_total": 0.4, "geolocation": "Puerto Rico, PR", "cpu_ram": 128000, "disk_space": 400})
+    vast.offers.append({"id": 7, "gpu_name": "RTX 5090", "dph_total": 0.45, "geolocation": "Canarias, ES", "cpu_ram": 128000, "disk_space": 400})
+    assert [o.id for o in vast_api.search_offers("RTX 5090", 0.95, 64, 150, 300)] == [3]          # yalnızca Kanada
+    monkeypatch.setattr(settings, "h3_allow_nordic", True)
     assert [o.id for o in vast_api.search_offers("RTX 5090", 0.95, 64, 150, 300)] == [4, 3]
 
 
@@ -89,7 +95,7 @@ def test_offers_from_excluded_or_unknown_regions_never_come_back(vast):
 
 def test_a_box_that_cannot_start_leads_to_a_proposal_waiting_for_approval(vast):
     vast.start_fails = True
-    with pytest.raises(PaidCallBlocked, match="onay bekliyor.*RTX 5090, 0.81 \\$/sa, Norway, NO"):
+    with pytest.raises(PaidCallBlocked, match="onay bekliyor.*RTX 5090, 0.81 \\$/sa, Quebec, CA"):
         H3Provider().generate(request())
     prop = vast_box.proposal()
     assert prop["offer_id"] == 7001 and prop["old_instance_id"] == "4242" and "açılmadı" in prop["reason"]

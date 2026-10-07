@@ -52,8 +52,10 @@ def _uuid(value) -> str | None:
         return None
 
 
-def submitted(server: str, job_id: str, kind: str, task: str, project_id: str | None, remote: dict) -> None:
-    """Gönderilen iş kayda geçer: sonucu alınamasa da makinede bir çıktı oluşabilir."""
+def submitted(server: str, job_id: str, kind: str, task: str, project_id: str | None, remote: dict,
+              backend: str | None = None, instance_id: str | None = None) -> None:
+    """Gönderilen iş kayda geçer: sonucu alınamasa da makinede bir çıktı oluşabilir. RunPod'da backend "runpod", makine
+    "runpod:<uç nokta>"; vast.ai'de Ayarlar'daki arka uç ve makine."""
     with session_scope() as s:
         s.execute(text("""
             INSERT INTO h3_outputs (instance_id, server, backend, job_id, kind, task, project_id, remote)
@@ -62,7 +64,7 @@ def submitted(server: str, job_id: str, kind: str, task: str, project_id: str | 
               instance_id = EXCLUDED.instance_id, backend = EXCLUDED.backend, kind = EXCLUDED.kind, task = EXCLUDED.task,
               project_id = EXCLUDED.project_id, remote = EXCLUDED.remote, status = 'submitted', size_bytes = NULL,
               sha256 = NULL, storage_key = NULL, meta_key = NULL, error = NULL, submitted_at = now(), stored_at = NULL
-        """), {"i": _instance(), "s": server, "b": settings.h3_backend, "j": job_id, "k": kind, "t": task,
+        """), {"i": instance_id or _instance(), "s": server, "b": backend or settings.h3_backend, "j": job_id, "k": kind, "t": task,
                "p": _uuid(project_id), "r": json.dumps(remote, ensure_ascii=False)})
 
 
@@ -229,6 +231,9 @@ def _comfy_guess(c, row: dict):
 def retrieve_row(row: dict, url: str, token: str) -> str:
     """Tek bir kaydı sunucudan yeniden indirir. Dönen değer: stored | failed | running | missing."""
     import httpx
+    if row["backend"] == "runpod":                       # RunPod: sonuç /status'ta 30 dk tutulur
+        from app.live import runpod_h3
+        return runpod_h3.retrieve_row(row)
     from app.live import vast_h3
     image = row["kind"] == "keyframe"
     with vast_h3._client(url, token) as c:

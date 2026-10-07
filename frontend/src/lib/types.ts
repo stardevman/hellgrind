@@ -8,6 +8,8 @@ export interface Preset { probe_n?: number; full_n?: number; wave_size?: number;
 
 export interface Meta {
   dry_run: boolean;
+  /** MiniMax H3'ün çalıştığı platform: runpod (varsayılan) ya da vast (deneysel). */
+  h3_platform?: "runpod" | "vast";
   hermes_mode: string;
   tts_engine: string;
   quality?: QualityMeta;
@@ -178,7 +180,7 @@ export interface ServiceField {
 }
 
 export interface Service {
-  id: "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; key_env: string; purpose: string; console: string; used_by: string[];
+  id: "runpod" | "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; key_env: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean;
   /** Gerçek harcama; sanal (ücretsiz mod) ve modu bilinmeyen ayrı. */
   spent_usd: number; virtual_usd: number; unknown_usd: number;
@@ -240,13 +242,33 @@ export interface SetupLog {
 }
 
 export interface ComfyWorkflow { kind: string; present: boolean; required: string[]; placeholders: string[]; error: string | null }
-export interface ComfyState { backend: string; dir: string; workflows: ComfyWorkflow[] }
+export interface ComfyState { backend: string; platform?: "runpod" | "vast"; dir: string; workflows: ComfyWorkflow[] }
+
+/** RunPod Serverless: son okunan durum (kayıttan; RunPod çağrılmaz) ve Ayarlar'daki istenen uç nokta ayarı. */
+export interface RunpodConfig {
+  name?: string | null; datacenters: string[]; volumes: string[]; pools: string[];
+  workers_min: number | null; workers_max: number | null; idle_timeout: number | null; flashboot?: unknown; at: number;
+}
+export interface RunpodState {
+  platform: "runpod" | "vast"; endpoint_id: string | null; datacenter: string; allowed_datacenters: string[];
+  balance: { usd: number; spend_per_hr?: number | null; spend_limit?: number | null; at: number } | null;
+  balance_low: boolean; min_balance: number; config: RunpodConfig | null;
+  health: { jobs: Record<string, number>; workers: Record<string, number>; at: number } | null;
+  tick: { idle_workers: number; charged_usd: number; at: number } | null;
+  region_problem: string | null; desired: Record<string, unknown> | null; desired_error: string | null;
+  outputs?: { machines: OutputMachine[]; unsafe: UnsafeOutput[] }; retrieval?: RetrievalState | null;
+  retrieval_states?: Record<string, string>; instance: string | null;
+}
 
 /** Kendi GPU sunucusunda çalışan motor (vast.ai'de MiniMax H3): saatlik ücret ve video saniyesi başına GPU saniyesi. */
 export interface SelfHosted { gpu_hourly_usd: number; render_seconds: Record<string, number>; keyframe_seconds?: number }
 
+/** RunPod Serverless: GPU tipine göre saniye ücreti. */
+export interface Serverless { per_second: Record<string, number>; render_seconds: Record<string, number>; keyframe_seconds?: number; cold_start_seconds?: number }
+
 export interface PricingTable {
   self_hosted?: Record<string, SelfHosted>;
+  serverless?: { runpod?: Serverless };
   video_per_second: Record<string, Record<string, number>>;
   image_per_megapixel: Record<string, number>;
   image_per_image?: Record<string, number>;

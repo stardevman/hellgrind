@@ -211,7 +211,7 @@ class Job:
         return [name for name, _ in self.references]
 
     def key(self) -> str:
-        return stable_hash([settings.h3_backend, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
+        return stable_hash([settings.h3_platform, settings.h3_backend, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references])
 
 
@@ -235,7 +235,8 @@ def ref_url() -> str:
     return settings.h3_endpoint_url if settings.h3_backend == "comfyui" else ""
 
 
-def build_job(req: GenRequest) -> Job:
+def build_job(req: GenRequest, server: str | None = None) -> Job:
+    """server: işin gideceği tek adres (RunPod uç noktası); verilmezse vast.ai ayarlarındaki FL2VA / Ref2VA adresleri."""
     mode = req.extra.get("h3_mode") or "fl2va"
     prompt, constraints = constrained_prompt(req.prompt, req.negative)
     width, height = size_for(req.resolution)
@@ -246,7 +247,7 @@ def build_job(req: GenRequest) -> Job:
         if not refs:
             raise PaidCallBlocked("Ref2VA için çekimdeki karakterlerin referans görseli yok: Varlıklar'dan durağan görsel, "
                                   "ifade sayfası ya da dönüş videosu yükleyin ya da çekimi FL2VA'ya alın.")
-        url = ref_url()
+        url = server or ref_url()
         if not url:
             raise PaidCallBlocked("Ref2VA sunucusu tanımlı değil: Ayarlar › MiniMax H3'ten Ref2VA adresini girin ya da "
                                   "çekimi FL2VA'ya alın.")
@@ -254,7 +255,7 @@ def build_job(req: GenRequest) -> Job:
         return Job(task="ref2va", url=url.rstrip("/"), prompt=reference_prompt(prompt, [n for n, _ in references]),
                    references=references, **common)
     task = "fl2va" if req.image_url else "t2va"
-    return Job(task=task, url=settings.h3_endpoint_url.rstrip("/"), prompt=prompt, **common)
+    return Job(task=task, url=(server or settings.h3_endpoint_url).rstrip("/"), prompt=prompt, **common)
 
 
 def _client(url: str, token: str, observer=_AUTO) -> httpx.Client:

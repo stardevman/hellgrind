@@ -311,14 +311,13 @@ uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyr
 ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek üretimi denemek için (sunucu kurulumu:
 *Video motoru: MiniMax H3* bölümü):
 
-1. **Ayarlar › MiniMax H3 · vast.ai**: vast.ai API anahtarını, makine kimliğini, arka ucu ve sunucu adresini (gerekirse
-   portal belirtecini) girip kaydedin, ardından **Bağlantıyı sına** (makine "running", konum lisansın kapsadığı bir bölge,
-   "Sunucu hazır" görünmeli). Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
+1. **Ayarlar › MiniMax H3 · RunPod**: RunPod API anahtarını ve uç nokta kimliğini girip kaydedin (volume, worker imajı ve
+   uç nokta kurulumu: `backend/runpod/README.md`), ardından **Bağlantıyı sına**: bakiye, uç noktanın veri merkezi (izinli
+   liste) ve worker durumu görünmeli. Ücretli moda geçtikten sonra **Ayarları uç noktaya uygula** GPU tiplerini, veri merkezini,
+   volume'u, en az 0 worker'ı ve boşta bekleme süresini uç noktaya yazar. Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
    çağrılmaz; Çalışma modu listesinde "gerekmez" görünür.
-   Makineniz yoksa bu adımda yalnızca API anahtarını girin; makineyi 2. adımdan sonra **Makine › Yeni makine kirala** ile
-   kurup kurulum günlüğünü panelden izleyin (*Yedek makine ve `setup.sh`*).
-2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (vast.ai API anahtarı ve kalite skorlayıcısı hazır
-   değilse düğme kapalıdır).
+2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (RunPod anahtarı ve uç noktası ya da kalite
+   skorlayıcısı hazır değilse düğme kapalıdır).
 3. **Senaryo › Yeni proje**: yoğunluk olarak **MiniMax H3 denemesi** seçin. Bu seçim:
    - bütçeyi 3 USD yapar;
    - **Deneme senaryosu**nu doldurur: İngilizce, tek çekim, 3 saniye, diyalogsuz; Kerem `[CHARACTER: Kerem]` ile kadroya alınır;
@@ -373,10 +372,13 @@ dolunca Kill-Switch üretimi durdurur.
 > Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
 > yazabildiği için paneli ağa açmayın.
 
-## Video motoru: MiniMax H3 (vast.ai)
+## Video motoru: MiniMax H3 (RunPod Serverless)
 
 Ücretli modda test turu, tam tur, hareket testi, karakter dönüş videosu ve düzenlenmiş ilk kareden video **MiniMax H3**
-ile, vast.ai'de kiraladığınız GPU makinesinde üretilir. Yeni her çekim H3'e yönlenir; bir çekimi **Seedance** (fal.ai) ile
+ile üretilir. Varsayılan platform **RunPod Serverless**: modeller bir Network Volume'da (CA-MTL-1), iş geldikçe worker açılır,
+iş yokken sıfır worker (kurulum, fiyat ve bütçe: `backend/runpod/README.md`). vast.ai arka ucu **deneyseldir ve kapalıdır**
+(Ayarlar › MiniMax H3 · RunPod › Platform: `vast`); aşağıdaki *Sunucu*, *Yedek makine*, *Sertifika sabitleme* ve *Makine
+yönetimi* bölümleri yalnızca vast.ai içindir, bilinen sorunları *vast.ai: bilinen sorunlar*'dadır. Yeni her çekim H3'e yönlenir; bir çekimi **Seedance** (fal.ai) ile
 üretmek isterseniz Kurgu › denetçi › **Motor** listesinden seçin. Seçim, senaryo yeniden işlense de korunur.
 
 > **Lisans: önce okuyun.** MiniMax H3 Community License, modelin ve **çıktılarının** (filmin) Avrupa Birliği, Birleşik
@@ -384,6 +386,20 @@ ile, vast.ai'de kiraladığınız GPU makinesinde üretilir. Yeni her çekim H3'
 > izin olmadan kapsamaz (§V.4). Çıktılar MiniMax H3 ve türevleri dışındaki hiçbir yapay zekâ modelini geliştirmek için
 > kullanılamaz (§V.3). Yıllık geliri 20 milyon USD'yi aşan ticari kullanım yazılı izin ister; ticari ürünün arayüzünde
 > "MiniMax H3" görünmelidir. Bu bir hukuki görüş değildir: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE
+
+### Bölge: izinli liste
+
+Yasaklı liste yerine **izinli liste** kullanılır (`backend/app/core/regions.py`, her arka uç): yalnızca açıkça onaylanmış
+veri merkezleri ve ülkeler kabul edilir, konumu bilinmeyen makine ya da teklif hiçbir zaman seçilmez.
+
+- **RunPod:** varsayılan **CA-MTL-1, CA-MTL-2, CA-MTL-3** (Kanada). **EUR-NO-1** (Norveç) ve **EUR-IS-*** (İzlanda) Ayarlar ›
+  **Kuzey veri merkezleri** açıkken (varsayılan kapalı). Uç noktanın veri merkezi kısıtı RunPod'dan okunur; kısıt yoksa,
+  izinli olmayan bir merkez varsa ya da okunamazsa üretim başlamaz.
+- **vast.ai:** varsayılan yalnızca Kanada; Kuzey açıkken Norveç ve İzlanda.
+- **Her zaman yasaklı** (izinli listede olsa da): AB, Birleşik Krallık, Güney Kore, ABD ve denizaşırı toprakları. ABD:
+  Porto Riko, Guam, ABD Virjin Adaları, Amerikan Samoası, Kuzey Mariana Adaları, ABD Küçük Dış Adaları. AB en dış bölgeleri:
+  Kanarya Adaları, Fransız Guyanası, Réunion, Guadeloupe, Martinik, Mayotte, Saint-Martin, Azorlar, Madeira. Panel daha önce
+  iki kez Porto Riko önermişti: ülke kodu yasaklı listede olmadığı için geçiyordu.
 
 ### Kompozisyon: seed değil koşul
 
@@ -527,6 +543,23 @@ storyboard kareleri (H3 makinesinde görsel modeliyle) kuyruğa girer; videolar 
 model her çekimde değil bir kez değişir. Karesi başarısız olan sahnenin videosu düşer; dondurma (Kill-Switch) bekleyen videoları
 da iptal eder. Bu arada aynı sahne ikinci kez kuyruğa verilmez ("toplu üretimde" yanıtı). Tek sahnelik üretim eskisi gibidir.
 
+### vast.ai: bilinen sorunlar (ilk gerçek deneme, Ekim 2026)
+
+vast.ai arka ucu **deneyseldir ve varsayılan olarak kapalıdır** (Ayarlar › MiniMax H3 › Platform: `runpod`). İlk gerçek
+denemede görülen ve henüz düzeltilmeyen sorunlar; arka uç yeniden açılırsa önce bunlar ele alınmalı:
+
+- **Pazaryeri modeli otonom hatta uymuyor:** durdurulan makinenin GPU'su başkasına kiralandı, makine yeniden başlatılamadı;
+  her yeni makine ~35 dk kurulum (model indirme) istiyor.
+- **Makine kendiliğinden "exited" oldu:** kurulumdan ~10 dk sonra. Panelde durdurma olayı ya da boşta bekleme maliyet kaydı,
+  vast.ai denetim günlüğünde de durdurma kaydı yok. Boşta durdurma mı (olay yalnızca son etkin proje varken yazılıyor), yoksa
+  kapsayıcı mı kendi kapandı, belirsiz.
+- **Sertifika sabitleme `TypeError` ile başarısız oldu** (portal bağlantısında; ayrıntı ve düzeltme bekliyor).
+- **Portal Host/Origin 403:** Instance Portal (Caddy) vekili ComfyUI arayüzünü Host/Origin denetimi yüzünden bozuyor;
+  Cloudflare Quick Tunnel da güvenilir çalışmadı.
+- **Kurulum günlüğü:** kapsayıcının RAM sınırı cgroup'tan okunamıyor (vast.ai kapsayıcıya sınır koymayabilir); günlükte
+  sunucunun toplam RAM'i yazar, kiralanan pay teklifte görünür. Ortak panel kusurları (otomatik kaydırma, arka plandaki sekmede
+  geride kalan sayaç, bitmiş 4/4 aşamasının "şu an" görünmesi, boş "boş disk" değeri) düzeltildi.
+
 ### Storyboard görsel modeli ve lisanslar
 
 FL2VA'nın ilk karesi bir görsel modelinden gelir. Hell Grind kendi makinenizde yalnızca Apache 2.0 lisanslı modeller kurar
@@ -556,7 +589,7 @@ Ayarlar › MiniMax H3'e **vast.ai API anahtarı** (ücretli kilidin anahtarı) 
 - **Otomatik başlatma** (isteğe bağlı): iş geldiğinde durmuş makine başlatılır ve sunucu hazır olana dek beklenir.
 - **Elle:** Ayarlar'da **Makineyi başlat / durdur** (yalnızca ücretli modda). Durdurulmuş makinenin diski vast.ai'de
   ücretlenmeye devam eder; makinenin GPU'su başkasına kiralanmışsa yeniden başlatma başarısız olabilir.
-- **Bölge:** makine lisansın dışladığı bölgedeyse üretim başlamaz; MiniMax'ten izin aldıysanız **Bölge izni**ni açın.
+- **Bölge:** makinenin konumu izinli listede değilse üretim başlamaz (bkz. *Bölge: izinli liste*).
 - **Bağlantıyı sına:** vast.ai'den makinenin durumu, saatlik ücreti, konumu ve GPU'su (ücretsiz okuma) ve sunucunun sağlık
   ucu. İş başlatmaz.
 
@@ -643,13 +676,16 @@ Bilinmesi gerekenler:
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
 | `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |
 | `VAST_API_KEY`, `FAL_KEY`, `ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY` | boş | Ücretli servis anahtarları (panelin Ayarlar sayfasından da girilir); MiniMax H3'ün kilidi vast.ai API anahtarıdır |
+| `H3_PLATFORM` | `runpod` | MiniMax H3'ün platformu: `runpod` (Serverless) ya da `vast` (deneysel, kapalı) |
+| `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, `RUNPOD_NETWORK_VOLUME_ID` | boş | RunPod anahtarı, Serverless uç nokta ve modellerin volume'u |
+| `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
+| `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
 | `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
 | `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |
 | `H3_API_KEY` | boş | Portal belirteci (isteğe bağlı; SSH tünelinde gerekmez) |
 | `H3_MODEL` / `H3_MODEL_REVISION` / `H3_STEPS` | `MiniMaxAI/MiniMax-H3` / boş / `9` | Model kimliği, klip meta verisine yazılan sürüm, adım sayısı (sunucudaki kurulumla aynı) |
 | `H3_IDLE_STOP_MINUTES` / `H3_AUTO_START` | `10` / `false` | Boşta durdurma süresi (0: kapalı) ve iş gelince durmuş makineyi başlatma |
-| `H3_TERRITORY_AUTHORIZED` | `false` | Makine lisansın dışladığı bölgedeyse yalnızca MiniMax'ten izin alındıysa `true` |
 | `H3_TLS_MODE` | `verify` | Sunucu sertifikası: `verify`, `pin` (ilk bağlantıda parmak izini sabitle; panelden kiralanan makine), `off` |
 | `H3_REPLACE_MODE` | `ask` | Yedek makine: `ask` (her zaman sor), `auto` (fiyat tavanı altındaysa sormadan), `off` |
 | `H3_MAX_DPH` / `H3_MIN_RAM_GB` / `H3_MIN_DISK_GB` / `H3_MIN_INET_MBPS` | `0.95` / `128` / `200` / `1000` | Yeni ve yedek makine koşulları (RAM en az 96, disk en az 150) |
@@ -695,11 +731,14 @@ backend/
     api/         projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, history, export, services, panel,
                  plan, deps, uploads
     worker/      celery_app, tasks, dispatch
-    live/        ücretli kilit (guard), vast_h3 (MiniMax H3), vast_box ve vast_api (makine), fal_video, elevenlabs, hermes_llm, probe
+    live/        ücretli kilit (guard), runpod_h3 (MiniMax H3, RunPod Serverless), vast_h3, vast_box ve vast_api (deneysel),
+                 h3_outputs (çıktı güvencesi), tls_pin, fal_video, elevenlabs, hermes_llm, probe
+    core/regions izinli bölgeler (RunPod veri merkezleri, vast.ai ülkeleri)
   requirements-live.txt        yalnızca ücretli entegrasyonlar için ek bağımlılıklar
   requirements-quality.txt     gerçek kalite skorlayıcısı (ücretsiz, yerel modeller; imajda kurulu)
   scripts/smoke.py  scripts/fetch_models.py   duman testi; model dosyalarını indirip doğrulama
-  vast/setup.sh                MiniMax H3 makinesi kurulumu (ComfyUI, H3 int8 modelleri, görsel modeli)
+  runpod/                      RunPod: setup_volume.sh (modeller Network Volume'a), worker/ (Dockerfile, handler.py), README.md
+  vast/setup.sh                MiniMax H3 makinesi kurulumu (vast.ai, deneysel: ComfyUI, H3 int8 modelleri, görsel modeli)
   tests/
 ```
 

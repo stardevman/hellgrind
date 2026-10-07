@@ -75,7 +75,7 @@ export const PURGE_TR: Record<string, string> = {
 
 /** Video motorları: panelde görünen ad ve nerede çalıştığı. */
 export const ENGINE_TR: Record<string, string> = {
-  h3: "MiniMax H3 · vast.ai", seedance: "Seedance · fal.ai", fal_wan: "Wan 2.2 · fal.ai (eski)", higgsfield: "Higgsfield",
+  h3: "MiniMax H3", seedance: "Seedance · fal.ai", fal_wan: "Wan 2.2 · fal.ai (eski)", higgsfield: "Higgsfield",
 };
 /** MiniMax H3 koşulu: kompozisyon seed'le değil koşulla kontrol edilir. */
 export const H3_MODE_TR: Record<string, string> = {

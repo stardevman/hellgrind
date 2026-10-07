@@ -31,10 +31,10 @@ def ledger_kinds(pid) -> list[str]:
 # ---------- etiketler (veritabanı gerekmez) ----------
 
 @pytest.mark.parametrize("label, service, operation, models, resolution", [
-    ("h3:720p", "vast", "video", ("h3_model",), "720p"),
-    ("h3:480p:reference", "vast", "reference", ("h3_model",), "480p"),
-    ("h3:480p:motion_test", "vast", "motion_test", ("h3_model",), "480p"),
-    ("h3:720p:revision", "vast", "revision", ("h3_model",), "720p"),
+    ("h3:720p", "runpod", "video", ("h3_model",), "720p"),
+    ("h3:480p:reference", "runpod", "reference", ("h3_model",), "480p"),
+    ("h3:480p:motion_test", "runpod", "motion_test", ("h3_model",), "480p"),
+    ("h3:720p:revision", "runpod", "revision", ("h3_model",), "720p"),
     ("fal_wan:720p", "fal", "video", ("fal_wan_endpoint",), "720p"),
     ("seedance:720p", "fal", "video", ("fal_seedance_endpoint",), "720p"),
     ("flux_lora:first_frame:480p", "fal", "first_frame", ("fal_flux_endpoint",), "480p"),
@@ -167,7 +167,7 @@ def test_a_reference_names_its_asset(api, sample_scene):
     assert api.post(f"/api/assets/{kerem.id}/references/placeholder").status_code == 201
     [row] = calls(pid)
     assert (row["operation"], row["subject"], row["asset_id"]) == ("reference", "Kerem", kerem.id)
-    assert (row["service"], row["model"], row["dry_run"]) == ("vast", settings.h3_model, True)    # H3 dönüş videosu
+    assert (row["service"], row["model"], row["dry_run"]) == ("runpod", settings.h3_model, True)  # H3 dönüş videosu
 
 
 # ---------- ücretli yollar (sahte istemciler) ----------

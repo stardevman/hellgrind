@@ -154,7 +154,7 @@ class FakeVast:
     """Sahte vast.ai API'si: makine durumu, başlat/durdur, teklif arama, kiralama, silme. Varsayılan makine "4242"dir;
     kiralanan makine önce "loading", sonra "running" olur ve portalın 8188 portu dışarıda 41234'e eşlenir."""
 
-    def __init__(self, status: str = "running", geolocation: str = "Norway, NO", dph: float = 0.87):
+    def __init__(self, status: str = "running", geolocation: str = "Quebec, CA", dph: float = 0.87):
         self.status, self.geolocation, self.dph = status, geolocation, dph
         self.start_fails = False                      # durdurulan makinenin GPU'su başkasına kiralanmış
         self.requests: list[httpx.Request] = []
@@ -163,7 +163,7 @@ class FakeVast:
         self.rents: list[tuple[str, dict]] = []
         self.deletes: list[str] = []
         self.offers: list[dict] = [
-            {"id": 7001, "ask_contract_id": 7001, "gpu_name": "RTX 5090", "dph_total": 0.81, "geolocation": "Norway, NO",
+            {"id": 7001, "ask_contract_id": 7001, "gpu_name": "RTX 5090", "dph_total": 0.81, "geolocation": "Quebec, CA",
              "cpu_ram": 128000, "disk_space": 400, "reliability": 0.995, "inet_down": 1200},
         ]
         self.new: dict[str, dict] = {}                # kiralanan makineler: kimlik -> durum
@@ -176,7 +176,7 @@ class FakeVast:
             box = self.new[iid]
             if box["boot"]:
                 box["status"] = box["boot"].pop(0)
-            return {"id": int(iid), "actual_status": box["status"], "dph_total": 0.81, "geolocation": "Norway, NO",
+            return {"id": int(iid), "actual_status": box["status"], "dph_total": 0.81, "geolocation": "Quebec, CA",
                     "gpu_name": "RTX 5090", "public_ipaddr": "203.0.113.9",
                     "ports": {"8188/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41234"}],
                               "1111/tcp": [{"HostIp": "0.0.0.0", "HostPort": "41235"}],

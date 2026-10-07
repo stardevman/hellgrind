@@ -95,9 +95,14 @@ def board_source() -> str:
     prosedürel kare (yerel kare H3'e ilk kare olarak verilmez)."""
     if settings.dry_run:
         return "local"
-    if paid.available("vast_api_key"):
-        from app.live import vast_h3                # ücretli modül: yalnızca fonksiyon içinde
-        if vast_h3.comfy_keyframes_ready():
+    if settings.h3_platform == "vast":
+        if paid.available("vast_api_key"):
+            from app.live import vast_h3            # ücretli modül: yalnızca fonksiyon içinde
+            if vast_h3.comfy_keyframes_ready():
+                return "comfyui"
+    elif paid.available("runpod_api_key"):
+        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
+        if runpod_h3.keyframes_ready():
             return "comfyui"
     return "flux" if paid.available("fal_key") else "local"
 
@@ -105,10 +110,15 @@ def board_source() -> str:
 def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict) -> str:
     """Ücretli kare (yazısız): fal.ai Flux (karakter LoRA'larıyla ya da referans görseliyle Kontext) ya da H3
     makinesindeki ComfyUI görsel iş akışı. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
-    if source == "comfyui":
-        from app.live import vast_h3                # ücretli modül: yalnızca fonksiyon içinde
-        made = paid.call(project_id, pricing.estimate_keyframe(), "h3:storyboard", "vast_api_key",
-                         lambda: vast_h3.keyframe_image(prompt, seed, project_id), scene_id=scene_id)
+    if source == "comfyui":                         # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
+        if settings.h3_platform == "vast":
+            from app.live import vast_h3 as platform    # ücretli modül: yalnızca fonksiyon içinde
+            key_name = "vast_api_key"
+        else:
+            from app.live import runpod_h3 as platform
+            key_name = "runpod_api_key"
+        made = paid.call(project_id, pricing.estimate_keyframe(), "h3:storyboard", key_name,
+                         lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id)
         local = made.local_path
     else:
         from app.live import fal_video              # ücretli modül: yalnızca fonksiyon içinde

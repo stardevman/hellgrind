@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # /view; 127.0.0.1'de, SSH tüneli ya da portalın kimlik doğrulamalı vekili üzerinden). Ücretli kilidin anahtarı vast.ai
     # API anahtarıdır (makineyi o faturalar; boşta durdurma ve otomatik başlatma da onunla yapılır). Portal belirteci
     # (OPEN_BUTTON_TOKEN ya da WEB_PASSWORD) isteğe bağlıdır: SSH tünelinde gerekmez.
+    # MiniMax H3'ün çalıştığı platform: runpod (varsayılan; Serverless, Network Volume) | vast (deneysel, kapalı)
+    h3_platform: str = "runpod"
+    runpod_api_key: str = ""
+    runpod_endpoint_id: str = ""       # Serverless uç noktası (ComfyUI worker'ı; backend/runpod/worker)
+    runpod_network_volume_id: str = ""
+    runpod_datacenter: str = "CA-MTL-1"   # Network Volume'un veri merkezi; uç nokta yalnızca bu merkezde çalışır
+    runpod_gpu_types: str = "RTX 5090,RTX PRO 6000"
+    runpod_idle_timeout_s: int = 60    # worker son işten sonra bu kadar bekler (faturalanır), sonra kapanır
+    runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     vast_api_key: str = ""
     vast_instance_id: str = ""
     h3_api_key: str = ""               # portal belirteci (Authorization: Bearer); boşsa gönderilmez
@@ -57,7 +66,7 @@ class Settings(BaseSettings):
     h3_idle_stop_minutes: int = 10     # kuyruk bu kadar dakika boşsa makine durdurulur (0: kapalı)
     h3_auto_start: bool = False        # iş gelince durmuş makine başlatılır
     h3_start_timeout_s: int = 900      # otomatik başlatmada sunucunun hazır olmasının beklendiği en uzun süre
-    h3_territory_authorized: bool = False   # lisansın dışladığı bölgelerde (AB, BK, G. Kore, ABD) MiniMax'ten izin alındı
+    h3_allow_nordic: bool = False      # izinli bölgelere Kuzey'i ekle: RunPod EUR-NO-1, EUR-IS-*; vast.ai NO, IS (app/core/regions.py)
     h3_tls_mode: str = "verify"        # verify | pin (ilk başarılı bağlantıda sertifikayı sabitle; yeni makine) | off
     # Yedek makine: otomatik başlatma başarısız olursa (durdurulan makinenin GPU'su başkasına kiralanmış olabilir) uygun
     # bölgelerde aynı GPU tipinde yeni bir teklif bulunur, kiralanır, setup.sh ile kurulur; eski makine silinir.

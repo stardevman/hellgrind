@@ -71,7 +71,15 @@ def test_engines_with_a_minimum_length_are_billed_for_what_they_render(engine, s
     assert providers.billed_seconds(engine, seconds) == billed
 
 
-def test_h3_is_priced_by_gpu_time_on_the_rented_machine():
+def test_h3_is_priced_by_gpu_time_on_runpod_by_default():
+    rp = pricing.serverless()
+    top = max(rp["per_second"].values())
+    assert LocalProvider("h3").estimate(request(resolution="720p", duration=6.0)) == pytest.approx(
+        round(top * rp["render_seconds"]["720p"] * 6, 4))
+
+
+def test_h3_is_priced_by_gpu_time_on_the_rented_machine(monkeypatch):
+    monkeypatch.setattr(settings, "h3_platform", "vast")
     hosted = pricing.self_hosted("h3")
     per_video_second = hosted["gpu_hourly_usd"] / 3600 * hosted["render_seconds"]["720p"]
     assert LocalProvider("h3").estimate(request(resolution="720p", duration=6.0)) == pytest.approx(round(per_video_second * 6, 4))

@@ -136,6 +136,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "h3_tls_pinned": return { t: `H3 sunucusunun sertifikası sabitlendi (${String(x.fingerprint ?? "").slice(0, 23)}…)`, c: "good" };
     case "h3_tls_mismatch": return { t: `H3 sunucusunun sertifikası değişti (${x.endpoint}): istek gönderilmedi`, c: "bad" };
     case "h3_tls_fallback": return { t: `Sertifika sabitlenemedi (${x.reason}); doğrulamasız sürüyor`, c: "bad" };
+    case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
+    case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
     case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi, sonra ${x.videos} çekimin videosu` };
     case "batch_videos": return { t: `Kareler bitti: ${x.videos} çekimin videosu kuyruğa alındı` };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };

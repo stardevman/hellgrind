@@ -47,13 +47,17 @@ if ! pgrep -f "http.server $LOG_PORT" >/dev/null 2>&1; then
   (cd "$LOGDIR" && nohup python3 -m http.server "$LOG_PORT" --bind 127.0.0.1 >/dev/null 2>&1 &)
 fi
 
-ram_limit() {  # kapsayıcının RAM sınırı (cgroup); yoksa makinenin toplamı
+ram_limit() {  # kapsayıcının RAM sınırı (cgroup); sınır yoksa sunucunun toplamı (vast.ai kapsayıcıya sınır koymayabilir)
   local max; max=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null)
-  if [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -lt 4611686018427387904 ]; then echo "$(( max / 1073741824 )) GB (kapsayıcı)"
-  else echo "$(free -g 2>/dev/null | awk '/^Mem:/{print $2}') GB"; fi
+  if [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -lt 4611686018427387904 ]; then echo "$(( max / 1073741824 )) GB (kapsayıcı sınırı)"
+  else echo "$(free -g 2>/dev/null | awk '/^Mem:/{print $2}') GB (sunucunun toplamı; kapsayıcı sınırı okunamadı, kiralanan pay teklifte yazar)"; fi
+}
+free_disk() {  # /workspace henüz yoksa üst klasör ya da kök
+  local d=$WORKSPACE; while [ ! -d "$d" ] && [ "$d" != "/" ]; do d=$(dirname "$d"); done
+  df -BG --output=avail "$d" 2>/dev/null | tail -1 | tr -d ' '
 }
 step "kurulum başladı (görsel modeli: $IMAGE_MODEL)"
-step "makine: GPU $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1 || echo '?'); RAM $(ram_limit); boş disk $(df -BG --output=avail "$WORKSPACE" 2>/dev/null | tail -1 | tr -d ' ')"
+step "makine: GPU $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1 || echo '?'); RAM $(ram_limit); boş disk $(free_disk)"
 touch "$WORKSPACE/.hellgrind-setup-running" 2>/dev/null || true
 
 # 1) ComfyUI ve Python ortamı

@@ -78,6 +78,7 @@ def measure_of(params: dict | None) -> dict | None:
 @router.get("/meta")
 def meta():
     return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
+            "h3_platform": settings.h3_platform,
             "quality": quality_meta(), "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS,
             "sample_script": SAMPLE_SCRIPT, "trial_script": TRIAL_SCRIPT}
 

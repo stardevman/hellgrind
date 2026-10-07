@@ -184,7 +184,8 @@ def test_without_a_reported_gpu_time_the_estimate_is_charged(h3):
     assert provider.generate(request(resolution="480p")).cost_usd == provider.estimate(request(resolution="480p"))
 
 
-def test_the_estimate_follows_the_calibrated_prices():
+def test_the_estimate_follows_the_calibrated_prices(monkeypatch):
+    monkeypatch.setattr(settings, "h3_platform", "vast")
     hosted = pricing.self_hosted("h3")
     assert (hosted["gpu_hourly_usd"], hosted["render_seconds"]) == (0.95, {"480p": 8, "720p": 16.5})
     expected = round(0.95 / 3600 * 8 * 4, 4)
@@ -377,21 +378,21 @@ def box(h3, monkeypatch):
 
 def test_a_running_box_in_an_allowed_region_is_used_and_its_location_recorded(box):
     result = H3Provider().generate(request())
-    assert result.meta["provenance"]["server_location"] == "Norway, NO"
+    assert result.meta["provenance"]["server_location"] == "Quebec, CA"
     assert result.meta["provenance"]["vast_instance_id"] == "4242" and box.puts == []
 
 
-def test_a_box_in_an_excluded_territory_is_refused_unless_authorized(box, monkeypatch):
-    box.geolocation = "Virginia, US"
-    with pytest.raises(PaidCallBlocked, match="lisansın dışladığı"):
+@pytest.mark.parametrize("geo", ["Virginia, US", "Puerto Rico, PR", "San Juan, US", "Norway, NO", None])
+def test_a_box_outside_the_allowlist_is_refused(box, geo):
+    box.geolocation = geo
+    with pytest.raises(PaidCallBlocked, match="izinli listede değil"):
         H3Provider().generate(request())
-    monkeypatch.setattr(settings, "h3_territory_authorized", True)
-    assert H3Provider().generate(request()).meta["provenance"]["server_location"] == "Virginia, US"
 
 
-@pytest.mark.parametrize("geo,excluded", [("Norway, NO", False), ("Bavaria, DE", True), ("London, GB", True),
-                                          ("Seoul, KR", True), ("Ontario, CA", False), ("Istanbul, TR", False), (None, False)])
-def test_excluded_territories(geo, excluded):
+@pytest.mark.parametrize("geo,excluded", [("Quebec, CA", False), ("Ontario, CA", False), ("Norway, NO", True),
+                                          ("Bavaria, DE", True), ("London, GB", True), ("Seoul, KR", True),
+                                          ("Istanbul, TR", True), ("Puerto Rico, PR", True), (None, True)])
+def test_only_allowlisted_locations_are_accepted(geo, excluded):
     assert vast_api.Box("running", None, None, geo, None).excluded is excluded
 
 
@@ -477,11 +478,11 @@ def routed(vast: FakeVast | None, server_status: int):
 
 def test_the_probe_reports_the_box_and_the_server(box, monkeypatch):
     r = probe.check("vast", "test-vast_api_key", routed(box, 200))
-    assert r["ok"] is True and r["message"] == ("Makine: running · 0,87 $/sa · Norway, NO · RTX 5090 Sunucu hazır "
+    assert r["ok"] is True and r["message"] == ("Makine: running · 0,87 $/sa · Quebec, CA · RTX 5090 Sunucu hazır "
                                                 "(SGLang arka ucu deneysel).")
     box.geolocation = "Virginia, US"
     r = probe.check("vast", "test-vast_api_key", routed(box, 200))
-    assert r["ok"] is False and "lisansının dışında" in r["message"]
+    assert r["ok"] is False and "izinli listede değil" in r["message"]
     assert probe.check("vast", "yanlis-anahtar", routed(box, 200))["ok"] is False
 
 

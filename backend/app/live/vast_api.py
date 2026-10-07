@@ -10,7 +10,6 @@
 Başlatma ve durdurma ücretli kilitten geçer (`guard("vast_api_key")`): yalnızca ücretli modda çalışır. Durum okuma
 bağlantı sınamasında da kullanılır (ücretsiz, salt okunur; app/live/probe.py). Testler sahte taşıyıcı bağlar.
 """
-import re
 from dataclasses import dataclass
 
 import httpx
@@ -22,10 +21,8 @@ API = "https://console.vast.ai/api/v0"
 TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 TRANSPORT: httpx.BaseTransport | None = None
 
-# Lisansın dışladığı bölgeler (MiniMax H3 Community License, "Excluded Territories"): AB, Birleşik Krallık, Güney Kore, ABD.
-EU = {"AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT",
-      "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"}
-EXCLUDED = EU | {"GB", "UK", "KR", "US"}
+from app.core import regions                     # izinli bölgeler (yasaklı liste değil): app/core/regions.py
+from app.core.regions import EU, LICENSE_EXCLUDED as EXCLUDED, country_of  # noqa: F401 — eski adlar
 
 
 @dataclass(frozen=True)
@@ -55,13 +52,8 @@ class Box:
 
     @property
     def excluded(self) -> bool:
-        return self.country in EXCLUDED
-
-
-def country_of(geolocation: str | None) -> str | None:
-    """"California, US" -> "US". Kod yoksa None."""
-    m = re.search(r"\b([A-Z]{2})\s*$", geolocation or "")
-    return m.group(1) if m else None
+        """İzinli listede değil (bilinmeyen konum dahil)."""
+        return not regions.location_allowed(self.geolocation)
 
 
 def _client(key: str, transport: httpx.BaseTransport | None = None) -> httpx.Client:
@@ -149,12 +141,12 @@ def offer_query(gpu: str, max_dph: float, min_ram_gb: int, min_disk_gb: int, min
             "rentable": {"eq": True}, "rented": {"eq": False}, "verified": {"eq": True}, "num_gpus": {"eq": 1},
             "gpu_name": {"in": gpu_names(gpu)}, "dph_total": {"lte": max_dph}, "cpu_ram": {"gte": min_ram_gb * 1000},
             "disk_space": {"gte": min_disk_gb}, "inet_down": {"gte": min_inet_mbps}, "reliability": {"gte": 0.98},
-            "direct_port_count": {"gte": 4}, "geolocation": {"notin": sorted(EXCLUDED)}}
+            "direct_port_count": {"gte": 4}, "geolocation": {"in": list(regions.vast_countries())}}
 
 
 def search_offers(gpu: str, max_dph: float, min_ram_gb: int, min_disk_gb: int, min_inet_mbps: int) -> list[Offer]:
-    """Uygun teklifler, ucuzdan pahalıya. Bölge süzgeci sunucuda ve burada iki kez uygulanır: konumu bilinmeyen ya da
-    lisansın dışladığı bölgedeki teklif hiçbir zaman dönmez."""
+    """Uygun teklifler, ucuzdan pahalıya. Bölge süzgeci (izinli liste) sunucuda ve burada iki kez uygulanır: konumu
+    bilinmeyen, izinli listede olmayan ya da yasaklı topraktaki (ör. Porto Riko) teklif hiçbir zaman dönmez."""
     key = guard("vast_api_key")
     with _client(key) as c:
         r = c.post("/bundles", json=offer_query(gpu, max_dph, min_ram_gb, min_disk_gb, min_inet_mbps))
@@ -167,7 +159,7 @@ def search_offers(gpu: str, max_dph: float, min_ram_gb: int, min_disk_gb: int, m
                       dph=float(o.get("dph_total") or 0), geolocation=o.get("geolocation"),
                       ram_gb=round(float(o.get("cpu_ram") or 0) / 1000, 1), disk_gb=float(o.get("disk_space") or 0),
                       reliability=o.get("reliability"), inet_mbps=o.get("inet_down"))
-        if offer.country and offer.country not in EXCLUDED and offer.dph <= max_dph and offer.ram_gb >= min_ram_gb \
+        if regions.location_allowed(offer.geolocation) and offer.dph <= max_dph and offer.ram_gb >= min_ram_gb \
                 and offer.disk_gb >= min_disk_gb and (offer.inet_mbps is None or offer.inet_mbps >= min_inet_mbps):
             offers.append(offer)
     return sorted(offers, key=lambda o: o.dph)

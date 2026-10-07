@@ -14,7 +14,7 @@ import { Panel, Section } from "./ui";
 
 const PAGE_SIZE = 100;
 const MAX_ROWS = 500;
-const SERVICES = [["vast", "MiniMax H3 · vast.ai"], ["fal", "fal.ai"], ["elevenlabs", "ElevenLabs"], ["anthropic", "Anthropic"]] as const;
+const SERVICES = [["runpod", "MiniMax H3 · RunPod"], ["vast", "MiniMax H3 · vast.ai"], ["fal", "fal.ai"], ["elevenlabs", "ElevenLabs"], ["anthropic", "Anthropic"]] as const;
 const PERIODS = [["1", "Son 24 saat"], ["7", "Son 7 gün"], ["30", "Son 30 gün"]] as const;
 const statusTone = (s: string) => (s === "succeeded" ? "ok" : s === "failed" ? "bad" : "work");
 
@@ -103,6 +103,7 @@ function priceNote(c: ServiceCall): string {
       ? "Rezervasyon bütçeye iade edildi. İstek sağlayıcının kuyruğuna girdi: hata sonuç alınırken olduysa sağlayıcı yine de ücretlendirmiş olabilir. İstek kimliğini sağlayıcının panelinde kontrol edin."
       : "Rezervasyon bütçeye iade edildi; istek sağlayıcıya ulaşmadı.";
   }
+  if (c.service === "runpod") return "Tutar, RunPod'un bildirdiği çalışma süresi (ve worker'ın ilk işiyse soğuk başlatma) × GPU tipinin saniye ücretiyle hesaplandı. Boşta bekleyen worker'lar ayrı satırda; kesin tutar RunPod faturasındadır.";
   if (c.service === "vast") return "Tutar, sunucunun bildirdiği GPU süresi × fiyat tablosundaki saatlik ücretle hesaplandı. Makinenin boşta geçen süresi buraya yansımaz; kesin tutar vast.ai faturasındadır.";
   if (c.service === "fal") return "fal.ai yanıtı fatura tutarı döndürmez: işlenen tutar fiyat tablosundan hesaplanır. Kesin tutar için istek kimliğini fal.ai panelinde arayın.";
   if (c.service === "anthropic") return "Tutar, yanıttaki belirteç kullanımından fiyat tablosuyla hesaplandı.";

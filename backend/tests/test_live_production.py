@@ -332,7 +332,7 @@ def test_a_blocked_paid_reference_answers_409_and_spends_nothing(api, sample_sce
     pid, _ = sample_scene()
     go_paid(monkeypatch)                                          # H3 anahtarı yok: karakter dönüşü üretilemez
     r = api.post(f"/api/assets/{asset_named(pid, 'Kerem').id}/references/placeholder")
-    assert r.status_code == 409 and "VAST_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
+    assert r.status_code == 409 and "RUNPOD_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
     monkeypatch.setattr(settings, "fal_key", "")                 # mekân görseli Flux'tan: fal anahtarı gerekir
     r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder")
     assert r.status_code == 409 and "FAL_KEY" in r.text and studio.calls == [] and ledger(pid) == []

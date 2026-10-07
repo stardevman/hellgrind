@@ -307,9 +307,12 @@ def _generate(c: Ctx, req: GenRequest, vid):
 # ---------- dalga ----------
 
 def run_wave(c: Ctx, tier: str, wave_no: int, n: int, resolution: str) -> list[VarResult]:
-    """n varyasyonu `gen_concurrency` iş parçacığıyla üretir. Donma ya da başka hata, dalga bitince yükseltilir."""
+    """n varyasyonu `gen_concurrency` iş parçacığıyla üretir. Donma ya da başka hata, dalga bitince yükseltilir.
+    Kuyruklu sağlayıcı (RunPod Serverless, `whole_wave`) dalganın bütün işlerini birlikte gönderir: soğuk başlatma işler
+    arasında paylaşılır, eşzamanlılığı uç noktanın worker sayısı belirler."""
     results, frozen, error = [], None, None
-    with ThreadPoolExecutor(max_workers=max(1, settings.gen_concurrency)) as pool:
+    workers = n if getattr(c.provider, "whole_wave", False) else settings.gen_concurrency
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = [pool.submit(run_one, c, tier, wave_no, i, resolution) for i in range(n)]
         for f in futures:
             try:

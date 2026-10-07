@@ -30,7 +30,8 @@ celery.conf.update(
     beat_schedule={
         "budget-watchdog": {"task": "hg.watchdog", "schedule": 30.0},
         "reap-stale-reservations": {"task": "hg.reap_stale", "schedule": 300.0},
-        "h3-idle": {"task": "hg.h3_idle", "schedule": 60.0},     # H3 makinesi: boşta bedel ve durdurma
+        "h3-idle": {"task": "hg.h3_idle", "schedule": 60.0},     # H3 makinesi (vast.ai): boşta bedel ve durdurma
+        "runpod-tick": {"task": "hg.runpod_tick", "schedule": 60.0},   # RunPod: boşta worker bedeli, bakiye, yarım indirmeler
     },
 )
 

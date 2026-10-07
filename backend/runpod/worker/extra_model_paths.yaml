@@ -1,0 +1,13 @@
+# Network Volume'daki modeller (serverless worker'da /runpod-volume; Pod'da aynı volume /workspace'tedir).
+# setup_volume.sh dosyaları models/<klasör>/ altına indirir. unet ve clip, ComfyUI'nin eski adlarıdır.
+hellgrind_volume:
+  base_path: /runpod-volume
+  diffusion_models: models/diffusion_models/
+  unet: models/diffusion_models/
+  text_encoders: models/text_encoders/
+  clip: models/text_encoders/
+  vae: models/vae/
+  loras: models/loras/
+  checkpoints: models/checkpoints/
+  clip_vision: models/clip_vision/
+  upscale_models: models/upscale_models/

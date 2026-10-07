@@ -36,7 +36,7 @@ class Field:
     env: str                    # .env adı
     attr: str                   # settings alanı
     kind: str                   # secret | model | url | text | number | choice | mode
-    service: str                # vast | fal | elevenlabs | anthropic | core
+    service: str                # runpod | vast | fal | elevenlabs | anthropic | core
     label: str
     choices: tuple[str, ...] = ()
     url: str | None = None      # model sayfası (doğrulamak için)
@@ -45,6 +45,24 @@ class Field:
 
 FIELDS: tuple[Field, ...] = (
     Field("DRY_RUN", "dry_run", "mode", "core", "Ücretsiz mod"),
+    Field("RUNPOD_API_KEY", "runpod_api_key", "secret", "runpod", "RunPod API anahtarı"),
+    Field("H3_PLATFORM", "h3_platform", "choice", "runpod", "Platform (vast: deneysel, varsayılan kapalı)", ("runpod", "vast")),
+    Field("RUNPOD_ENDPOINT_ID", "runpod_endpoint_id", "text", "runpod", "Serverless uç nokta kimliği"),
+    Field("RUNPOD_NETWORK_VOLUME_ID", "runpod_network_volume_id", "text", "runpod", "Network Volume kimliği (modeller)"),
+    Field("RUNPOD_DATACENTER", "runpod_datacenter", "choice", "runpod",
+          "Veri merkezi (volume'un merkezi; EUR-* yalnızca Kuzey izni açıkken)",
+          ("CA-MTL-1", "CA-MTL-2", "CA-MTL-3", "EUR-NO-1", "EUR-IS-1", "EUR-IS-2", "EUR-IS-3")),
+    Field("RUNPOD_GPU_TYPES", "runpod_gpu_types", "text", "runpod", "GPU tipleri (virgülle; RTX 5090, RTX PRO 6000)"),
+    Field("RUNPOD_IDLE_TIMEOUT_S", "runpod_idle_timeout_s", "number", "runpod",
+          "Boşta bekleme (sn; son işten sonra worker açık kalır ve faturalanır)", minimum=5),
+    Field("RUNPOD_MIN_BALANCE_USD", "runpod_min_balance_usd", "number", "runpod",
+          "Bakiye eşiği ($; altında yeni iş başlamaz)", minimum=1),
+    Field("H3_ALLOW_NORDIC", "h3_allow_nordic", "choice", "runpod",
+          "Kuzey veri merkezleri de izinli (RunPod EUR-NO-1, EUR-IS-*; vast.ai Norveç, İzlanda). Varsayılan: yalnızca Kanada",
+          ("false", "true")),
+    Field("H3_MODEL", "h3_model", "model", "runpod", "Model", url="https://huggingface.co/{}"),
+    Field("H3_MODEL_REVISION", "h3_model_revision", "text", "runpod", "Model sürümü (klip meta verisine yazılır)"),
+    Field("H3_STEPS", "h3_steps", "choice", "runpod", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),
     Field("VAST_API_KEY", "vast_api_key", "secret", "vast", "vast.ai API anahtarı"),
     Field("VAST_INSTANCE_ID", "vast_instance_id", "text", "vast", "Makine kimliği (instance ID)"),
     Field("H3_BACKEND", "h3_backend", "choice", "vast", "Arka uç (sglang: deneysel)", ("comfyui", "sglang")),
@@ -54,11 +72,6 @@ FIELDS: tuple[Field, ...] = (
     Field("H3_IDLE_STOP_MINUTES", "h3_idle_stop_minutes", "choice", "vast", "Boşta durdurma (dakika; 0: kapalı)",
           ("0", "5", "10", "15", "30", "60")),
     Field("H3_AUTO_START", "h3_auto_start", "choice", "vast", "İş gelince durmuş makineyi başlat", ("false", "true")),
-    Field("H3_MODEL", "h3_model", "model", "vast", "Model", url="https://huggingface.co/{}"),
-    Field("H3_MODEL_REVISION", "h3_model_revision", "text", "vast", "Model sürümü (klip meta verisine yazılır)"),
-    Field("H3_STEPS", "h3_steps", "choice", "vast", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),
-    Field("H3_TERRITORY_AUTHORIZED", "h3_territory_authorized", "choice", "vast",
-          "Bölge izni (AB, BK, G. Kore, ABD için MiniMax'ten izin alındı)", ("false", "true")),
     Field("H3_TLS_MODE", "h3_tls_mode", "choice", "vast",
           "Sunucu sertifikası: verify (doğrula), pin (ilk bağlantıda parmak izini sabitle; yeni makine), off (doğrulama yok)",
           ("verify", "pin", "off")),

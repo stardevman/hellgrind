@@ -2,7 +2,9 @@
 doğurmadan denetler. Yalnızca panelde "Bağlantıyı sına" düğmesine basılınca çalışır; testler bu modülün ağ çağrısını
 çalıştırmaz (httpx taşıyıcısı sahtelenir). DRY_RUN'dan bağımsızdır çünkü ücretli bir işlem yapmaz: yalnızca hesap ya da
 model listesini okuyan ücretsiz uçlara gider. MiniMax H3 için vast.ai'den makinenin durumu okunur (GET, ücretsiz) ve
-yönetmenin kendi sunucusunun sağlık ucuna bakılır (/health ya da ComfyUI /system_stats; GPU'da iş başlatmaz).
+yönetmenin kendi sunucusunun sağlık ucuna bakılır (/health ya da ComfyUI /system_stats; GPU'da iş başlatmaz). RunPod için
+hesap bakiyesi (GraphQL), uç noktanın ayarı (veri merkezleri; izinli liste) ve sağlığı (worker ve kuyruk sayıları) okunur;
+worker başlatmaz, iş göndermez.
 """
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ def check(service: str, key: str, transport: httpx.BaseTransport | None = None) 
         return {"ok": False, "status": None, "message": "Anahtar tanımlı değil."}
     if service == "vast":
         return check_h3(key, transport)
+    if service == "runpod":
+        return check_runpod(key)
     try:
         with httpx.Client(timeout=TIMEOUT, transport=transport) as client:
             r = client.send(_request(service, key))
@@ -91,9 +95,7 @@ def _box_line(key: str, transport) -> tuple[bool | None, str]:
     price = f"{box.dph:.2f} $/sa".replace(".", ",") if box.dph is not None else "ücret bilinmiyor"
     line = f"Makine: {box.status} · {price} · {box.geolocation or 'konum bilinmiyor'} · {box.gpu or 'GPU bilinmiyor'}"
     if box.excluded:
-        if settings.h3_territory_authorized:
-            return True, f"{line} (lisansın dışladığı bölge; izin alındı olarak işaretli)"
-        return False, f"{line}. Bu bölge MiniMax H3 lisansının dışında: üretim başlamaz (başka bölgeden makine seçin)."
+        return False, f"{line}. Bu konum izinli listede değil: üretim başlamaz (başka bölgeden makine seçin)."
     if not box.running:
         return None, f"{line}. Makine çalışmıyor."
     return True, line
@@ -124,3 +126,48 @@ def check_h3(key: str, transport: httpx.BaseTransport | None = None) -> dict:
         messages.append(f"Ref2VA: {ref['message']}")
     ok = False if False in oks else (None if None in oks else True)
     return {"ok": ok, "status": status, "message": " ".join(messages)}
+
+
+def check_runpod(key: str) -> dict:
+    """RunPod: bakiye, uç nokta ayarı (izinli veri merkezleri) ve sağlık. Hepsi salt okunur; worker başlatmaz."""
+    from app.live import runpod_h3
+    messages, oks = [], []
+    try:
+        b = runpod_h3.balance(key, refresh=True)
+        low = b["usd"] < float(settings.runpod_min_balance_usd)
+        oks.append(False if low else True)
+        messages.append(f"Bakiye {b['usd']:.2f} $".replace(".", ",") + (f" (eşik {settings.runpod_min_balance_usd} $ altında: "
+                                                                       "yeni iş başlamaz)" if low else "") + ".")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            return {"ok": False, "status": e.response.status_code, "message": "RunPod API anahtarı reddedildi."}
+        oks.append(None)
+        messages.append(f"Bakiye okunamadı (HTTP {e.response.status_code}).")
+    except Exception as e:                                       # noqa: BLE001
+        oks.append(None)
+        messages.append(f"Bakiye okunamadı ({type(e).__name__}).")
+    if not settings.runpod_endpoint_id:
+        return {"ok": False, "status": None, "message": " ".join(messages + ["Uç nokta kimliği tanımlı değil."])}
+    try:
+        cfg = runpod_h3.endpoint_config(key, refresh=True)
+    except Exception as e:                                       # noqa: BLE001
+        cfg = None
+        messages.append(f"Uç nokta ayarı okunamadı ({type(e).__name__}).")
+    problem = runpod_h3.region_problem(cfg)
+    if problem:
+        oks.append(False)
+        messages.append(problem)
+    elif cfg:
+        oks.append(True)
+        messages.append(f"Uç nokta: {', '.join(cfg['datacenters'])} · GPU {', '.join(cfg['pools']) or '?'} · en az "
+                        f"{cfg['workers_min']} / en çok {cfg['workers_max']} worker · boşta {cfg['idle_timeout']} sn.")
+    try:
+        h = runpod_h3.health(key)
+        w, j = h.get("workers") or {}, h.get("jobs") or {}
+        oks.append(True)
+        messages.append(f"Worker: {w.get('idle', 0)} boşta, {w.get('running', 0)} çalışıyor; kuyrukta {j.get('inQueue', 0)} iş.")
+    except Exception as e:                                       # noqa: BLE001
+        oks.append(None)
+        messages.append(f"Uç nokta sağlığı okunamadı ({type(e).__name__}).")
+    ok = False if False in oks else (None if None in oks else True)
+    return {"ok": ok, "status": None, "message": " ".join(messages)}

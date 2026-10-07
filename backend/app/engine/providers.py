@@ -86,7 +86,10 @@ def get_provider(engine: str):
     if settings.dry_run:
         return LocalProvider(engine)
     if engine == "h3":
-        from app.live.vast_h3 import get_live_provider as h3_provider
+        if settings.h3_platform == "vast":                      # deneysel, varsayılan kapalı
+            from app.live.vast_h3 import get_live_provider as h3_provider
+        else:                                                   # RunPod Serverless (varsayılan)
+            from app.live.runpod_h3 import get_live_provider as h3_provider
         return h3_provider()
     from app.live.fal_video import get_live_provider
     return get_live_provider(engine)

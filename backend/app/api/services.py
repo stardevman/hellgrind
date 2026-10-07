@@ -21,7 +21,15 @@ router = APIRouter(tags=["settings"])
 WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
 SERVICES = {
-    "vast": {"name": "MiniMax H3 · vast.ai", "purpose": "Video üretimi: MiniMax H3, kendi GPU makinenizde (SGLang ya da ComfyUI)",
+    "runpod": {"name": "MiniMax H3 · RunPod", "purpose": "Video üretimi: MiniMax H3, RunPod Serverless'ta (varsayılan platform)",
+               "key": "RUNPOD_API_KEY", "console": "https://console.runpod.io/serverless",
+               "used_by": ["Kurgu: görüntü üretimi (test ve tam tur; dalganın işleri birlikte kuyruğa)",
+                           "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
+                           "Varlıklar: hareket testi ve karakter dönüş videosu", "Elle düzeltme: düzenlenmiş ilk kareden video",
+                           "Bakiye koruması: eşiğin altında yeni iş başlamaz",
+                           "Boşta bekleyen worker'ların bedeli son etkin projeye yazılır",
+                           "Çıktı güvencesi: her çıktı indirilip yerel depoda doğrulanır"]},
+    "vast": {"name": "MiniMax H3 · vast.ai (deneysel)", "purpose": "Video üretimi: MiniMax H3, kendi GPU makinenizde (SGLang ya da ComfyUI)",
              "key": "VAST_API_KEY", "console": "https://cloud.vast.ai/instances/",
              "used_by": ["Kurgu: görüntü üretimi (test ve tam tur; FL2VA ilk kareden, Ref2VA karakter referanslarıyla)",
                          "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
@@ -52,8 +60,11 @@ def _key(env: str) -> dict:
 def _active(service: str) -> bool:
     """Servis ücretli modda gerçekten çağrılır mı (anahtar dolu ve ilgili motor seçili)."""
     has_key = _key(SERVICES[service]["key"])["set"]
+    if service == "runpod":
+        return settings.h3_platform == "runpod" and has_key and bool(settings.runpod_endpoint_id)
     if service == "vast":
-        return has_key and bool(settings.h3_endpoint_url) and bool(settings.vast_instance_id)
+        return (settings.h3_platform == "vast" and has_key and bool(settings.h3_endpoint_url)
+                and bool(settings.vast_instance_id))
     if service == "elevenlabs":
         return settings.tts_engine == "elevenlabs" and has_key
     if service == "anthropic":
@@ -91,6 +102,10 @@ def _missing(service: str) -> list[str]:
 
 def _needed(service: str) -> tuple[bool, str]:
     """Servis şu ayarlarla ücretli modda çağrılır mı; çağrılmıyorsa neden."""
+    if service == "vast" and settings.h3_platform != "vast":
+        return False, "deneysel ve kapalı: MiniMax H3 RunPod'da çalışır (Platform ayarı)"
+    if service == "runpod" and settings.h3_platform != "runpod":
+        return False, "platform vast (deneysel): RunPod çağrılmaz"
     if service == "fal" and not _key("FAL_KEY")["set"]:
         return False, ("isteğe bağlı: anahtar yoksa Seedance seçilemez, storyboard karesi yerel çizilir ve dudak senkronu "
                        "atlanır; video MiniMax H3 ile üretilir")
@@ -170,7 +185,8 @@ def _comfy() -> dict:
             except (OSError, ValueError) as e:
                 item["error"] = str(e)
         flows.append(item)
-    return {"backend": settings.h3_backend, "dir": settings.h3_comfy_workflow_dir, "workflows": flows}
+    backend = "comfyui" if settings.h3_platform == "runpod" else settings.h3_backend   # RunPod worker'ı ComfyUI'dir
+    return {"backend": backend, "platform": settings.h3_platform, "dir": settings.h3_comfy_workflow_dir, "workflows": flows}
 
 
 @router.get("/settings")
@@ -200,10 +216,14 @@ class ModeIn(BaseModel):
 @router.post("/settings/mode")
 def set_mode(body: ModeIn, s: Session = Depends(get_session)):
     """Ücretli moda geçiş: onay ifadesi ve üretimin durmuş olması gerekir. Ücretsiz moda dönüş her zaman serbesttir."""
-    if body.paid and not _key("VAST_API_KEY")["set"]:
+    if body.paid and settings.h3_platform == "vast" and not _key("VAST_API_KEY")["set"]:
         raise HTTPException(422, "vast.ai API anahtarı tanımlı değil: video MiniMax H3 ile vast.ai makinesinde üretilir. "
-                                 "Önce Ayarlar › MiniMax H3'ten anahtarı girin; makineyi sonra \"Yeni makine kirala\" ile "
-                                 "kurabilir ya da kimliğini ve adresini elle girebilirsiniz.")
+                                 "Önce Ayarlar › MiniMax H3 · vast.ai'den anahtarı girin; makineyi sonra \"Yeni makine "
+                                 "kirala\" ile kurabilir ya da kimliğini ve adresini elle girebilirsiniz.")
+    if body.paid and settings.h3_platform != "vast" and not (_key("RUNPOD_API_KEY")["set"] and settings.runpod_endpoint_id):
+        raise HTTPException(422, "RunPod tanımlı değil: video MiniMax H3 ile RunPod Serverless'ta üretilir. Önce Ayarlar › "
+                                 "MiniMax H3 · RunPod'dan API anahtarını ve uç nokta kimliğini girin (kurulum: "
+                                 "backend/runpod/README.md).")
     note = None
     if not body.paid and not settings.dry_run and _active("vast") and int(settings.h3_idle_stop_minutes or 0) > 0:
         note = _stop_box_before_free_mode()
@@ -302,9 +322,63 @@ def setup_log():
                                                             "açılıyor olabilir."}
 
 
+@router.get("/settings/runpod")
+def runpod_state():
+    """RunPod: son okunan bakiye, uç nokta ayarı, sağlık, istenen ayar, bölge denetimi ve çıktı güvencesi (yalnızca kayıt;
+    RunPod çağrılmaz)."""
+    rc.refresh_if_changed()
+    from app.core import regions
+    from app.live import h3_outputs, runpod_h3, vast_box
+    cached = runpod_h3.cached_state()
+    try:
+        desired, desired_error = runpod_h3.desired_config(), None
+    except Exception as e:                               # noqa: BLE001 — bilinmeyen GPU tipi
+        desired, desired_error = None, str(e)
+    region = runpod_h3.region_problem(cached["config"]) if cached["config"] else (
+        None if regions.datacenter_allowed(settings.runpod_datacenter) else runpod_h3.region_problem(None))
+    floor = float(settings.runpod_min_balance_usd)
+    balance = cached["balance"]
+    return {"platform": settings.h3_platform, "endpoint_id": settings.runpod_endpoint_id or None,
+            "datacenter": settings.runpod_datacenter, "allowed_datacenters": list(regions.runpod_datacenters()),
+            "balance": balance, "balance_low": bool(balance and balance["usd"] < floor), "min_balance": floor,
+            "config": cached["config"], "health": cached["health"], "tick": cached["tick"], "region_problem": region,
+            "desired": desired, "desired_error": desired_error, "outputs": h3_outputs.summary(),
+            "retrieval": vast_box.retrieval(), "retrieval_states": vast_box.RETRIEVAL_TR,
+            "instance": f"runpod:{settings.runpod_endpoint_id}" if settings.runpod_endpoint_id else None}
+
+
+class RunpodIn(BaseModel):
+    action: str = PField(pattern="^(refresh|apply)$")
+
+
+@router.post("/settings/runpod")
+def runpod_action(body: RunpodIn):
+    """refresh: bakiye, uç nokta ayarı ve sağlık yeniden okunur (salt okunur). apply: Ayarlar'daki GPU tipleri, veri merkezi,
+    volume, en az 0 worker ve boşta bekleme süresi uç noktaya yazılır. İkisi de yalnızca ücretli modda (kilitten geçer)."""
+    rc.refresh_if_changed()
+    if settings.dry_run:
+        raise HTTPException(409, "Ücretsiz modda RunPod çağrılmaz.")
+    from app.live import PaidCallBlocked, guard, runpod_h3
+    try:
+        if body.action == "apply":
+            runpod_h3.apply_config()
+        else:
+            key = guard("runpod_api_key")
+            runpod_h3.balance(key, refresh=True)
+            runpod_h3.endpoint_config(key, refresh=True)
+            runpod_h3.health(key)
+    except PaidCallBlocked as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:                               # noqa: BLE001
+        classified = runpod_h3._classify(e)
+        code = 409 if isinstance(classified, PaidCallBlocked) else 502
+        raise HTTPException(code, str(classified) if code == 409 else f"RunPod yanıt vermedi: {classified}")
+    return runpod_state()
+
+
 class OutputsIn(BaseModel):
     action: str = PField(pattern="^(retrieve|abandon)$")
-    instance_id: str = PField(min_length=1, max_length=40, pattern=r"^[0-9A-Za-z_-]+$")
+    instance_id: str = PField(min_length=1, max_length=80, pattern=r"^[0-9A-Za-z_:-]+$")
     destroy_after: bool = False
 
 
@@ -321,6 +395,11 @@ def outputs_action(body: OutputsIn):
         if running and running.get("state") in ("starting", "waiting", "downloading"):
             raise HTTPException(409, "Eksik çıktılar zaten indiriliyor.")
         return {"retrieval": vast_box.start_retrieval(body.instance_id, body.destroy_after)}
+    if body.instance_id.startswith("runpod:"):           # RunPod: silinecek makine yok, yalnızca kayıp kabul edilir
+        from app.live import h3_outputs
+        lost = h3_outputs.mark_lost(body.instance_id)
+        vast_box._event("h3_outputs_abandoned", instance_id=body.instance_id, lost=lost)
+        return {"instance_id": body.instance_id, "lost": lost}
     try:
         return vast_box.abandon(body.instance_id)
     except PaidCallBlocked as e:

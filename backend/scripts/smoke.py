@@ -390,10 +390,13 @@ def check_history(pid: str) -> None:
     check(bool(calls) and abs(total - spent(pid)) < 1e-3,
           f"{len(calls)} çağrının işlenen toplamı harcamayla aynı (${total:.4f} / ${spent(pid):.4f})")
     check(all(x["mode"] == "virtual" for x in calls), "hepsi sanal: ücretsiz modda hiçbir servis çağrılmadı")
-    check(all(x["model"] and x["service"] in ("vast", "fal") for x in calls), "her satırda ücretli modda çağrılacak model var")
+    check(all(x["model"] and x["service"] in ("runpod", "fal") for x in calls), "her satırda ücretli modda çağrılacak model var")
     h3 = [x for x in calls if x["operation"] in ("video", "motion_test")]
-    check(bool(h3) and all(x["service"] == "vast" and x["model"] == "MiniMaxAI/MiniMax-H3" for x in h3),
-          f"video ve hareket testi MiniMax H3'e (vast.ai) yazıldı ({len(h3)} çağrı)")
+    check(bool(h3) and all(x["service"] == "runpod" and x["model"] == "MiniMaxAI/MiniMax-H3" for x in h3),
+          f"video ve hareket testi MiniMax H3'e (RunPod Serverless) yazıldı ({len(h3)} çağrı)")
+    rp = c.get("/settings/runpod").json()
+    check(rp["platform"] == "runpod" and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
+          f"izinli bölgeler yalnızca Kanada veri merkezleri ({', '.join(rp['allowed_datacenters'])})")
     ov = overview(pid)
     check(all(sc["h3_mode"] == "fl2va" and sc["keyframe_url"] for sc in ov["scenes"]),
           "her çekimin H3 ilk karesi var (storyboard karesinin yazısız hâli; koşul FL2VA)")

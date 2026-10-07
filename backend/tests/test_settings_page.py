@@ -20,6 +20,8 @@ ENV = """# Ücretsiz aşama
 DATABASE_URL=postgresql+psycopg://hg:hg@postgres:5432/hellgrind
 DRY_RUN=1
 # Ücretli entegrasyonlar
+RUNPOD_API_KEY=
+RUNPOD_ENDPOINT_ID=
 VAST_API_KEY=
 VAST_INSTANCE_ID=
 H3_API_KEY=
@@ -31,9 +33,14 @@ ELEVENLABS_API_KEY=
 SECRET = "fal-key-1234567890abcdWXYZ"
 VAST_SECRET = "vast-api-key-0987654321zyxQRST"
 H3_SECRET = "portal-token-1234567890abcPQRS"
-# Ücretli moda geçmek için gereken tek servis: MiniMax H3 makinesi (vast.ai anahtarı, makine kimliği, sunucu adresi)
+RUNPOD_SECRET = "runpod-api-key-1122334455aabbRPKY"
+# Ücretli moda geçmek için gereken tek servis: MiniMax H3'ün platformu. Varsayılan RunPod (anahtar + uç nokta).
+RP_ENV = (ENV.replace("RUNPOD_API_KEY=", f"RUNPOD_API_KEY={RUNPOD_SECRET}")
+          .replace("RUNPOD_ENDPOINT_ID=", "RUNPOD_ENDPOINT_ID=ep123"))
+# vast.ai (deneysel): anahtar, makine kimliği, sunucu adresi ve Platform=vast
 H3_ENV = (ENV.replace("VAST_API_KEY=", f"VAST_API_KEY={VAST_SECRET}").replace("VAST_INSTANCE_ID=", "VAST_INSTANCE_ID=4242")
-          .replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}").replace("H3_ENDPOINT_URL=", "H3_ENDPOINT_URL=https://h3.test"))
+          .replace("H3_API_KEY=", f"H3_API_KEY={H3_SECRET}").replace("H3_ENDPOINT_URL=", "H3_ENDPOINT_URL=https://h3.test")
+          + "H3_PLATFORM=vast\n")
 
 
 @pytest.fixture
@@ -60,9 +67,9 @@ def cfg(tmp_path, monkeypatch, api):
 def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(api, cfg):
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))          # süreç ayarları dosyadan tazelenir
     body = api.get("/api/settings").json()
-    assert [s["id"] for s in body["services"]] == ["vast", "fal", "elevenlabs", "anthropic"]
+    assert [s["id"] for s in body["services"]] == ["runpod", "vast", "fal", "elevenlabs", "anthropic"]
     assert body["dry_run"] is True and body["editable"] is True and body["confirmation"] == rc.PAID_CONFIRMATION
-    fal = body["services"][1]
+    fal = body["services"][2]
     key = next(f for f in fal["fields"] if f["env"] == "FAL_KEY")
     assert key == {"env": "FAL_KEY", "label": "API anahtarı", "kind": "secret", "set": True, "masked": "••••WXYZ"}
     endpoints = {f["env"]: f for f in fal["fields"] if f["kind"] == "model"}
@@ -73,10 +80,24 @@ def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(a
     assert SECRET not in json.dumps(body)
 
 
-def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg):
+def test_runpod_is_listed_first_as_the_default_h3_platform(api, cfg):
+    cfg.write_text(RP_ENV)
+    services = api.get("/api/settings").json()["services"]
+    rp, vast = services[0], services[1]
+    assert rp["name"] == "MiniMax H3 · RunPod" and rp["key_env"] == "RUNPOD_API_KEY" and rp["active"] is True
+    fields = {f["env"]: f for f in rp["fields"]}
+    assert fields["H3_PLATFORM"]["value"] == "runpod" and fields["H3_PLATFORM"]["choices"] == ["runpod", "vast"]
+    assert fields["RUNPOD_ENDPOINT_ID"]["value"] == "ep123" and fields["RUNPOD_DATACENTER"]["value"] == "CA-MTL-1"
+    assert (fields["RUNPOD_IDLE_TIMEOUT_S"]["value"], fields["RUNPOD_MIN_BALANCE_USD"]["value"]) == ("60", "10.0")
+    assert fields["H3_ALLOW_NORDIC"]["value"] == "false" and fields["H3_STEPS"]["value"] == "9"
+    assert vast["name"] == "MiniMax H3 · vast.ai (deneysel)" and vast["needed"] is False and "deneysel" in vast["not_needed_reason"]
+    assert RUNPOD_SECRET not in api.get("/api/settings").text
+
+
+def test_the_vast_server_keeps_its_address_and_machine_settings(api, cfg):
     cfg.write_text(H3_ENV)
-    vast = api.get("/api/settings").json()["services"][0]
-    assert vast["name"] == "MiniMax H3 · vast.ai" and vast["console"] == "https://cloud.vast.ai/instances/"
+    vast = api.get("/api/settings").json()["services"][1]
+    assert vast["name"] == "MiniMax H3 · vast.ai (deneysel)" and vast["console"] == "https://cloud.vast.ai/instances/"
     fields = {f["env"]: f for f in vast["fields"]}
     assert vast["key_env"] == "VAST_API_KEY"
     assert fields["VAST_API_KEY"] == {"env": "VAST_API_KEY", "label": "vast.ai API anahtarı", "kind": "secret", "set": True,
@@ -84,14 +105,13 @@ def test_the_h3_server_is_listed_first_with_its_address_model_and_steps(api, cfg
     assert fields["H3_API_KEY"]["kind"] == "secret" and fields["H3_API_KEY"]["masked"] == "••••PQRS"
     assert fields["VAST_INSTANCE_ID"]["value"] == "4242" and fields["H3_BACKEND"]["value"] == "comfyui"   # SGLang deneysel
     assert fields["H3_BACKEND"]["choices"] == ["comfyui", "sglang"] and "deneysel" in fields["H3_BACKEND"]["label"]
-    assert (fields["H3_REPLACE_MODE"]["value"], fields["H3_MAX_DPH"]["value"], fields["H3_MIN_RAM_GB"]["value"]) == ("ask", "0.95", "128")
+    # değerler geliştirme .env'inden gelebilir: varsayılanlar sınanır
+    assert (fields["H3_REPLACE_MODE"]["default"], fields["H3_MAX_DPH"]["default"], fields["H3_MIN_RAM_GB"]["default"]) == ("ask", "0.95", "128")
     assert fields["H3_MIN_RAM_GB"]["minimum"] == 96 and fields["H3_TLS_MODE"]["choices"] == ["verify", "pin", "off"]
     assert fields["H3_IMAGE_MODEL"]["choices"] == ["qwen-image-2512", "flux-schnell", "none"]
     assert fields["H3_ENDPOINT_URL"]["kind"] == "url" and fields["H3_ENDPOINT_URL"]["value"] == "https://h3.test"
-    assert fields["H3_REF_ENDPOINT_URL"]["value"] == "" and fields["H3_MODEL"]["url"] == "https://huggingface.co/MiniMaxAI/MiniMax-H3"
-    assert fields["H3_STEPS"]["kind"] == "choice" and fields["H3_STEPS"]["value"] == fields["H3_STEPS"]["default"] == "9"
+    assert fields["H3_REF_ENDPOINT_URL"]["value"] == ""
     assert (fields["H3_IDLE_STOP_MINUTES"]["value"], fields["H3_AUTO_START"]["value"]) == ("10", "false")
-    assert fields["H3_TERRITORY_AUTHORIZED"]["choices"] == ["false", "true"]
     text = api.get("/api/settings").text
     assert vast["active"] is True and H3_SECRET not in text and VAST_SECRET not in text
 
@@ -126,18 +146,19 @@ def test_on_off_and_number_settings_are_typed_when_applied(api, cfg):
     assert settings.h3_model_revision == "fl2va int8 convrot + turbo v4"
     api.patch("/api/settings", json={"values": {"H3_AUTO_START": "false"}})
     assert settings.h3_auto_start is False
-    fields = {f["env"]: f for f in api.get("/api/settings").json()["services"][0]["fields"]}
+    fields = {f["env"]: f for s_ in api.get("/api/settings").json()["services"] for f in s_["fields"]}
     assert (fields["H3_AUTO_START"]["value"], fields["H3_STEPS"]["value"]) == ("false", "8")
 
 
 def test_only_the_h3_server_is_needed_with_the_default_engines(api, cfg):
-    """Konuşma motoru espeak ve Hermes kural tabanlıyken yalnızca MiniMax H3 sunucusu gerekir; fal.ai isteğe bağlıdır."""
+    """Konuşma motoru espeak ve Hermes kural tabanlıyken yalnızca MiniMax H3 platformu (RunPod) gerekir; fal.ai isteğe
+    bağlıdır, vast.ai deneysel ve kapalıdır."""
     body = api.get("/api/settings").json()
     needed = {s["id"]: s["needed"] for s in body["services"]}
-    assert needed == {"vast": True, "fal": False, "elevenlabs": False, "anthropic": False}
-    assert "isteğe bağlı" in body["services"][1]["not_needed_reason"] and "espeak" in body["services"][2]["not_needed_reason"]
+    assert needed == {"runpod": True, "vast": False, "fal": False, "elevenlabs": False, "anthropic": False}
+    assert "isteğe bağlı" in body["services"][2]["not_needed_reason"] and "espeak" in body["services"][3]["not_needed_reason"]
     api.patch("/api/settings", json={"values": {"FAL_KEY": SECRET, "TTS_ENGINE": "elevenlabs", "HERMES_MODE": "llm"}})
-    assert all(s["needed"] for s in api.get("/api/settings").json()["services"])
+    assert all(s["needed"] for s in api.get("/api/settings").json()["services"] if s["id"] != "vast")
     assert set(body["scorer"]) == {"ready", "message"}
 
 
@@ -209,11 +230,25 @@ def test_a_server_address_is_saved_without_a_trailing_slash_and_can_be_cleared(a
     assert settings.h3_endpoint_url == ""
 
 
-def test_paid_mode_needs_the_vast_key_not_a_fal_key(api, cfg, monkeypatch):
+def test_paid_mode_needs_the_runpod_endpoint_not_a_fal_key(api, cfg, monkeypatch):
     from app.api import services
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))       # fal anahtarı tek başına yetmez
     r = api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION})
-    assert r.status_code == 422 and "vast.ai API anahtarı" in r.json()["detail"] and settings.dry_run is True
+    assert r.status_code == 422 and "RunPod tanımlı değil" in r.json()["detail"] and settings.dry_run is True
+    cfg.write_text(RP_ENV.replace("RUNPOD_ENDPOINT_ID=ep123", "RUNPOD_ENDPOINT_ID="))   # anahtar tek başına da yetmez
+    rc._redis().incr(rc.VERSION_KEY)
+    assert api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION}).status_code == 422
+    cfg.write_text(RP_ENV)
+    rc._redis().incr(rc.VERSION_KEY)
+    monkeypatch.setattr(services, "_busy", lambda s: [])
+    try:
+        assert api.post("/api/settings/mode", json={"paid": True, "confirm": rc.PAID_CONFIRMATION}).status_code == 200
+    finally:
+        api.post("/api/settings/mode", json={"paid": False})
+
+
+def test_paid_mode_on_vast_needs_only_the_vast_key(api, cfg, monkeypatch):
+    from app.api import services
     # Makine henüz yokken de geçilir: ilk makine ücretli modda "Yeni makine kirala" ile kurulur.
     cfg.write_text(H3_ENV.replace("VAST_INSTANCE_ID=4242", "VAST_INSTANCE_ID="))
     rc._redis().incr(rc.VERSION_KEY)
@@ -362,12 +397,12 @@ def test_the_h3_connection_check_reads_the_box_and_the_servers_health(api, cfg, 
         seen.append(request)
         if request.url.host == "console.vast.ai":
             return httpx.Response(200, json={"instances": {"actual_status": "running", "dph_total": 0.87,
-                                                           "geolocation": "Norway, NO", "gpu_name": "RTX 5090"}})
+                                                           "geolocation": "Quebec, CA", "gpu_name": "RTX 5090"}})
         return httpx.Response(200)
     real = probe.check
     monkeypatch.setattr(probe, "check", lambda service, key, transport=None: real(service, key, httpx.MockTransport(handler)))
     r = api.post("/api/settings/test/vast").json()
-    assert r["ok"] is True and "Norway, NO" in r["message"] and r["message"].endswith("Sunucu hazır.")
+    assert r["ok"] is True and "Quebec, CA" in r["message"] and r["message"].endswith("Sunucu hazır.")
     assert [(q.method, str(q.url)) for q in seen] == [("GET", "https://console.vast.ai/api/v0/instances/4242"),
                                                       ("GET", "https://h3.test/system_stats")]          # ComfyUI
     assert seen[0].headers["authorization"] == f"Bearer {VAST_SECRET}" and seen[1].headers["authorization"] == f"Bearer {H3_SECRET}"

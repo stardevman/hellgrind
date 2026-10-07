@@ -27,9 +27,13 @@ export function ScriptPage() {
   const { data: prices } = useSWR<{ table: PricingTable }>(intensity === "trial" ? "/settings/pricing" : null, fetcher, { revalidateOnFocus: false });
   const trial = meta?.presets.trial;
   // Deneme: çekim başına en çok (test + tam) klip; her klip 480p MiniMax H3 videosu (en az 4 sn GPU'da üretilir).
+  // RunPod (varsayılan): en pahalı GPU tipinin saniye ücreti; vast.ai (deneysel): makinenin saatlik ücreti.
+  const runpod = meta?.h3_platform !== "vast" ? prices?.table.serverless?.runpod : undefined;
   const h3 = prices?.table.self_hosted?.h3;
-  const perShot = trial && h3 ? (Number(trial.probe_n) + Number(trial.full_n))
-    * (h3.gpu_hourly_usd / 3600) * (h3.render_seconds["480p"] ?? Math.max(...Object.values(h3.render_seconds))) * 4 : null;
+  const rate = runpod ? Math.max(...Object.values(runpod.per_second)) : h3 ? h3.gpu_hourly_usd / 3600 : null;
+  const renders = runpod?.render_seconds ?? h3?.render_seconds;
+  const perShot = trial && rate != null && renders ? (Number(trial.probe_n) + Number(trial.full_n))
+    * rate * (renders["480p"] ?? Math.max(...Object.values(renders))) * 4 : null;
   const pickIntensity = (x: string) => {
     setIntensity(x);
     if (x === "trial") {
@@ -108,7 +112,7 @@ export function ScriptPage() {
                     <span><b>MiniMax H3 denemesi</b><small>
                       {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır; ses yerel (espeak), dudak senkronu yok.`}
                       {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(3)} GPU süresi (3 sn'lik çekim 4 sn üretilir).`}
-                      {" "}Yalnızca MiniMax H3 sunucusu (vast.ai) gerekir.
+                      {" "}Yalnızca MiniMax H3 ({meta?.h3_platform === "vast" ? "vast.ai makinesi" : "RunPod uç noktası"}) gerekir.
                     </small></span>
                   </label>
                 )}

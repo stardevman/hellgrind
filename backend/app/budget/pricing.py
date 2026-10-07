@@ -18,8 +18,42 @@ def self_hosted(engine: str, prices: dict | None = None) -> dict | None:
     return ((prices or table()).get("self_hosted") or {}).get(engine)
 
 
+def serverless(prices: dict | None = None) -> dict | None:
+    """RunPod Serverless (MiniMax H3'ün varsayılan platformu): GPU tipine göre saniye ücreti, video saniyesi başına GPU
+    süresi, ilk kare ve soğuk başlatma süreleri."""
+    return ((prices or table()).get("serverless") or {}).get("runpod")
+
+
+def _runpod(engine: str, prices: dict | None) -> dict | None:
+    if engine != "h3" or settings.h3_platform != "runpod":
+        return None
+    return serverless(prices)
+
+
+def _squash(text: str) -> str:
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+
+def runpod_rate(gpu: str | None = None, prices: dict | None = None) -> float:
+    """GPU tipinin saniye ücreti. Ad eşleşmezse (ya da bilinmiyorsa) en pahalı tip: bütçe tutucu kalsın.
+    "NVIDIA GeForce RTX 5090" -> "RTX 5090"; "NVIDIA RTX PRO 6000 Blackwell ..." -> "RTX PRO 6000"."""
+    rates = serverless(prices)["per_second"]
+    for name, rate in sorted(rates.items(), key=lambda kv: -len(kv[0])):
+        if gpu and _squash(name) in _squash(gpu):
+            return float(rate)
+    return float(max(rates.values()))
+
+
+def estimate_runpod(seconds: float, gpu: str | None = None, prices: dict | None = None) -> float:
+    """RunPod worker süresinin bedeli: saniye ücreti × süre (soğuk başlatma ve boşta bekleme dahil, ne kadarsa)."""
+    return round(runpod_rate(gpu, prices) * max(0.0, seconds), 4)
+
+
 def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict | None = None) -> float:
     prices = prices or table()
+    if (rp := _runpod(engine, prices)) is not None:            # tahmin en pahalı GPU tipiyle; işlenen tutar gerçek süreyle
+        rows = rp["render_seconds"]
+        return estimate_runpod(rows.get(resolution, max(rows.values())) * duration_s, None, prices)
     if (hosted := self_hosted(engine, prices)) is not None:
         rows = hosted["render_seconds"]
         gpu_seconds = rows.get(resolution, max(rows.values())) * duration_s      # bilinmeyen çözünürlük: en yavaşı
@@ -30,7 +64,9 @@ def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict
 
 
 def estimate_keyframe(engine: str = "h3", prices: dict | None = None) -> float:
-    """Kendi sunucusunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli."""
+    """H3 platformunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli."""
+    if (rp := _runpod(engine, prices)) is not None:
+        return estimate_runpod(rp.get("keyframe_seconds", 10), None, prices)
     return estimate_gpu(engine, self_hosted(engine, prices).get("keyframe_seconds", 10), prices)
 
 
@@ -120,6 +156,20 @@ def validate_table(text: str) -> dict:
             _positive(value, f"self_hosted.{engine}.render_seconds.{res}")
         if "keyframe_seconds" in row:
             _positive(row["keyframe_seconds"], f"self_hosted.{engine}.keyframe_seconds")
+    rp = (data.get("serverless") or {}).get("runpod")
+    if rp is not None:
+        if not isinstance(rp, dict) or not isinstance(rp.get("per_second"), dict) or not rp["per_second"]:
+            raise PricingError("serverless.runpod.per_second eksik (GPU tipi: saniye ücreti)")
+        for gpu, rate in rp["per_second"].items():
+            _positive(rate, f"serverless.runpod.per_second.{gpu}")
+        seconds = rp.get("render_seconds")
+        if not isinstance(seconds, dict) or not seconds:
+            raise PricingError("serverless.runpod.render_seconds eksik (çözünürlük: video saniyesi başına GPU saniyesi)")
+        for res, value in seconds.items():
+            _positive(value, f"serverless.runpod.render_seconds.{res}")
+        for name in ("keyframe_seconds", "cold_start_seconds"):
+            if name in rp:
+                _positive(rp[name], f"serverless.runpod.{name}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")
     _positive((data.get("image_per_image") or {}).get("flux_kontext"), "image_per_image.flux_kontext")
     _positive(data.get("lipsync_per_minute"), "lipsync_per_minute")

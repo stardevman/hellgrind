@@ -13,6 +13,19 @@ self_hosted:
       "720p": 16.5            # 1280x704: 85 sn
     keyframe_seconds: 10      # ComfyUI'de ilk kare (storyboard) iş akışının görsel başına GPU süresi; tahmini, ölçünce güncelleyin
 
+serverless:
+  runpod:             # MiniMax H3, RunPod Serverless (varsayılan platform). Flex worker fiyatları, runpod.io/pricing
+                      # (sayfa 2026-10-05): RTX 5090 1,58 $/sa, RTX PRO 6000 (96 GB) 3,49 $/sa. Worker saniye saniye,
+                      # açılıştan (model yükleme) kapanışa kadar faturalanır: iş + soğuk başlatma + boşta bekleme.
+    per_second:
+      "RTX 5090": 0.000439
+      "RTX PRO 6000": 0.000969
+    render_seconds:           # video saniyesi başına GPU saniyesi (5090 ölçümü; PRO 6000 en az bu hızda)
+      "480p": 8
+      "720p": 16.5
+    keyframe_seconds: 10      # storyboard ilk karesi (keyframe.json); tahmini
+    cold_start_seconds: 60    # worker açılışı + model yükleme; tahmini, ilk gerçek işte ölçün
+
 video_per_second:
   fal_wan:            # Wan 2.2 A14B image-to-video (yalnızca bu motorla açılmış eski çekimler)
     "480p": 0.04
