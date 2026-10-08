@@ -52,17 +52,45 @@ Video VAE `minimax_h3_video_vae_fp16` (iş akışları bunu bekler); `*_pruned_f
 
 `backend/runpod/worker/`:
 
-- `Dockerfile`: `runpod/worker-comfyui:5.11.0-base` (RunPod'un resmî ComfyUI worker'ı, modelsiz). ComfyUI **0.39.0**'a
-  sabitlenir (`COMFYUI_REF=v0.39.0`): `comfy-workflows/` altındaki iş akışları bu sürümün resmî şablonlarından dışa
-  aktarıldı, düğüm ve girdi adları ona göredir (özel düğüm gerekmez).
+- `Dockerfile`: `runpod/worker-comfyui:5.10.0-base` (RunPod'un resmî ComfyUI worker'ı, modelsiz; Docker Hub'daki en yeni
+  yayımlanmış etiket, CUDA 12.8.1, torch 2.11.0+cu128). İçindeki ComfyUI 0.34.0, **0.39.0** sürüm arşiviyle değiştirilir
+  (`COMFYUI_REF=v0.39.0`): `comfy-workflows/` altındaki iş akışları bu sürümün resmî şablonlarından dışa aktarıldı, düğüm ve
+  girdi adları ona göredir (özel düğüm gerekmez). Derleme, H3 düğümleri yoksa durur ve ComfyUI'yi CPU'da bir kez açıp
+  bütün düğümleri yükler (açılışı bozan bağımlılık derlemede yakalanır). torch yeniden kurulmaz.
+- **H3 DiT türü:** Comfy-Org int8_convrot DiT'leri cu130 torch'la, fp8_scaled'ı cu130 olmazsa önerir. İmaj cu128'dir:
+  iş akışları `minimax_h3_{fl2va,ref2va}_pruned_{{unet_variant}}` yükler, uygulama bunu **Ayarlar › H3 DiT türü**'nden
+  (`H3_UNET_VARIANT`, varsayılan `fp8_scaled`) doldurur ve klip meta verisine yazar. Derleme, torch'un CUDA etiketi seçilen
+  türe uymazsa durur (`--build-arg H3_UNET_VARIANT`; cu128 → fp8_scaled, cu130 → int8_convrot). Worker da cu128'de
+  int8_convrot iş akışını GPU'ya göndermeden reddeder. Metin kodlayıcı nvfp4_awq (Blackwell şart değil), video VAE fp16.
 - `extra_model_paths.yaml`: `/runpod-volume/models/{unet,clip,vae,loras}` (diffusion_models ve text_encoders adlarıyla da).
 - `handler.py`: resmî handler'ın yerine geçer. Videoyu da döndürür (resmî handler yalnızca `images` anahtarını toplar).
   Her dosyanın boyutunu ve SHA-256'sını, GPU adını ve soğuk başlatma süresini bildirir.
 
-```bash
-docker build --platform linux/amd64 -t <kullanıcı>/hellgrind-h3-worker:1 backend/runpod/worker
-docker push <kullanıcı>/hellgrind-h3-worker:1
-```
+### İmajı RunPod'a ulaştırma: bir kayda derleyip gönderme (önerilen)
+
+RunPod uç noktası imajı herkese açık ya da kimlik bilgisi tanımlı bir kayıttan çeker. İmajda gizli bilgi yoktur (handler,
+model yolları); herkese açık bir Docker Hub deposu yeterlidir.
+
+1. Docker Hub'da (hub.docker.com) bir depo açın: `hellgrind-h3-worker` (Public). Bu Mac'te: `docker login`.
+2. Depo kökünden derleyip gönderin (linux/amd64; Apple Silicon'da öykünmeyle, ilk seferde taban imaj ~15 GB iner):
+   ```bash
+   backend/runpod/worker/push.sh docker.io/<docker-hub-kullanıcı>/hellgrind-h3-worker 0.39.0-1
+   ```
+   Etiket `<ComfyUI sürümü>-<düzeltme>`: `handler.py`, `extra_model_paths.yaml` ya da `Dockerfile` değişince numarayı
+   artırın (`0.39.0-2`). `latest` kullanmayın: worker'lar imajı önbelleğe alır, aynı etiketle yeni imaj gelmeyebilir.
+3. RunPod konsolu › Serverless › uç nokta › **Container Image**: `docker.io/<docker-hub-kullanıcı>/hellgrind-h3-worker:0.39.0-1`
+   (yeni etiket yazıp kaydedince worker'lar yeni imajla açılır). Depoyu gizli tutarsanız RunPod › Settings › **Container
+   Registry Auth**'a Docker Hub erişim belirteci ekleyip uç noktada seçin.
+
+GHCR da olur (`ghcr.io/<kullanıcı>/hellgrind-h3-worker:0.39.0-1`, `docker login ghcr.io`), ama taban imajın katmanları da
+oraya yüklenir (~15 GB). Docker Hub'da taban katmanlar genellikle aynı kayıttaki `runpod/worker-comfyui`'den bağlanır,
+yüklenmez; yine de ilk gönderim birkaç GB sürebilir.
+
+**Alternatif: RunPod'un GitHub'dan derlemesi.** Uç noktayı GitHub deposuna bağlayıp Dockerfile yolunu
+(`backend/runpod/worker/Dockerfile`) verirsiniz; RunPod derler. Kısıtlar (docs.runpod.io › GitHub integration): `docker
+build` en çok 30 dk, bütün süreç 160 dk, imaj en çok 80 GB; depodaki değişiklik kendiliğinden gitmez, her güncelleme için
+GitHub'da yeni bir **release** gerekir; derleme bağlamı olarak hangi klasörün kullanıldığı belgede yazmıyor (Dockerfile'ımız
+`backend/runpod/worker` bağlamını bekler). Bu yol için depo GitHub'a gönderilmiş olmalı.
 
 **Çıktı boyutu:** RunPod `/run` sonuçlarını ~10 MB'ta keser. Handler çıktıyı 9 MB'a kadar (base64) yanıtta döndürür.
 Daha büyük klipler için uç noktanın ortamına S3 uyumlu bir kova ekleyin: `BUCKET_ENDPOINT_URL`, `BUCKET_ACCESS_KEY_ID`,
