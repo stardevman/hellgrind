@@ -16,7 +16,7 @@ from app.budget import pricing
 from app.config import settings
 from app.db import session_scope
 from app.engine.providers import GenRequest, TransientError
-from app.live import PaidCallBlocked, h3_outputs, runpod_h3, vast_box
+from app.live import PaidCallBlocked, h3_outputs, runpod_h3, vast_box, vast_h3
 from tests.media_utils import make_video
 from tests.runpod_fake import FakeRunpod
 
@@ -73,7 +73,7 @@ def test_a_clip_is_submitted_waited_downloaded_verified_and_charged_by_gpu_time(
     result = runpod_h3.get_live_provider().generate(request(image_url=data_uri(str(kf))))
     (run,) = runpod.runs
     flow, images = run["input"]["workflow"], run["input"]["images"]
-    assert flow["6"]["inputs"]["text"] == "p" and flow["6"]["inputs"]["seed"] == 1
+    assert flow["6"]["inputs"]["text"] == f"p {vast_h3.FIRST_FRAME_NOTE}" and flow["6"]["inputs"]["seed"] == 1
     assert flow["6"]["inputs"]["img"] == images[0]["name"] and images[0]["name"].startswith("hg_")
     assert flow["9"]["inputs"]["filename_prefix"].startswith("hellgrind/i2v_")
     assert run["policy"]["executionTimeout"] == settings.h3_timeout_s * 1000 and run["input"]["hellgrind"]["kind"] == "video"

@@ -59,6 +59,7 @@ SECONDS = (4, 15)                    # açık model 4-15 sn üretir
 SIZES = {"480p": (864, 480), "720p": (1280, 704)}   # yönetmenin ölçtüğü tuvaller; fiyat tablosu bunlarla kalibre
 FLOW_SHIFT, AUDIO_FLOW_SHIFT = 12.0, 3.0      # SGLang tarifindeki varsayılanlar
 MAX_REFERENCES = 9                   # Ref2VA en çok 9 görsel alır
+FIRST_FRAME_NOTE = "The video opens exactly on <Picture 1>, the first frame."
 IMAGE_EDGE = 1536                    # istekte gönderilen görselin uzun kenarı
 POLL_S = 5.0
 TIMEOUT = httpx.Timeout(60.0, connect=15.0)
@@ -255,6 +256,8 @@ def build_job(req: GenRequest, server: str | None = None) -> Job:
         return Job(task="ref2va", url=url.rstrip("/"), prompt=reference_prompt(prompt, [n for n, _ in references]),
                    references=references, **common)
     task = "fl2va" if req.image_url else "t2va"
+    if task == "fl2va":                                  # resmî FL2VA şablonu ilk kareye <Picture 1> diye başvurur
+        prompt = f"{prompt} {FIRST_FRAME_NOTE}"
     return Job(task=task, url=(server or settings.h3_endpoint_url).rstrip("/"), prompt=prompt, **common)
 
 
@@ -405,6 +408,30 @@ def fill(value, values: dict):
     return value
 
 
+REF_SLOT = re.compile(r"^\{\{\s*reference_(\d+)\s*\}\}$")
+
+
+def prune_references(workflow: dict, n: int) -> dict:
+    """Gönderilen görselden fazla referans yuvasını çıkarır: `{{reference_k}}` (k > n) görselini yükleyen LoadImage
+    düğümü, ona yalnızca isteğe bağlı referans girdilerinden (ör. Ref2VA'nın `ref_images.ref_image_*`) bağlanılıyorsa
+    silinir. Zorunlu bir girdiden bağlanılan yuva kalır ve son görselle doldurulur (eski iş akışları)."""
+    links: dict[str, list[tuple[str, str]]] = {}
+    for node_id, node in workflow.items():
+        for key, value in (node.get("inputs") or {}).items():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                links.setdefault(value[0], []).append((node_id, key))
+    for node_id, node in list(workflow.items()):
+        m = REF_SLOT.match(str((node.get("inputs") or {}).get("image", "")))
+        if not m or int(m.group(1)) <= n:
+            continue
+        users = links.get(node_id, [])
+        if users and all(key.startswith("ref_images.") for _, key in users):
+            for user, key in users:
+                workflow[user]["inputs"].pop(key, None)
+            workflow.pop(node_id)
+    return workflow
+
+
 def comfy_seconds(entry: dict) -> float | None:
     """GPU süresi: geçmişteki execution_start ile execution_success arası (ms)."""
     stamps = {name: data.get("timestamp") for name, data in (entry.get("status") or {}).get("messages", [])
@@ -454,7 +481,7 @@ class Comfy:
 
     def submit(self, job: Job, kind: str | None = None) -> str:
         kind = kind or comfy_kind(job)
-        workflow = fill(copy.deepcopy(load_workflow(kind)), self.values(job, kind))
+        workflow = fill(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), self.values(job, kind))
         r = self.c.post("/prompt", json={"prompt": workflow, "client_id": COMFY_CLIENT_ID})
         if r.status_code == 400:
             body = r.json() if r.content else {}

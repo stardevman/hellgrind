@@ -430,7 +430,7 @@ Ayarlar › MiniMax H3 › **Arka uç**:
 - **ComfyUI** (varsayılan; `/upload/image`, `/prompt`, `/history`, `/view`). Kendi ölçtüğünüz kurulum (int8_convrot, Turbo
   8 adım) bu arka uçla kullanılır. İş akışlarını ComfyUI'de **Workflow › Export (API)** ile kaydedip değişen değerleri yer
   tutucuyla değiştirin ve Ayarlar › MiniMax H3 › **ComfyUI iş akışları**ndan yükleyin (`t2v`, `i2v`, `r2v`, `keyframe`;
-  ayrıntı: `comfy-workflows/README.md`). `keyframe` için hazır örnekler `comfy-workflows/examples/` altındadır. GPU süresi
+  ayrıntı: `comfy-workflows/README.md`). Hazır `i2v`, `r2v` ve `keyframe` iş akışları ComfyUI 0.39.0'ın resmî şablonlarından üretildi (`comfy-workflows/`). GPU süresi
   ComfyUI geçmişindeki başlangıç ve bitiş zamanından okunur.
 - **SGLang** (deneysel; resmî sunucu, `/v1/videos`). Tek RTX 5090'da benim tarafımdan ölçülmedi: SGLang tarifindeki
   ölçümler BF16 + aktarım (5090, 480p, 20 adım: 112 sn) ve INT8 (4090, 768p, 20 adım: ~300 sn) içindir. Denemek için tek
@@ -479,7 +479,7 @@ ve makine 5 dakikada açılmazsa (ya da vast.ai başlatmayı reddederse) Hell Gr
 3. **Kiralama ve kurulum:** teklif `vastai/base-image` ile kiralanır; `backend/vast/setup.sh` isteğe gömülür (gzip +
    base64, vast.ai'nin 16 KB onstart sınırı içinde; ya da **setup.sh adresi**nden indirilir). Betik ComfyUI'yi (güncel),
    PyTorch'u (CUDA 12.8), MiniMax H3 modellerini (Comfy-Org: `minimax_h3_fl2va_pruned_int8_convrot`,
-   `minimax_h3_ref2va_pruned_int8_convrot`, `qwen3vl_32b_minimax_h3_nvfp4_awq`, `minimax_h3_video_vae_int8_convrot`,
+   `minimax_h3_ref2va_pruned_int8_convrot`, `qwen3vl_32b_minimax_h3_nvfp4_awq`, `minimax_h3_video_vae_fp16`,
    `minimax_h3_audio_vae_fp32`, FL2V turbo 8 adım ve Ref2V turbo 4 adım LoRA'ları) ve görsel modelini kurar, ComfyUI'yi
    `127.0.0.1:18188`'de bir supervisor servisi olarak başlatır. Portal `8188`'den kimlik doğrulayarak açar; parola mevcut
    portal belirteciniz (yoksa üretilip Ayarlar'a yazılır).
@@ -567,11 +567,11 @@ FL2VA'nın ilk karesi bir görsel modelinden gelir. Hell Grind kendi makinenizde
 
 | Model | Lisans | ComfyUI dosyaları | Not |
 |---|---|---|---|
-| **Qwen-Image-2512** (önerilen, varsayılan) | Apache 2.0 | `qwen_image_2512_fp8_e4m3fn` (20,4 GB), `qwen_2.5_vl_7b_fp8_scaled` (9,4 GB), `qwen_image_vae` | İstem bağlılığı ve kompozisyonu güçlü; örnek iş akışı `comfy-workflows/examples/keyframe.qwen-image-2512.json` (20 adım) |
+| **Qwen-Image-2512** (önerilen, varsayılan) | Apache 2.0 | `qwen_image_2512_fp8_e4m3fn` (20,4 GB), `qwen_2.5_vl_7b_fp8_scaled` (9,4 GB), `qwen_image_vae` | İstem bağlılığı ve kompozisyonu güçlü; iş akışı `comfy-workflows/keyframe.json` (resmî şablon, 50 adım, cfg 4) |
 | FLUX.1 [schnell] | Apache 2.0 | `flux1-schnell-fp8` (17,2 GB) | 4 adımda hızlı, kalite ve istem bağlılığı daha düşük; `keyframe.flux-schnell.json` |
 | FLUX.1 [dev] | FLUX.1 [dev] Non-Commercial License v1.1.1 | kurulmaz | Model ticari amaçla çalıştırılamaz (BFL'den ayrı lisans gerekir); çıktıları ticari kullanılabilir ama rakip model eğitiminde kullanılamaz |
 
-Örnek iş akışlarını ComfyUI'de bir kez açıp çalıştığını görün, sonra Ayarlar'dan `keyframe` olarak yükleyin.
+`comfy-workflows/keyframe.json` hazırdır (Qwen-Image-2512); FLUX.1 [schnell] için `examples/keyframe.flux-schnell.json`'u Ayarlar'dan `keyframe` olarak yükleyin.
 
 **fal.ai üzerinden Flux:** fal'ın FLUX.1 [dev] LoRA sayfası çıktıların ticari kullanıma açık olduğunu belirtir ("All
 generated images are cleared for commercial use"); Flux Kontext [pro] BFL'in ücretli API modelidir. fal yolunu kullanırken
@@ -704,7 +704,8 @@ Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excelle
 ```
 docker-compose.yml  Makefile  .env.example
 db/init/001_core.sql           ilk şema (PostgreSQL ilk açılışta uygular)
-comfy-workflows/               MiniMax H3 ComfyUI iş akışları (panel yazar); examples/: hazır keyframe iş akışları
+comfy-workflows/               MiniMax H3 ComfyUI iş akışları: i2v, r2v, keyframe (ComfyUI 0.39.0 resmî şablonlarından;
+                               exported/: dışa aktarılan hâller ve make_templates.py), panel yazar
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
   src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage

@@ -223,7 +223,7 @@ def test_setup_sh_is_valid_bash_and_installs_what_the_workflows_need():
     assert subprocess.run(["bash", "-n", str(SETUP)], capture_output=True).returncode == 0
     text = SETUP.read_text()
     for name in ("minimax_h3_fl2va_pruned_int8_convrot.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
-                 "minimax_h3_video_vae_int8_convrot.safetensors", "minimax_h3_audio_vae_fp32.safetensors",
+                 "minimax_h3_video_vae_fp16.safetensors", "minimax_h3_audio_vae_fp32.safetensors",
                  "qwen_image_2512_fp8_e4m3fn.safetensors", "qwen_2.5_vl_7b_fp8_scaled.safetensors", "qwen_image_vae.safetensors",
                  "flux1-schnell-fp8.safetensors", "--listen 127.0.0.1", "--port $PORT"):
         assert name in text
@@ -238,7 +238,7 @@ def test_the_onstart_command_embeds_setup_sh_within_vast_limits(monkeypatch):
     assert vast_box.onstart_script().startswith("mkdir -p /root/hellgrind && curl -fsSL https://example.org/setup.sh")
 
 
-@pytest.mark.parametrize("name", ["keyframe.qwen-image-2512.json", "keyframe.flux-schnell.json"])
+@pytest.mark.parametrize("name", ["keyframe.flux-schnell.json"])
 def test_the_example_keyframe_workflows_are_valid_and_use_apache_models(name):
     path = BACKEND.parent / "comfy-workflows" / "examples" / name
     if not path.exists():

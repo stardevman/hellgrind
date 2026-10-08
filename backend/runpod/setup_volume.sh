@@ -7,8 +7,10 @@
 #   bash setup_volume.sh                 # modeller (paralel indirme)
 #   bash setup_volume.sh --comfyui       # + test ve iş akışı dışa aktarımı için ComfyUI'yi kurup 8188'de başlatır
 #
-# Yerleşim (worker'ın extra_model_paths.yaml'ı bunu okur):
-#   <volume>/models/diffusion_models  text_encoders  vae  loras  checkpoints
+# Yerleşim (worker'ın extra_model_paths.yaml'ı bunu okur; ComfyUI'nin klasör adları):
+#   <volume>/models/unet  clip  vae  loras  checkpoints
+# Video VAE fp16'dır (iş akışları minimax_h3_video_vae_fp16 bekler; int8_convrot VAE cu130 ister). fp8_scaled DiT'ler
+# int8_convrot'un yedeğidir (HG_H3_FP8_FALLBACK=0 ile atlanır).
 # İndirme: huggingface_hub `hf download` (Xet; HF_XET_HIGH_PERFORMANCE=1) ya da HG_DOWNLOADER=aria2c (16 bağlantı). Dosyalar
 # HG_PARALLEL (varsayılan 4) adet aynı anda iner; inmiş dosya atlanır, kesilen indirme yeniden çalıştırınca sürer.
 # Ortam: HG_IMAGE_MODEL (qwen-image-2512 | flux-schnell | none), HG_H3_TEXT_ENCODER, HF_TOKEN, HG_VOLUME (varsayılan /workspace).
@@ -18,7 +20,7 @@ set -uo pipefail
 VOLUME=${HG_VOLUME:-/workspace}
 M="$VOLUME/models"
 LOGDIR="$VOLUME/hellgrind"
-mkdir -p "$LOGDIR" "$M"/{diffusion_models,text_encoders,vae,loras,checkpoints}
+mkdir -p "$LOGDIR" "$M"/{unet,clip,vae,loras,checkpoints}
 LOG="$LOGDIR/setup_volume.log"
 exec > >(tee -a "$LOG") 2>&1
 START=$(date +%s)
@@ -64,18 +66,22 @@ fetch() {  # depo  depodaki-yol  hedef-klasör
 H3=Comfy-Org/MiniMax-H3
 QW=Comfy-Org/Qwen-Image_ComfyUI
 JOBS=(
-  "$H3 diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors $M/diffusion_models"
-  "$H3 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors $M/diffusion_models"
-  "$H3 text_encoders/$TEXT_ENCODER $M/text_encoders"
-  "$H3 vae/minimax_h3_video_vae_int8_convrot.safetensors $M/vae"
+  "$H3 diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors $M/unet"
+  "$H3 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors $M/unet"
+  "$H3 text_encoders/$TEXT_ENCODER $M/clip"
+  "$H3 vae/minimax_h3_video_vae_fp16.safetensors $M/vae"
   "$H3 vae/minimax_h3_audio_vae_fp32.safetensors $M/vae"
   "$H3 loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors $M/loras"
   "$H3 loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors $M/loras"
 )
+if [ "${HG_H3_FP8_FALLBACK:-1}" = "1" ]; then
+  JOBS+=("$H3 diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors $M/unet"
+         "$H3 diffusion_models/minimax_h3_ref2va_pruned_fp8_scaled.safetensors $M/unet")
+fi
 case "$IMAGE_MODEL" in
   qwen-image-2512)          # Apache 2.0 (Qwen/Qwen-Image-2512)
-    JOBS+=("$QW split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors $M/diffusion_models"
-           "$QW split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors $M/text_encoders"
+    JOBS+=("$QW split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors $M/unet"
+           "$QW split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors $M/clip"
            "$QW split_files/vae/qwen_image_vae.safetensors $M/vae") ;;
   flux-schnell)             # Apache 2.0; FLUX.1 [dev] ticari olmayan lisanslıdır, kurulmaz
     JOBS+=("Comfy-Org/flux1-schnell flux1-schnell-fp8.safetensors $M/checkpoints") ;;
@@ -101,8 +107,9 @@ if [ -s "$FAILED" ]; then ok=1; step "HATA: inmeyen dosyalar (yeniden çalışt�
 if [ $WITH_COMFY -eq 1 ]; then
   step "== ComfyUI (test ve iş akışı dışa aktarımı) =="
   C="$VOLUME/pod-comfyui"
-  if [ -d "$C/.git" ]; then git -C "$C" pull --ff-only || step "ComfyUI güncellenemedi; mevcut sürüm kullanılıyor"
-  else git clone --depth 1 https://github.com/comfyanonymous/ComfyUI "$C" || { step "HATA: ComfyUI indirilemedi"; exit 1; }; fi
+  REF=${HG_COMFYUI_REF:-v0.39.0}          # worker'la aynı sürüm (iş akışları bu sürümden dışa aktarıldı)
+  [ -d "$C/.git" ] || git clone https://github.com/comfyanonymous/ComfyUI "$C" || { step "HATA: ComfyUI indirilemedi"; exit 1; }
+  git -C "$C" fetch --depth 1 origin "$REF" && git -C "$C" checkout -f FETCH_HEAD || step "HATA: ComfyUI $REF alınamadı"
   [ -x "$C/venv/bin/python" ] || python3 -m venv "$C/venv"
   "$C/venv/bin/python" -m pip install -q --upgrade pip
   "$C/venv/bin/python" -m pip install -q torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
@@ -110,8 +117,10 @@ if [ $WITH_COMFY -eq 1 ]; then
   cat > "$C/extra_model_paths.yaml" <<YAML
 hellgrind:
   base_path: $VOLUME/models
-  diffusion_models: diffusion_models
-  text_encoders: text_encoders
+  unet: unet
+  diffusion_models: unet
+  clip: clip
+  text_encoders: clip
   vae: vae
   loras: loras
   checkpoints: checkpoints

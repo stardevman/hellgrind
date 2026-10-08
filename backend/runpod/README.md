@@ -37,20 +37,25 @@ ComfyUI ~10 GB + pay). Ücret 0,07 $/GB/ay (200 GB ≈ 14 $/ay). Volume kimliği
      (16 bağlantı). `HG_PARALLEL` dosya (varsayılan 4) aynı anda iner; yarım kalan yeniden çalıştırınca sürer.
    - Görsel modeli: `HG_IMAGE_MODEL=qwen-image-2512` (varsayılan, Apache 2.0) | `flux-schnell` | `none`.
    - Günlük: `/workspace/hellgrind/setup_volume.log`. Dosya başına süre ve hız, sonda toplam süre ve boyut yazılır.
-3. `--comfyui` ile Pod'daki ComfyUI'de iş akışlarını deneyin ve **Workflow › Export (API)** ile kaydedin. Değişen değerleri
-   yer tutucuyla değiştirip Ayarlar › ComfyUI iş akışları'ndan yükleyin (`t2v`, `i2v`, `r2v`, `keyframe`;
-   `comfy-workflows/README.md`). Kaydetme düğümünde `{{filename_prefix}}` kullanın.
+3. `--comfyui` ile Pod'daki ComfyUI'de (0.39.0) iş akışlarını deneyin. `i2v`, `r2v` ve `keyframe` hazırdır
+   (`comfy-workflows/`, resmî şablonlardan `exported/make_templates.py` ile). Yeniden dışa aktarırsanız (**Workflow › Export
+   (API)**) dosyaları `comfy-workflows/exported/`'a koyup üreteci çalıştırın.
 4. Bitince **Pod'u silin** (volume ve modeller kalır).
 
-Volume yerleşimi: `models/diffusion_models`, `models/text_encoders`, `models/vae`, `models/loras`, `models/checkpoints`.
+Volume yerleşimi (ComfyUI'nin klasör adları): `models/unet`, `models/clip`, `models/vae`, `models/loras` (+ `checkpoints`).
+Video VAE `minimax_h3_video_vae_fp16` (iş akışları bunu bekler); `*_pruned_fp8_scaled` DiT'ler int8_convrot'un yedeğidir.
+
+> **EUR-NO-1 volume'u:** Kanada dışındaki bir volume'da (ör. EUR-NO-1) Ayarlar › **Kuzey veri merkezleri**'ni açın ve
+> **Veri merkezi**'ni `EUR-NO-1` yapın; yoksa bölge denetimi üretimi başlatmaz. EUR-NO-1, RunPod'un S3 API'sini destekler.
 
 ## 3. Worker imajı
 
 `backend/runpod/worker/`:
 
-- `Dockerfile`: `runpod/worker-comfyui:5.11.0-base` (RunPod'un resmî ComfyUI worker'ı, modelsiz). ComfyUI'yi H3 yerel
-  düğümlerini içeren güncel sürüme getirir (`COMFYUI_REF` ile sabitlenebilir).
-- `extra_model_paths.yaml`: `/runpod-volume/models/...` (diffusion_models ve text_encoders dahil; resmî dosyada yok).
+- `Dockerfile`: `runpod/worker-comfyui:5.11.0-base` (RunPod'un resmî ComfyUI worker'ı, modelsiz). ComfyUI **0.39.0**'a
+  sabitlenir (`COMFYUI_REF=v0.39.0`): `comfy-workflows/` altındaki iş akışları bu sürümün resmî şablonlarından dışa
+  aktarıldı, düğüm ve girdi adları ona göredir (özel düğüm gerekmez).
+- `extra_model_paths.yaml`: `/runpod-volume/models/{unet,clip,vae,loras}` (diffusion_models ve text_encoders adlarıyla da).
 - `handler.py`: resmî handler'ın yerine geçer. Videoyu da döndürür (resmî handler yalnızca `images` anahtarını toplar).
   Her dosyanın boyutunu ve SHA-256'sını, GPU adını ve soğuk başlatma süresini bildirir.
 

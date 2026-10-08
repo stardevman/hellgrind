@@ -314,7 +314,7 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
     for i in range(1, vast_h3.MAX_REFERENCES + 1):
         if refs:
             values[f"reference_{i}"] = refs[min(i, len(refs)) - 1]
-    workflow = vast_h3.fill(copy.deepcopy(vast_h3.load_workflow(kind)), values)
+    workflow = vast_h3.fill(vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs)), values)
     timeout_ms = int(float(settings.h3_timeout_s) * 1000)
     return {"input": {"workflow": workflow, "images": images,
                       "hellgrind": {"kind": "keyframe" if kind == "keyframe" else "video", "job": job.key(),

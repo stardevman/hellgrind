@@ -341,7 +341,7 @@ def test_pricing_is_read_and_saved_with_comments_and_used_at_once(api, cfg, pric
     (lambda t: t.replace("self_hosted:\n  h3:", "self_hosted:\n  h4:"), "self_hosted.h3 eksik"),
     (lambda t: t.replace("gpu_hourly_usd: 0.95", "gpu_hourly_usd: 0"), "self_hosted.h3.gpu_hourly_usd"),
     (lambda t: t.replace('"480p": 8 ', '"480p": -5 '), "self_hosted.h3.render_seconds.480p"),
-    (lambda t: t.replace("keyframe_seconds: 10", "keyframe_seconds: -1"), "self_hosted.h3.keyframe_seconds"),
+    (lambda t: t.replace("keyframe_seconds: 40", "keyframe_seconds: -1"), "self_hosted.h3.keyframe_seconds"),
 ])
 def test_invalid_pricing_is_refused_and_the_file_is_kept(api, cfg, prices, mutate, needle):
     before = prices.read_text()

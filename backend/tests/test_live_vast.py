@@ -315,7 +315,7 @@ def test_comfyui_uploads_the_first_frame_fills_the_workflow_and_reads_the_gpu_ti
     assert sent["8"]["inputs"]["image"] == comfy.uploads[0] and comfy.uploads[0].startswith("hg_")
     assert sent["3"]["inputs"] == {"seed": 4321, "steps": int(settings.h3_steps)}
     assert sent["5"]["inputs"] == {"width": 1280, "height": 704, "length": 124, "fps": 24}
-    assert sent["6"]["inputs"]["text"] == "Kerem köprüde koşuyor"
+    assert sent["6"]["inputs"]["text"] == f"Kerem köprüde koşuyor {vast_h3.FIRST_FRAME_NOTE}"   # FL2VA: <Picture 1>
     assert result.request_id == "p1" and result.meta["gpu_seconds"] == 30.0
     assert result.cost_usd == pricing.estimate_gpu("h3", 30.0) and result.meta["provenance"]["backend"] == "comfyui"
     assert call.steps[0]["backend"] == "comfyui" and call.steps[0]["keyframe"] is True

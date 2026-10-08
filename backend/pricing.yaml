@@ -11,7 +11,7 @@ self_hosted:
     render_seconds:           # bir video saniyesi için GPU saniyesi (124 kare = 5,17 sn)
       "480p": 8               # 864x480: 40,8 sn (model yüklemesi dahil)
       "720p": 16.5            # 1280x704: 85 sn
-    keyframe_seconds: 10      # ComfyUI'de ilk kare (storyboard) iş akışının görsel başına GPU süresi; tahmini, ölçünce güncelleyin
+    keyframe_seconds: 40      # ComfyUI'de ilk kare (keyframe.json: Qwen-Image-2512, 50 adım, 1280x704); tahmini, ölçünce güncelleyin
 
 serverless:
   runpod:             # MiniMax H3, RunPod Serverless (varsayılan platform). Flex worker fiyatları, runpod.io/pricing
@@ -23,7 +23,7 @@ serverless:
     render_seconds:           # video saniyesi başına GPU saniyesi (5090 ölçümü; PRO 6000 en az bu hızda)
       "480p": 8
       "720p": 16.5
-    keyframe_seconds: 10      # storyboard ilk karesi (keyframe.json); tahmini
+    keyframe_seconds: 40      # storyboard ilk karesi (keyframe.json: Qwen-Image-2512, 50 adım, 1280x704); tahmini
     cold_start_seconds: 60    # worker açılışı + model yükleme; tahmini, ilk gerçek işte ölçün
 
 video_per_second:

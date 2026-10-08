@@ -7,9 +7,10 @@
 ARG BASE=runpod/worker-comfyui:5.11.0-base
 FROM ${BASE}
 
-# ComfyUI'yi MiniMax H3 yerel düğümlerini içeren güncel sürüme getirir (taban imajdaki sürüm H3'ten eski olabilir).
-# COMFYUI_REF ile belirli bir commit sabitlenebilir; bir kez denediğiniz commit'i yazın ki her derleme aynı olsun.
-ARG COMFYUI_REF=master
+# ComfyUI 0.39.0'a sabitlenir: iş akışları (comfy-workflows/*.json) bu sürümün resmî şablonlarından dışa aktarıldı;
+# MiniMaxH3ImageToVideo, MiniMaxH3ReferenceToVideo, ComfySwitchNode, ComfyMathExpression, CreateVideo, SaveVideo bu sürümde
+# çekirdek düğümdür (özel düğüm gerekmez). Sürümü değiştirirseniz iş akışlarını yeniden dışa aktarın.
+ARG COMFYUI_REF=v0.39.0
 RUN set -eux; \
     cd /comfyui; \
     if [ ! -d .git ]; then echo "/comfyui bir git deposu değil: taban imajın yerleşimi değişmiş" >&2; exit 1; fi; \
@@ -18,7 +19,7 @@ RUN set -eux; \
     python -m pip install --no-cache-dir -r requirements.txt; \
     python -m pip install --no-cache-dir comfy-kitchen || echo "comfy-kitchen kurulamadı (int8 çekirdekleri ComfyUI'den gelir)"
 
-# Volume yerleşimi: models/{diffusion_models,text_encoders,vae,loras,checkpoints}
+# Volume yerleşimi: models/{unet,clip,vae,loras} (+ checkpoints)
 COPY extra_model_paths.yaml /comfyui/extra_model_paths.yaml
 # Videoyu da döndüren, boyut/SHA-256, GPU adı ve soğuk başlatma süresini bildiren handler
 COPY handler.py /handler.py
