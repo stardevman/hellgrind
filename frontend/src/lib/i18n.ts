@@ -108,7 +108,7 @@ export const CALL_STATUS_TR: Record<string, string> = { running: "Sürüyor", su
 export const TIER_TR: Record<string, string> = { probe: "Test turu", full: "Tam tur" };
 /** Sağlayıcıya giden isteğin kayda geçen parametreleri (app/live: vast_h3, fal_video.NOTED_ARGUMENTS, elevenlabs, hermes_llm). */
 export const STEP_TR: Record<string, string> = {
-  resolution: "Çözünürlük", num_frames: "Kare sayısı", frames_per_second: "Kare hızı", duration: "Süre (sn)",
+  unet_variant: "H3 DiT türü", gpu: "GPU", resolution: "Çözünürlük", num_frames: "Kare sayısı", frames_per_second: "Kare hızı", duration: "Süre (sn)",
   image_size: "Görsel boyutu", num_images: "Görsel sayısı", seed: "Tohum", strength: "Rehbere bağlılık", sync_mode: "Senkron modu",
   aspect_ratio: "En-boy oranı", generate_audio: "Yerleşik ses", loras: "LoRA", characters: "Karakter sayısı", voice_id: "Ses kimliği",
   emotion: "Duygu", voice: "Ses ayarları", http_status: "HTTP durumu", input_tokens: "Girdi belirteci",

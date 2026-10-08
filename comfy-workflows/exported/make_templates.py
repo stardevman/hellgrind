@@ -7,6 +7,9 @@
 3. Qwen anahtar karesi: volume'da olmayan Lightning LoRA ve anahtar düğümleri çıkarılır; 50 adım, cfg 4 doğrudan.
 4. Tuval: ResolutionSelector (115) yerine {{width}} / {{height}} (480p 864x480, 720p 1280x704; 32'nin katları).
 5. FL2VA'daki bağlantısız 119 / 120 düğümleri silinir.
+6. H3 DiT dosyası türe bağlıdır: minimax_h3_{fl2va,ref2va}_pruned_{{unet_variant}}.safetensors. Hell Grind
+   {{unet_variant}}'ı Ayarlar'daki H3_UNET_VARIANT'tan doldurur: fp8_scaled (varsayılan; cu128 torch'lu worker) ya da
+   int8_convrot (Comfy-Org'un önerisi; cu130 torch ister). Metin kodlayıcı nvfp4_awq, video VAE fp16 kalır.
 Değişen değerler Hell Grind yer tutucularıyla doldurulur: {{prompt}}, {{seed}}, {{duration}} (kare sayısını iş akışı
 17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}.
 Ref2VA'ya 9 referans yuvası eklenir (ComfyUI 0.39.0'da ref_images autogrow, en çok 9); Hell Grind gönderilen görselden
@@ -22,6 +25,8 @@ import pathlib
 HERE = pathlib.Path(__file__).resolve().parent
 OUT = HERE.parent
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
+UNET = {"fl2va": "minimax_h3_fl2va_pruned_{{unet_variant}}.safetensors",
+        "ref2va": "minimax_h3_ref2va_pruned_{{unet_variant}}.safetensors"}
 MAX_REFERENCES = 9
 
 
@@ -40,6 +45,8 @@ def check(flow: dict, name: str) -> dict:
         for key, value in node["inputs"].items():
             if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
                 assert value[0] in flow, f"{name}: {node_id}.{key} -> {value[0]} yok"
+    unets = [n["inputs"]["unet_name"] for n in flow.values() if n["class_type"] == "UNETLoader"]
+    assert all("{{unet_variant}}" in u for u in unets if "minimax_h3" in u), f"{name}: H3 DiT türü sabit kaldı"
     vaes = [n["inputs"]["vae_name"] for n in flow.values() if n["class_type"] == "VAELoader"]
     assert not any("int8" in v for v in vaes), f"{name}: volume'da olmayan int8 video VAE kaldı"
     assert "Lightning-4steps" not in json.dumps(flow), f"{name}: volume'da olmayan LoRA kaldı"
@@ -51,6 +58,7 @@ def t2v() -> dict:
     f = load("t2v_api.json")
     drop(f, "115")
     f["140:119"]["inputs"]["vae_name"] = VIDEO_VAE
+    f["140:127"]["inputs"]["unet_name"] = UNET["fl2va"]
     f["140:139"]["inputs"]["value"] = True
     f["140:131"]["inputs"].update(prompt="{{prompt}}", width="{{width}}", height="{{height}}")
     f["140:129"]["inputs"]["noise_seed"] = "{{seed}}"
@@ -63,6 +71,7 @@ def i2v() -> dict:
     f = load("fl2va_api.json")
     drop(f, "115", "119", "120")
     f["105:11"]["inputs"]["vae_name"] = VIDEO_VAE
+    f["105:6"]["inputs"]["unet_name"] = UNET["fl2va"]
     f["105:126"]["inputs"]["value"] = True
     node = f["105:104"]["inputs"]
     node.update(prompt="{{prompt}}", width="{{width}}", height="{{height}}")
@@ -77,6 +86,7 @@ def r2v() -> dict:
     f = load("ref2va_api.json")
     drop(f, "115")
     f["119"]["inputs"]["vae_name"] = VIDEO_VAE
+    f["127"]["inputs"]["unet_name"] = UNET["ref2va"]
     f["146"]["inputs"]["value"] = True
     node = f["136"]["inputs"]
     node.update(width="{{width}}", height="{{height}}")

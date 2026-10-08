@@ -86,7 +86,22 @@ def test_a_clip_is_submitted_waited_downloaded_verified_and_charged_by_gpu_time(
     assert row["sha256"] == hashlib.sha256(runpod.video).hexdigest() and storage.sha256_of(row["storage_key"]) == row["sha256"]
     meta = json.loads(storage.read_bytes(row["meta_key"]))
     assert meta["remote"]["gpu"] == "NVIDIA GeForce RTX 5090" and meta["provenance"]["server_location"] == "CA-MTL-1"
+    assert result.meta["provenance"]["unet_variant"] == "fp8_scaled" and run["input"]["hellgrind"]["kind"] == "video"
     assert "data" not in json.dumps(meta["remote"]["files"])        # çıktı verisi meta veriye yazılmaz
+
+
+def test_the_unet_variant_setting_reaches_the_workflow(runpod, monkeypatch):
+    (pathlib.Path(settings.h3_comfy_workflow_dir) / "t2v.json").write_text(json.dumps({
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}"}},
+        "7": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_{{unet_variant}}.safetensors"}},
+        "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}))
+    provider = runpod_h3.get_live_provider()
+    provider.generate(request())
+    monkeypatch.setattr(settings, "h3_unet_variant", "int8_convrot")
+    result = provider.generate(request())                                  # tür işin özetinde: yeni iş gönderilir
+    names = [r["input"]["workflow"]["7"]["inputs"]["unet_name"] for r in runpod.runs]
+    assert names == ["minimax_h3_fl2va_pruned_fp8_scaled.safetensors", "minimax_h3_fl2va_pruned_int8_convrot.safetensors"]
+    assert result.meta["provenance"]["unet_variant"] == "int8_convrot"
 
 
 def test_a_warm_worker_charges_no_cold_start(runpod):

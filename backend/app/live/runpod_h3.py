@@ -307,7 +307,7 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
 
     values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "fps": vast_h3.FPS,
               "duration": job.seconds, "frames": vast_h3.frames_for(job.seconds), "steps": job.steps,
-              "filename_prefix": vast_h3.prefix_for(job, kind)}
+              "filename_prefix": vast_h3.prefix_for(job, kind), "unet_variant": settings.h3_unet_variant}
     if job.keyframe:
         values["first_frame"] = add(job.keyframe)
     refs = [add(uri) for _, uri in job.references]
@@ -368,7 +368,8 @@ def remote_meta(body: dict) -> dict:
     files = [{k: v for k, v in f.items() if k != "data"} for f in (out.get("files") or out.get("images") or [])
              if isinstance(f, dict)]
     return {"status": body.get("status"), "delay_ms": body.get("delayTime"), "execution_ms": body.get("executionTime"),
-            "worker_id": body.get("workerId"), "gpu": out.get("gpu"), "timing": out.get("timing"), "files": files,
+            "worker_id": body.get("workerId"), "gpu": out.get("gpu"), "torch": out.get("torch"),
+            "timing": out.get("timing"), "files": files,
             "comfy": out.get("comfy"), "worker_version": out.get("version")}
 
 
@@ -437,7 +438,8 @@ def collect(body: dict, job_id: str, image: bool = False, extra: dict | None = N
 def provenance(job: vast_h3.Job, body: dict) -> dict:
     out = body.get("output") or {}
     return {"model": settings.h3_model, "model_revision": settings.h3_model_revision or None, "backend": BACKEND,
-            "platform": "runpod", "task": job.task, "steps": job.steps, "endpoint": settings.runpod_endpoint_id,
+            "platform": "runpod", "unet_variant": settings.h3_unet_variant, "torch": out.get("torch"), "task": job.task,
+            "steps": job.steps, "endpoint": settings.runpod_endpoint_id,
             "server_location": settings.runpod_datacenter, "gpu": out.get("gpu"), "worker_id": body.get("workerId"),
             "license": vast_h3.LICENSE, "training_allowed": False}
 

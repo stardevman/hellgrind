@@ -6,6 +6,8 @@ Taban imajın /start.sh'i ComfyUI'yi (127.0.0.1:8188) başlatır, sonra bu dosya
 - **Doğrulama bilgisi:** her dosyanın boyutu ve SHA-256'sı yanıtta; Hell Grind indirdiğini bunlarla karşılaştırır.
 - **Bedel bilgisi:** işi çalıştıran GPU'nun adı ve worker'ın ilk işiyse soğuk başlatma süresi (süreç açılışından işin
   başına; ComfyUI açılışı ve model yükleme). Faturalanan süre = RunPod'un executionTime'ı + bu süre.
+- **DiT / torch uyumu:** int8_convrot H3 DiT'leri cu130 torch ister (Comfy-Org); cu128 torch'lu bir worker'a
+  int8_convrot iş akışı gelirse iş GPU'yu meşgul etmeden açık bir hatayla biter. Yanıtta torch sürümü de döner.
 - **Teslim:** dosyalar base64 olarak yanıtta (toplam en çok `inline_limit`, varsayılan 9 MB; RunPod /run sonuçlarını
   ~10 MB'ta keser). Daha büyükse ve S3 tanımlıysa (uç nokta ortamında BUCKET_ENDPOINT_URL, BUCKET_ACCESS_KEY_ID,
   BUCKET_SECRET_ACCESS_KEY, BUCKET_NAME ya da isteğin s3Config'i) dosya yüklenir ve 24 saatlik imzalı indirme adresi döner;
@@ -20,6 +22,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -148,6 +151,32 @@ def read_item(item: dict) -> bytes:
     return body
 
 
+def torch_version() -> str | None:
+    """Kurulu torch'un sürümü (ör. "2.11.0+cu128"); torch içe aktarılmaz."""
+    try:
+        from importlib.metadata import version
+        return version("torch")
+    except Exception:                                # noqa: BLE001
+        return None
+
+
+def cuda_tag(torch_v: str | None) -> int | None:
+    m = re.search(r"\+cu(\d+)", torch_v or "")
+    return int(m.group(1)) if m else None
+
+
+def check_unets(workflow: dict, torch_v: str | None) -> None:
+    """int8_convrot H3 DiT'i cu130'dan eski torch'la yüklenmez (Comfy-Org: int8_convrot için cu130, değilse fp8_scaled)."""
+    tag = cuda_tag(torch_v)
+    for node in workflow.values():
+        if not isinstance(node, dict) or node.get("class_type") != "UNETLoader":
+            continue
+        name = str((node.get("inputs") or {}).get("unet_name", ""))
+        if "int8_convrot" in name and tag is not None and tag < 130:
+            raise WorkerError(f"{name} cu130 torch ister, bu worker {torch_v}: Ayarlar › H3 DiT türü'nü fp8_scaled yapın "
+                              "ya da cu130 imajı kullanın")
+
+
 def gpu_name() -> str | None:
     try:
         out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True,
@@ -219,6 +248,7 @@ def handler(job: dict) -> dict:
             raise WorkerError("girdide workflow (ComfyUI API biçimi) yok")
         meta = inp.get("hellgrind") or {}
         kind = meta.get("kind") or "video"
+        check_unets(workflow, torch_version())
         wait_comfy()
         for img in inp.get("images") or []:
             upload_image(img["name"], img["image"])
@@ -231,7 +261,7 @@ def handler(job: dict) -> dict:
         chosen = [(items[0], read_item(items[0]))]
         files = deliver(job, chosen, int(meta.get("inline_limit") or INLINE_LIMIT))
         cleanup([items[0]])
-        return {"files": files, "gpu": gpu_name(), "version": VERSION, "comfy": {"prompt_id": prompt_id},
+        return {"files": files, "gpu": gpu_name(), "torch": torch_version(), "version": VERSION, "comfy": {"prompt_id": prompt_id},
                 "timing": {"cold_start_s": round(cold, 1), "execution_s": round(time.time() - started, 1),
                            "comfy_s": comfy_seconds(entry)}}
     except Exception as e:                           # noqa: BLE001 — RunPod {"error"}'u FAILED sayar

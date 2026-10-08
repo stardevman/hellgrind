@@ -52,6 +52,9 @@ def test_the_volume_files_and_turbo_are_used():
     assert i2v["105:126"]["inputs"]["value"] is True and r2v["146"]["inputs"]["value"] is True        # turbo LoRA
     assert t2v["140:139"]["inputs"]["value"] is True and "first_frame" not in t2v["140:131"]["inputs"]
     assert t2v["140:133"]["inputs"]["value"] == "{{duration}}" and t2v["140:129"]["inputs"]["noise_seed"] == "{{seed}}"
+    unets = [i2v["105:6"], t2v["140:127"], r2v["127"]]
+    assert [u["inputs"]["unet_name"] for u in unets] == ["minimax_h3_fl2va_pruned_{{unet_variant}}.safetensors"] * 2 + [
+        "minimax_h3_ref2va_pruned_{{unet_variant}}.safetensors"]
     assert "119" not in i2v and "120" not in i2v                                                     # bağlantısız düğümler
     assert "Lightning" not in json.dumps(kf) and kf["238:222"]["inputs"]["model"] == ["238:226", 0]
     assert (kf["238:230"]["inputs"]["steps"], kf["238:230"]["inputs"]["cfg"]) == (50, 4)
@@ -73,8 +76,9 @@ def test_filled_values_land_as_numbers_and_the_first_frame_is_named_in_the_promp
                                        image_url="data:image/jpeg;base64,AAAA"), server="runpod://ep")
     assert job.prompt.endswith(vast_h3.FIRST_FRAME_NOTE)
     values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "duration": job.seconds,
-              "first_frame": "hg_1.jpg", "filename_prefix": "hellgrind/i2v_x"}
+              "first_frame": "hg_1.jpg", "filename_prefix": "hellgrind/i2v_x", "unet_variant": "fp8_scaled"}
     f = vast_h3.fill(flow("i2v"), values)
     node = f["105:104"]["inputs"]
     assert (node["width"], node["height"], f["105:15"]["inputs"]["noise_seed"], f["105:111"]["inputs"]["value"]) == (1280, 704, 7, 5)
     assert f["114"]["inputs"]["image"] == "hg_1.jpg" and "{{" not in json.dumps(f)
+    assert f["105:6"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"

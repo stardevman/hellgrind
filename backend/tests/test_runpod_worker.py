@@ -78,6 +78,17 @@ def test_large_outputs_go_to_s3_as_a_signed_url(worker, monkeypatch):
     assert f["type"] == "url" and f["data"].startswith("https://r2.test/rp-1/") and f["sha256"]
 
 
+def test_an_int8_convrot_unet_is_refused_on_a_cu128_worker(worker, monkeypatch):
+    monkeypatch.setattr(worker, "torch_version", lambda: "2.11.0+cu128")
+    unet = {"7": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors"}}}
+    out = worker.handler(job(workflow=unet))
+    assert "cu130 torch ister" in out["error"] and not any(c[1] == "/prompt" for c in worker.calls)
+    fp8 = {"7": {"class_type": "UNETLoader", "inputs": {"unet_name": "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"}}}
+    assert worker.handler(job(workflow=fp8))["torch"] == "2.11.0+cu128"
+    monkeypatch.setattr(worker, "torch_version", lambda: "2.14.1+cu130")
+    assert "cu130" not in worker.handler(job(workflow=unet)).get("error", "")                # cu130 worker'da geçer
+
+
 def test_comfy_rejections_and_missing_outputs_are_errors(worker):
     assert "Value not in list" in worker.handler(job(workflow={"bad": {"class_type": "X", "inputs": {}}}))["error"]
     assert "görsel çıktısı vermedi" in worker.handler(job(hellgrind={"kind": "keyframe"}))["error"]

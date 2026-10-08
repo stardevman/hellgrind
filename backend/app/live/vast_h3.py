@@ -212,7 +212,7 @@ class Job:
         return [name for name, _ in self.references]
 
     def key(self) -> str:
-        return stable_hash([settings.h3_platform, settings.h3_backend, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
+        return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references])
 
 
@@ -279,7 +279,7 @@ def _client(url: str, token: str, observer=_AUTO) -> httpx.Client:
 
 def _note(job: Job, job_id: str, negative: str) -> None:
     # Kuyruğa giren iş kayda hemen geçer: sonucu alınamasa da GPU'da çalışmış olabilir.
-    history.step(settings.h3_model, job_id, task=job.task, backend=settings.h3_backend,
+    history.step(settings.h3_model, job_id, task=job.task, backend=settings.h3_backend, unet_variant=settings.h3_unet_variant,
                  resolution=f"{job.width}x{job.height}", duration=job.seconds, seed=job.seed, steps=job.steps,
                  references=len(job.references) or None, keyframe=bool(job.keyframe) or None,
                  negative_dropped=bool(negative) or None, negatives_unmapped=list(job.unmapped) or None,
@@ -470,7 +470,7 @@ class Comfy:
     def values(self, job: Job, kind: str) -> dict:
         values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "fps": FPS,
                   "duration": job.seconds, "frames": frames_for(job.seconds), "steps": job.steps,
-                  "filename_prefix": prefix_for(job, kind)}
+                  "filename_prefix": prefix_for(job, kind), "unet_variant": settings.h3_unet_variant}
         if job.keyframe:
             values["first_frame"] = self.upload(job.keyframe)
         names = [self.upload(uri) for _, uri in job.references]
@@ -633,7 +633,7 @@ def provenance(job: Job, box) -> dict:
     """Klibin kaynağı: model, sürüm, arka uç, sunucu ve konumu, lisans. Kayda ve MP4 meta verisine yazılır."""
     location = box.geolocation if box is not None else (vast_box.cached() or {}).get("geolocation")
     return {"model": settings.h3_model, "model_revision": settings.h3_model_revision or None,
-            "backend": settings.h3_backend, "task": job.task, "steps": job.steps,
+            "backend": settings.h3_backend, "unet_variant": settings.h3_unet_variant, "task": job.task, "steps": job.steps,
             "server": urlparse(job.url).hostname, "server_location": location,
             "vast_instance_id": settings.vast_instance_id or None, "license": LICENSE, "training_allowed": False}
 

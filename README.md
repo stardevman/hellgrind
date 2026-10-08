@@ -680,6 +680,7 @@ Bilinmesi gerekenler:
 | `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, `RUNPOD_NETWORK_VOLUME_ID` | boş | RunPod anahtarı, Serverless uç nokta ve modellerin volume'u |
 | `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
 | `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
+| `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
 | `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
 | `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |

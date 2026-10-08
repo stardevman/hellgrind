@@ -166,6 +166,7 @@ def test_every_clip_carries_its_provenance_in_the_record_and_the_mp4(h3, monkeyp
     result = H3Provider().generate(request())
     prov = result.meta["provenance"]
     assert prov == {"model": "MiniMaxAI/MiniMax-H3", "model_revision": "fl2va int8 convrot + turbo v4", "backend": "sglang",
+                    "unet_variant": "fp8_scaled",
                     "task": "t2va", "steps": int(settings.h3_steps), "server": "h3.test", "server_location": None,
                     "vast_instance_id": None, "license": "MiniMax H3 Community License", "training_allowed": False}
     embedded = tags(result.local_path)

@@ -16,6 +16,8 @@ yuvası) ve `keyframe.json` (Qwen-Image-2512, `image_qwen_Image_2512`). `exporte
 bu dosyaları üretir:
 
 - video VAE `minimax_h3_video_vae_fp16` (volume'daki dosya; int8_convrot VAE cu130 ister),
+- H3 DiT `minimax_h3_{fl2va,ref2va}_pruned_{{unet_variant}}`: Ayarlar › H3 DiT türü (`fp8_scaled` varsayılan, cu128
+  worker; `int8_convrot` cu130 torch'lu worker ister),
 - turbo LoRA açık (FL2VA ve T2V 8 adım, Ref2VA 4 adım),
 - Qwen anahtar karesinde volume'da olmayan Lightning LoRA çıkarıldı (50 adım, cfg 4; Qwen negatif istemi kullanır, şablonun
   negatifi korunur),
