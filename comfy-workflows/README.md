@@ -10,21 +10,23 @@ Dosyaları panelden yükleyin (Ayarlar › MiniMax H3 › ComfyUI iş akışlar�
 | `r2v.json` | Karakter referanslarıyla video (Ref2VA) | `{{prompt}}`, `{{reference_1}}` |
 | `keyframe.json` | Storyboard ilk karesi (bir görsel modeliyle; isteğe bağlı) | `{{prompt}}` |
 
-**Hazır iş akışları (ComfyUI 0.39.0'ın resmî şablonlarından):** bu klasördeki `i2v.json` (FL2VA,
-`video_minimax_h3_i2v`), `r2v.json` (Ref2VA, `video_minimax_h3_r2v`, 9 referans yuvası) ve `keyframe.json` (Qwen-Image-2512,
-`image_qwen_Image_2512`). `exported/` altında ComfyUI'nin dışa aktardığı hâlleri durur; `exported/make_templates.py` onlardan
+**Hazır iş akışları (ComfyUI 0.39.0'ın resmî şablonlarından):** bu klasördeki `t2v.json` (yalnızca metin,
+`video_minimax_h3_t2v`), `i2v.json` (FL2VA, `video_minimax_h3_i2v`), `r2v.json` (Ref2VA, `video_minimax_h3_r2v`, 9 referans
+yuvası) ve `keyframe.json` (Qwen-Image-2512, `image_qwen_Image_2512`). `exported/` altında ComfyUI'nin dışa aktardığı hâlleri durur; `exported/make_templates.py` onlardan
 bu dosyaları üretir:
 
 - video VAE `minimax_h3_video_vae_fp16` (volume'daki dosya; int8_convrot VAE cu130 ister),
-- turbo LoRA açık (FL2VA 8 adım, Ref2VA 4 adım),
+- turbo LoRA açık (FL2VA ve T2V 8 adım, Ref2VA 4 adım),
 - Qwen anahtar karesinde volume'da olmayan Lightning LoRA çıkarıldı (50 adım, cfg 4; Qwen negatif istemi kullanır, şablonun
   negatifi korunur),
 - tuval `{{width}}` / `{{height}}` (ResolutionSelector yerine), FL2VA'daki bağlantısız düğümler silindi.
 
 RunPod worker'ı ComfyUI 0.39.0'a sabitlidir (`backend/runpod/worker/Dockerfile`): düğüm ve girdi adları bu sürüme göredir.
-ComfyUI'yi yükseltirseniz şablonları yeniden dışa aktarıp `make_templates.py`'yi çalıştırın. `t2v.json` (ilk karesiz video:
-hareket testi ve dönüş videosunun yedeği) için resmî şablon henüz eklenmedi. `examples/keyframe.flux-schnell.json` FLUX.1
-[schnell] seçeneğidir.
+ComfyUI'yi yükseltirseniz şablonları yeniden dışa aktarıp `make_templates.py`'yi çalıştırın.
+`examples/keyframe.flux-schnell.json` FLUX.1 [schnell] seçeneğidir.
+
+İleride (ses referansı): 0.39.0'daki `MiniMaxH3ReferenceToVideo` görsellerin yanında `ref_videos` (en çok 3; 24 fps, 2-15 sn),
+`ref_video_audios` ve `ref_audios` (en çok 3) da alır; Hell Grind bunları henüz göndermiyor.
 
 Hazırlamak için: ComfyUI'de H3 şablonunu (Template Library › MiniMax H3) açın, çalıştığını görün, sonra
 **Workflow › Export (API)** ile kaydedin. JSON'u bir metin düzenleyicide açıp değişen değerleri yer tutucuyla değiştirin:

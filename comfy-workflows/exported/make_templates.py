@@ -1,15 +1,17 @@
 """ComfyUI'nin resmî şablonlarından (Export (API), ComfyUI 0.39.0; bu klasördeki *_api.json) Hell Grind iş akışlarını üretir:
-../i2v.json (FL2VA), ../r2v.json (Ref2VA), ../keyframe.json (Qwen-Image-2512).
+../t2v.json (yalnızca metin), ../i2v.json (FL2VA), ../r2v.json (Ref2VA), ../keyframe.json (Qwen-Image-2512).
 
 Şablonlara uygulananlar (NOTES: "Must-fix before use"):
 1. Video VAE: volume'daki minimax_h3_video_vae_fp16 (int8_convrot dosyası volume'da yok; cu130 da gerektirmez).
-2. Turbo LoRA açık: FL2VA fl2v_turbo_8step + 8 adım, Ref2VA ref2v_turbo_4step + 4 adım.
+2. Turbo LoRA açık: FL2VA ve T2V fl2v_turbo_8step + 8 adım, Ref2VA ref2v_turbo_4step + 4 adım.
 3. Qwen anahtar karesi: volume'da olmayan Lightning LoRA ve anahtar düğümleri çıkarılır; 50 adım, cfg 4 doğrudan.
 4. Tuval: ResolutionSelector (115) yerine {{width}} / {{height}} (480p 864x480, 720p 1280x704; 32'nin katları).
 5. FL2VA'daki bağlantısız 119 / 120 düğümleri silinir.
 Değişen değerler Hell Grind yer tutucularıyla doldurulur: {{prompt}}, {{seed}}, {{duration}} (kare sayısını iş akışı
 17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}.
-Ref2VA'ya 9 referans yuvası eklenir; Hell Grind gönderilen görselden fazla yuvayı istekten önce çıkarır.
+Ref2VA'ya 9 referans yuvası eklenir (ComfyUI 0.39.0'da ref_images autogrow, en çok 9); Hell Grind gönderilen görselden
+fazla yuvayı istekten önce çıkarır. Aynı düğüm ileride ses referansları için ref_videos (en çok 3; 24 fps, 2-15 sn),
+ref_video_audios ve ref_audios (en çok 3) da alır; şimdilik kullanılmıyor.
 
     python comfy-workflows/exported/make_templates.py      # yeniden dışa aktarınca tekrar çalıştırın
 """
@@ -42,6 +44,19 @@ def check(flow: dict, name: str) -> dict:
     assert not any("int8" in v for v in vaes), f"{name}: volume'da olmayan int8 video VAE kaldı"
     assert "Lightning-4steps" not in json.dumps(flow), f"{name}: volume'da olmayan LoRA kaldı"
     return flow
+
+
+def t2v() -> dict:
+    """video_minimax_h3_t2v: aynı MiniMaxH3ImageToVideo düğümü, ilk karesiz (FL2VA DiT + fl2v turbo LoRA)."""
+    f = load("t2v_api.json")
+    drop(f, "115")
+    f["140:119"]["inputs"]["vae_name"] = VIDEO_VAE
+    f["140:139"]["inputs"]["value"] = True
+    f["140:131"]["inputs"].update(prompt="{{prompt}}", width="{{width}}", height="{{height}}")
+    f["140:129"]["inputs"]["noise_seed"] = "{{seed}}"
+    f["140:133"]["inputs"]["value"] = "{{duration}}"
+    f["92"]["inputs"]["filename_prefix"] = "{{filename_prefix}}"
+    return check(f, "t2v")
 
 
 def i2v() -> dict:
@@ -93,7 +108,7 @@ def keyframe() -> dict:
 
 
 def build() -> dict[str, dict]:
-    return {"i2v": i2v(), "r2v": r2v(), "keyframe": keyframe()}
+    return {"t2v": t2v(), "i2v": i2v(), "r2v": r2v(), "keyframe": keyframe()}
 
 
 def render(flow: dict) -> str:

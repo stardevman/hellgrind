@@ -34,7 +34,7 @@ def test_the_committed_workflows_are_exactly_what_the_generator_makes():
         assert (FLOWS / f"{kind}.json").read_text() == gen.render(made), f"{kind}.json elle değiştirilmiş: üreteci çalıştırın"
 
 
-@pytest.mark.parametrize("kind", ["i2v", "r2v", "keyframe"])
+@pytest.mark.parametrize("kind", ["t2v", "i2v", "r2v", "keyframe"])
 def test_workflows_validate_and_every_link_points_to_a_node(kind):
     f = vast_h3.validate_workflow(kind, (FLOWS / f"{kind}.json").read_text())
     for node_id, node in f.items():
@@ -46,9 +46,12 @@ def test_workflows_validate_and_every_link_points_to_a_node(kind):
 
 
 def test_the_volume_files_and_turbo_are_used():
-    i2v, r2v, kf = flow("i2v"), flow("r2v"), flow("keyframe")
-    assert i2v["105:11"]["inputs"]["vae_name"] == r2v["119"]["inputs"]["vae_name"] == "minimax_h3_video_vae_fp16.safetensors"
+    t2v, i2v, r2v, kf = flow("t2v"), flow("i2v"), flow("r2v"), flow("keyframe")
+    assert (i2v["105:11"]["inputs"]["vae_name"] == r2v["119"]["inputs"]["vae_name"] == t2v["140:119"]["inputs"]["vae_name"]
+            == "minimax_h3_video_vae_fp16.safetensors")
     assert i2v["105:126"]["inputs"]["value"] is True and r2v["146"]["inputs"]["value"] is True        # turbo LoRA
+    assert t2v["140:139"]["inputs"]["value"] is True and "first_frame" not in t2v["140:131"]["inputs"]
+    assert t2v["140:133"]["inputs"]["value"] == "{{duration}}" and t2v["140:129"]["inputs"]["noise_seed"] == "{{seed}}"
     assert "119" not in i2v and "120" not in i2v                                                     # bağlantısız düğümler
     assert "Lightning" not in json.dumps(kf) and kf["238:222"]["inputs"]["model"] == ["238:226", 0]
     assert (kf["238:230"]["inputs"]["steps"], kf["238:230"]["inputs"]["cfg"]) == (50, 4)
