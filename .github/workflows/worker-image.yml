@@ -1,0 +1,104 @@
+# RunPod worker imajı (MiniMax H3 + ComfyUI 0.39.0): derler ve Docker Hub'a gönderir.
+#   - Elle: Actions › worker-image › Run workflow (etiket, ör. 0.39.0-1)
+#   - Etiketle: git tag worker-v0.39.0-1 && git push origin worker-v0.39.0-1
+# İmaj: docker.io/stardevman/hellgrind-h3-worker:<etiket> (RunPod uç noktasının Container Image alanı).
+# push.sh ile aynı: linux/amd64, bağlam backend/runpod/worker, H3_UNET_VARIANT derleme argümanı. Dockerfile'daki denetimler
+# (H3 düğümleri var mı, torch'un CUDA etiketi DiT türüne uyuyor mu, ComfyUI'nin CPU'da açılış denemesi) burada da çalışır.
+# Sırlar: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN (Read & Write).
+name: worker-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "İmaj etiketi: <ComfyUI sürümü>-<düzeltme>, ör. 0.39.0-1"
+        required: true
+      unet_variant:
+        description: "H3 DiT türü (cu128 torch -> fp8_scaled)"
+        type: choice
+        options: [fp8_scaled, int8_convrot]
+        default: fp8_scaled
+  push:
+    tags: ["worker-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-image-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: docker.io/stardevman/hellgrind-h3-worker
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Etiket
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_VARIANT: ${{ github.event.inputs.unet_variant }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then TAG="$INPUT_TAG"; else TAG="${GITHUB_REF_NAME#worker-v}"; fi
+          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+            echo "::error::Geçersiz etiket '$TAG': <ComfyUI sürümü>-<düzeltme> olmalı (ör. 0.39.0-1); latest kullanılmaz"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "variant=${INPUT_VARIANT:-fp8_scaled}" >> "$GITHUB_OUTPUT"
+
+      - name: Disk alanı aç (taban imaj ~15 GB sıkıştırılmış)
+        run: |
+          df -h / /mnt || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/share/swift /usr/local/share/powershell /usr/local/lib/node_modules \
+            "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          sudo swapoff -a && sudo rm -f /mnt/swapfile /swapfile || true
+          # /mnt kökten büyükse Docker'ın verisini oraya taşı (BuildKit'in katmanları da oraya yazılır)
+          ROOT_FREE=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          MNT_FREE=$(df --output=avail -BG /mnt 2>/dev/null | tail -1 | tr -dc 0-9)
+          if [ -n "$MNT_FREE" ] && [ "$MNT_FREE" -gt "$ROOT_FREE" ]; then
+            sudo systemctl stop docker docker.socket
+            sudo mkdir -p /mnt/docker
+            CFG=/etc/docker/daemon.json
+            [ -s "$CFG" ] || echo '{}' | sudo tee "$CFG" > /dev/null
+            sudo jq '. + {"data-root": "/mnt/docker"}' "$CFG" | sudo tee "$CFG.new" > /dev/null && sudo mv "$CFG.new" "$CFG"
+            sudo systemctl start docker
+          fi
+          docker info --format 'Docker verisi: {{.DockerRootDir}}'
+          df -h / /mnt || true
+
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Derle ve gönder
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/runpod/worker
+          platforms: linux/amd64
+          build-args: |
+            H3_UNET_VARIANT=${{ steps.tag.outputs.variant }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+
+      - name: Docker Hub'da doğrula
+        run: |
+          docker buildx imagetools inspect "$IMAGE:${{ steps.tag.outputs.tag }}"
+          {
+            echo "### RunPod worker imajı"
+            echo ""
+            echo "Container Image: \`$IMAGE:${{ steps.tag.outputs.tag }}\` (H3 DiT türü: ${{ steps.tag.outputs.variant }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+          df -h / /mnt || true

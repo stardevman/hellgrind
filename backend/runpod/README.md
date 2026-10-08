@@ -82,6 +82,15 @@ model yolları); herkese açık bir Docker Hub deposu yeterlidir.
    (yeni etiket yazıp kaydedince worker'lar yeni imajla açılır). Depoyu gizli tutarsanız RunPod › Settings › **Container
    Registry Auth**'a Docker Hub erişim belirteci ekleyip uç noktada seçin.
 
+**GitHub Actions'la (önerilen; derleme yerel ağa ve öykünmeye takılmaz):** `.github/workflows/worker-image.yml`
+aynı derlemeyi ubuntu-latest'te (linux/amd64) yapar ve `docker.io/stardevman/hellgrind-h3-worker:<etiket>`'e gönderir
+(sırlar: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`). Başlatmak için ya Actions › worker-image › **Run workflow** (etiket ve DiT
+türü; iş akışı varsayılan dalda olmalı) ya da bir etiket gönderin:
+```bash
+git tag worker-v0.39.0-1 && git push origin worker-v0.39.0-1
+```
+Bitince işin özetinde RunPod'a yazılacak Container Image görünür.
+
 GHCR da olur (`ghcr.io/<kullanıcı>/hellgrind-h3-worker:0.39.0-1`, `docker login ghcr.io`), ama taban imajın katmanları da
 oraya yüklenir (~15 GB). Docker Hub'da taban katmanlar genellikle aynı kayıttaki `runpod/worker-comfyui`'den bağlanır,
 yüklenmez; yine de ilk gönderim birkaç GB sürebilir.
