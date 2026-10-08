@@ -87,9 +87,10 @@ def test_runpod_is_listed_first_as_the_default_h3_platform(api, cfg):
     assert rp["name"] == "MiniMax H3 · RunPod" and rp["key_env"] == "RUNPOD_API_KEY" and rp["active"] is True
     fields = {f["env"]: f for f in rp["fields"]}
     assert fields["H3_PLATFORM"]["value"] == "runpod" and fields["H3_PLATFORM"]["choices"] == ["runpod", "vast"]
-    assert fields["RUNPOD_ENDPOINT_ID"]["value"] == "ep123" and fields["RUNPOD_DATACENTER"]["value"] == "CA-MTL-1"
-    assert (fields["RUNPOD_IDLE_TIMEOUT_S"]["value"], fields["RUNPOD_MIN_BALANCE_USD"]["value"]) == ("60", "10.0")
-    assert fields["H3_ALLOW_NORDIC"]["value"] == "false" and fields["H3_STEPS"]["value"] == "9"
+    # geliştirme .env'i konteynere yüklenir: dosyada olmayan alanlar için varsayılanlar sınanır
+    assert fields["RUNPOD_ENDPOINT_ID"]["value"] == "ep123" and fields["RUNPOD_DATACENTER"]["default"] == "CA-MTL-1"
+    assert (fields["RUNPOD_IDLE_TIMEOUT_S"]["default"], fields["RUNPOD_MIN_BALANCE_USD"]["default"]) == ("60", "10.0")
+    assert fields["H3_ALLOW_NORDIC"]["default"] == "false" and fields["H3_STEPS"]["default"] == "9"
     assert vast["name"] == "MiniMax H3 · vast.ai (deneysel)" and vast["needed"] is False and "deneysel" in vast["not_needed_reason"]
     assert RUNPOD_SECRET not in api.get("/api/settings").text
 

@@ -55,7 +55,17 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
   return rows;
 }
 
-function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true }: { svc: Service; field: ServiceField; editable: boolean; onSaved: () => void; probe?: boolean }) {
+/** Bağlantı alanları: anahtarın hemen altında durur (bağlantı sınaması bunları da okur). */
+const CONNECTION: Partial<Record<Service["id"], string[]>> = {
+  runpod: ["RUNPOD_ENDPOINT_ID", "RUNPOD_NETWORK_VOLUME_ID"],
+  vast: ["VAST_INSTANCE_ID", "H3_ENDPOINT_URL"],
+};
+
+function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true, pending = 0, saveFirst }: {
+  svc: Service; field: ServiceField; editable: boolean; onSaved: () => void; probe?: boolean;
+  /** Kaydedilmemiş ayar sayısı: sınama kayıtlı değerleri okur, önce kaydedilir. */
+  pending?: number; saveFirst?: () => Promise<void>;
+}) {
   const { busy, act, note } = usePanel();
   const [value, setValue] = useState("");
   const [sure, setSure] = useState(false);
@@ -66,6 +76,7 @@ function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true }: { s
     note("settings", v ? `${field.label} kaydedildi; bütün servislerde hemen geçerli.` : `${field.label} silindi.`, "ok");
   }, "settings");
   const test = () => act(async () => {
+    if (pending && saveFirst) await saveFirst();          // sınama kayıtlı ayarları okur
     const r = await api.post<ProbeResult>(`/settings/test/${svc.id}`);
     setProbe(r);
   }, "settings");
@@ -75,7 +86,9 @@ function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true }: { s
         <span className="dim small" style={{ minWidth: 92 }}>{field.label}</span>
         {field.set ? <span className="mono">{field.masked}</span> : <span className="tag bad">tanımlı değil</span>}
         <span className="grow" />
-        {canProbe && <button className="btn" type="button" disabled={busy || !field.set} onClick={test} title="Ücretsiz bir doğrulama isteği; üretim yapmaz">Bağlantıyı sına</button>}
+        {canProbe && <button className="btn" type="button" disabled={busy || !field.set} onClick={test}
+          title={pending ? `Önce ${pending} kaydedilmemiş ayar kaydedilir; sonra ücretsiz bir doğrulama isteği (üretim yapmaz)` : "Ücretsiz bir doğrulama isteği; üretim yapmaz"}>
+          {pending ? "Kaydet ve sına" : "Bağlantıyı sına"}</button>}
       </div>
       <div className="row">
         {probe && <span className={`tag ${tone(probe.ok)}`} style={{ whiteSpace: "normal" }} title={probe.status ? `HTTP ${probe.status}` : ""}>{probe.message}</span>}
@@ -97,15 +110,19 @@ function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true }: { s
 function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsState; prices: PricingTable | undefined; onSaved: () => void }) {
   const { busy, act, note, setHistory } = usePanel();
   const keys = svc.fields.filter((f) => f.kind === "secret");
-  const others = svc.fields.filter((f) => f.kind !== "secret");
+  const connEnvs = CONNECTION[svc.id] ?? [];
+  const conn = connEnvs.map((e) => svc.fields.find((f) => f.env === e)).filter((f): f is ServiceField => Boolean(f));
+  const others = svc.fields.filter((f) => f.kind !== "secret" && !connEnvs.includes(f.env));
   const [draft, setDraft] = useState<Record<string, string>>({});
   const val = (f: ServiceField) => draft[f.env] ?? f.value ?? "";
-  const dirty = others.filter((f) => draft[f.env] != null && draft[f.env] !== f.value);
-  const save = () => act(async () => {
+  const editableFields = [...conn, ...others];
+  const dirty = editableFields.filter((f) => draft[f.env] != null && draft[f.env] !== f.value);
+  const persist = async () => {
     const r = await api.patch<{ changed: string[] }>("/settings", { values: Object.fromEntries(dirty.map((f) => [f.env, val(f).trim()])) });
     setDraft({}); onSaved();
     note("settings", r.changed.length ? `Kaydedildi: ${r.changed.join(", ")}. Yeniden başlatma gerekmez.` : "Değişiklik yok.", "ok");
-  }, "settings");
+  };
+  const save = () => act(persist, "settings");
   return (
     <Panel title={svc.name} meta={svc.purpose}
       tools={<a className="btn ghost" href={svc.console} target="_blank" rel="noopener noreferrer">Hesap paneli ↗</a>}>
@@ -118,7 +135,33 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
           <span className="dim small">Gerçek harcama <b className="mono">{usdExact(svc.spent_usd)}</b> · sanal <span className="mono">{usdExact(svc.virtual_usd)}</span></span>
           <button className="btn ghost" type="button" onClick={() => setHistory({ service: svc.id }, true)} title={`${svc.name} çağrılarının geçmişi`}><Icon.receipt />Geçmiş</button>
         </div>
-        {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env} />)}
+        {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env}
+          pending={k.env === svc.key_env ? dirty.length : 0} saveFirst={persist} />)}
+        {conn.length > 0 && (
+          <table className="tbl">
+            <tbody>
+              {conn.map((f) => (
+                <tr key={f.env}>
+                  <td style={{ width: "34%" }}>{f.label}<small className="mono">{f.env}</small></td>
+                  <td>
+                    <input type="text" className="mono" style={{ width: "100%" }} spellCheck={false} disabled={!st.editable} aria-label={f.label}
+                      placeholder={f.kind === "url" ? "https://<IP>:<port>" : "tanımlı değil"} value={val(f)}
+                      onChange={(e) => setDraft({ ...draft, [f.env]: e.target.value })} />
+                    {!f.value && draft[f.env] == null && <small className="bad">tanımlı değil</small>}
+                    {draft[f.env] != null && draft[f.env] !== f.value && <small className="warn">kaydedilmedi</small>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {conn.length > 0 && st.editable && dirty.length > 0 && (
+          <div className="row">
+            <button className="btn primary" type="button" disabled={busy} onClick={save}>Kaydet ({dirty.length})</button>
+            <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>
+            <span className="faint small">Bağlantı sınaması kayıtlı ayarları okur.</span>
+          </div>
+        )}
       </div>
       {svc.id === "vast" && <BoxSection st={st} svc={svc} />}
       {svc.id === "runpod" && <RunpodSection st={st} svc={svc} />}

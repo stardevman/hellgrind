@@ -147,7 +147,9 @@ def check_runpod(key: str) -> dict:
         oks.append(None)
         messages.append(f"Bakiye okunamadı ({type(e).__name__}).")
     if not settings.runpod_endpoint_id:
-        return {"ok": False, "status": None, "message": " ".join(messages + ["Uç nokta kimliği tanımlı değil."])}
+        return {"ok": False, "status": None, "message": " ".join(messages + [
+            "Uç nokta kimliği tanımlı değil: Ayarlar › MiniMax H3 · RunPod'da anahtarın altındaki Serverless uç nokta "
+            "kimliği alanına RunPod'daki kimliği (ör. 7ztfy6ih5x849u) yazıp kaydedin."])}
     try:
         cfg = runpod_h3.endpoint_config(key, refresh=True)
     except Exception as e:                                       # noqa: BLE001
