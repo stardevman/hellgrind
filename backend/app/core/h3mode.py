@@ -93,11 +93,12 @@ def face_expected(scene, chars=()) -> bool:
 
 
 def fl2va_identity_warning(scene, chars=(), assets=(), strict: bool = True) -> str | None:
-    """Karakterli FL2VA çekiminin ilk karesi düz Qwen-Image'dan (yalnızca metinden) geldiyse ya da gelecekse: karakter
-    referansı kullanılmadı. Yüklenen ilk karede, Qwen-Image-Edit / Flux Kontext karesinde ve Ref2VA'da uyarı yok."""
+    """Karakterli FL2VA çekiminin videoya giden karesi düz Qwen-Image'dan (yalnızca metinden) gelecekse: karakter referansı
+    kullanılmadı. Metinden çizilmiş eski kare, Qwen-Image-Edit kullanılabiliyorsa videodan önce referanstan yeniden
+    çizilir (uyarı yok). Yüklenen ilk karede, Qwen-Image-Edit / Flux Kontext karesinde ve Ref2VA'da uyarı yok."""
     if not chars or effective_mode(scene, chars, assets) != "fl2va" or getattr(scene, "keyframe_key", None):
         return None
     source = getattr(scene, "board_source", None)
-    if source == "comfyui" or (source not in ("qwen_edit", "flux") and keyframe_model(scene, chars, assets, strict) == "qwen"):
+    if source not in ("qwen_edit", "flux") and keyframe_model(scene, chars, assets, strict) == "qwen":
         return "Storyboard karesi karakter referansı kullanmıyor; kimlik kayabilir."
     return None

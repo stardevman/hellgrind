@@ -167,7 +167,7 @@ def test_a_characterless_shot_uses_plain_qwen_and_the_warning_only_follows_a_tex
     monkeypatch.setattr(settings, "keyframe_character_provider", "qwen_edit")
     shots = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}
     assert shots["S002_SH01"]["keyframe_model"] == "qwen_edit" and len(shots["S002_SH01"]["edit_refs"]) == 2
-    assert shots["S002_SH01"]["h3_mode_warning"] is not None        # kare hâlâ metinden: yeniden çizilene dek uyarı
+    assert shots["S002_SH01"]["h3_mode_warning"] is None            # metinden kare videodan önce referanstan yeniden çizilir
 
 
 def test_a_text_frame_is_redrawn_from_the_reference_before_the_video(edit, sample_scene, identity, tmp_path, monkeypatch):

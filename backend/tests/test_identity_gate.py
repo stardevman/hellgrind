@@ -121,13 +121,15 @@ def test_edit_references_put_the_main_character_first_then_the_location():
 def test_the_identity_warning_is_only_for_a_character_frame_drawn_from_text(monkeypatch):
     from app.config import settings
     warning = "Storyboard karesi karakter referansı kullanmıyor; kimlik kayabilir."
-    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [char()], []) == warning      # düz Qwen karesi
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [char()], []) is None        # referanstan yeniden çizilecek
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [char(refs=())], []) == warning   # referans yok: metinden
     assert h3mode.fl2va_identity_warning(scene(board_source="qwen_edit"), [char()], []) is None
     assert h3mode.fl2va_identity_warning(scene(board_source=None), [char()], []) is None            # qwen_edit çizilecek
     assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [], []) is None             # karaktersiz
     assert h3mode.fl2va_identity_warning(scene(board_source="comfyui", h3_mode="ref2va"), [char()], []) is None
     monkeypatch.setattr(settings, "keyframe_character_provider", "qwen")
     assert h3mode.fl2va_identity_warning(scene(board_source=None), [char()], []) == warning
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [char()], []) == warning      # düz Qwen karesi
 
 
 def test_the_effective_mode_is_part_of_the_visual_fingerprint():
