@@ -71,9 +71,11 @@ TRANSPORT: httpx.BaseTransport | None = None  # testler sahte sunucu bağlar; ge
 
 LICENSE = "MiniMax H3 Community License"
 NO_TRAINING = "MiniMax H3 output. Not to be used to improve any other AI model (MiniMax H3 Community License, section V.3)."
-COMFY_KINDS = ("t2v", "i2v", "r2v", "keyframe")
+COMFY_KINDS = ("t2v", "i2v", "r2v", "keyframe", "edit_keyframe")
 COMFY_REQUIRED = {"t2v": ("prompt",), "i2v": ("prompt", "first_frame"), "r2v": ("prompt", "reference_1"),
-                  "keyframe": ("prompt",)}
+                  "keyframe": ("prompt",), "edit_keyframe": ("prompt", "reference_1")}
+IMAGE_KINDS = ("keyframe", "edit_keyframe")   # görsel çıktılı iş akışları (Qwen-Image; Qwen-Image-Edit karakter referansıyla)
+OPTIONAL_IMAGE_INPUTS = ("image2", "image3")  # Qwen-Image-Edit metin kodlayıcısının isteğe bağlı görsel girdileri
 COMFY_CLIENT_ID = "hellgrind"
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
@@ -195,7 +197,7 @@ def reference_uri(key: str) -> str:
 
 @dataclass
 class Job:
-    task: str                     # t2va | fl2va | ref2va
+    task: str                     # t2va | fl2va | ref2va | keyframe | edit_keyframe
     url: str                      # sunucu adresi
     prompt: str
     seed: int
@@ -206,6 +208,8 @@ class Job:
     keyframe: str | None = None                                    # data URI
     references: list[tuple[str, str]] = field(default_factory=list)   # (karakter, data URI)
     unmapped: tuple[str, ...] = ()                                 # pozitif kısıta çevrilemeyen negatifler
+    negative: str = ""            # yalnızca Qwen-Image-Edit karesi (cfg 4 olumsuz istemi kullanır; H3 kullanmaz)
+    lightning: bool = False       # Qwen-Image-Edit Lightning LoRA'sı (4 adım, cfg 1)
 
     @property
     def names(self) -> list[str]:
@@ -213,7 +217,8 @@ class Job:
 
     def key(self) -> str:
         return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
-                            self.height, self.steps, self.keyframe, self.references])
+                            self.height, self.steps, self.keyframe, self.references,
+                            *([self.negative, self.lightning] if self.task == "edit_keyframe" else [])])
 
 
 def reference_prompt(prompt: str, names: list[str]) -> str:
@@ -413,8 +418,9 @@ REF_SLOT = re.compile(r"^\{\{\s*reference_(\d+)\s*\}\}$")
 
 def prune_references(workflow: dict, n: int) -> dict:
     """Gönderilen görselden fazla referans yuvasını çıkarır: `{{reference_k}}` (k > n) görselini yükleyen LoadImage
-    düğümü, ona yalnızca isteğe bağlı referans girdilerinden (ör. Ref2VA'nın `ref_images.ref_image_*`) bağlanılıyorsa
-    silinir. Zorunlu bir girdiden bağlanılan yuva kalır ve son görselle doldurulur (eski iş akışları)."""
+    düğümü, ona yalnızca isteğe bağlı referans girdilerinden (Ref2VA'nın `ref_images.ref_image_*`, Qwen-Image-Edit'in
+    `image2` / `image3`) bağlanılıyorsa silinir. Zorunlu bir girdiden bağlanılan yuva kalır ve son görselle doldurulur
+    (eski iş akışları)."""
     links: dict[str, list[tuple[str, str]]] = {}
     for node_id, node in workflow.items():
         for key, value in (node.get("inputs") or {}).items():
@@ -425,7 +431,7 @@ def prune_references(workflow: dict, n: int) -> dict:
         if not m or int(m.group(1)) <= n:
             continue
         users = links.get(node_id, [])
-        if users and all(key.startswith("ref_images.") for _, key in users):
+        if users and all(key.startswith("ref_images.") or key in OPTIONAL_IMAGE_INPUTS for _, key in users):
             for user, key in users:
                 workflow[user]["inputs"].pop(key, None)
             workflow.pop(node_id)

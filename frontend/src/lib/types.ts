@@ -5,7 +5,7 @@ export type Emotion = "neutral" | "joy" | "anger" | "fear" | "sadness" | "surpri
 export interface QualityMeta { mode: "dry" | "real" | "invalid"; ready: boolean; reason: string | null }
 
 export interface Preset {
-  probe_n?: number; full_n?: number; wave_size?: number; max_correction_rounds?: number;
+  probe_n?: number; full_n?: number; wave_size?: number; max_correction_rounds?: number; refined_k?: number;
   probe_resolution?: string; full_resolution?: string;
 }
 
@@ -90,6 +90,8 @@ export interface Scene {
   board_score: number | null; board_source: string | null;
   keyframe_source: "upload" | "board" | null; keyframe_url: string | null;
   h3_refs: { name: string; url: string | null }[];
+  keyframe_model?: "qwen_edit" | "qwen";
+  edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
 }
 
 export interface TimelineTrack {
@@ -327,4 +329,15 @@ export interface CallSummary {
   by_operation: (CallFigures & { operation: string; title: string })[];
   by_project: (CallFigures & { project_id: string | null; title: string | null; deleted: boolean })[];
   by_day: (CallFigures & { day: string })[];
+}
+
+/** POST /estimate: çekim başına ve toplam tahmini maliyet. */
+export interface CostEstimateShot {
+  code: string; duration_s: number; billed_seconds: number; engine: string; mode: string; frame: string | null;
+  frame_usd: number; probe_clip_usd: number; full_clip_usd: number; clips: number; expected_usd: number; max_usd: number;
+}
+export interface CostEstimate {
+  shots: CostEstimateShot[]; model_loads: number; cold_start_usd: number; expected_usd: number; max_usd: number;
+  settings: { probe_n: number; probe_resolution: string; full_n: number; full_resolution: string; max_correction_rounds: number };
+  platform: string; dry_run: boolean;
 }

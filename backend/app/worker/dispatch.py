@@ -60,15 +60,16 @@ def build_chain(project_id: str, scene_id: str, stages: Stage, mode: str = "full
 
 
 # ---------- toplu dağıtım: model türüne göre gruplu kuyruk ----------
-# Aynı RunPod worker'ında model değişimi (Qwen-Image ilk kare -> H3 FL2VA -> H3 Ref2VA) 30-40 GB modeli yeniden yükler
-# (~2-3 dk, faturalanır). Birden çok sahne birlikte işlenirken kuyruk sıraya girer: önce bekleyen bütün kareler, sonra
-# bütün FL2VA (ve T2V) videoları, sonra bütün Ref2VA videoları; her grup bir öncekinin işleri bitince kuyruğa girer.
+# Aynı RunPod worker'ında model değişimi (Qwen-Image / Qwen-Image-Edit ilk kare -> H3 FL2VA -> H3 Ref2VA) 20-40 GB modeli
+# yeniden yükler (~2-3 dk, faturalanır). Birden çok sahne birlikte işlenirken kuyruk sıraya girer: önce bekleyen bütün
+# kareler (metinden çizilenler Qwen-Image, karakterliler Qwen-Image-Edit: ayrı gruplar), sonra bütün FL2VA (ve T2V)
+# videoları, sonra bütün Ref2VA videoları; her grup bir öncekinin işleri bitince kuyruğa girer.
 # Celery'de sonuç deposu yok (akor kullanılamaz): bariyer Redis'tedir.
 
 BATCH = "hg:batch:{}:{}"            # (kimlik, pending | stage | deferred:<grup> | project | flushed:<grup>)
 BATCHES = "hg:batches:{}"           # proje -> açık toplu dağıtımlar
 BATCH_TTL_S = 6 * 3600              # Celery visibility_timeout ile aynı: en uzun iş
-GROUPS = ("board", "fl2va", "ref2va")  # kuyruk sırası; model türü: ilk kare, FL2VA DiT (T2V de), Ref2VA DiT
+GROUPS = ("board_qwen", "board_edit", "fl2va", "ref2va")  # kuyruk sırası; model: Qwen-Image, Qwen-Image-Edit, H3 DiT'leri
 
 
 def _s(value) -> str | None:
@@ -83,22 +84,25 @@ class Batch:
         self.project_id = str(project_id)
         self.items: list[tuple[str, Stage, str]] = []
         self.models: dict[str, str] = {}
+        self.boards: dict[str, str] = {}
 
-    def add(self, scene_id, stages: Stage, mode: str = "full", model: str = "fl2va") -> None:
+    def add(self, scene_id, stages: Stage, mode: str = "full", model: str = "fl2va", board: str = "qwen") -> None:
+        """model: çekimin H3 DiT'i (fl2va | ref2va); board: ilk kare modeli (qwen | qwen_edit)."""
         self.items.append((str(scene_id), stages, mode))
         self.models[str(scene_id)] = model if model in GROUPS else "fl2va"
+        self.boards[str(scene_id)] = "board_edit" if board == "qwen_edit" else "board_qwen"
 
     def plan(self) -> tuple[list, dict[str, dict[str, str]]]:
-        """(hemen kuyruğa girecek zincirler, grup -> {sahne: zincir}) — kareler "board" grubunda."""
+        """(hemen kuyruğa girecek zincirler, grup -> {sahne: zincir}) — kareler ilk kare modelinin grubunda."""
         now, groups = [], {g: {} for g in GROUPS}
         for sid, stages, mode in self.items:
             rest = stages & ~Stage.STORYBOARD
-            model = self.models.get(sid, "fl2va")
+            model, board = self.models.get(sid, "fl2va"), self.boards.get(sid, "board_qwen")
             if Stage.STORYBOARD in stages and Stage.VISUAL in rest:
-                groups["board"][sid] = json.dumps({"stages": Stage.STORYBOARD.value, "mode": mode, "standalone": False})
+                groups[board][sid] = json.dumps({"stages": Stage.STORYBOARD.value, "mode": mode, "standalone": False})
                 groups[model][sid] = json.dumps({"stages": rest.value, "mode": mode})
             elif Stage.STORYBOARD in stages:
-                groups["board"][sid] = json.dumps({"stages": stages.value, "mode": mode})
+                groups[board][sid] = json.dumps({"stages": stages.value, "mode": mode})
             elif Stage.VISUAL in stages:
                 groups[model][sid] = json.dumps({"stages": stages.value, "mode": mode})
             else:
@@ -137,7 +141,8 @@ class Batch:
             build_chain(pid, sid, stages, mode=mode).apply_async()
         _dispatch_group(pid, bid, groups[first])
         counts = {g: len(groups[g]) for g in GROUPS}
-        killswitch.event(pid, "batched", batch=bid, boards=counts["board"], videos=counts["fl2va"] + counts["ref2va"],
+        killswitch.event(pid, "batched", batch=bid, boards=counts["board_qwen"] + counts["board_edit"],
+                         edit_boards=counts["board_edit"], videos=counts["fl2va"] + counts["ref2va"],
                          fl2va=counts["fl2va"], ref2va=counts["ref2va"])
         return bid
 
@@ -155,7 +160,7 @@ def batch_done(batch: str, scene_id: str, ok: bool) -> None:
     r = killswitch.r()
     if not r.exists(BATCH.format(batch, "project")):
         return                               # dondurmada düşürüldü ya da süresi doldu
-    stage = _s(r.get(BATCH.format(batch, "stage"))) or "board"
+    stage = _s(r.get(BATCH.format(batch, "stage"))) or GROUPS[0]
     r.srem(BATCH.format(batch, "pending"), str(scene_id))
     if not ok:
         for g in GROUPS[GROUPS.index(stage) + 1:]:
@@ -177,7 +182,7 @@ def flush(batch: str) -> int:
     if killswitch.is_frozen(pid):
         drop(pid, batch)
         return 0
-    stage = _s(r.get(BATCH.format(batch, "stage"))) or "board"
+    stage = _s(r.get(BATCH.format(batch, "stage"))) or GROUPS[0]
     for g in GROUPS[GROUPS.index(stage) + 1:]:
         deferred = {_s(k): json.loads(v) for k, v in r.hgetall(BATCH.format(batch, f"deferred:{g}")).items()}
         r.delete(BATCH.format(batch, f"deferred:{g}"))

@@ -45,6 +45,10 @@ class Described:
         return " + ".join(self.models) or None
 
 
+QWEN_IMAGE = "Qwen/Qwen-Image-2512"             # comfy-workflows/keyframe.json (metinden ilk kare)
+QWEN_EDIT = "Qwen/Qwen-Image-Edit-2511"         # comfy-workflows/edit_keyframe.json (karakter referansından ilk kare)
+
+
 def describe(label: str) -> Described:
     """Defter etiketinden (ör. "h3:720p", "flux_lora:first_frame:480p", "fal:lipsync") servis, işlem ve ücretli modda
     çağrılan model(ler). Modeller çağrı anındaki ayarlardan (panelin Ayarlar sayfası) okunur."""
@@ -52,8 +56,10 @@ def describe(label: str) -> Described:
     purpose = next((p for p in rest if p in PURPOSES), None)
     resolution = next((p for p in rest if p.endswith("p") and p[:-1].isdigit()), None)
     if head == "h3":                           # MiniMax H3: RunPod Serverless (varsayılan) ya da vast.ai (deneysel)
-        return Described("vast" if settings.h3_platform == "vast" else "runpod", purpose or "video", (settings.h3_model,),
-                         resolution)
+        service = "vast" if settings.h3_platform == "vast" else "runpod"
+        if purpose == "storyboard":            # aynı worker'da görsel modeli: karakterliyse Qwen-Image-Edit, değilse Qwen-Image
+            return Described(service, purpose, (QWEN_EDIT if "qwen_edit" in rest else QWEN_IMAGE,), resolution)
+        return Described(service, purpose or "video", (settings.h3_model,), resolution)
     if head == "elevenlabs":
         return Described("elevenlabs", "tts", (settings.elevenlabs_model,))
     if head == "anthropic":

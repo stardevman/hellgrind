@@ -35,6 +35,17 @@ export function stepDurations(steps: Record<string, number> | undefined, now: nu
 }
 
 /** Bir eylemden sonra hangi aşamaların çalışacağını yönetmenin dilinde söyler. */
+const BATCH_GROUP_TR: Record<string, string> = {
+  board_qwen: "Kareler (Qwen-Image)", board_edit: "Karakterli kareler (Qwen-Image-Edit)", fl2va: "Kareler bitti, FL2VA videoları",
+  ref2va: "Ref2VA videoları",
+};
+
+/** Kimlik ölçümü: " (Elif 0,47)". */
+const identityText = (identity: unknown) => {
+  const entries = Object.entries((identity ?? {}) as Record<string, number>);
+  return entries.length ? ` (${entries.map(([n, v]) => `${n} ${num2(Number(v))}`).join(", ")})` : "";
+};
+
 const STAGE_TR: Record<string, string> = {
   STORYBOARD: "storyboard karesi", LIPSYNC: "dudak senkronu", GRADE: "renk", MUX: "montaj", ASSEMBLE: "film birleştirme",
 };
@@ -121,7 +132,9 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
       c: x.status === "approved" ? "good" : x.status === "changes_requested" ? "bad" : "",
     };
     case "board_required": return { t: `${where}kare onaylanmadan görüntü üretilmez` };
-    case "board_rejected": return { t: `${x.code}: storyboard karesi kalite kapısını geçemedi${x.score != null ? " (" + Number(x.score).toFixed(2) + ")" : ""}; video bu kareden üretilmez`, c: "bad" };
+    case "board_rejected": return x.note
+      ? { t: `${x.code}: ${x.note}; video üretilmedi`, c: "bad" }
+      : { t: `${x.code}: storyboard karesi kalite kapısını geçemedi${x.score != null ? " (" + Number(x.score).toFixed(2) + ")" : ""}; video bu kareden üretilmez`, c: "bad" };
     case "keyframe_required": return { t: `${where}H3 ilk karesi hazır değil: görüntü üretilmedi`, c: "bad" };
     case "h3_started": return { t: "vast.ai makinesi başlatıldı (otomatik)", c: "good" };
     case "h3_stopped": return { t: `vast.ai makinesi durduruldu (${x.reason === "idle" ? "boşta" : x.reason === "budget" ? "bütçe" : x.reason})` };
@@ -142,8 +155,12 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
-    case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi, sonra ${x.videos} çekimin videosu` };
-    case "batch_videos": return { t: `Kareler bitti: ${x.videos} çekimin videosu kuyruğa alındı` };
+    case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi${x.edit_boards ? ` (${x.edit_boards} karakter referansından)` : ""}, sonra ${x.videos} çekimin videosu` };
+    case "batch_videos": return { t: `${BATCH_GROUP_TR[String(x.group)] ?? "Sıradaki grup"}: ${x.videos} çekim kuyruğa alındı` };
+    case "board_attempt": return {
+      t: `${where}ilk kare ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${x.faces_seen === 0 ? " (yüz görünmedi)" : identityText(x.identity)}`,
+      c: x.passed ? "good" : "bad",
+    };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };

@@ -398,10 +398,17 @@ def check_history(pid: str) -> None:
     check(rp["platform"] == "runpod" and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
           f"izinli bölgeler yalnızca Kanada veri merkezleri ({', '.join(rp['allowed_datacenters'])})")
     ov = overview(pid)
-    modes = {sc["scene_code"]: sc["h3_mode"] for sc in ov["scenes"]}
-    check(all(sc["keyframe_url"] if sc["h3_mode"] == "fl2va" else sc["board_source"] == "local" for sc in ov["scenes"])
-          and "ref2va" in modes.values(),
-          f"kilitli karakterli çekimler Ref2VA (ilk kare işi yok, kare yerel), FL2VA çekimlerinin ilk karesi var: {modes}")
+    modes = {sc["scene_code"]: (sc["h3_mode"], sc["keyframe_model"]) for sc in ov["scenes"]}
+    check(all(sc["h3_mode"] == "fl2va" and sc["keyframe_url"] for sc in ov["scenes"])
+          and all(sc["keyframe_model"] == ("qwen_edit" if sc["edit_refs"] else "qwen") for sc in ov["scenes"])
+          and any(sc["edit_refs"] for sc in ov["scenes"]),
+          f"her çekim FL2VA ve ilk karesi var; karakterli çekimlerin karesi Qwen-Image-Edit ile referanstan: {modes}")
+    est = c.post("/estimate", json={"project_id": pid, "preset": "economy"}).json()
+    generated = [sc["scene_code"] for sc in ov["scenes"] if sc["method"] != "external"]      # dış çekim ücretsizdir
+    check([x["code"] for x in est["shots"]] == generated and 0 < est["expected_usd"] <= est["max_usd"]
+          and all(x["clips"] == 6 for x in est["shots"]),
+          f"ekonomik ön ayarla tahmini maliyet: ${est['expected_usd']:.3f} (en çok ${est['max_usd']:.3f}), "
+          f"{len(generated)} üretilen çekim, çekim başına 6 klip")
     ops = {x["operation"] for x in calls}
     check({"video", "storyboard", "reference", "motion_test"} <= ops, f"işlemler: {sorted(ops)}")
     s = c.get("/history/summary", params={"project_id": pid}).json()

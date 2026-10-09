@@ -83,11 +83,17 @@ export const H3_MODE_TR: Record<string, string> = {
   fl2va: "İlk kareden (FL2VA): storyboard karesi", ref2va: "Karakter referanslarıyla (Ref2VA)",
 };
 export const BOARD_SOURCE_TR: Record<string, string> = {
-  local: "yerel çizim", flux: "Flux (fal.ai)", comfyui: "H3 makinesi (ComfyUI)", upload: "yüklenen kare",
+  local: "yerel çizim", flux: "Flux (fal.ai)", comfyui: "Qwen-Image (metinden)", qwen_edit: "Qwen-Image-Edit (karakter referansından)",
+  upload: "yüklenen kare",
+};
+/** Çekimin ilk kare modeli (core/h3mode.keyframe_model). */
+export const KEYFRAME_MODEL_TR: Record<string, string> = {
+  qwen_edit: "Qwen-Image-Edit-2511, karakter referansından", qwen: "Qwen-Image, yalnızca metinden",
 };
 /** ComfyUI iş akışları (Ayarlar › MiniMax H3). */
 export const COMFY_KIND_TR: Record<string, string> = {
   t2v: "Metinden video (t2v)", i2v: "İlk kareden video (i2v)", r2v: "Referanslarla video (r2v)", keyframe: "Storyboard ilk karesi (görsel)",
+  edit_keyframe: "Karakterli ilk kare (Qwen-Image-Edit)",
 };
 
 /** Yönetmenin çekim başına seçebildiği motorlar (ilki varsayılan). */

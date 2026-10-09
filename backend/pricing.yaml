@@ -31,6 +31,8 @@ serverless:
       ref2va: {"480p": 7, "720p": 14}
     keyframe_seconds: 45        # storyboard ilk karesi (Qwen-Image-2512, 50 adım, 1280x704), sıcak worker: ölçülen 38-42
     keyframe_cold_seconds: 140  # soğuk worker'da ilk kare (açılış + model yükleme dahil, faturalanan): ölçülen ~139
+    keyframe_edit_seconds: 60   # karakterli ilk kare (Qwen-Image-Edit-2511 fp8mixed, 40 adım, cfg 4, 1280x704), sıcak worker:
+                                # başlangıç tahmini, ilk ölçümden sonra güncellenecek (soğukta keyframe_cold - keyframe farkı eklenir)
     cold_start_seconds: 140     # soğuk worker'da ilk video işine eklenen faturalanan süre (açılış + H3 yükleme): ~136-141
 
 video_per_second:

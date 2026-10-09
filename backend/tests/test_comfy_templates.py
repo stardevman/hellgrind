@@ -1,4 +1,4 @@
-"""ComfyUI 0.39.0'ın resmî şablonlarından üretilen iş akışları (comfy-workflows/i2v, r2v, keyframe): üreteçle aynı,
+"""ComfyUI 0.39.0'ın resmî şablonlarından üretilen iş akışları (comfy-workflows/i2v, r2v, keyframe, edit_keyframe): üreteçle aynı,
 volume'daki dosyalarla uyumlu, bağlantıları tam; referans yuvaları gönderilen görsel sayısına göre budanır. Ağ yok."""
 import copy
 import importlib.util
@@ -34,7 +34,7 @@ def test_the_committed_workflows_are_exactly_what_the_generator_makes():
         assert (FLOWS / f"{kind}.json").read_text() == gen.render(made), f"{kind}.json elle değiştirilmiş: üreteci çalıştırın"
 
 
-@pytest.mark.parametrize("kind", ["t2v", "i2v", "r2v", "keyframe"])
+@pytest.mark.parametrize("kind", ["t2v", "i2v", "r2v", "keyframe", "edit_keyframe"])
 def test_workflows_validate_and_every_link_points_to_a_node(kind):
     f = vast_h3.validate_workflow(kind, (FLOWS / f"{kind}.json").read_text())
     for node_id, node in f.items():
@@ -82,3 +82,52 @@ def test_filled_values_land_as_numbers_and_the_first_frame_is_named_in_the_promp
     assert (node["width"], node["height"], f["105:15"]["inputs"]["noise_seed"], f["105:111"]["inputs"]["value"]) == (1280, 704, 7, 5)
     assert f["114"]["inputs"]["image"] == "hg_1.jpg" and "{{" not in json.dumps(f)
     assert f["105:6"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
+
+
+# ---------- Qwen-Image-Edit-2511: karakter referansından ilk kare ----------
+
+EDIT_ENCODERS = ("170:151", "170:149")
+
+
+def test_the_edit_keyframe_draws_on_the_h3_canvas_not_on_image_1():
+    """Must-fix 1: latent, 1. görselin VAEEncode'u değil, H3 tuvalinde boş latent (720p 1280x704)."""
+    f = flow("edit_keyframe")
+    assert "170:156" not in f                                           # 1. görselin latent'i çıkarıldı
+    latent = f[f["170:169"]["inputs"]["latent_image"][0]]
+    assert latent["class_type"] == "EmptySD3LatentImage" and latent["inputs"] == {
+        "width": "{{width}}", "height": "{{height}}", "batch_size": 1}
+    assert f["170:160"]["inputs"]["image"] == ["41", 0]                 # 1. görsel koşul için ölçeklenir (korunur)
+    assert f["170:169"]["inputs"]["denoise"] == 1 and f["170:169"]["inputs"]["seed"] == "{{seed}}"
+
+
+def test_every_reference_goes_to_both_text_encoders_in_the_same_order():
+    """Must-fix 2: 41 = image 1, 83 = image 2, 171 = image 3; her görsel iki kodlayıcıya da aynı sırayla."""
+    f = flow("edit_keyframe")
+    images = {k: f[k]["inputs"]["image"] for k in ("41", "83", "171")}
+    assert images == {"41": "{{reference_1}}", "83": "{{reference_2}}", "171": "{{reference_3}}"}
+    for enc in EDIT_ENCODERS:
+        inputs = f[enc]["inputs"]
+        assert (inputs["image1"], inputs["image2"], inputs["image3"]) == (["170:160", 0], ["83", 0], ["171", 0])
+    assert f["170:151"]["inputs"]["prompt"] == "{{prompt}}" and f["170:149"]["inputs"]["prompt"] == "{{negative}}"
+
+
+def test_the_lightning_switch_and_the_volume_files():
+    f = flow("edit_keyframe")
+    assert f["170:168"]["inputs"]["value"] == "{{lightning}}"
+    assert (f["170:166"]["inputs"]["value"], f["170:154"]["inputs"]["value"]) == (40, 4)          # kapalı: 40 adım, cfg 4
+    assert (f["170:165"]["inputs"]["value"], f["170:155"]["inputs"]["value"]) == (4, 1)           # açık: 4 adım, cfg 1
+    assert f["170:161"]["inputs"]["unet_name"] == "qwen_image_edit_2511_fp8mixed.safetensors"
+    assert f["170:153"]["inputs"]["lora_name"] == "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+    assert f["170:162"]["inputs"]["clip_name"] == "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    assert f["170:146"]["inputs"]["vae_name"] == "qwen_image_vae.safetensors"
+    assert f["9"]["inputs"]["filename_prefix"] == "{{filename_prefix}}"
+
+
+@pytest.mark.parametrize("n,kept", [(1, ["41"]), (2, ["41", "83"]), (3, ["41", "83", "171"])])
+def test_unsent_edit_images_and_their_encoder_inputs_are_pruned(n, kept):
+    f = vast_h3.prune_references(copy.deepcopy(flow("edit_keyframe")), n)
+    assert {k for k, v in f.items() if v["class_type"] == "LoadImage"} == set(kept)
+    for enc in EDIT_ENCODERS:
+        assert [k for k in ("image1", "image2", "image3") if k in f[enc]["inputs"]] == ["image1", "image2", "image3"][:n]
+    filled = vast_h3.fill(f, {"lightning": False, "width": 1280, "height": 704, "seed": 5})
+    assert filled["170:168"]["inputs"]["value"] is False and filled["172"]["inputs"]["width"] == 1280

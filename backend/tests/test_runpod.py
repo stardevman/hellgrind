@@ -386,13 +386,15 @@ def test_history_shows_the_real_idle_seconds(api, runpod, mk_project):
 
 
 def test_a_ref2va_shot_never_sends_a_keyframe_job(runpod, sample_scene, monkeypatch):
-    """Ref2VA ilk kareyi kullanmaz: storyboard için yerel (ücretsiz) kare çizilir; RunPod'a keyframe işi gitmez."""
+    """Ref2VA ilk kareyi kullanmaz: storyboard için yerel (ücretsiz) kare çizilir; RunPod'a keyframe işi gitmez. Ref2VA
+    çekim bazında elle seçilir."""
     from app.engine import storyboard
     from app.engine.iteration import keyframe_blocks
     from app.models import Asset, Character, Scene
     pid, codes = sample_scene()
     sid = codes["S002_SH01"]
     with session_scope() as s:
+        s.get(Scene, sid).h3_mode = "ref2va"
         for ch in s.query(Character).filter(Character.project_id == pid):
             ch.reference_images = [f"assets/{ch.id}/still/a.png"]               # karakterin referansı...
             if ch.asset_id:

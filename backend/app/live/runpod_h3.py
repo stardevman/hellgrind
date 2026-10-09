@@ -303,16 +303,20 @@ def cold_start_due() -> bool:
     return bool(killswitch.r().set(vast_box._k("rp_cold_claim"), time.time(), nx=True, ex=ttl))
 
 
-def estimate_keyframe() -> float:
-    return pricing.estimate_keyframe(ENGINE, cold=cold_start_due())
+def estimate_keyframe(model: str = "qwen") -> float:
+    """model: qwen (Qwen-Image, metinden) ya da qwen_edit (Qwen-Image-Edit-2511, karakter referansından)."""
+    return pricing.estimate_keyframe(ENGINE, cold=cold_start_due(), model=model)
 
 
 def model_kind(job: vast_h3.Job) -> str:
-    """Worker'da hangi model yüklü kalır: keyframe (Qwen-Image), fl2va (FL2VA DiT; t2va da), ref2va."""
-    return {"keyframe": "keyframe", "ref2va": "ref2va"}.get(job.task, "fl2va")
+    """Worker'da hangi model yüklü kalır: keyframe (Qwen-Image), edit_keyframe (Qwen-Image-Edit-2511), fl2va (FL2VA DiT;
+    t2va da), ref2va."""
+    return {"keyframe": "keyframe", "edit_keyframe": "edit_keyframe", "ref2va": "ref2va"}.get(job.task, "fl2va")
 
 
-MODEL_TR = {"keyframe": "Qwen-Image (ilk kare)", "fl2va": "H3 FL2VA", "ref2va": "H3 Ref2VA"}
+IMAGE_MODEL = {"keyframe": "Qwen/Qwen-Image-2512", "edit_keyframe": "Qwen/Qwen-Image-Edit-2511"}
+MODEL_TR = {"keyframe": "Qwen-Image (ilk kare)", "edit_keyframe": "Qwen-Image-Edit-2511 (karakterli ilk kare)",
+            "fl2va": "H3 FL2VA", "ref2va": "H3 Ref2VA"}
 
 
 def note_worker(job: vast_h3.Job, body: dict) -> None:
@@ -356,7 +360,10 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
 
     values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "fps": vast_h3.FPS,
               "duration": job.seconds, "frames": vast_h3.frames_for(job.seconds), "steps": job.steps,
-              "filename_prefix": vast_h3.prefix_for(job, kind), "unet_variant": settings.h3_unet_variant}
+              "filename_prefix": vast_h3.prefix_for(job, "keyframe" if kind in vast_h3.IMAGE_KINDS else kind),
+              "unet_variant": settings.h3_unet_variant}
+    if kind == "edit_keyframe":
+        values.update(negative=job.negative, lightning=bool(job.lightning))
     if job.keyframe:
         values["first_frame"] = add(job.keyframe)
     refs = [add(uri) for _, uri in job.references]
@@ -366,7 +373,7 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
     workflow = vast_h3.fill(vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs)), values)
     timeout_ms = int(float(settings.h3_timeout_s) * 1000)
     return {"input": {"workflow": workflow, "images": images,
-                      "hellgrind": {"kind": "keyframe" if kind == "keyframe" else "video", "job": job.key(),
+                      "hellgrind": {"kind": "keyframe" if kind in vast_h3.IMAGE_KINDS else "video", "job": job.key(),
                                     "inline_limit": INLINE_LIMIT}},
             "policy": {"executionTimeout": timeout_ms, "ttl": timeout_ms + QUEUE_WAIT_S * 2000}}
 
@@ -582,18 +589,41 @@ class RunpodProvider:
 
 def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> GenResult:
     """Storyboard ilk karesi, RunPod worker'ındaki ComfyUI görsel iş akışıyla (keyframe.json; Qwen-Image). Bu kare H3 çıktısı
-    değildir. Çağıran `pricing.estimate_keyframe()` kadar rezervasyon almış olmalı."""
-    key = guard(KEY)
-    preflight(key)
+    değildir. Çağıran `estimate_keyframe()` kadar rezervasyon almış olmalı."""
     width, height = vast_h3.SIZES["720p"]
     job = vast_h3.Job(task="keyframe", url=server(), prompt=prompt, seed=seed, seconds=vast_h3.SECONDS[0], width=width,
                       height=height, steps=int(settings.h3_steps))
-    jkey = job.key()
+    return _image(job, project_id)
+
+
+def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative: str = "",
+                        project_id: str | None = None) -> GenResult:
+    """Karakterli çekimin ilk karesi, Qwen-Image-Edit-2511 ile (edit_keyframe.json): image 1 ana karakterin referansı,
+    image 2 / image 3 ikinci karakter ya da mekân; istem onlara "image 1", "image 2" diye başvurur. Kare H3 tuvalinde
+    (1280x704) çizilir; FL2VA test ve tam turu aynı kareden üretir. Lightning LoRA Ayarlar'dan açılır (4 adım, cfg 1).
+    Çağıran `estimate_keyframe("qwen_edit")` kadar rezervasyon almış olmalı."""
+    guard(KEY)
+    if not references:
+        raise PaidCallBlocked("Qwen-Image-Edit karesi için karakterin onaylı referans görseli yok.")
+    width, height = vast_h3.SIZES["720p"]
+    job = vast_h3.Job(task="edit_keyframe", url=server(), prompt=prompt, seed=seed, seconds=vast_h3.SECONDS[0],
+                      width=width, height=height, steps=int(settings.h3_steps),
+                      references=[(r["name"], vast_h3.reference_uri(r["key"])) for r in references[:3]],
+                      negative=negative or "", lightning=bool(settings.qwen_edit_lightning))
+    return _image(job, project_id)
+
+
+def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
+    key = guard(KEY)
+    preflight(key)
+    kind, jkey = job.task, job.key()
     try:
         with _client(key) as c:
-            job_id = submit(c, job, "keyframe")
-            history.step("ComfyUI keyframe.json (RunPod)", job_id, seed=seed, resolution=f"{width}x{height}",
-                         prompt=prompt[:vast_h3.NOTED_PROMPT_CHARS])
+            job_id = submit(c, job, kind)
+            history.step(f"{IMAGE_MODEL[kind]} (ComfyUI {kind}.json, RunPod)", job_id, seed=job.seed,
+                         resolution=f"{job.width}x{job.height}",
+                         prompt=job.prompt[:vast_h3.NOTED_PROMPT_CHARS],
+                         **({"references": job.names, "lightning": job.lightning} if kind == "edit_keyframe" else {}))
             _register(job, job_id, "keyframe", project_id)
             vast_box.track(jkey, project_id)
             try:
@@ -610,13 +640,15 @@ def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> Gen
         vast_box.untrack(jkey)
     seconds = billed_seconds(body)
     gpu = (body.get("output") or {}).get("gpu")
-    cost = pricing.estimate_runpod(seconds, gpu) if seconds else pricing.estimate_keyframe(ENGINE)
-    return GenResult(local_path=path, request_id=job_id, cost_usd=cost, engine=ENGINE, meta={"kind": "keyframe", "gpu": gpu})
+    model = "qwen_edit" if kind == "edit_keyframe" else "qwen"
+    cost = pricing.estimate_runpod(seconds, gpu) if seconds else pricing.estimate_keyframe(ENGINE, model=model)
+    return GenResult(local_path=path, request_id=job_id, cost_usd=cost, engine=ENGINE,
+                     meta={"kind": kind, "gpu": gpu, "gpu_seconds": seconds, "references": job.names})
 
 
-def keyframes_ready() -> bool:
-    """Storyboard ilk karesi RunPod'da çizilebilir mi (keyframe.json var)."""
-    return os.path.exists(vast_h3.workflow_path("keyframe"))
+def keyframes_ready(kind: str = "keyframe") -> bool:
+    """Storyboard ilk karesi RunPod'da çizilebilir mi (keyframe.json; karakterli kare için edit_keyframe.json var)."""
+    return os.path.exists(vast_h3.workflow_path(kind))
 
 
 def get_live_provider() -> RunpodProvider:

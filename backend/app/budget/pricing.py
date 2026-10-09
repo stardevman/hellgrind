@@ -84,11 +84,19 @@ def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict
     return round(per_second * duration_s, 4)
 
 
-def estimate_keyframe(engine: str = "h3", prices: dict | None = None, cold: bool = False) -> float:
+def keyframe_seconds(rp: dict, model: str = "qwen", cold: bool = False) -> float:
+    """İlk karenin faturalanan worker süresi. model: qwen (Qwen-Image, metinden) ya da qwen_edit (Qwen-Image-Edit-2511,
+    karakter referansından; tabloda yoksa Qwen-Image'ınki). Soğuk worker'da açılış + model yükleme farkı eklenir
+    (keyframe_cold_seconds - keyframe_seconds; ikisi de aynı boyda Qwen modelleri)."""
+    warm = float(rp.get("keyframe_seconds", 10))
+    seconds = float(rp.get("keyframe_edit_seconds", warm)) if model == "qwen_edit" else warm
+    return seconds + (max(0.0, float(rp.get("keyframe_cold_seconds", warm)) - warm) if cold else 0.0)
+
+
+def estimate_keyframe(engine: str = "h3", prices: dict | None = None, cold: bool = False, model: str = "qwen") -> float:
     """H3 platformunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli; cold: soğuk worker."""
     if (rp := _runpod(engine, prices)) is not None:
-        seconds = rp.get("keyframe_cold_seconds", rp.get("keyframe_seconds", 10)) if cold else rp.get("keyframe_seconds", 10)
-        return estimate_runpod(seconds, None, prices)
+        return estimate_runpod(keyframe_seconds(rp, model, cold), None, prices)
     return estimate_gpu(engine, self_hosted(engine, prices).get("keyframe_seconds", 10), prices)
 
 
@@ -196,7 +204,7 @@ def validate_table(text: str) -> dict:
         for gpu in (rp.get("pools") or {}).values():
             if gpu not in rp["per_second"]:
                 raise PricingError(f"serverless.runpod.pools: {gpu} için per_second satırı yok")
-        for name in ("keyframe_seconds", "keyframe_cold_seconds", "cold_start_seconds"):
+        for name in ("keyframe_seconds", "keyframe_cold_seconds", "keyframe_edit_seconds", "cold_start_seconds"):
             if name in rp:
                 _positive(rp[name], f"serverless.runpod.{name}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")

@@ -22,7 +22,8 @@ from app.curation import curated
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
-from app.core.h3mode import effective_mode, face_expected, fl2va_identity_warning
+from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2va_identity_warning, keyframe_model,
+                             strict_refs)
 from app.core.hashing import grade_settings
 from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
@@ -30,7 +31,7 @@ from app.engine.storyboard import clean_key
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
-from app.schemas import ScriptIn
+from app.schemas import EstimateIn, ScriptIn
 
 router = APIRouter(tags=["panel"])
 
@@ -42,6 +43,10 @@ PRESETS = {
     "trial": {"probe_n": 2, "full_n": 2, "wave_size": 2, "refined_k": 1, "max_correction_rounds": 0,
               "probe_resolution": "480p", "full_resolution": "720p", "lint_strictness": "warn",
               "paid_audio": False},
+    # Üretim (ekonomik): gerçek film için en az aday. Çekim başına 3 test (480p) + 3 tam (720p) klip, tek düzeltme turu,
+    # havuzda tek aday. Proje varsayılanları (10 test / 50 tam) değişmez.
+    "economy": {"probe_n": 3, "probe_resolution": "480p", "full_n": 3, "full_resolution": "720p", "wave_size": 3,
+                "refined_k": 1, "max_correction_rounds": 1},
 }
 
 # Diyalogsuz (dudak senkronu yok), aksiyonsuz, 3 saniyelik tek çekimlik deneme senaryosu (MiniMax H3 4 sn üretir, kesilir).
@@ -103,6 +108,23 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
     return {**summary, **result}
 
 
+@router.post("/estimate")
+def estimate(body: EstimateIn, s: Session = Depends(get_session)):
+    """Tahmini maliyet, çekim başına ve toplam (ağ yok; ücretsiz modda da gerçek fiyatlarla). Senaryo verilirse ondan
+    (proje oluşturma ekranı), verilmezse projenin çekimlerinden."""
+    from app.budget import estimate as costs
+    if body.preset is not None and body.preset not in PRESETS:
+        raise HTTPException(422, f"Bilinmeyen ön ayar: {body.preset}")
+    if body.text is None and body.project_id is None:
+        raise HTTPException(422, "Senaryo ya da proje gerekli")
+    raw = dict(project_or_404(s, body.project_id).settings or {}) if body.project_id else {}
+    cfg = project_settings({**raw, **PRESETS.get(body.preset or "", {}), **body.settings})
+    result = costs.from_script(body.text, cfg) if body.text is not None else costs.from_project(s, body.project_id, cfg)
+    return {**result, "settings": {k: cfg[k] for k in ("probe_n", "probe_resolution", "full_n", "full_resolution",
+                                                         "max_correction_rounds")},
+            "platform": settings.h3_platform, "dry_run": settings.dry_run}
+
+
 @router.post("/projects/{project_id}/render-all")
 @curated("render_all")
 def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
@@ -134,6 +156,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     cfg = project_settings(p.settings)
     variations, tracks, cast, items = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
     refs = defaultdict(list)                          # sahne -> karakterlerin referans görselleri (Ref2VA seti)
+    places = defaultdict(list)                        # sahne -> mekân varlıkları
     revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
@@ -156,12 +179,20 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or [], asset_id=aid,
                                                   asset=SimpleNamespace(id=aid, status=status) if aid else None))
             items[scene_id].append((str(aid) if aid else None, "character", name, status))
-        for scene_id, aid, type_, name, status in s.execute(
-                select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status)
+        for scene_id, aid, type_, name, status, references in s.execute(
+                select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status, Asset.references)
                 .join(Asset, Asset.id == SceneAsset.asset_id)
                 .where(SceneAsset.scene_id.in_(ids)).order_by(Asset.type, Asset.name)):
             items[scene_id].append((str(aid), type_, name, status))
+            if type_ == "location":                    # Qwen-Image-Edit karesinin mekân görseli
+                places[scene_id].append(SimpleNamespace(id=aid, type=type_, name=name, status=status,
+                                                        references=references or {}))
     check = cfg["lint_strictness"] != "off"
+
+    strict = strict_refs(cfg)
+
+    def shot_assets(sid) -> list:
+        return [r.asset for r in refs[sid] if r.asset] + places[sid]
 
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
@@ -169,9 +200,12 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
-        "h3_mode": effective_mode(sc, refs[sc.id], [r.asset for r in refs[sc.id] if r.asset]),
+        "h3_mode": effective_mode(sc, refs[sc.id], shot_assets(sc.id)),
         "h3_mode_explicit": sc.h3_mode,
-        "h3_mode_warning": fl2va_identity_warning(sc, refs[sc.id], [r.asset for r in refs[sc.id] if r.asset]),
+        "h3_mode_warning": fl2va_identity_warning(sc, refs[sc.id], shot_assets(sc.id), strict),
+        "keyframe_model": keyframe_model(sc, refs[sc.id], shot_assets(sc.id), strict),
+        "edit_refs": [{"name": r["name"], "kind": r["kind"], "url": _media(r["key"])}
+                      for r in edit_references(sc, refs[sc.id], shot_assets(sc.id), strict)],
         "face_expected": face_expected(sc, cast[sc.id]), "face_expected_explicit": sc.face_expected,
         "board_score": sc.board_score, "board_source": sc.board_source,
         "keyframe_source": "upload" if sc.keyframe_key else ("board" if sc.board_key and sc.board_source else None),

@@ -2,7 +2,7 @@
 - yüzü hiç görünmeyen aday, yüzü kötü benzeyen adaydan avantajlı olmasın (faces_seen 0 + karakterli çekim = başarısız);
 - kimlik eşiğinin (identity_threshold, varsayılan 0.60) altındaki aday rafine havuza giremez;
 - sırt çekimi / silüet / aşırı geniş plan: face_expected false, ceza yok;
-- onaylı referansı olan karakterli çekim varsayılan olarak Ref2VA'dır (storyboard karesi referans içermez)."""
+- karakterli çekim varsayılan olarak FL2VA'dır; ilk kare Qwen-Image-Edit ile karakterin referansından çizilir."""
 from types import SimpleNamespace
 
 import pytest
@@ -59,7 +59,7 @@ def test_the_review_reason_says_identity_when_most_candidates_failed_it():
 
 def scene(**kw):
     base = dict(h3_mode=None, face_expected=None, keyframe_key=None, engine="h3", camera={"shot": "wide"},
-                prompt_spec={"prompt": "Elif stands on a rooftop"}, description="")
+                prompt_spec={"prompt": "Elif stands on a rooftop"}, description="", board_source=None)
     return SimpleNamespace(**{**base, **kw})
 
 
@@ -82,27 +82,56 @@ def test_no_characters_no_face_expected():
     assert h3mode.face_expected(scene(), []) is False
 
 
-# ---------- H3 koşulu ----------
+# ---------- H3 koşulu ve ilk kare modeli ----------
 
-def test_character_shots_with_approved_references_default_to_ref2va():
+def test_character_shots_default_to_fl2va_with_a_qwen_edit_first_frame(monkeypatch):
+    """İlk gerçek testlerden ikinci tur: Ref2VA varsayılan değil. Karakterli çekim FL2VA'dır; ilk kare Qwen-Image-Edit ile
+    karakterin onaylı referansından çizilir. Ref2VA yalnızca elle seçilir."""
+    from app.config import settings
     locked = SimpleNamespace(id="a1", status="locked")
     draft = SimpleNamespace(id="a2", status="draft")
-    assert h3mode.effective_mode(scene(), [char(asset_id="a1")], [locked]) == "ref2va"
-    assert h3mode.effective_mode(scene(), [char(asset_id="a2")], [draft]) == "fl2va"      # referans onaylı değil
-    assert h3mode.effective_mode(scene(), [char(refs=())], []) == "fl2va"                   # referans yok
-    assert h3mode.effective_mode(scene(), [], []) == "fl2va"                                # karaktersiz
-    assert h3mode.effective_mode(scene(keyframe_key="keyframes/x.jpg"), [char()], []) == "fl2va"   # kendi ilk karesi
-    assert h3mode.effective_mode(scene(h3_mode="fl2va"), [char()], []) == "fl2va"           # yönetmenin seçimi
+    assert h3mode.effective_mode(scene(), [char(asset_id="a1")], [locked]) == "fl2va"
+    assert h3mode.effective_mode(scene(h3_mode="ref2va"), [char(asset_id="a1")], [locked]) == "ref2va"   # elle
+    assert h3mode.keyframe_model(scene(), [char(asset_id="a1")], [locked]) == "qwen_edit"
+    assert h3mode.keyframe_model(scene(), [char(asset_id="a2")], [draft]) == "qwen"         # referans onaylı değil
+    assert h3mode.keyframe_model(scene(), [char(refs=())], []) == "qwen"                    # referans yok
+    assert h3mode.keyframe_model(scene(), [], []) == "qwen"                                 # karaktersiz
+    monkeypatch.setattr(settings, "keyframe_character_provider", "qwen")
+    assert h3mode.keyframe_model(scene(), [char(asset_id="a1")], [locked]) == "qwen"
 
 
-def test_choosing_fl2va_for_a_character_shot_warns_about_identity():
-    assert "kimlik kayabilir" in h3mode.fl2va_identity_warning(scene(h3_mode="fl2va"), [char()], [])
-    assert h3mode.fl2va_identity_warning(scene(), [char()], []) is None                     # otomatik: Ref2VA
-    assert h3mode.fl2va_identity_warning(scene(h3_mode="fl2va"), [], []) is None
+def test_a_draft_reference_counts_when_the_project_skips_approval():
+    """Deneme ön ayarı (lint_strictness warn) onay akışını atlar: yüklenmiş referans yeterlidir."""
+    draft = SimpleNamespace(id="a2", status="draft")
+    assert h3mode.strict_refs({"lint_strictness": "warn"}) is False and h3mode.strict_refs({}) is True
+    assert h3mode.keyframe_model(scene(), [char(asset_id="a2")], [draft], strict=False) == "qwen_edit"
+    assert h3mode.keyframe_model(scene(), [char(asset_id="a2")], [draft], strict=True) == "qwen"
+
+
+def test_edit_references_put_the_main_character_first_then_the_location():
+    kerem = SimpleNamespace(id="c2", name="Kerem", reference_images=["assets/k/still/k.png"], asset_id=None)
+    roof = SimpleNamespace(id="l1", type="location", name="Çatı", status="locked",
+                           references={"still": {"key": "assets/l1/still/r.png"}})
+    shot = scene(prompt_spec={"prompt": "Kerem watches Elif on the rooftop"})
+    refs = h3mode.edit_references(shot, [char(), kerem], [roof])
+    assert [(r["name"], r["kind"]) for r in refs] == [("Kerem", "character"), ("Elif", "character"), ("Çatı", "location")]
+    assert h3mode.edit_references(scene(), [], [roof]) == []                        # karaktersiz çekimde kare metinden
+
+
+def test_the_identity_warning_is_only_for_a_character_frame_drawn_from_text(monkeypatch):
+    from app.config import settings
+    warning = "Storyboard karesi karakter referansı kullanmıyor; kimlik kayabilir."
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [char()], []) == warning      # düz Qwen karesi
+    assert h3mode.fl2va_identity_warning(scene(board_source="qwen_edit"), [char()], []) is None
+    assert h3mode.fl2va_identity_warning(scene(board_source=None), [char()], []) is None            # qwen_edit çizilecek
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui"), [], []) is None             # karaktersiz
+    assert h3mode.fl2va_identity_warning(scene(board_source="comfyui", h3_mode="ref2va"), [char()], []) is None
+    monkeypatch.setattr(settings, "keyframe_character_provider", "qwen")
+    assert h3mode.fl2va_identity_warning(scene(board_source=None), [char()], []) == warning
 
 
 def test_the_effective_mode_is_part_of_the_visual_fingerprint():
     auto = visual_fingerprint(scene(duration_s=3.0), [char()], [])
-    explicit = visual_fingerprint(scene(duration_s=3.0, h3_mode="ref2va"), [char()], [])
     fl2va = visual_fingerprint(scene(duration_s=3.0, h3_mode="fl2va"), [char()], [])
-    assert auto == explicit != fl2va
+    ref2va = visual_fingerprint(scene(duration_s=3.0, h3_mode="ref2va"), [char()], [])
+    assert auto == fl2va != ref2va

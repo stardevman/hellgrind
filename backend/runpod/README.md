@@ -145,14 +145,20 @@ yeniden doğrulayın.
   **Bakiye eşiği**nin (varsayılan 10 $) altındaysa iş başlamaz; panelde uyarı görünür. Bakiye okunamazsa uyarı yazılır ama
   üretim durmaz. RunPod GraphQL'i 2027 başında kaldıracağını duyurdu.
 - **Toplu gönderim:** bir dalganın bütün işleri (test turu ve tam tur dalgası) birlikte kuyruğa girer. Birden çok çekim
-  birlikte işlenirken kuyruk model türüne göre gruplanır: önce bekleyen bütün kareler (Qwen-Image), sonra bütün FL2VA/T2V
-  videoları, sonra bütün Ref2VA videoları (her model değişimi 30-40 GB'ı yeniden yükler, ~2-3 dk). Olay akışına "Model
-  yükleniyor (soğuk başlatma)" ve "Model değişti" süreleriyle yazılır.
-- **H3 koşulu:** onaylı referansı olan karakterli çekimde varsayılan Ref2VA'dır (storyboard karesi metinden çizilir,
-  karakter referansı içermez; FL2VA'da kimlik kayar). Ref2VA çekiminde RunPod'a storyboard/keyframe işi gönderilmez:
-  storyboard için yerel kare çizilir; ücretli kare yalnızca storyboard sayfasından açıkça istenir
-  (`POST /scenes/{id}/board/draw?paid=true`). Ücretli kare kalite kapısını geçemezse yeniden çizilmez (en çok 1 kare).
-  İlk kareyi karakter referansından çizmek için kanca: `H3_KEYFRAME_REFERENCE=flux_kontext` (fal.ai; varsayılan kapalı).
+  birlikte işlenirken kuyruk model türüne göre gruplanır: önce metinden çizilen kareler (Qwen-Image), sonra karakterli
+  kareler (Qwen-Image-Edit-2511), sonra bütün FL2VA/T2V videoları, sonra bütün Ref2VA videoları (her model değişimi
+  20-40 GB'ı yeniden yükler, ~2-3 dk). Olay akışına "Model yükleniyor (soğuk başlatma)" ve "Model değişti" süreleriyle
+  yazılır.
+- **H3 koşulu:** her çekim varsayılan olarak FL2VA'dır. Karakterli çekimin ilk karesi Qwen-Image-Edit-2511 ile karakterin
+  onaylı referansından çizilir (`edit_keyframe.json`; `KEYFRAME_CHARACTER_PROVIDER=qwen_edit`), H3 tuvalinde (1280x704).
+  Kare kalite kapısından ve yüz kimliğinden (SFace ≥ `identity_threshold`) geçer; en çok 2 yeniden deneme, geçemezse "Kare
+  inceleme gerekiyor" ve video yok. Ref2VA çekim bazında elle seçilir; Ref2VA çekiminde RunPod'a kare işi gönderilmez
+  (storyboard için yerel kare; ücretli kare yalnızca `POST /scenes/{id}/board/draw?paid=true` ile). Karaktersiz çekimin
+  karesi Qwen-Image ile metinden (en çok 1 kare). fal.ai kancası: `H3_KEYFRAME_REFERENCE=flux_kontext` (varsayılan kapalı).
+- **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 60 sn (sıcak worker; başlangıç tahmini, ilk ölçümden sonra
+  güncellenecek); soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
+  (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); metin
+  kodlayıcı ve VAE Qwen-Image ile ortak. fp8mixed cu128 worker'da çalışır (int8_convrot cu130 ister). Worker imajı değişmez.
 - **Kimlik kapısı:** yüz beklenen çekimde (karakter varsa; sırt çekimi, silüet, aşırı geniş planda hayır; denetçiden
   değiştirilir) yüzü hiç görünmeyen ya da karakter benzerliği proje ayarı `identity_threshold`'un (0,60) altında kalan aday
   rafine havuza giremez. Hepsi kalırsa çekim "Kimlik düşük" gerekçesiyle incelemeye düşer.

@@ -10,9 +10,13 @@ Kare içerik-adreslidir: storyboard/{sahne}/{görsel özet}.jpg. Görsel girdile
 yeniden istenir (eski onay başka bir çekimi onaylamıştı).
 
 MiniMax H3 (FL2VA): karenin yazısız hâli (`..._clean.jpg`) videonun ilk karesidir; kompozisyon seed'le değil bu kareyle
-kontrol edilir. Ücretli modda kare H3 makinesindeki ComfyUI görsel iş akışıyla (keyframe.json) ya da fal.ai Flux ile
-çizilir ve videoyla aynı kalite kapısından geçer; geçemezse yeni seed'le en çok BOARD_ATTEMPTS kez denenir, yine olmazsa
-"değişiklik istendi" olur ve video üretilmez (yönetmen yine de onaylayabilir ya da kendi ilk karesini yükleyebilir).
+kontrol edilir. Ücretli modda kare RunPod worker'ındaki ComfyUI görsel iş akışıyla çizilir: karakterli çekimde
+Qwen-Image-Edit-2511 ile karakterin onaylı referansından (edit_keyframe.json; image 1 ana karakter), karaktersiz çekimde
+Qwen-Image ile metinden (keyframe.json); fal.ai Flux isteğe bağlıdır. Kare videoyla aynı kalite kapısından geçer:
+Qwen-Image-Edit karesinde ayrıca yüz kimliği (SFace, referansa karşı ≥ identity_threshold); geçemezse yeni seed'le en çok
+EDIT_RETRIES kez yeniden çizilir (her deneme ayrı ücretlenir ve harcama geçmişine yazılır), yine olmazsa "kare inceleme
+gerekiyor" olur ve video üretilmez (yönetmen kareyi onaylayabilir, yeniden çizdirebilir ya da kendi ilk karesini yükler).
+Seedance çekimi de aynı kareyi image-to-video başlangıcı olarak kullanır.
 Yönetmenin yüklediği ilk kare storyboard karesinin yerine geçer (çizim yok, ücret yok).
 """
 import os
@@ -38,7 +42,17 @@ from app.style import bible
 BOARD_W, BOARD_H = 960, 540
 BOARD_MEGAPIXELS = 1.0                 # ücretli karşılığı: tek bir 1 MP Flux karesi
 BOARD_ATTEMPTS = 1                     # ücretli kare: bir çekim × bir çizim için en çok 1 kare (gerekirse yönetmen yeniden ister)
-PAID_SOURCES = ("flux", "comfyui")
+EDIT_RETRIES = 2                       # Qwen-Image-Edit karesi kimlikten kalırsa en çok 2 yeniden deneme (toplam 3 kare)
+PAID_SOURCES = ("flux", "comfyui", "qwen_edit")    # comfyui: Qwen-Image (metinden); qwen_edit: karakter referansından
+SHARED_SOURCES = ("comfyui", "qwen_edit")         # RunPod'da çizilen kare: Seedance de aynı kareden başlar
+SOURCE_LABEL = {"comfyui": "h3:storyboard", "qwen_edit": "h3:storyboard:qwen_edit"}
+
+
+def outdated(current: str | None, source: str | None) -> bool:
+    """Güncel görsel özetin karesi daha iyi bir kaynaktan yeniden çizilmeli mi: ücretsiz moddan kalan yerel kare (ücretli
+    kaynak varken) ya da karakterli çekimin metinden çizilmiş Qwen-Image karesi (Qwen-Image-Edit varken)."""
+    return (current == "local" and source in PAID_SOURCES) or (current == "comfyui" and source == "qwen_edit")
+REVIEW = "Kare inceleme gerekiyor"
 SHOT_TR = {"extreme_wide": "çok geniş", "wide": "geniş", "pov": "öznel", "medium": "orta",
            "over_shoulder": "omuz üstü", "close_up": "yakın", "extreme_close_up": "çok yakın"}
 MOVE_TR = {"static": "sabit", "dolly_in": "yaklaşma", "dolly_out": "uzaklaşma", "pan": "pan", "tilt": "tilt",
@@ -90,9 +104,10 @@ def board_label(reference) -> str:
     return "flux_kontext:storyboard" if reference else "flux_lora:storyboard"
 
 
-def board_source(h3_mode: str = "fl2va", explicit: bool = False) -> str:
-    """Ücretli modda karenin kaynağı: H3 platformundaki ComfyUI görsel iş akışı (keyframe.json), fal.ai Flux ya da yerel
-    prosedürel kare (yerel kare H3'e ilk kare olarak verilmez).
+def board_source(h3_mode: str = "fl2va", explicit: bool = False, model: str = "qwen") -> str:
+    """Ücretli modda karenin kaynağı: RunPod worker'ındaki ComfyUI görsel iş akışı (qwen_edit: Qwen-Image-Edit-2511,
+    karakter referansından; comfyui: Qwen-Image, metinden), fal.ai Flux ya da yerel prosedürel kare (yerel kare H3'e ilk kare
+    olarak verilmez). model: çekimin ilk kare modeli (core/h3mode.keyframe_model).
     Ref2VA çekimi ilk kareyi kullanmaz: storyboard için yerel (ücretsiz) kare çizilir; ücretli kare yalnızca yönetmen açıkça
     isterse (explicit). H3_KEYFRAME_REFERENCE=flux_kontext (kanca; varsayılan kapalı) ve fal.ai anahtarı varsa ilk kare
     karakterin referans görselinden Flux Kontext ile çizilir."""
@@ -109,15 +124,38 @@ def board_source(h3_mode: str = "fl2va", explicit: bool = False) -> str:
                 return "comfyui"
     elif paid.available("runpod_api_key"):
         from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
+        if model == "qwen_edit" and runpod_h3.keyframes_ready("edit_keyframe"):
+            return "qwen_edit"
         if runpod_h3.keyframes_ready():
             return "comfyui"
     return "flux" if paid.available("fal_key") else "local"
 
 
-def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict) -> str:
+def edit_prompt(prompt: str, refs: list[dict]) -> str:
+    """Qwen-Image-Edit istemi: önce görsellere "image n" diye başvuru, ardından bestecinin çekim tarifi (kamera ve proje
+    stili dahil). Şablonun örnek metni her zaman ezilir."""
+    parts = []
+    for i, r in enumerate(refs, start=1):
+        parts.append(f"{r['name']} is the person in image {i}" if r["kind"] == "character"
+                     else f"the setting is the location in image {i} ({r['name']})")
+    keep = "Keep each character's face, hair, proportions and outfit exactly as in their image."
+    return (f"{'; '.join(parts)}. {keep} {prompt} A single cinematic film frame, 16:9, no text, no captions.").strip()
+
+
+def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
+               details: dict | None = None) -> str:
     """Ücretli kare (yazısız): fal.ai Flux (karakter LoRA'larıyla ya da referans görseliyle Kontext) ya da H3
-    makinesindeki ComfyUI görsel iş akışı. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir."""
-    if source == "comfyui":                         # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
+    makinesindeki ComfyUI görsel iş akışı. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir.
+    details: harcama geçmişine yazılır (ör. kalite kapısı denemesi)."""
+    if source == "qwen_edit":                       # RunPod worker'ında Qwen-Image-Edit-2511, karakter referansından
+        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
+        refs = extra.get("edit_references") or []
+        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit"), SOURCE_LABEL[source], "runpod_api_key",
+                         lambda: runpod_h3.edit_keyframe_image(edit_prompt(prompt, refs), seed, refs,
+                                                               extra.get("negative", ""), project_id),
+                         scene_id=scene_id, details=details)
+        local = made.local_path
+    elif source == "comfyui":                       # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
         if settings.h3_platform == "vast":
             from app.live import vast_h3 as platform    # ücretli modül: yalnızca fonksiyon içinde
             key_name = "vast_api_key"
@@ -125,15 +163,15 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
             from app.live import runpod_h3 as platform
             key_name = "runpod_api_key"
         estimate = platform.estimate_keyframe() if hasattr(platform, "estimate_keyframe") else pricing.estimate_keyframe()
-        made = paid.call(project_id, estimate, "h3:storyboard", key_name,
-                         lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id)
+        made = paid.call(project_id, estimate, SOURCE_LABEL[source], key_name,
+                         lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id, details=details)
         local = made.local_path
     else:
         from app.live import fal_video              # ücretli modül: yalnızca fonksiyon içinde
         reference = extra.get("reference")
         local = paid.call(project_id, board_estimate(reference), board_label(reference), "fal_key",
                           lambda: fal_video.image(prompt, seed, extra.get("loras"), extra.get("lora_triggers"),
-                                                  reference=reference), scene_id=scene_id).local_path
+                                                  reference=reference), scene_id=scene_id, details=details).local_path
     try:
         with Image.open(local) as im:
             im.convert("RGB").save(out_path, "JPEG", quality=92)
@@ -160,6 +198,9 @@ def keyframe_problem(scene, fp: str) -> str | None:
         return None
     if scene.board_key and scene.board_hash == fp and scene.board_source in PAID_SOURCES:
         if scene.board_status == "changes_requested":
+            if scene.board_note and scene.board_note.startswith(REVIEW):
+                return (f"{scene.board_note}. Kareyi onaylayın, yeniden çizdirin, kendi ilk karenizi yükleyin ya da "
+                        "çekimi Ref2VA'ya alın.")
             return ("İlk kare kullanılamaz: storyboard karesi " + ("kalite kapısını geçemedi" if scene.board_note and
                     scene.board_note.startswith("Kalite kapısı") else "için değişiklik istendi") +
                     ". Kareyi onaylayın, kendi ilk karenizi yükleyin ya da çekimi Ref2VA'ya alın.")
@@ -200,16 +241,31 @@ class Drawn:
     score: float | None
     passed: bool
     attempts: int
+    anomalies: list | None = None
+    detail: dict | None = None
+
+
+def identity_text(drawn: Drawn) -> str:
+    """Kimlik kapısının sonucu, yönetmen için: "Elif 0,47 < 0,60" ya da "yüz görünmedi"."""
+    for a in drawn.anomalies or ():
+        if a.get("type") == "no_face":
+            return "yüz görünmedi"
+        if a.get("type") == "low_identity":
+            threshold = f"{a['threshold']:.2f}".replace(".", ",")
+            return ", ".join(f"{name} {(v or 0):.2f}".replace(".", ",") + f" < {threshold}"
+                             for name, v in a["identity"].items())
+    return f"skor {drawn.score:.2f}".replace(".", ",") if drawn.score is not None else "kusurlu kare"
 
 
 def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt: str, extra: dict, info: dict,
-         lines: list[str], cfg: dict, target) -> Drawn:
+         lines: list[str], cfg: dict, target, salt: int | None = None) -> Drawn:
     """Kareyi çizer ya da yüklenen ilk kareden alır; yazısız hâlini ve yazılı panel karesini depoya koyar. Ücretli kaynakta
-    kare kalite kapısından geçer; geçemezse yeni seed'le yeniden çizilir (her deneme ayrı ücretlenir)."""
+    kare kalite kapısından geçer; Qwen-Image-Edit karesi ayrıca yüz kimliğinden (SFace) geçer ve kalırsa yeni seed'le en çok
+    EDIT_RETRIES kez yeniden çizilir (her deneme ayrı ücretlenir). salt: yönetmenin açık "yeniden çiz" isteği (yeni seed'ler)."""
     from app.quality import gate
     from app.quality.anomaly import detect_frame_anomalies
     os.makedirs(settings.work_dir, exist_ok=True)
-    seed0 = seed_for(scene_id, fp, "board")
+    seed0 = seed_for(scene_id, fp, "board", *([salt] if salt else []))
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         clean = os.path.join(tmp, "clean.jpg")
         drawn = Drawn(source, None, True, 1)
@@ -224,11 +280,18 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
         elif source == "local":                                 # ücretli modda ama ücretli kaynak yok: ücret doğmaz
             render_frame(clean, seed0, info["render"])
         else:
-            for attempt in range(BOARD_ATTEMPTS):
-                seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", attempt)
-                paid_frame(clean, source, project_id, scene_id, seed, prompt, extra)
-                score = gate.score_frame(clean, seed, cfg, target)
-                drawn = Drawn(source, score.composite, score.passed, attempt + 1)
+            edit = source == "qwen_edit"
+            attempts = 1 + EDIT_RETRIES if edit else BOARD_ATTEMPTS
+            for attempt in range(attempts):
+                seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", *([salt] if salt else []), attempt)
+                paid_frame(clean, source, project_id, scene_id, seed, prompt, extra,
+                           details={"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed})
+                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit)
+                drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), score.detail)
+                killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
+                                 of=attempts, score=score.composite, passed=score.passed,
+                                 identity=(score.detail or {}).get("identity"),
+                                 faces_seen=(score.detail or {}).get("faces_seen"))
                 if score.passed:
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
@@ -239,16 +302,22 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
 
 def make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False) -> str:
     """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır.
-    explicit: Ref2VA çekiminde de ücretli kare çizilir (yönetmenin açık isteği; storyboard sayfası)."""
-    from app.core.h3mode import effective_mode
+    explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; kalite kapısından
+    kalmış ücretli kare yeni seed'lerle yeniden çizilir."""
+    import time
+    from app.core.h3mode import edit_references, effective_mode, keyframe_model, strict_refs
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
         scene, project = s.get(Scene, scene_id), s.get(Project, project_id)
         chars, assets, style = load_characters(s, scene_id), load_assets(s, scene_id), bible.active(s, project_id)
         fp = visual_fingerprint(scene, chars, assets, style.version if style else None)
-        prompt, extra = compose_for_scene(scene, chars, assets, style).prompt, loras_of(chars)
+        composed = compose_for_scene(scene, chars, assets, style)
+        prompt, extra = composed.prompt, loras_of(chars)
         cfg = project_settings(project.settings)
+        strict = strict_refs(cfg)
+        model = keyframe_model(scene, chars, assets, strict)
+        extra.update(edit_references=edit_references(scene, chars, assets, strict), negative=composed.negative)
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
@@ -259,26 +328,35 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
                             "characters": [c.name for c in chars], "action": scene.action_complexity,
                             "lighting": style.lighting_prefix if style else ""})
     key = f"storyboard/{scene_id}/{fp}.jpg"
-    source = "upload" if info["keyframe_key"] else board_source(mode, explicit)
+    source = "upload" if info["keyframe_key"] else board_source(mode, explicit, model)
     stored = storage.exists(key) and storage.exists(clean_key(key))
-    upgrade = info["board_source"] == "local" and source in PAID_SOURCES      # ücretsiz moddan kalan yerel kare
-    if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade):
+    # ücretsiz moddan kalan yerel kare ya da karakterli çekimin metinden çizilmiş karesi: karakter referansından yeniden
+    upgrade = outdated(info["board_source"], source)
+    redraw = explicit and source in PAID_SOURCES and info["board_status"] == "changes_requested" and stored
+    if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade and not redraw):
         drawn = None
-        if not stored or upgrade:
+        if not stored or upgrade or redraw:
             advance_scene(project_id, scene_id, status="storyboard")
             lines = [f"{info['code']} · {camera_text(info['camera'])} · {seconds_text(info['duration'])}"]
             lines += [textwrap.shorten(f"{(who or 'Anlatıcı').upper()}: {text}", 84, placeholder="…")
                       for who, text in dialogue[:2]]
-            drawn = draw(project_id, scene_id, fp, key, source, prompt, extra, info, lines, cfg, target)
+            drawn = draw(project_id, scene_id, fp, key, source, prompt, extra, info, lines, cfg, target,
+                         salt=time.time_ns() if redraw else None)
         changed = info["board_hash"] is not None and info["board_hash"] != fp
         fields = {"board_key": key, "board_hash": fp}
         if drawn is not None:
             fields.update(board_source=drawn.source, board_score=drawn.score)
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
-            shown = f"{drawn.score:.2f}" if drawn.score is not None else "kusurlu kare"
-            fields.update(board_status="changes_requested",
-                          board_note=f"Kalite kapısı: storyboard karesi geçemedi ({shown}, {drawn.attempts} deneme)")
-            killswitch.event(project_id, "board_rejected", scene_id=scene_id, code=info["code"], score=drawn.score)
+            if drawn.source == "qwen_edit":
+                note = f"{REVIEW}: {identity_text(drawn)} ({drawn.attempts} deneme)"
+            else:
+                shown = f"{drawn.score:.2f}" if drawn.score is not None else "kusurlu kare"
+                note = f"Kalite kapısı: storyboard karesi geçemedi ({shown}, {drawn.attempts} deneme)"
+            fields.update(board_status="changes_requested", board_note=note)
+            killswitch.event(project_id, "board_rejected", scene_id=scene_id, code=info["code"], score=drawn.score,
+                             note=note)
+        elif drawn is not None and drawn.source in PAID_SOURCES and info["board_status"] == "changes_requested":
+            fields.update(board_status="pending", board_note=None)    # yeniden çizilen kare geçti
         elif changed or info["board_status"] == "changes_requested":
             fields["board_status"] = "pending"          # yeni kare yeni onay ister
         advance_scene(project_id, scene_id, **fields)

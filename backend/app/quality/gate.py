@@ -60,7 +60,7 @@ IDENTITY_ANOMALIES = ("no_face", "low_identity")
 
 
 def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
-    """Kimlik kapısı (yalnızca videoda): çekimde referanslı karakter var ve yüz bekleniyorsa, yüzü hiç görünmeyen aday
+    """Kimlik kapısı (videoda ve karakter referansından çizilen ilk karede): çekimde referanslı karakter var ve yüz bekleniyorsa, yüzü hiç görünmeyen aday
     (`no_face`) ya da bir karakterin benzerliği `identity_threshold`'un altında kalan aday (`low_identity`) geçemez:
     yüzün görünmemesi, kötü benzemesinden avantajlı olmasın. Sırt çekimi, silüet, uzak plan: face_expected false."""
     if target is None or not getattr(target, "faces", ()) or not getattr(target, "face_expected", True) or not detail:
@@ -102,15 +102,16 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
     return _judge(measured, seed, anomalies, cfg, target, check_identity=True)
 
 
-def score_frame(path: str, seed: int, cfg: dict, target=None) -> Score:
+def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
-    video hiç üretilmez."""
+    video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
+    SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz)."""
     anomalies = detect_frame_anomalies(path)
     measured = None
     if scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_image(path, target or scorer.Target())
-    return _judge(measured, seed, anomalies, cfg)
+    return _judge(measured, seed, anomalies, cfg, target, check_identity=check_identity)
 
 
 # ---------- Rafine Havuz ----------

@@ -75,12 +75,15 @@ def ensure_idle(sc: Scene) -> None:
         raise Busy(f"{sc.scene_code} şu an işleniyor ({sc.status}); bitince yeniden dene.")
 
 
-def model_group(sc: Scene, s: Session) -> str:
-    """Toplu dağıtımda çekimin model grubu: H3 Ref2VA ya da FL2VA (T2V ve diğer motorlar da bu grupta)."""
+def model_group(sc: Scene, s: Session) -> tuple[str, str]:
+    """Toplu dağıtımda çekimin model grupları: (H3 DiT'i: ref2va ya da fl2va — T2V ve diğer motorlar da fl2va grubunda,
+    ilk kare modeli: qwen_edit ya da qwen)."""
+    from app.core.h3mode import effective_mode, keyframe_model, strict_refs
+    chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+    board = keyframe_model(sc, chars, assets, strict_refs(project_settings(s.get(Project, sc.project_id).settings)))
     if (sc.engine or "h3") != "h3":
-        return "fl2va"
-    from app.core.h3mode import effective_mode
-    return effective_mode(sc, load_characters(s, sc.id), load_assets(s, sc.id))
+        return "fl2va", board
+    return effective_mode(sc, chars, assets), board
 
 
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
@@ -131,7 +134,8 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
         sc.status, sc.last_error = "pending", None
         s.commit()
         if batch is not None:
-            batch.add(sc.id, stages, mode, model=model_group(sc, s))
+            model, board = model_group(sc, s)
+            batch.add(sc.id, stages, mode, model=model, board=board)
         else:
             build_chain(pid, str(sc.id), stages, mode=mode).apply_async()
     except Exception:

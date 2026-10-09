@@ -71,6 +71,10 @@ karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca aynı görün
    senaryo hazır dolu olarak; sağda senaryo biçiminin kılavuzu.
    - *Önizleme*: en çok 4 test ve 8 tam klip (örnek film için yeterli, hızlı).
    - *Brifing*: 10 test ve en çok 50 tam klip.
+   - *Üretim (ekonomik)*: 3 test (480p) ve 3 tam klip (720p), dalga 3, havuzda 1 aday, 1 düzeltme turu.
+   Formun altındaki **Tahmini maliyet** senaryodan çekim başına ve toplam tutarı hesaplar (kare + test + tam tur; "en çok"
+   kimlik kapısının yeniden denemeleri ve düzeltme turları dahil; kullanılan her model için bir soğuk başlatma). Mevcut
+   projede tutar projenin çekimlerinden ve ayarlarından hesaplanır (`POST /api/estimate`).
    **Senaryoyu işle ve üret**'e basınca Kurgu sayfası açılır. Mevcut projede bu sayfa senaryoyu düzenletir; **Değişiklikleri
    işle ve üret** yalnızca değişen çekimleri yeniden üretir.
 2. İlk seferde çekimlerin hepsi **Engellendi** durumundadır: karakterlerin (Kerem, Ayşe) ve mekânların (Terk Edilmiş
@@ -337,9 +341,10 @@ kareleri ve storyboard karesi Flux LoRA yerine **Flux Kontext** (`fal-ai/flux-pr
 bu görselden çizilir: yüz, saç, göz ve kıyafet korunur, sahne, poz ve kadraj prompt'tan gelir. Video yine bu kareden
 (Seedance) üretilir. Görsel fal deposuna bir kez yüklenir (ücretsiz).
 
-MiniMax H3 çekimlerinde (varsayılan) Flux kullanılmaz: Ayarlar'da bir **Ref2VA sunucusu** (`H3_REF_ENDPOINT_URL`)
-tanımlıysa çekimdeki bütün karakterlerin durağan görselleri (en çok 9) istekte referans olarak gider ve istemde
-`<Picture 1> is Kerem` gibi eşlenir. Ref2VA sunucusu yoksa karakterler yalnızca tarifle üretilir.
+MiniMax H3 çekimlerinde (varsayılan) Flux kullanılmaz: karakterin durağan görseli ilk kareye Qwen-Image-Edit-2511 ile
+girer (RunPod worker'ında, `edit_keyframe.json`; image 1 ana karakter), video bu kareden FL2VA ile üretilir. Çekim elle
+Ref2VA'ya alınırsa çekimdeki bütün karakterlerin durağan görselleri (en çok 9) istekte referans olarak gider ve istemde
+`<Picture 1> is Kerem` gibi eşlenir.
 
 - Kontext tek görsel alır: çekimde birden çok referanslı karakter varsa ilki kullanılır. LoRA'sı olan karakterde LoRA
   kazanır.
@@ -406,14 +411,22 @@ veri merkezleri ve ülkeler kabul edilir, konumu bilinmeyen makine ya da teklif 
 Aynı seed farklı çözünürlükte farklı kompozisyon verir; bu yüzden H3 çekimlerinde kompozisyon koşulla kontrol edilir.
 Denetçideki **H3 koşulu** her çekim için seçilir:
 
-- **İlk kareden (FL2VA, varsayılan):** çekimin storyboard karesinin yazısız hâli (ya da yönetmenin yüklediği kare) her
-  varyasyonun ilk karesidir; test turu (480p) ve tam tur (720p) aynı kareden başlar. Ücretli modda kare H3 makinesindeki
-  ComfyUI görsel iş akışıyla (`keyframe.json`) ya da fal.ai Flux ile çizilir ve videoyla aynı kalite kapısından geçer;
-  geçemezse yeni seed'le en çok 3 kez denenir, yine olmazsa "değişiklik istendi" olur ve video üretilmez. Kareyi yine de
+- **İlk kareden (FL2VA, varsayılan; karakterli çekimlerde de):** çekimin storyboard karesinin yazısız hâli (ya da
+  yönetmenin yüklediği kare) her varyasyonun ilk karesidir; test turu (480p) ve tam tur (720p) aynı kareden başlar. Ücretli
+  modda kare RunPod worker'ında çizilir: karakterli çekimde **Qwen-Image-Edit-2511** ile karakterin onaylı referansından
+  (`edit_keyframe.json`; image 1 ana karakter — çekim tarifinde adı ilk geçen —, image 2 / 3 ikinci karakter ya da mekân;
+  istem "Elif is the person in image 1" diye başlar, ardından çekim tarifi, kamera ve proje stili), karaktersiz çekimde
+  Qwen-Image ile metinden (`keyframe.json`). Ayarlar: `KEYFRAME_CHARACTER_PROVIDER` (qwen_edit varsayılan | qwen) ve
+  `QWEN_EDIT_LIGHTNING` (kapalı: 40 adım, cfg 4; açık: 4 adım, cfg 1). Kare videoyla aynı kalite kapısından geçer;
+  Qwen-Image-Edit karesinde ayrıca karedeki yüz referansa SFace ile en az `identity_threshold` (0,60) benzemelidir. Geçemezse
+  yeni seed'le en çok 2 kez yeniden çizilir (her deneme maliyetiyle harcama geçmişine yazılır); yine olmazsa çekim "Kare
+  inceleme gerekiyor" olur, kare ve skor denetçide görünür ve video üretilmez (**Kareyi yeniden çiz** yeni seed'ler dener).
+  "Kimlik kayabilir" uyarısı yalnızca karakterli çekimin karesi düz Qwen-Image'dan geldiyse çıkar. Seedance çekimleri de
+  aynı kareyi image-to-video başlangıcı olarak kullanır. Kareyi yine de
   onaylayabilir ya da **Kendi ilk kareni yükle** ile kendi karenizi verebilirsiniz (yüklenen kare storyboard'un yerine geçer,
   çizim ve ücret yoktur). İlk kare kaynağı yoksa (ne `keyframe.json` ne fal.ai anahtarı) FL2VA çekimi üretilmez ve neden
   denetçide yazar.
-- **Karakter referanslarıyla (Ref2VA):** karakter tutarlılığının kritik olduğu çekimler için. Çekimdeki karakterlerin
+- **Karakter referanslarıyla (Ref2VA, elle seçilir):** çekim bazında denetçiden seçilir; kare çizilmez. Çekimdeki karakterlerin
   referans seti (durağan görsel, ifade sayfası ve dönüş videosundan önden, yandan, arkadan üç kare; karakterler arasında
   paylaşılan en çok 9 görsel) ve varsa ilk kare gider; istemde `<Picture 1>, <Picture 2> show Kerem` gibi eşlenir. Ref2VA
   ayrı bir model bölümüdür: SGLang'de ikinci bir sunucu (`--model-variant ref2va`), ComfyUI'de `r2v.json` iş akışı.
@@ -568,6 +581,7 @@ FL2VA'nın ilk karesi bir görsel modelinden gelir. Hell Grind kendi makinenizde
 | Model | Lisans | ComfyUI dosyaları | Not |
 |---|---|---|---|
 | **Qwen-Image-2512** (önerilen, varsayılan) | Apache 2.0 | `qwen_image_2512_fp8_e4m3fn` (20,4 GB), `qwen_2.5_vl_7b_fp8_scaled` (9,4 GB), `qwen_image_vae` | İstem bağlılığı ve kompozisyonu güçlü; iş akışı `comfy-workflows/keyframe.json` (resmî şablon, 50 adım, cfg 4) |
+| **Qwen-Image-Edit-2511** (karakterli ilk kare) | Apache 2.0 | `qwen_image_edit_2511_fp8mixed` (20,5 GB), Lightning LoRA `Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (0,85 GB), metin kodlayıcı ve VAE Qwen-Image ile ortak | Karakterin referansından kare; iş akışı `comfy-workflows/edit_keyframe.json` (resmî şablon `image_qwen_image_edit_2511`, workflow-templates v0.11.78) |
 | FLUX.1 [schnell] | Apache 2.0 | `flux1-schnell-fp8` (17,2 GB) | 4 adımda hızlı, kalite ve istem bağlılığı daha düşük; `keyframe.flux-schnell.json` |
 | FLUX.1 [dev] | FLUX.1 [dev] Non-Commercial License v1.1.1 | kurulmaz | Model ticari amaçla çalıştırılamaz (BFL'den ayrı lisans gerekir); çıktıları ticari kullanılabilir ama rakip model eğitiminde kullanılamaz |
 
@@ -681,6 +695,8 @@ Bilinmesi gerekenler:
 | `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
 | `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
+| `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |
+| `QWEN_EDIT_LIGHTNING` | `false` | Qwen-Image-Edit Lightning LoRA: `true` 4 adım, cfg 1; `false` 40 adım, cfg 4 |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
 | `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
 | `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |

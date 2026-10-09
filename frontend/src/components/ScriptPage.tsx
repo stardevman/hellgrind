@@ -1,18 +1,20 @@
 "use client";
 /* Senaryo sayfası: yeni proje (ad, sanal bütçe, üretim yoğunluğu) ya da mevcut projenin senaryosu; ortada eş aralıklı
    senaryo düzenleyicisi, sağda biçim kılavuzu. Mevcut projede yalnızca değişen çekimler yeniden üretilir. */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { usePanel } from "@/lib/panel";
 import { clipCost } from "@/lib/pricing";
-import type { DispatchAll, PricingTable } from "@/lib/types";
+import type { CostEstimate, DispatchAll, PricingTable } from "@/lib/types";
 import { NoteBox, Panel } from "./ui";
 
 interface Ingest extends DispatchAll { cast: string[]; shots: number; created: string[]; updated: string[]; orphaned: string[] }
 
+const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
+
 export function ScriptPage() {
-  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov } = usePanel();
+  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov, frozen, busy, act } = usePanel();
   const { mutate } = useSWRConfig();
   const newProject = creating || !projectId;
   const { data: project } = useSWR<{ script_source: string | null; title: string }>(!newProject ? `/projects/${projectId}` : null, fetcher);
@@ -84,7 +86,9 @@ export function ScriptPage() {
     }
   };
 
-  const p = meta?.presets.preview, d = meta?.defaults;
+  const p = meta?.presets.preview, d = meta?.defaults, eco = meta?.presets.economy;
+  const blockedByFreeze = !newProject && frozen;
+  const resume = () => act(() => api.post(`/projects/${projectId}/killswitch`, { action: "resume" }), "start");
   return (
     <form className="page three" onSubmit={submit}>
       <Panel title={newProject ? "Yeni proje" : "Proje"} meta={newProject ? "" : project?.title}
@@ -108,6 +112,12 @@ export function ScriptPage() {
                   <input type="radio" name="intensity" value="brief" checked={intensity === "brief"} onChange={() => pickIntensity("brief")} />
                   <span><b>Brifing</b><small>{d ? `${d.probe_n} test ve en çok ${d.full_n} tam klip: brifingdeki yoğunluk.` : ""}</small></span>
                 </label>
+                {eco && (
+                  <label className="choice">
+                    <input type="radio" name="intensity" value="economy" checked={intensity === "economy"} onChange={() => pickIntensity("economy")} />
+                    <span><b>Üretim (ekonomik)</b><small>{`${eco.probe_n} test (${eco.probe_resolution}) ve ${eco.full_n} tam klip (${eco.full_resolution}), ${eco.max_correction_rounds} düzeltme turu, havuzda ${eco.refined_k} aday: gerçek film için en az üretim.`}</small></span>
+                  </label>
+                )}
                 {trial && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
@@ -143,9 +153,17 @@ export function ScriptPage() {
               ? "Çekimler, içlerindeki karakter, mekân ve nesneler Varlıklar sayfasında kilitlenene dek engelli kalır."
               : "Varlık kontrolü yalnızca uyarır: kilitlenmemiş varlıklar üretimi durdurmaz."}
           </p>
-          <button className="btn primary lg" type="submit" disabled={sending || !meta}>
+          <button className="btn primary lg" type="submit" disabled={sending || !meta || blockedByFreeze}
+            title={blockedByFreeze ? FROZEN_TITLE : undefined}>
             {newProject || !hasShots ? "Senaryoyu işle ve üret" : "Değişiklikleri işle ve üret"}
           </button>
+          {blockedByFreeze && (
+            <div className="note err">
+              Üretim durduruldu (Kill-Switch): senaryo işlenmez. Önce üretime devam edin; tek çekimi denemek için Kurgu'da
+              çekimin denetçisindeki "donmayı geçici kaldır" seçeneğini kullanın.
+              <div className="row mt8"><button className="btn" type="button" disabled={busy} onClick={resume}>Üretime devam et</button></div>
+            </div>
+          )}
           {!newProject && hasShots && <p className="faint small">Yalnızca değişen çekimler yeniden üretilir; değişmeyenler olduğu gibi kalır.</p>}
           <NoteBox id="start" />
         </div>
@@ -163,6 +181,9 @@ export function ScriptPage() {
       </section>
 
       {!newProject && ov && <Intensity />}
+
+      <Estimate body={newProject ? { text, preset: intensity } : { project_id: projectId, ...(script != null ? { text } : {}) }}
+        refresh={newProject ? "" : JSON.stringify(ov?.project.settings ?? {}) + (ov?.scenes.length ?? 0)} />
 
       <Panel title="Biçim">
         <ul className="syntax pad">
@@ -234,6 +255,59 @@ function Intensity() {
           <button className="btn primary" type="button" disabled={busy || !dirty.length} onClick={save}>Kaydet{dirty.length ? ` (${dirty.length})` : ""}</button>
           {dirty.length > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
         </div>
+      </div>
+    </Panel>
+  );
+}
+
+
+/** Tahmini maliyet (POST /estimate): yeni projede senaryo + ön ayardan, mevcut projede çekimlerden ve proje ayarlarından.
+    Rezervasyonla aynı fiyat fonksiyonları; yazarken 600 ms beklenir. */
+function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: string }) {
+  const [est, setEst] = useState<CostEstimate | null>(null);
+  const [err, setErr] = useState("");
+  const key = JSON.stringify(body) + refresh;
+  useEffect(() => {
+    if (typeof body.text === "string" && body.text.length < 10) return;
+    const timer = setTimeout(() => {
+      api.post<CostEstimate>("/estimate", body).then((r) => { setEst(r); setErr(""); }).catch((e: Error) => setErr(e.message));
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const frameTr = (f: string | null) => (f === "qwen_edit" ? "karakterli kare" : f === "qwen" ? "kare" : f === "upload" ? "yüklenen kare" : "kare yok (Ref2VA)");
+  return (
+    <Panel title="Tahmini maliyet" meta={est ? `${est.shots.length} çekim` : ""}>
+      <div className="pad stack">
+        {err && <p className="warn small">{err}</p>}
+        {est && (
+          <>
+            <dl className="kv">
+              <dt>Toplam (tahmini)</dt><dd className="mono">${est.expected_usd.toFixed(2)}</dd>
+              <dt>En çok</dt><dd className="mono">${est.max_usd.toFixed(2)}</dd>
+              <dt>Model yükleme</dt><dd className="mono">{est.model_loads} × soğuk başlatma = ${est.cold_start_usd.toFixed(3)}</dd>
+            </dl>
+            <table className="tbl">
+              <thead><tr><th>Çekim</th><th>Kare</th><th>Klip</th><th>Tahmini</th><th>En çok</th></tr></thead>
+              <tbody>
+                {est.shots.map((s) => (
+                  <tr key={s.code}>
+                    <td className="mono">{s.code}<small>{s.billed_seconds} sn · {s.mode === "ref2va" ? "Ref2VA" : s.engine === "h3" ? "FL2VA" : s.engine}</small></td>
+                    <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}</small> : null}</td>
+                    <td className="mono">{s.clips}</td>
+                    <td className="mono">${s.expected_usd.toFixed(3)}</td>
+                    <td className="mono">${s.max_usd.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="faint small">
+              Tahmini: kare + {est.settings.probe_n} test ({est.settings.probe_resolution}) + {est.settings.full_n} tam klip
+              ({est.settings.full_resolution}); tam tur erken durursa daha az. En çok: kimlik kapısının yeniden denemeleri ve
+              {" "}{est.settings.max_correction_rounds} düzeltme turu dahil. {est.dry_run ? "Ücretsiz modda harcama sanaldır, aynı fiyatlarla." : ""}
+            </p>
+          </>
+        )}
       </div>
     </Panel>
   );

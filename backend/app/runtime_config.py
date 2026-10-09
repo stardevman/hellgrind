@@ -63,9 +63,15 @@ FIELDS: tuple[Field, ...] = (
     Field("H3_UNET_VARIANT", "h3_unet_variant", "choice", "runpod",
           "H3 DiT türü: fp8_scaled (cu128 worker) ya da int8_convrot (cu130 torch'lu worker gerekir)",
           ("fp8_scaled", "int8_convrot")),
+    Field("KEYFRAME_CHARACTER_PROVIDER", "keyframe_character_provider", "choice", "runpod",
+          "Karakterli çekimin ilk karesi: qwen_edit (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da qwen "
+          "(Qwen-Image, yalnızca metinden; kimlik kayabilir)", ("qwen_edit", "qwen")),
+    Field("QWEN_EDIT_LIGHTNING", "qwen_edit_lightning", "choice", "runpod",
+          "Qwen-Image-Edit Lightning LoRA: true 4 adım ve cfg 1 (hızlı), false 40 adım ve cfg 4 (varsayılan)",
+          ("false", "true")),
     Field("H3_KEYFRAME_REFERENCE", "h3_keyframe_reference", "choice", "runpod",
-          "FL2VA ilk karesi: off (metinden, keyframe.json) ya da flux_kontext (karakter referansından, fal.ai; görsel başına ücretli)",
-          ("off", "flux_kontext")),
+          "fal.ai kancası: flux_kontext ise ilk kare karakter referansından Flux Kontext ile çizilir (görsel başına ücretli; "
+          "Qwen'in önüne geçer). Varsayılan off", ("off", "flux_kontext")),
     Field("H3_MODEL", "h3_model", "model", "runpod", "Model", url="https://huggingface.co/{}"),
     Field("H3_MODEL_REVISION", "h3_model_revision", "text", "runpod", "Model sürümü (klip meta verisine yazılır)"),
     Field("H3_STEPS", "h3_steps", "choice", "runpod", "Adım sayısı (sunucudaki kurulumla aynı)", ("50", "20", "9", "8", "5")),

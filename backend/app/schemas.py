@@ -295,6 +295,17 @@ class ProjectPatch(BaseModel):
     _settings = field_validator("settings")(ProjectIn._settings.__func__)
 
 
+class EstimateIn(BaseModel):
+    """Tahmini maliyet: senaryodan (text; proje oluşturulmadan) ya da projenin çekimlerinden (project_id). Ön ayar ve ayarlar
+    projenin ayarlarının üstüne yazılır (yalnızca hesap için; kaydedilmez)."""
+    text: str | None = Field(None, min_length=10, max_length=200_000)
+    project_id: UUID | None = None
+    preset: str | None = None
+    settings: dict = {}
+
+    _settings = field_validator("settings")(ProjectIn._settings.__func__)
+
+
 # ---------- üretim yöntemi ve elle düzeltme (Faz 15) ----------
 
 class MethodIn(BaseModel):

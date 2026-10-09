@@ -416,7 +416,7 @@ I2V = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}"}},
 def test_comfyui_workflows_are_validated_before_they_are_saved(api, cfg, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "h3_comfy_workflow_dir", str(tmp_path / "comfy"))
     flows = {w["kind"]: w for w in api.get("/api/settings").json()["comfy"]["workflows"]}
-    assert set(flows) == {"t2v", "i2v", "r2v", "keyframe"} and not any(w["present"] for w in flows.values())
+    assert set(flows) == {"t2v", "i2v", "r2v", "keyframe", "edit_keyframe"} and not any(w["present"] for w in flows.values())
     bad = api.put("/api/settings/comfy/i2v", json={"text": json.dumps({"6": I2V["6"]})})
     assert bad.status_code == 422 and "first_frame" in bad.json()["detail"]
     ui = api.put("/api/settings/comfy/i2v", json={"text": json.dumps({"nodes": [], "links": []})})

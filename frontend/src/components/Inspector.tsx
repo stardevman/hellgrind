@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
 import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
@@ -121,7 +121,13 @@ function H3({ sc }: { sc: Scene }) {
     const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/keyframe`);
     note("inspector", r.hint, "ok");
   }, "inspector");
+  const redraw = () => act(async () => {
+    await api.post(`/scenes/${sc.id}/board/draw?paid=true`);
+    note("inspector", `${sc.scene_code}: ilk kare yeni seed'lerle yeniden çiziliyor (her deneme ücretli).`, "ok");
+  }, "inspector");
   const source = sc.keyframe_source === "upload" ? "upload" : sc.board_source;
+  const review = sc.board_status === "changes_requested" && (sc.board_source === "qwen_edit" || sc.board_source === "comfyui" || sc.board_source === "flux");
+  const editRefs = sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model === "qwen_edit" ? sc.edit_refs ?? [] : [];
   return (
     <Section title="H3 koşulu" meta={sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"}>
       <label className="field">Kompozisyon nereden gelsin
@@ -141,8 +147,29 @@ function H3({ sc }: { sc: Scene }) {
           <dt>İlk kare</dt><dd>{source ? BOARD_SOURCE_TR[source] ?? source : "storyboard karesi bekleniyor"}</dd>
           <dt>Skor</dt><dd className="mono">{sc.keyframe_source === "upload" ? "yönetmen" : sc.board_score != null ? sc.board_score.toFixed(3) : "—"}</dd>
           <dt>Kare kararı</dt><dd>{sc.board_status === "changes_requested" ? <span className="warn">{sc.board_note || "değişiklik istendi"}</span> : sc.board_status === "approved" ? "onaylı" : "onay bekliyor"}</dd>
+          {sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model && (
+            <><dt>Kare modeli</dt><dd>{KEYFRAME_MODEL_TR[sc.keyframe_model] ?? sc.keyframe_model}</dd></>
+          )}
         </dl>
       </div>
+      {review && (
+        <div className="row">
+          <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : undefined} onClick={redraw}>Kareyi yeniden çiz</button>
+        </div>
+      )}
+      {editRefs.length > 0 && (
+        <>
+          <h4 className="small dim">İlk karenin referansları (Qwen-Image-Edit)</h4>
+          <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+            {editRefs.map((r, i) => (
+              <figure key={`${r.name}-${i}`} style={{ margin: 0, textAlign: "center" }}>
+                {r.url && <img src={r.url} alt={r.name} loading="lazy" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 2 }} />}
+                <figcaption className="faint small">image {i + 1}: {r.name}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </>
+      )}
       <UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} />
       {sc.keyframe_source === "upload" && <div className="row"><button className="btn ghost" type="button" disabled={busy} onClick={clear}>Yüklenen kareyi kaldır</button></div>}
       {sc.h3_mode === "ref2va" && (

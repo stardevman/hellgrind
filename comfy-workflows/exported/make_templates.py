@@ -1,5 +1,6 @@
 """ComfyUI'nin resmî şablonlarından (Export (API), ComfyUI 0.39.0; bu klasördeki *_api.json) Hell Grind iş akışlarını üretir:
-../t2v.json (yalnızca metin), ../i2v.json (FL2VA), ../r2v.json (Ref2VA), ../keyframe.json (Qwen-Image-2512).
+../t2v.json (yalnızca metin), ../i2v.json (FL2VA), ../r2v.json (Ref2VA), ../keyframe.json (Qwen-Image-2512),
+../edit_keyframe.json (Qwen-Image-Edit-2511: karakter referansından ilk kare).
 
 Şablonlara uygulananlar (NOTES: "Must-fix before use"):
 1. Video VAE: volume'daki minimax_h3_video_vae_fp16 (int8_convrot dosyası volume'da yok; cu130 da gerektirmez).
@@ -10,8 +11,14 @@
 6. H3 DiT dosyası türe bağlıdır: minimax_h3_{fl2va,ref2va}_pruned_{{unet_variant}}.safetensors. Hell Grind
    {{unet_variant}}'ı Ayarlar'daki H3_UNET_VARIANT'tan doldurur: fp8_scaled (varsayılan; cu128 torch'lu worker) ya da
    int8_convrot (Comfy-Org'un önerisi; cu130 torch ister). Metin kodlayıcı nvfp4_awq, video VAE fp16 kalır.
+7. Qwen-Image-Edit-2511 (image_qwen_image_edit_2511, workflow-templates v0.11.78): gizli latent EmptySD3LatentImage
+   (H3 tuvali {{width}} x {{height}}; şablonda 1. görselin VAEEncode'u, çıktı onun boyutunu alırdı), 41 = image 1 (ana
+   karakter), 83 = image 2, yeni 171 = image 3 (ikinci karakter ya da mekân); her görsel iki metin kodlayıcısına
+   (170:151 olumlu, 170:149 olumsuz) aynı sırayla gider. Lightning LoRA anahtarı {{lightning}} (kapalı: 40 adım, cfg 4;
+   açık: 4 adım, cfg 1); LoRA dosyası volume'dadır.
 Değişen değerler Hell Grind yer tutucularıyla doldurulur: {{prompt}}, {{seed}}, {{duration}} (kare sayısını iş akışı
-17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}.
+17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}; Qwen düzenleme karesinde
+ayrıca {{negative}} ve {{lightning}}.
 Ref2VA'ya 9 referans yuvası eklenir (ComfyUI 0.39.0'da ref_images autogrow, en çok 9); Hell Grind gönderilen görselden
 fazla yuvayı istekten önce çıkarır. Aynı düğüm ileride ses referansları için ref_videos (en çok 3; 24 fps, 2-15 sn),
 ref_video_audios ve ref_audios (en çok 3) da alır; şimdilik kullanılmıyor.
@@ -39,8 +46,9 @@ def drop(flow: dict, *ids: str) -> None:
         flow.pop(node_id)
 
 
-def check(flow: dict, name: str) -> dict:
-    """Her bağlantı var olan bir düğüme gitmeli; LoRA/VAE adları volume'dakilerle uyumlu."""
+def check(flow: dict, name: str, lightning: bool = False) -> dict:
+    """Her bağlantı var olan bir düğüme gitmeli; LoRA/VAE adları volume'dakilerle uyumlu. lightning: Qwen-Image-Edit'in
+    Lightning LoRA'sı volume'dadır (Qwen-Image-2512'ninki değil)."""
     for node_id, node in flow.items():
         for key, value in node["inputs"].items():
             if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
@@ -49,7 +57,7 @@ def check(flow: dict, name: str) -> dict:
     assert all("{{unet_variant}}" in u for u in unets if "minimax_h3" in u), f"{name}: H3 DiT türü sabit kaldı"
     vaes = [n["inputs"]["vae_name"] for n in flow.values() if n["class_type"] == "VAELoader"]
     assert not any("int8" in v for v in vaes), f"{name}: volume'da olmayan int8 video VAE kaldı"
-    assert "Lightning-4steps" not in json.dumps(flow), f"{name}: volume'da olmayan LoRA kaldı"
+    assert lightning or "Lightning-4steps" not in json.dumps(flow), f"{name}: volume'da olmayan LoRA kaldı"
     return flow
 
 
@@ -117,8 +125,36 @@ def keyframe() -> dict:
     return check(f, "keyframe")
 
 
+EDIT_LIGHTNING = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+EDIT_ENCODERS = ("170:151", "170:149")          # olumlu, olumsuz: görseller ikisine de aynı sırayla gider
+
+
+def edit_keyframe() -> dict:
+    """Qwen-Image-Edit-2511: karakter referansından (image 1) H3 tuvalinde ilk kare. Görseller: 41 = image 1, 83 = image 2,
+    171 = image 3; Hell Grind gönderilmeyen görselin düğümünü ve image2/image3 girdilerini istekten çıkarır."""
+    f = load("qwen_edit_2511_api.json")
+    assert f["170:153"]["inputs"]["lora_name"] == EDIT_LIGHTNING
+    drop(f, "170:156")                                         # 1. görselin latent'i: çıktı onun boyutunu alırdı
+    f["172"] = {"class_type": "EmptySD3LatentImage", "_meta": {"title": "H3 tuvali"},
+                "inputs": {"width": "{{width}}", "height": "{{height}}", "batch_size": 1}}
+    sampler = f["170:169"]["inputs"]
+    sampler.update(seed="{{seed}}", latent_image=["172", 0])
+    f["41"]["inputs"]["image"] = "{{reference_1}}"
+    f["83"]["inputs"]["image"] = "{{reference_2}}"
+    f["171"] = copy.deepcopy(f["83"])
+    f["171"]["inputs"]["image"] = "{{reference_3}}"
+    for enc in EDIT_ENCODERS:
+        assert f[enc]["inputs"]["image1"] == ["170:160", 0] and f[enc]["inputs"]["image2"] == ["83", 0]
+        f[enc]["inputs"]["image3"] = ["171", 0]
+    f["170:151"]["inputs"]["prompt"] = "{{prompt}}"            # şablonun malzeme değiştirme örneği her zaman ezilir
+    f["170:149"]["inputs"]["prompt"] = "{{negative}}"
+    f["170:168"]["inputs"]["value"] = "{{lightning}}"
+    f["9"]["inputs"]["filename_prefix"] = "{{filename_prefix}}"
+    return check(f, "edit_keyframe", lightning=True)
+
+
 def build() -> dict[str, dict]:
-    return {"t2v": t2v(), "i2v": i2v(), "r2v": r2v(), "keyframe": keyframe()}
+    return {"t2v": t2v(), "i2v": i2v(), "r2v": r2v(), "keyframe": keyframe(), "edit_keyframe": edit_keyframe()}
 
 
 def render(flow: dict) -> str:

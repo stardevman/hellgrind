@@ -205,13 +205,13 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
                       params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
                               "negative": req.negative, "run": c.run_id,
                               **({"keyframe_key": c.render["keyframe_key"], "h3_mode": c.render["h3_mode"]}
-                                 if c.provider.engine == "h3" and c.render.get("keyframe_key") else {})})
+                                 if c.keyframe and c.render.get("keyframe_key") else {})})
         s.add(v)
         s.flush()
         vid = v.id
     try:
         frame_cost = 0.0
-        if getattr(c.provider, "image_first", False):                                  # önce görsel, sonra video
+        if getattr(c.provider, "image_first", False) and not c.keyframe:               # önce görsel, sonra video
             frame = _first_frame(c, req, vid, seed)
             if not isinstance(frame, tuple):
                 return frame                                                           # kare elendi ya da üretilemedi
@@ -373,7 +373,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
         keyframe_key = keyframe_of(scene, visual_hash)
-    if keyframe_key and ctx.provider.engine == "h3" and hasattr(ctx.provider, "upload"):
+    if keyframe_key and hasattr(ctx.provider, "upload"):
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:   # bir kez yüklenir, bütün varyasyonlar kullanır
             ctx.keyframe = ctx.provider.upload(storage.download(keyframe_key, os.path.join(tmp, "keyframe.jpg")))
@@ -404,12 +404,17 @@ def lint_blocks(project_id: str, scene_id: str) -> bool:
 
 
 def keyframe_of(scene, fp: str) -> str | None:
-    """MiniMax H3'e giden ilk kare: yönetmenin yüklediği kare, yoksa bu görsel özetin storyboard karesinin yazısız hâli."""
-    from app.engine.storyboard import clean_key
-    if (scene.engine or "h3") != "h3":
+    """Videoya giden ilk kare: yönetmenin yüklediği kare, yoksa bu görsel özetin storyboard karesinin yazısız hâli.
+    MiniMax H3 (FL2VA) her zaman; Seedance (image-to-video) kare RunPod'da (Qwen-Image-Edit ya da Qwen-Image) çizildiyse:
+    yoksa Seedance her varyasyon için kendi Flux karesini üretir (önce görsel, sonra video)."""
+    from app.engine.storyboard import SHARED_SOURCES, clean_key
+    engine = scene.engine or "h3"
+    if engine not in ("h3", "seedance"):
         return None
     if scene.keyframe_key:
         return scene.keyframe_key
+    if engine == "seedance" and scene.board_source not in SHARED_SOURCES:
+        return None
     if scene.board_key and scene.board_hash == fp and scene.board_status != "changes_requested":
         key = clean_key(scene.board_key)
         return key if storage.exists(key) else None
@@ -417,20 +422,29 @@ def keyframe_of(scene, fp: str) -> str | None:
 
 
 def keyframe_blocks(project_id: str, scene_id: str) -> bool:
-    """Ücretli modda MiniMax H3 FL2VA çekiminin ilk karesi hazır değilse görüntü üretilmez: storyboard karesi yoksa önce
-    çizilir (kalite kapısından geçer); kullanılamıyorsa sahne onaya kalır ve neden Türkçe yazılır. Hiçbir şey harcanmaz."""
-    from app.engine.storyboard import keyframe_problem, make_board
+    """Ücretli modda MiniMax H3 FL2VA çekiminin ilk karesi hazır değilse görüntü üretilmez: storyboard karesi yoksa ya da
+    karakterli çekimin karesi metinden çizilmişse önce (karakter referansından) çizilir ve kalite kapısından geçer;
+    kullanılamıyorsa sahne onaya kalır ve neden Türkçe yazılır. Seedance çekimi de aynı kareyi kullanır: RunPod'da
+    çizilebiliyorsa çizilir; kalite kapısından kalırsa video üretilmez, yoksa her varyasyon kendi Flux karesini üretir."""
+    from app.core.h3mode import keyframe_model, strict_refs
+    from app.engine.storyboard import SHARED_SOURCES, board_source, keyframe_problem, make_board, outdated
     if settings.dry_run:
         return False
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
         chars, assets = load_characters(s, scene_id), load_assets(s, scene_id)
-        if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" \
-                or effective_mode(scene, chars, assets) == "ref2va":
+        engine = scene.engine or "h3"
+        if engine not in ("h3", "seedance") or (scene.method or "generate") != "generate" \
+                or (engine == "h3" and effective_mode(scene, chars, assets) == "ref2va"):
             return False                                  # Ref2VA ilk kareyi kullanmaz: kare çizilmez
         style = bible.active_version(s, project_id)
         fp = visual_fingerprint(scene, chars, assets, style)
-        missing = not scene.keyframe_key and not (scene.board_key and scene.board_hash == fp)
+        strict = strict_refs(s.get(Project, project_id).settings)
+        source = None if scene.keyframe_key else board_source("fl2va", False, keyframe_model(scene, chars, assets, strict))
+        current = bool(scene.board_key and scene.board_hash == fp)
+        missing = not scene.keyframe_key and (not current or outdated(scene.board_source, source))
+    if engine == "seedance" and source not in SHARED_SOURCES and not scene.keyframe_key:
+        return False                                      # Seedance kendi ilk karesini üretir (fal.ai Flux)
     if missing:
         make_board(project_id, scene_id)
     with session_scope() as s:

@@ -54,7 +54,11 @@ class Settings(BaseSettings):
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     # H3 DiT dosyası: fp8_scaled (cu128 torch'lu worker; varsayılan) | int8_convrot (Comfy-Org'un önerisi; cu130 torch ister)
     h3_unet_variant: str = "fp8_scaled"
-    # İlk kareyi karakter referansıyla çizme kancası: off (varsayılan; keyframe.json metinden) | flux_kontext (fal.ai)
+    # Karakterli çekimin ilk karesi: qwen_edit (varsayılan; Qwen-Image-Edit-2511, karakterin onaylı referansından,
+    # edit_keyframe.json) | qwen (Qwen-Image, yalnızca metinden; kimlik kayabilir). Karaktersiz çekim her zaman qwen.
+    keyframe_character_provider: str = "qwen_edit"
+    qwen_edit_lightning: bool = False   # Qwen-Image-Edit Lightning LoRA: 4 adım, cfg 1 (kapalı: 40 adım, cfg 4)
+    # İlk kareyi karakter referansıyla fal.ai'de çizme kancası: off (varsayılan) | flux_kontext (Qwen'in önüne geçer)
     h3_keyframe_reference: str = "off"
     vast_api_key: str = ""
     vast_instance_id: str = ""
