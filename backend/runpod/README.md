@@ -167,13 +167,28 @@ yeniden doğrulayın.
 - **Bellek:** kalite skorlayıcısı (OpenCLIP + SFace) süreç başına ~3,6 GB'tır. Üretim kuyruğu (`gen`) bu yüzden ayrı bir
   worker'da, tek süreçte iş parçacığı havuzuyla çalışır (`worker-gen`: `--pool threads -c 4`); süreç havuzunda her alt
   süreç kendi kopyasını yüklüyor, 7,6 GB'lık Docker VM'inde süreçler SIGKILL ile ölüyordu.
-- **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 60 sn (sıcak worker; başlangıç tahmini, ilk ölçümden sonra
-  güncellenecek); soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
+- **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 195 sn (tam: 40 adım, cfg 4; ölçülen ~190-200 sn, ≈0,085 $),
+  `keyframe_edit_medium_seconds` 100 (20 adım) ve `keyframe_edit_lightning_seconds` 25 (Lightning) başlangıç tahmini;
+  soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Kalite: Ayarlar › `QWEN_EDIT_MODE` ya da proje ayarı `qwen_edit_mode`. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
   (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); metin
   kodlayıcı ve VAE Qwen-Image ile ortak. fp8mixed cu128 worker'da çalışır (int8_convrot cu130 ister). Worker imajı değişmez.
-- **Kimlik kapısı:** yüz beklenen çekimde (karakter varsa; sırt çekimi, silüet, aşırı geniş planda hayır; denetçiden
-  değiştirilir) yüzü hiç görünmeyen ya da karakter benzerliği proje ayarı `identity_threshold`'un (0,60) altında kalan aday
-  rafine havuza giremez. Hepsi kalırsa çekim "Kimlik düşük" gerekçesiyle incelemeye düşer.
+- **Kimlik kapısı:** yüz beklenen çekimde (insan karakter varsa; sırt çekimi, silüet, aşırı geniş ya da geniş aksiyon
+  planında hayır; denetçiden değiştirilir) yüzü hiç görünmeyen ya da 0-1 kimlik skoru (SFace kosinüsü, aynı kişi eşiği
+  0,363 çevresinde lojistik eğri; ham kosinüs değil) `identity_threshold`'un (0,60) altında kalan aday rafine havuza
+  giremez. Kısa kenarı 80 px'ten küçük yüzde kimlik "ölçülemedi" sayılır, eleme yok. Referans olarak en net görsel önce
+  (durağan görsel, ifade sayfası, sonra dönüş kareleri; küçük kareler büyütülür), en yüksek skor alınır. İnsan olmayan
+  karakterde (`characters.kind = non_human`; Varlıklar'dan seçilir, tarifte robot/hayvan/yaratık geçiyorsa önerilir) yüz
+  aranmaz: OpenCLIP görüntü benzerliği `look_threshold`'la (0,75) ölçülür. Hepsi kalırsa çekim "Kimlik düşük" gerekçesiyle
+  incelemeye düşer; kontrolü geçemeyen ilk kare denetçiden elle onaylanabilir.
+- **Referanslar:** karakter ve mekân referansı RunPod'da Qwen-Image-2512 ile durağan görsel olarak üretilir (keyframe.json;
+  karakter 1328x1328, düz açık gri arka plan, tam boy, yüz net; mekân 1664x928). Karakterin dönüş videosu (H3) isteğe bağlı
+  ikinci adımdır ve durağan görselden başlar. Qwen-Image-Edit'e image 1 olarak bu durağan görsel gider. Yeni referans
+  eskisinin yerine geçince eskisi `assets.reference_history`'de kalır. fal.ai Flux'a düşme varsayılan kapalı
+  (`REFERENCE_FAL_FALLBACK`).
+- **Kuyruk sırası (RunPod gönderiminde, proje başına):** Qwen-Image -> Qwen-Image-Edit -> FL2VA -> Ref2VA. Projede başka
+  modelin işi bekliyor ya da çalışıyorsa yeni iş onlar bitene dek bekler; daha öncelikli modelin işi bekliyorsa çalışan
+  grup yeni iş almaz (boşalır, sıra ona geçer); proje boştayken aynı anda gelenler 1 sn toplanır. Videodan sonra gelen bir
+  kare (yeniden deneme) çalışan video grubu bitince gider ("model sırasını bekliyor" olayı).
 
 ## Bilinen sınırlar
 

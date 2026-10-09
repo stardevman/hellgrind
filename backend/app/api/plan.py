@@ -75,6 +75,21 @@ def ensure_idle(sc: Scene) -> None:
         raise Busy(f"{sc.scene_code} şu an işleniyor ({sc.status}); bitince yeniden dene.")
 
 
+def board_upgrade(s: Session, sc: Scene) -> bool:
+    """Ücretli modda karakterli çekimin karesi metinden (Qwen-Image) ya da ücretsiz moddan kalma yerel çizilmişse ve
+    karakter referansından çizilebiliyorsa: kare STORYBOARD aşamasında yeniden çizilir."""
+    from app.config import settings
+    if settings.dry_run or sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance") or not sc.board_key:
+        return False
+    from app.core.h3mode import effective_mode, keyframe_model, strict_refs
+    from app.engine.storyboard import board_source, outdated
+    chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+    if (sc.engine or "h3") == "h3" and effective_mode(sc, chars, assets) == "ref2va":
+        return False
+    strict = strict_refs(project_settings(s.get(Project, sc.project_id).settings))
+    return outdated(sc.board_source, board_source("fl2va", False, keyframe_model(sc, chars, assets, strict)))
+
+
 def model_group(sc: Scene, s: Session) -> tuple[str, str]:
     """Toplu dağıtımda çekimin model grupları: (H3 DiT'i: ref2va ya da fl2va — T2V ve diğer motorlar da fl2va grubunda,
     ilk kare modeli: qwen_edit ya da qwen)."""
@@ -106,6 +121,8 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     if force_visual or rerun_visual:
         stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE) | \
             (Stage.GRADE if fp.grade is not None else Stage.NONE)
+    if Stage.VISUAL in stages and Stage.STORYBOARD not in stages and board_upgrade(s, sc):
+        stages |= Stage.STORYBOARD          # kare videodan önce, kare grubunda yeniden çizilsin (video kuyruğunun ortasında değil)
     if stages == Stage.NONE or (allowed is not None and stages & ~allowed):
         return []
     ensure_idle(sc)

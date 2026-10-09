@@ -56,23 +56,36 @@ def clip_score_dry(seed: int) -> float:
     return round(min(max(rng.gauss(settings.dry_run_score_mean, settings.dry_run_score_sd), 0.0), 1.0), 4)
 
 
-IDENTITY_ANOMALIES = ("no_face", "low_identity")
+IDENTITY_ANOMALIES = ("no_face", "low_identity", "low_likeness")
 
 
 def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
-    """Kimlik kapısı (videoda ve karakter referansından çizilen ilk karede): çekimde referanslı karakter var ve yüz bekleniyorsa, yüzü hiç görünmeyen aday
-    (`no_face`) ya da bir karakterin benzerliği `identity_threshold`'un altında kalan aday (`low_identity`) geçemez:
-    yüzün görünmemesi, kötü benzemesinden avantajlı olmasın. Sırt çekimi, silüet, uzak plan: face_expected false."""
-    if target is None or not getattr(target, "faces", ()) or not getattr(target, "face_expected", True) or not detail:
+    """Kimlik kapısı (videoda ve karakter referansından çizilen ilk karede).
+    İnsan karakter (target.faces) ve yüz bekleniyorsa: yüzü hiç görünmeyen aday (`no_face`) ya da bir karakterin kimlik
+    skoru (0-1; SFace kosinüsünün aynı kişi eşiği çevresinde) `identity_threshold`'un altında kalan aday (`low_identity`)
+    geçemez. Yüz göründü ama hepsi küçükse (kısa kenar < scorer.MEASURE_PX) kimlik ölçülemedi sayılır, eleme yok.
+    Sırt çekimi, silüet, uzak ya da geniş aksiyon planı: face_expected false.
+    İnsan olmayan karakter (target.looks: robot, hayvan): yüz aranmaz; karelerle referans arasındaki OpenCLIP görüntü
+    benzerliği `look_threshold`'un altındaysa `low_likeness`."""
+    if target is None or not detail:
         return []
-    if "faces_seen" not in detail:
-        return []
-    threshold = float(cfg.get("identity_threshold", 0.6))
-    if not detail.get("faces_seen"):
-        return [{"type": "no_face", "faces_seen": 0, "characters": [name for name, _ in target.faces]}]
-    identity = detail.get("identity") or {}
-    low = {name: identity.get(name) for name, _ in target.faces if (identity.get(name) or 0.0) < threshold}
-    return [{"type": "low_identity", "identity": low, "threshold": threshold}] if low else []
+    out = []
+    if getattr(target, "faces", ()) and getattr(target, "face_expected", True) and "faces_seen" in detail:
+        threshold = float(cfg.get("identity_threshold", 0.6))
+        if not detail.get("faces_seen"):
+            out.append({"type": "no_face", "faces_seen": 0, "characters": [name for name, _ in target.faces]})
+        elif detail.get("faces_measured", detail["faces_seen"]):
+            identity = detail.get("identity") or {}
+            low = {name: identity.get(name) for name, _ in target.faces if (identity.get(name) or 0.0) < threshold}
+            if low:
+                out.append({"type": "low_identity", "identity": low, "threshold": threshold})
+    if getattr(target, "looks", ()) and "look" in detail:
+        threshold = float(cfg.get("look_threshold", 0.75))
+        look = detail.get("look") or {}
+        low = {name: look.get(name) for name, _ in target.looks if (look.get(name) or 0.0) < threshold}
+        if low:
+            out.append({"type": "low_likeness", "look": low, "threshold": threshold})
+    return out
 
 
 def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, check_identity: bool = False) -> Score:

@@ -58,7 +58,8 @@ class Settings(BaseSettings):
     # Karakterli çekimin ilk karesi: qwen_edit (varsayılan; Qwen-Image-Edit-2511, karakterin onaylı referansından,
     # edit_keyframe.json) | qwen (Qwen-Image, yalnızca metinden; kimlik kayabilir). Karaktersiz çekim her zaman qwen.
     keyframe_character_provider: str = "qwen_edit"
-    qwen_edit_lightning: bool = False   # Qwen-Image-Edit Lightning LoRA: 4 adım, cfg 1 (kapalı: 40 adım, cfg 4)
+    qwen_edit_mode: str = "full"        # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20 adım, cfg 4) | lightning (4, cfg 1)
+    reference_fal_fallback: bool = False   # referans görseli: Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ticari değil)
     # İlk kareyi karakter referansıyla fal.ai'de çizme kancası: off (varsayılan) | flux_kontext (Qwen'in önüne geçer)
     h3_keyframe_reference: str = "off"
     vast_api_key: str = ""
@@ -112,7 +113,9 @@ settings = Settings()
 # Proje oluşturulurken verilmeyen ayarlar bu değerleri alır.
 DEFAULT_PROJECT_SETTINGS: dict = {
     "clip_threshold": 0.85,        # Quality Gate eşiği
-    "identity_threshold": 0.60,    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
+    "identity_threshold": 0.60,
+    "look_threshold": 0.75,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans)
+    "qwen_edit_mode": None,        # karakterli ilk kare: None = Ayarlar'daki QWEN_EDIT_MODE; full | medium | lightning    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
     "excellent_threshold": 0.92,   # tam turda erken durma için "mükemmel" eşiği
     "min_pass_rate": 0.3,          # test turunun geçmesi için gereken oran
     "probe_n": 10,                 # test turu varyasyon sayısı

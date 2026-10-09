@@ -33,14 +33,17 @@ def shot(cfg: dict, code: str, duration_s: float, engine: str = "h3", mode: str 
     h3_mode = mode if engine == "h3" else None
     probe = pricing.estimate_video(engine, cfg["probe_resolution"], seconds, prices, mode=h3_mode)
     full = pricing.estimate_video(engine, cfg["full_resolution"], seconds, prices, mode=h3_mode)
+    from app.core.h3mode import edit_mode
     needs_frame = mode != "ref2va" and engine in ("h3", "seedance")
-    frame_usd = pricing.estimate_keyframe("h3", prices, model=frame) if needs_frame else 0.0
+    quality = edit_mode(cfg)
+    frame_usd = pricing.estimate_keyframe("h3", prices, model=frame, edit_mode=quality) if needs_frame else 0.0
     probe_n, full_n, rounds = int(cfg["probe_n"]), int(cfg["full_n"]), int(cfg["max_correction_rounds"])
     expected = frame_usd + probe_n * probe + full_n * full
     worst = frame_usd * (EDIT_ATTEMPTS if frame == "qwen_edit" and needs_frame else 1) \
         + probe_n * probe * (1 + rounds) + full_n * full
     return {"code": code, "duration_s": duration_s, "billed_seconds": seconds, "engine": engine, "mode": mode,
-            "frame": frame if needs_frame else None, "frame_usd": round(frame_usd, 4), "probe_clip_usd": round(probe, 4),
+            "frame": frame if needs_frame else None, "frame_usd": round(frame_usd, 4),
+            "edit_mode": quality if needs_frame and frame == "qwen_edit" else None, "probe_clip_usd": round(probe, 4),
             "full_clip_usd": round(full, 4), "clips": probe_n + full_n, "expected_usd": round(expected, 4),
             "max_usd": round(worst, 4)}
 

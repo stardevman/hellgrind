@@ -57,7 +57,7 @@ def describe(label: str) -> Described:
     resolution = next((p for p in rest if p.endswith("p") and p[:-1].isdigit()), None)
     if head == "h3":                           # MiniMax H3: RunPod Serverless (varsayılan) ya da vast.ai (deneysel)
         service = "vast" if settings.h3_platform == "vast" else "runpod"
-        if purpose == "storyboard":            # aynı worker'da görsel modeli: karakterliyse Qwen-Image-Edit, değilse Qwen-Image
+        if purpose == "storyboard" or (purpose == "reference" and "qwen" in rest):   # aynı worker'da görsel modeli
             return Described(service, purpose, (QWEN_EDIT if "qwen_edit" in rest else QWEN_IMAGE,), resolution)
         return Described(service, purpose or "video", (settings.h3_model,), resolution)
     if head == "elevenlabs":

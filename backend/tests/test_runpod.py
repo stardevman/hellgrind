@@ -53,7 +53,7 @@ def runpod(monkeypatch, tmp_path, paid, s3):
     for name in ("rp_balance", "rp_config", "rp_health", "rp_tick", "rp_last_tick", "rp_balance_error", "inflight",
                  "last_activity", "last_project", "retrieval"):
         r.delete(vast_box._k(name))
-    for pattern in ("rp_job:*", "rp_pending:*"):                 # önceki testlerin gönderilmiş iş kayıtları
+    for pattern in ("rp_job:*", "rp_pending:*", "rp_waiting:*"):  # önceki testlerin gönderilmiş/bekleyen iş kayıtları
         for key in r.scan_iter(vast_box._k(pattern)):
             r.delete(key)
     return fake

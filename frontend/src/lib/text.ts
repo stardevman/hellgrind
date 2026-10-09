@@ -40,11 +40,23 @@ const BATCH_GROUP_TR: Record<string, string> = {
   ref2va: "Ref2VA videoları",
 };
 
-/** Kimlik ölçümü: " (Elif 0,47)". */
-const identityText = (identity: unknown) => {
-  const entries = Object.entries((identity ?? {}) as Record<string, number>);
-  return entries.length ? ` (${entries.map(([n, v]) => `${n} ${num2(Number(v))}`).join(", ")})` : "";
+/** Kare denemesinin sebebi ve ölçümleri: " (yüz görünmedi)", " (kimlik Mila 0,47)", " (benzerlik Bolt 0,62)". */
+const attemptText = (x: Record<string, unknown>) => {
+  const reasons = (x.reasons as string[] | undefined) ?? (x.faces_seen === 0 ? ["no_face"] : []);
+  const parts: string[] = [];
+  if (reasons.includes("no_face")) parts.push("yüz görünmedi");
+  const id = scores(x.identity), look = scores(x.look);
+  if (id) parts.push(`kimlik ${id}`);
+  if (look) parts.push(`benzerlik ${look}`);
+  if (x.faces_seen && x.faces_measured === 0) parts.push("yüz küçük, kimlik ölçülemedi");
+  if (reasons.includes("low_clip")) parts.push("istem uyumu düşük");
+  if (reasons.some((r) => ["black", "freeze", "flat"].includes(r))) parts.push("kusurlu kare");
+  return parts.length ? ` (${parts.join("; ")})` : "";
 };
+
+/** Karakter başına ölçüm: "Elif 0,47, Kerem 0,81". */
+const scores = (values: unknown) =>
+  Object.entries((values ?? {}) as Record<string, number>).map(([n, v]) => `${n} ${num2(Number(v))}`).join(", ");
 
 const STAGE_TR: Record<string, string> = {
   STORYBOARD: "storyboard karesi", LIPSYNC: "dudak senkronu", GRADE: "renk", MUX: "montaj", ASSEMBLE: "film birleştirme",
@@ -155,6 +167,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
+    case "runpod_model_wait": return { t: `RunPod: ${x.model} işi sırasını bekliyor (önce çalışan model grubu bitsin)` };
     case "runpod_queue_full": return { t: `RunPod kuyruğu dolu: projede ${x.pending}/${x.limit} iş bekliyor; yenisi yer açılınca gönderilecek` };
     case "runpod_cancelled": return { t: `Kill-Switch: RunPod'daki ${x.jobs} bekleyen iş iptal edildi`, c: "good" };
     case "runpod_cancel_failed": return { t: `RunPod işleri iptal edilemedi: ${x.error}; RunPod konsolundan kuyruğu kontrol edin`, c: "bad" };
@@ -162,10 +175,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "task_abandoned": return { t: `${where}görev defalarca yarıda kesildi; döngüyü önlemek için durduruldu`, c: "bad" };
     case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi${x.edit_boards ? ` (${x.edit_boards} karakter referansından)` : ""}, sonra ${x.videos} çekimin videosu` };
     case "batch_videos": return { t: `${BATCH_GROUP_TR[String(x.group)] ?? "Sıradaki grup"}: ${x.videos} çekim kuyruğa alındı` };
-    case "board_attempt": return {
-      t: `${where}ilk kare ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${x.faces_seen === 0 ? " (yüz görünmedi)" : identityText(x.identity)}`,
-      c: x.passed ? "good" : "bad",
-    };
+    case "board_attempt": return { t: `${where}ilk kare ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${attemptText(x)}`, c: x.passed ? "good" : "bad" };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };

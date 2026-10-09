@@ -47,6 +47,9 @@ FACE_SAME = 0.363              # OpenCV FaceRecognizerSF: aynı kişi için öne
 FACE_SLOPE = 0.05              # lojistik eğrinin genişliği: eşikte 0,5; +0,15'te ~0,95
 DETECT_SCORE = 0.8             # YuNet güven eşiği
 MIN_FACE_PX = 24               # bundan küçük yüzler kimlik için güvenilmez
+MEASURE_PX = 80                # kimlik ancak kısa kenarı bu kadar olan yüzde ölçülür; küçük yüz "ölçülemedi" (eleme yok)
+REF_MIN_SIDE = 1024            # küçük referans (ör. dönüş videosunun 384 px karesi) yüz aramadan önce büyütülür
+LOOK_REFS = 4                  # insan olmayan karakterde görüntü benzerliğine giren en çok referans
 DETECT_MAX_SIDE = 1024         # YuNet, kareyi dolduran büyük yüzleri (ör. 1500 px'lik portre) bulamıyor: önce küçültülür
 TEXT_CACHE, REF_CACHE = 512, 256
 GENERIC = "a detailed, well composed frame from an animated film"
@@ -65,21 +68,33 @@ RIVALS = ANCHORS + DEFECTS                        # olumlu metnin karşısındak
 
 @dataclass(frozen=True)
 class Target:
-    """Neye göre ölçülecek: stil metni, çekim tarifi ve karakterlerin referans görselleri ((ad, (anahtar, ...)), ...)."""
+    """Neye göre ölçülecek: stil metni, çekim tarifi ve karakterlerin referans görselleri ((ad, (anahtar, ...)), ...).
+    faces: insan karakterler (SFace yüz kimliği); looks: insan olmayanlar (robot, hayvan: OpenCLIP görüntü benzerliği)."""
     style: str = ""
     content: str = ""
     faces: tuple = ()
     face_expected: bool = True        # yüz görünmeli mi (kimlik kapısı; core/h3mode.face_expected)
+    looks: tuple = ()
 
 
 def target_for(scene, chars, style) -> Target:
     """Çekimin ölçütü: kılavuzun ışık ve hareket dili, çekim tarifi ve referans görseli olan karakterler."""
-    from app.core.h3mode import face_expected
+    from app.core.h3mode import face_expected, is_human
     return Target(style=" ".join(x for x in ((style.lighting_prefix or "") if style else "",
                                              (style.motion_style or "") if style else "") if x),
                   content=(scene.prompt_spec or {}).get("prompt", ""),
-                  faces=tuple((ch.name, tuple(ch.reference_images or ())) for ch in chars if ch.reference_images),
-                  face_expected=face_expected(scene, chars))
+                  faces=tuple((ch.name, ref_order(ch.reference_images)) for ch in chars
+                              if ch.reference_images and is_human(ch)),
+                  face_expected=face_expected(scene, chars),
+                  looks=tuple((ch.name, ref_order(ch.reference_images)) for ch in chars
+                              if ch.reference_images and not is_human(ch)))
+
+
+def ref_order(keys) -> tuple:
+    """Referanslar, en yüksek çözünürlüklü ve yüzü en net olandan: durağan görsel (Qwen-Image still, 1328 px), ifade
+    sayfası, sonra dönüş videosu kareleri (384 px). Kimlik hepsine karşı ölçülür, en yüksek skor alınır."""
+    rank = lambda k: 0 if "/still/" in k else 1 if "/expressions/" in k else 2      # noqa: E731
+    return tuple(sorted(keys or (), key=rank))
 
 
 @dataclass
@@ -167,10 +182,11 @@ class Models:
                     self.texts.popitem(last=False)
             return np.stack([self.texts[t] for t in texts])
 
-    def faces(self, image: Image.Image) -> list[tuple[float, np.ndarray]]:
-        """[(alan, birim uzunlukta 128 boyutlu kimlik vektörü)], büyükten küçüğe. Uzun kenarı DETECT_MAX_SIDE'dan büyük
-        görsel önce küçültülür (alan küçültülmüş görseldedir)."""
+    def faces(self, image: Image.Image) -> list[tuple[float, np.ndarray, float]]:
+        """[(alan, birim uzunlukta 128 boyutlu kimlik vektörü, yüz kutusunun kısa kenarı — özgün çözünürlükte, px)],
+        büyükten küçüğe. Uzun kenarı DETECT_MAX_SIDE'dan büyük görsel önce küçültülür (alan küçültülmüş görseldedir)."""
         image = image.convert("RGB")
+        r = 1.0
         if max(image.size) > DETECT_MAX_SIDE:
             r = DETECT_MAX_SIDE / max(image.size)
             image = image.resize((max(1, round(image.width * r)), max(1, round(image.height * r))), Image.LANCZOS)
@@ -184,7 +200,7 @@ class Models:
                 if min(row[2], row[3]) < MIN_FACE_PX:
                     continue
                 feature = self.recognizer.feature(self.recognizer.alignCrop(bgr, row)).flatten().astype(np.float32)
-                out.append((float(row[2] * row[3]), feature / np.linalg.norm(feature)))
+                out.append((float(row[2] * row[3]), feature / np.linalg.norm(feature), float(min(row[2], row[3])) / r))
         return sorted(out, key=lambda x: -x[0])
 
     def reference_face(self, key: str) -> np.ndarray | None:
@@ -198,10 +214,33 @@ class Models:
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
             path = storage.download(key, os.path.join(tmp, "ref" + os.path.splitext(key)[1]))
             with Image.open(path) as im:
+                im = im.convert("RGB")
+                if max(im.size) < REF_MIN_SIDE:          # küçük kare: YuNet küçük yüzü bulamaz, SFace hizalaması bozulur
+                    up = REF_MIN_SIDE / max(im.size)
+                    im = im.resize((round(im.width * up), round(im.height * up)), Image.LANCZOS)
                 found = self.faces(im)
         vector = found[0][1] if found else None
         with self.lock:
             self.refs[key] = vector
+            while len(self.refs) > REF_CACHE:
+                self.refs.popitem(last=False)
+        return vector
+
+    def reference_look(self, key: str) -> np.ndarray:
+        """Referans görselin OpenCLIP görüntü gömmesi (insan olmayan karakterin görsel benzerliği için)."""
+        cache_key = "look:" + key
+        with self.lock:
+            if cache_key in self.refs:
+                self.refs.move_to_end(cache_key)
+                return self.refs[cache_key]
+        from app import storage
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            path = storage.download(key, os.path.join(tmp, "ref" + os.path.splitext(key)[1]))
+            with Image.open(path) as im:
+                vector = self.encode_images([im.convert("RGB")])[0]
+        with self.lock:
+            self.refs[cache_key] = vector
             while len(self.refs) > REF_CACHE:
                 self.refs.popitem(last=False)
         return vector
@@ -238,20 +277,34 @@ def combine(clip: float, face: float | None, weight: float) -> float:
 
 
 def score_images(images: list[Image.Image], target: Target) -> Result:
+    """identity: insan karakter başına 0-1 kimlik skoru (SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde lojistik
+    eğrisi; kapı bununla identity_threshold'u karşılaştırır), identity_cosine: ham kosinüs. Yalnızca kısa kenarı
+    MEASURE_PX'ten büyük yüzler ölçülür (faces_measured); daha küçük yüz "ölçülemedi" sayılır, eleme sebebi değildir.
+    look: insan olmayan karakter başına karelerle referans görseller arasındaki en yüksek OpenCLIP görüntü benzerliği."""
     m = models()
     texts = positives(target)
-    probs = alignment(m.encode_images(images), m.encode_texts(list(texts.values()) + list(RIVALS)), len(texts), m.scale)
+    vectors = m.encode_images(images)
+    probs = alignment(vectors, m.encode_texts(list(texts.values()) + list(RIVALS)), len(texts), m.scale)
     clip = float(np.mean(probs))
-    seen = [vector for im in images for _, vector in m.faces(im)]
+    found = [f for im in images for f in m.faces(im)] if target.faces else []
+    measured = [vector for _, vector, side in found if side >= MEASURE_PX]
     best: dict[str, float] = {}
     for name, keys in target.faces:
         refs = [r for r in (m.reference_face(k) for k in keys) if r is not None]
-        if refs and seen:
-            best[name] = max(float(v @ r) for v in seen for r in refs)
+        if refs and measured:
+            best[name] = max(float(v @ r) for v in measured for r in refs)
+    looks: dict[str, float] = {}
+    for name, keys in target.looks:
+        refs = [m.reference_look(k) for k in keys[:LOOK_REFS]]
+        if refs:
+            looks[name] = max(float(v @ r) for v in vectors for r in refs)
     face = float(np.mean([identity(c) for c in best.values()])) if best else None
     composite = combine(clip, face, settings.score_face_weight)
     detail = {"scorer": SCORER_ID, "alignment": {k: round(p, 4) for k, p in zip(texts, probs)},
-              "faces_seen": len(seen), "identity": {k: round(c, 4) for k, c in best.items()}}
+              "faces_seen": len(found), "faces_measured": len(measured),
+              "identity": {k: round(identity(c), 4) for k, c in best.items()},
+              "identity_cosine": {k: round(c, 4) for k, c in best.items()},
+              **({"look": {k: round(v, 4) for k, v in looks.items()}} if target.looks else {})}
     return Result(clip=round(clip, 4), face=None if face is None else round(face, 4), composite=round(composite, 4),
                   detail=detail)
 

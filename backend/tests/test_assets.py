@@ -404,7 +404,7 @@ def test_a_motion_test_is_refused_in_a_frozen_project_and_is_charged_otherwise(a
         rows = s.execute(text("SELECT provider, kind, scene_id FROM cost_ledger WHERE project_id = :p ORDER BY id"),
                          {"p": pid}).all()
     assert ("h3:480p:motion_test", "commit", None) in rows
-    assert ("flux_lora:reference", "commit", None) in rows
+    assert ("h3:reference:qwen", "commit", None) in rows                 # mekânın durağanı: Qwen-Image fiyatıyla (sanal)
 
 
 # ---------- referans paketi ----------

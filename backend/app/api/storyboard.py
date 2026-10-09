@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
-from app.api.plan import AwaitingBoard, Blocked, Busy, SequenceCapped, dispatch_all, ensure_idle, plan_and_dispatch
+from app.api.plan import (AwaitingBoard, Blocked, Busy, SequenceCapped, dispatch_all, dispatch_result, ensure_idle,
+                          plan_and_dispatch)
 from app.budget import killswitch
 from app.config import settings
 from app.core.rerender import Stage, board_stale, fingerprints
@@ -96,6 +97,27 @@ def review_board(scene_id: SceneId, body: BoardIn, s: Session = Depends(get_sess
     s.commit()
     killswitch.event(str(sc.project_id), "board_status", scene_id=scene_id, code=sc.scene_code, status=body.status)
     return {"scene_id": scene_id, "board_status": sc.board_status, "board_note": sc.board_note}
+
+
+@router.post("/scenes/{scene_id}/board/accept")
+@curated("board_approve")
+def accept_board(scene_id: SceneId, s: Session = Depends(get_session)):
+    """Kareyi elle onayla: kalite ya da kimlik kontrolünü geçemeyen ilk kare yönetmenin gözüyle kabul edilir ve video
+    aşamasına geçilir (proje donmuşsa yalnızca onaylanır; üretime devam edince video üretilir)."""
+    sc = scene_or_404(s, scene_id)
+    if not sc.board_key:
+        raise HTTPException(409, f"{sc.scene_code}: onaylanacak ilk kare yok; önce kareyi çizdirin.")
+    previous = sc.board_note
+    sc.board_status = "approved"
+    sc.board_note = "Elle onaylandı" + (f" (kontrol: {previous})" if previous else "")
+    if sc.status in ("board_review", "failed", "needs_review"):
+        sc.status, sc.last_error = "parsed", None
+    s.commit()
+    pid = str(sc.project_id)
+    killswitch.event(pid, "board_status", scene_id=scene_id, code=sc.scene_code, status="approved", manual=True)
+    if killswitch.is_frozen(pid):
+        return {"scene_id": scene_id, "board_status": "approved", "stages": [], "frozen": True}
+    return {"scene_id": scene_id, "board_status": "approved", "frozen": False, **dispatch_result(s, sc)}
 
 
 @router.post("/scenes/{scene_id}/upgrade")

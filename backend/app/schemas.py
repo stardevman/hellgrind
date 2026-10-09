@@ -26,6 +26,8 @@ def _num(lo, hi, open_low=False):
 SETTING_RULES = {
     "clip_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "identity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "look_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "qwen_edit_mode": (lambda v: v in (None, "full", "medium", "lightning"), "full, medium, lightning ya da boş"),
     "excellent_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "min_pass_rate": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "probe_n": (_int(1, 200), "1 ile 200 arasında tam sayı"),
@@ -184,6 +186,7 @@ class AssetPatch(BaseModel):
     description: str | None = Field(None, max_length=2000)
     render_style: str | None = Field(None, max_length=200)
     voice_id: str | None = Field(None, max_length=200)         # yalnızca karakter: ses kimliği karakterde tutulur
+    character_kind: Literal["human", "non_human"] | None = None  # yalnızca karakter: kimlik kontrolünün türü
 
 
 class SceneAssetIn(BaseModel):

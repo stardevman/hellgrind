@@ -68,9 +68,9 @@ FIELDS: tuple[Field, ...] = (
     Field("KEYFRAME_CHARACTER_PROVIDER", "keyframe_character_provider", "choice", "runpod",
           "Karakterli çekimin ilk karesi: qwen_edit (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da qwen "
           "(Qwen-Image, yalnızca metinden; kimlik kayabilir)", ("qwen_edit", "qwen")),
-    Field("QWEN_EDIT_LIGHTNING", "qwen_edit_lightning", "choice", "runpod",
-          "Qwen-Image-Edit Lightning LoRA: true 4 adım ve cfg 1 (hızlı), false 40 adım ve cfg 4 (varsayılan)",
-          ("false", "true")),
+    Field("QWEN_EDIT_MODE", "qwen_edit_mode", "choice", "runpod",
+          "Qwen-Image-Edit kalitesi (karakterli ilk kare): full 40 adım cfg 4 (~195 sn), medium 20 adım cfg 4 (~100 sn), "
+          "lightning 4 adım cfg 1 (~25 sn). Proje ayarı (Senaryo › Yoğunluk) bunun önüne geçer", ("full", "medium", "lightning")),
     Field("H3_KEYFRAME_REFERENCE", "h3_keyframe_reference", "choice", "runpod",
           "fal.ai kancası: flux_kontext ise ilk kare karakter referansından Flux Kontext ile çizilir (görsel başına ücretli; "
           "Qwen'in önüne geçer). Varsayılan off", ("off", "flux_kontext")),
@@ -105,6 +105,9 @@ FIELDS: tuple[Field, ...] = (
     Field("H3_BOX_IMAGE", "h3_box_image", "text", "vast", "Yeni makinenin Docker imajı"),
     Field("H3_SETUP_SCRIPT_URL", "h3_setup_script_url", "url", "vast", "setup.sh adresi (boş: isteğe gömülür)"),
     Field("FAL_KEY", "fal_key", "secret", "fal", "API anahtarı"),
+    Field("REFERENCE_FAL_FALLBACK", "reference_fal_fallback", "choice", "fal",
+          "Referans görseli: RunPod'da Qwen-Image yoksa Flux'a düş (FLUX.1 [dev] ağırlıkları ticari olmayan lisanslı; "
+          "varsayılan false)", ("false", "true")),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
     Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 (yalnızca eski çekimler)", url="https://fal.ai/models/{}"),
     Field("FAL_SEEDANCE_ENDPOINT", "fal_seedance_endpoint", "model", "fal", "Video: Seedance (yönetmenin seçtiği çekimler)", url="https://fal.ai/models/{}"),

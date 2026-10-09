@@ -22,7 +22,7 @@ function Pipeline({ a }: { a: Asset }) {
   return <ol className="pipeline" aria-label="Onay adımları">{steps.map(([l, d]) => <li key={l} className={d ? "done" : ""}>{l}</li>)}</ol>;
 }
 
-type Act = "approve-still" | "motion-test" | "approve-motion" | "lock" | "unlock" | "placeholder";
+type Act = "approve-still" | "motion-test" | "approve-motion" | "lock" | "unlock" | "placeholder" | "still" | "turnaround";
 
 /** Her eylem kendi uç noktasını çağırır ve kullanıcıya gösterilecek notu döndürür. */
 const ASSET_ACTS: Record<Act, (id: string) => Promise<string>> = {
@@ -37,6 +37,14 @@ const ASSET_ACTS: Record<Act, (id: string) => Promise<string>> = {
   placeholder: async (id) => {
     const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder`);
     return `Yerel taslak referans üretildi (sürüm ${r.version}). Varlık taslakta; durağanı onayla.`;
+  },
+  still: async (id) => {
+    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=still`);
+    return `Durağan referans üretildi (Qwen-Image, sürüm ${r.version}); eskisi geçmişte. Durağanı onayla.`;
+  },
+  turnaround: async (id) => {
+    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=turnaround`);
+    return `Dönüş videosu üretildi (MiniMax H3, sürüm ${r.version}).`;
   },
 };
 
@@ -60,6 +68,14 @@ function Detail({ a }: { a: Asset }) {
     }, "assets");
   };
   const refs = REF_KINDS[a.type].filter((k) => a.references[k]);
+  const ch = a.character;
+  const setKind2 = (character_kind: string) => act(async () => {
+    await api.patch(`/assets/${a.id}`, { character_kind });
+    note("assets", character_kind === "non_human"
+      ? `${a.name}: insan değil. Kimlik yüzle değil görsel benzerlikle (OpenCLIP) ölçülür; "yüz görünmedi" eleme sebebi olmaz.`
+      : `${a.name}: insan. Kimlik yüzle (SFace) ölçülür.`, "ok");
+  }, "assets");
+  const history = a.reference_history ?? [];
   const bad = t && (t.status === "rejected" || t.status === "failed");
   return (
     <section className="pnl" aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
@@ -71,6 +87,17 @@ function Detail({ a }: { a: Asset }) {
         <div className="pad stack">
           <Pipeline a={a} />
           {a.description && <p>{a.description}</p>}
+          {ch && (
+            <label className="field">Karakter türü
+              <select value={ch.kind} disabled={busy} onChange={(e) => setKind2(e.target.value)} aria-label="Karakter türü">
+                <option value="human">İnsan: kimlik yüzle (SFace)</option>
+                <option value="non_human">İnsan değil (robot, hayvan, yaratık): görsel benzerlik (OpenCLIP)</option>
+              </select>
+              {ch.kind !== ch.kind_suggested && (
+                <small className="warn">Öneri: tarife göre {ch.kind_suggested === "non_human" ? "insan değil" : "insan"}.</small>
+              )}
+            </label>
+          )}
           <div className="row">
             {a.status === "draft" && <button className="btn good" type="button" disabled={busy || !hasVisual} onClick={() => run("approve-still")}>Durağanı onayla</button>}
             {(a.status === "still_approved" || a.status === "motion_tested") && (
@@ -95,6 +122,19 @@ function Detail({ a }: { a: Asset }) {
               })}
             </div>
           ) : <p className="faint">Henüz referans yok.</p>}
+          {history.length > 0 && (
+            <details>
+              <summary className="small">Referans geçmişi ({history.length})</summary>
+              <div className="refs">
+                {history.slice().reverse().map((h) => (
+                  <div className="ref" key={`${h.kind}-${h.replaced_at}`}>
+                    <span>{REF_TR[h.kind] ?? h.kind} · sürüm {h.version}</span>
+                    {h.entry.thumb_url && <img src={h.entry.thumb_url} alt="" loading="lazy" />}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           {locked ? <p className="faint small">Kilitli varlık değiştirilemez; önce kilidi aç.</p> : (
             <form className="form-row" onSubmit={upload}>
               <label className="field">Referans türü
@@ -104,9 +144,18 @@ function Detail({ a }: { a: Asset }) {
               </label>
               <label className="field">Dosya<input type="file" name="file" accept={REF_ACCEPT[kind]} required /></label>
               <button className="btn" type="submit" disabled={busy}>Yükle</button>
-              <button className="btn" type="button" disabled={busy || frozen} onClick={() => run("placeholder")}>
-                {meta && !meta.dry_run ? "Referans üret (ücretli)" : "Yerel taslak üret"}
-              </button>
+              {meta && !meta.dry_run ? (
+                <>
+                  <button className="btn" type="button" disabled={busy || frozen} onClick={() => run("still")}
+                    title="Qwen-Image-2512, RunPod: yüksek çözünürlüklü durağan görsel (karakter 1328x1328, düz arka plan, tam boy, yüz net)">Durağan referans üret (ücretli)</button>
+                  {a.type === "character" && (
+                    <button className="btn" type="button" disabled={busy || frozen || !a.references.still} onClick={() => run("turnaround")}
+                      title="İsteğe bağlı ikinci adım: MiniMax H3 dönüş videosu, durağan görselden başlar">Dönüş videosu üret (ücretli)</button>
+                  )}
+                </>
+              ) : (
+                <button className="btn" type="button" disabled={busy || frozen} onClick={() => run("placeholder")}>Yerel taslak üret</button>
+              )}
             </form>
           )}
         </Section>

@@ -209,7 +209,7 @@ class Job:
     references: list[tuple[str, str]] = field(default_factory=list)   # (karakter, data URI)
     unmapped: tuple[str, ...] = ()                                 # pozitif kısıta çevrilemeyen negatifler
     negative: str = ""            # yalnızca Qwen-Image-Edit karesi (cfg 4 olumsuz istemi kullanır; H3 kullanmaz)
-    lightning: bool = False       # Qwen-Image-Edit Lightning LoRA'sı (4 adım, cfg 1)
+    edit_mode: str = "full"       # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20, cfg 4) | lightning (4, cfg 1)
 
     @property
     def names(self) -> list[str]:
@@ -218,7 +218,7 @@ class Job:
     def key(self) -> str:
         return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references,
-                            *([self.negative, self.lightning] if self.task == "edit_keyframe" else [])])
+                            *([self.negative, self.edit_mode] if self.task == "edit_keyframe" else [])])
 
 
 def reference_prompt(prompt: str, names: list[str]) -> str:

@@ -7,6 +7,7 @@ Kilitli varlık değiştirilemez; önce kilidi açılır.
 import datetime as dt
 import os
 import tempfile
+import time
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.deps import AssetId, ProjectId, SceneId, ensure_not_frozen, paid_errors, project_or_404, scene_or_404
 from app.budget import killswitch
 from app.config import project_settings, settings
+from app.core.h3mode import suggest_kind
 from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine import motion_test, references
@@ -105,8 +107,10 @@ def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
             "references": {k: _reference_out(v) for k, v in (a.references or {}).items()},
             "motion_test": _test_out(tests.get(a.motion_test_variation_id), a.version),
             "scenes": used[a.id],
-            "character": ({"id": str(ch.id), "voice_id": ch.voice_id, "embedding_version": ch.embedding_version}
+            "character": ({"id": str(ch.id), "voice_id": ch.voice_id, "embedding_version": ch.embedding_version,
+                           "kind": ch.kind or "human", "kind_suggested": suggest_kind(a.name, a.description)}
                           if ch else None),
+            "reference_history": [{**h, "entry": _reference_out(h["entry"])} for h in (a.reference_history or [])],
         })
     return out
 
@@ -183,6 +187,11 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
         if ch is None:
             raise HTTPException(422, "Ses kimliği yalnızca karakter varlıklarında tutulur")
         ch.voice_id = changes["voice_id"]
+    if changes.get("character_kind"):                   # kimlik kontrolünün türü; görüntüyü değiştirmez (sürüm artmaz)
+        ch = s.scalar(select(Character).where(Character.asset_id == a.id))
+        if ch is None:
+            raise HTTPException(422, "Karakter türü yalnızca karakter varlıklarında seçilir")
+        ch.kind = changes["character_kind"]
     return _changed(s, a, "edit")
 
 
@@ -211,6 +220,9 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
         refs = dict(a.references or {})
         same = (refs.get(kind) or {}).get("sha") == entry["sha"]
         if not same:
+            if refs.get(kind):                          # eski referans silinmez: sürüm geçmişine
+                a.reference_history = [*(a.reference_history or []),
+                                       {"kind": kind, "version": a.version, "replaced_at": time.time(), "entry": refs[kind]}]
             refs[kind] = entry
             a.references = refs
             if kind in references.VISUAL_KINDS:
@@ -252,21 +264,25 @@ async def upload_reference(asset_id: AssetId, request: Request, kind: str = Quer
 
 @router.post("/assets/{asset_id}/references/placeholder", status_code=201)
 @curated("asset_reference")
-def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
-    """Referans üretir: karakter için dönüş videosu, mekân ve nesne için durağan görsel. Ücretsiz modda prosedürel
-    taslaktır ve ücretli karşılığının sanal fiyatı bütçeden düşer; ücretli modda karakter için MiniMax H3'ten yörünge
-    hareketli dönüş videosu, mekân ve nesne için Flux karesidir (Faz 18)."""
+def placeholder_reference(asset_id: AssetId, kind: str | None = Query(None), s: Session = Depends(get_session)):
+    """Referans üretir. kind: still (durağan görsel) | turnaround (karakterin dönüş videosu; isteğe bağlı ikinci adım).
+    Ücretli modda varsayılan durağan görseldir: RunPod'da Qwen-Image-2512 (karakter 1328x1328, düz arka plan, tam boy,
+    yüz net; mekân 1664x928). Dönüş videosu MiniMax H3'ten, durağan görselden başlar. Ücretsiz modda prosedürel taslaktır
+    (karakterde varsayılan dönüş videosu) ve ücretli karşılığının sanal fiyatı bütçeden düşer."""
     a = asset_or_404(s, asset_id)
     ensure_editable(a)
+    if kind is not None and kind not in references.reference_kinds(a.type):
+        raise HTTPException(422, f"{a.name} için üretilebilen referanslar: {', '.join(references.reference_kinds(a.type))}")
     pid = str(a.project_id)
     ensure_not_frozen(pid)
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         if settings.dry_run:
-            label, estimate = references.reference_estimate(a.type)
+            local = kind or ("turnaround" if a.type == "character" else "still")
+            label, estimate = references.reference_estimate(a.type, local)
             try:
                 with killswitch.spend(pid, estimate, label, asset_id=a.id) as charge:
-                    kind, path, filename = references.placeholder(a, tmp)
+                    kind, path, filename = references.placeholder(a, tmp, local)
                     charge.actual = estimate
             except killswitch.ProjectFrozen:
                 raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
@@ -275,7 +291,7 @@ def placeholder_reference(asset_id: AssetId, s: Session = Depends(get_session)):
             lora = {"loras": [{"path": ch.lora_url, "scale": ch.lora_scale}], "lora_triggers": [ch.lora_trigger]} \
                 if ch is not None and ch.lora_url else {}
             with paid_errors():
-                kind, path, filename = references.paid_reference(pid, a, bible.active(s, pid), lora, tmp)
+                kind, path, filename = references.paid_reference(pid, a, bible.active(s, pid), lora, tmp, kind or "still")
         s.close()
         content_type = "video/mp4" if kind == "turnaround" else ("image/jpeg" if filename.endswith(".jpg") else "image/png")
         return attach_reference(asset_id, kind, path, filename, content_type)

@@ -133,7 +133,8 @@ export interface Asset {
   id: string; type: "character" | "location" | "prop"; name: string; description: string | null;
   render_style: string | null; status: string; version: number; effective_style: string;
   references: Record<string, Reference>; motion_test: MotionTest | null; scenes: string[];
-  character: { id: string; voice_id: string | null; embedding_version: number } | null;
+  character: { id: string; voice_id: string | null; embedding_version: number; kind: "human" | "non_human"; kind_suggested: "human" | "non_human" } | null;
+  reference_history?: { kind: string; version: number; replaced_at: number; entry: Reference }[];
 }
 
 /* ---------- stil ---------- */
@@ -334,7 +335,7 @@ export interface CallSummary {
 /** POST /estimate: çekim başına ve toplam tahmini maliyet. */
 export interface CostEstimateShot {
   code: string; duration_s: number; billed_seconds: number; engine: string; mode: string; frame: string | null;
-  frame_usd: number; probe_clip_usd: number; full_clip_usd: number; clips: number; expected_usd: number; max_usd: number;
+  frame_usd: number; edit_mode?: string | null; probe_clip_usd: number; full_clip_usd: number; clips: number; expected_usd: number; max_usd: number;
 }
 export interface CostEstimate {
   shots: CostEstimateShot[]; model_loads: number; cold_start_usd: number; expected_usd: number; max_usd: number;

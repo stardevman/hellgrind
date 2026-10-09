@@ -418,10 +418,13 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
   (`edit_keyframe.json`; image 1 ana karakter — çekim tarifinde adı ilk geçen —, image 2 / 3 ikinci karakter ya da mekân;
   istem "Elif is the person in image 1" diye başlar, ardından çekim tarifi, kamera ve proje stili), karaktersiz çekimde
   Qwen-Image ile metinden (`keyframe.json`). Ayarlar: `KEYFRAME_CHARACTER_PROVIDER` (qwen_edit varsayılan | qwen) ve
-  `QWEN_EDIT_LIGHTNING` (kapalı: 40 adım, cfg 4; açık: 4 adım, cfg 1). Kare videoyla aynı kalite kapısından geçer;
+  `QWEN_EDIT_MODE` (Tam 40 adım cfg 4 / Orta 20 adım cfg 4 / Lightning 4 adım cfg 1; projede Senaryo › Yoğunluk'tan da
+  seçilir). Kare videoyla aynı kalite kapısından geçer;
   Qwen-Image-Edit karesinde ayrıca karedeki yüz referansa SFace ile en az `identity_threshold` (0,60) benzemelidir. Geçemezse
   yeni seed'le en çok 2 kez yeniden çizilir (her deneme maliyetiyle harcama geçmişine yazılır); yine olmazsa çekim "Kare
-  inceleme gerekiyor" olur, kare ve skor denetçide görünür ve video üretilmez (**Kareyi yeniden çiz** yeni seed'ler dener).
+  inceleme gerekiyor" olur, kare ve skor denetçide görünür ve video üretilmez (**Kareyi yeniden çiz** yeni seed'ler dener;
+  **Kareyi elle onayla** kareyi gözle kabul edip video aşamasına geçer). Robot, hayvan gibi karakterler Varlıklar'da
+  "İnsan değil" olarak işaretlenir: onlarda yüz aranmaz, görsel benzerlik (OpenCLIP, `look_threshold`) ölçülür.
   "Kimlik kayabilir" uyarısı yalnızca karakterli çekimin karesi düz Qwen-Image'dan geldiyse çıkar. Seedance çekimleri de
   aynı kareyi image-to-video başlangıcı olarak kullanır. Kareyi yine de
   onaylayabilir ya da **Kendi ilk kareni yükle** ile kendi karenizi verebilirsiniz (yüklenen kare storyboard'un yerine geçer,
@@ -698,7 +701,8 @@ Bilinmesi gerekenler:
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |
-| `QWEN_EDIT_LIGHTNING` | `false` | Qwen-Image-Edit Lightning LoRA: `true` 4 adım, cfg 1; `false` 40 adım, cfg 4 |
+| `QWEN_EDIT_MODE` | `full` | Karakterli ilk kare kalitesi: `full` 40 adım cfg 4 (~195 sn), `medium` 20 adım cfg 4 (~100 sn), `lightning` 4 adım cfg 1 (~25 sn); proje ayarı `qwen_edit_mode` önce gelir |
+| `REFERENCE_FAL_FALLBACK` | `false` | Referans görseli için RunPod'da Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ağırlıkları ticari olmayan lisanslı) |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
 | `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
 | `H3_ENDPOINT_URL` / `H3_REF_ENDPOINT_URL` | boş | SGLang FL2VA ya da ComfyUI adresi; Ref2VA sunucusu (ComfyUI'de boşsa aynı sunucu) |
@@ -716,7 +720,7 @@ Bilinmesi gerekenler:
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 
-Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (yüz beklenen çekimde karakter benzerliği bunun altında kalan ya da yüzü görünmeyen aday rafine havuza giremez) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
+Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (insan karakterde 0-1 yüz kimliği — SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde — bunun altında kalan ya da yüzü hiç görünmeyen aday rafine havuza giremez; kısa kenarı 80 px'ten küçük yüzde kimlik ölçülmez, eleme olmaz) · `look_threshold` 0,75 (insan olmayan karakter — robot, hayvan, yaratık —: kare/klip ile referans arasındaki OpenCLIP görüntü benzerliği; yüz aranmaz) · `qwen_edit_mode` boş (Ayarlar'daki QWEN_EDIT_MODE; full / medium / lightning) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
 ## Depo yapısı
 

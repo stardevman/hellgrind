@@ -114,7 +114,7 @@ def test_every_reference_goes_to_both_text_encoders_in_the_same_order():
 def test_the_lightning_switch_and_the_volume_files():
     f = flow("edit_keyframe")
     assert f["170:168"]["inputs"]["value"] == "{{lightning}}"
-    assert (f["170:166"]["inputs"]["value"], f["170:154"]["inputs"]["value"]) == (40, 4)          # kapalı: 40 adım, cfg 4
+    assert (f["170:166"]["inputs"]["value"], f["170:154"]["inputs"]["value"]) == ("{{edit_steps}}", 4)   # kapalı: 40/20 adım, cfg 4
     assert (f["170:165"]["inputs"]["value"], f["170:155"]["inputs"]["value"]) == (4, 1)           # açık: 4 adım, cfg 1
     assert f["170:161"]["inputs"]["unet_name"] == "qwen_image_edit_2511_fp8mixed.safetensors"
     assert f["170:153"]["inputs"]["lora_name"] == "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"

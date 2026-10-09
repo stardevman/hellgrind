@@ -234,7 +234,7 @@
   },
   "170:166": {
     "inputs": {
-      "value": 40
+      "value": "{{edit_steps}}"
     },
     "class_type": "PrimitiveInt",
     "_meta": {

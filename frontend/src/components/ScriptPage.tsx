@@ -202,25 +202,29 @@ export function ScriptPage() {
 
 
 const RESOLUTIONS = ["480p", "720p"];
+const EDIT_TR: Record<string, string> = { full: "tam", medium: "orta", lightning: "Lightning" };
 
 /** Proje yoğunluğu: test ve tam tur aday sayısı, çözünürlükler ve kimlik eşiği (proje ayarları; PATCH /projects). */
 function Intensity() {
   const { ov, busy, act, note } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit"; min?: number; max?: number; step?: string }[] = [
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
     { key: "full_n", label: "Tam tur en çok aday", kind: "int", min: 1, max: 1000 },
     { key: "wave_size", label: "Tam tur dalga büyüklüğü", kind: "int", min: 1, max: 200 },
     { key: "full_resolution", label: "Tam tur çözünürlüğü", kind: "res" },
     { key: "refined_k", label: "Rafine havuz", kind: "int", min: 1, max: 3 },
-    { key: "identity_threshold", label: "Kimlik eşiği (yüz benzerliği)", kind: "num", min: 0, max: 1, step: "0.01" },
+    { key: "identity_threshold", label: "Kimlik eşiği (insan: yüz)", kind: "num", min: 0, max: 1, step: "0.01" },
+    { key: "look_threshold", label: "Benzerlik eşiği (robot, hayvan: görsel)", kind: "num", min: 0, max: 1, step: "0.01" },
+    { key: "qwen_edit_mode", label: "Karakterli ilk kare kalitesi (Qwen-Image-Edit)", kind: "edit" },
   ];
   const value = (k: string) => draft[k] ?? String(cfg[k] ?? "");
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
-    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" ? value(f.key) : Number(value(f.key))]));
+    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" ? value(f.key)
+      : f.kind === "edit" ? (value(f.key) || null) : Number(value(f.key))]));
     await api.patch(`/projects/${ov!.project.id}`, { settings });
     setDraft({});
     note("script", "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
@@ -234,7 +238,14 @@ function Intensity() {
               <tr key={f.key}>
                 <td style={{ width: "45%" }}>{f.label}<small className="mono">{f.key}</small></td>
                 <td>
-                  {f.kind === "res" ? (
+                  {f.kind === "edit" ? (
+                    <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="">Ayarlar'daki gibi</option>
+                      <option value="full">Tam: 40 adım, cfg 4 (~195 sn)</option>
+                      <option value="medium">Orta: 20 adım, cfg 4 (~100 sn)</option>
+                      <option value="lightning">Lightning: 4 adım, cfg 1 (~25 sn)</option>
+                    </select>
+                  ) : f.kind === "res" ? (
                     <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                       {RESOLUTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -249,8 +260,9 @@ function Intensity() {
             ))}
           </tbody>
         </table>
-        <p className="faint small">Kimlik eşiği: yüz beklenen çekimde karakter benzerliği bunun altında kalan ya da yüzü görünmeyen aday rafine
-          havuza giremez. Tam tur için 720p önerilir; test turu 480p'de ucuzdur.</p>
+        <p className="faint small">Kimlik eşiği: insan karakterde yüz kimliği (0-1) bunun altında kalan ya da yüzü hiç görünmeyen aday rafine
+          havuza giremez; küçük yüzde kimlik ölçülmez, eleme olmaz. Benzerlik eşiği: robot, hayvan gibi karakterlerde kare ile
+          referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur.</p>
         <div className="row">
           <button className="btn primary" type="button" disabled={busy || !dirty.length} onClick={save}>Kaydet{dirty.length ? ` (${dirty.length})` : ""}</button>
           {dirty.length > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
@@ -293,7 +305,7 @@ function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: s
                 {est.shots.map((s) => (
                   <tr key={s.code}>
                     <td className="mono">{s.code}<small>{s.billed_seconds} sn · {s.mode === "ref2va" ? "Ref2VA" : s.engine === "h3" ? "FL2VA" : s.engine}</small></td>
-                    <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}</small> : null}</td>
+                    <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}{s.edit_mode ? ` · ${EDIT_TR[s.edit_mode] ?? s.edit_mode}` : ""}</small> : null}</td>
                     <td className="mono">{s.clips}</td>
                     <td className="mono">${s.expected_usd.toFixed(3)}</td>
                     <td className="mono">${s.max_usd.toFixed(3)}</td>

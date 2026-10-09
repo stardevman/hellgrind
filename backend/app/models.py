@@ -67,6 +67,7 @@ class Character(Base):
     embedding_version: Mapped[int] = mapped_column(Integer, default=1)
     style_constraints: Mapped[dict] = mapped_column(JSONB, default=dict)
     asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"))
+    kind: Mapped[str] = mapped_column(Text, default="human")   # human | non_human (robot, hayvan, yaratık)
 
 
 class Sequence(Base):
@@ -177,6 +178,7 @@ class Asset(Base):
     status: Mapped[str] = mapped_column(AssetStatus, default="draft")
     version: Mapped[int] = mapped_column(Integer, default=1)
     references: Mapped[dict] = mapped_column("references", JSONB, default=dict)
+    reference_history: Mapped[list] = mapped_column(JSONB, default=list)   # yerini yenisine bırakan referanslar
     motion_test_variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

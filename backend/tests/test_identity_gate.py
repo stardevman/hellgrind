@@ -137,3 +137,101 @@ def test_the_effective_mode_is_part_of_the_visual_fingerprint():
     fl2va = visual_fingerprint(scene(duration_s=3.0, h3_mode="fl2va"), [char()], [])
     ref2va = visual_fingerprint(scene(duration_s=3.0, h3_mode="ref2va"), [char()], [])
     assert auto == fl2va != ref2va
+
+
+# ---------- "Kıvılcım" testinden: robot, küçük yüz, ham kosinüs ----------
+
+BOLT = scorer.Target(style="", content="Bolt the robot", looks=(("Bolt", ("assets/b/still/b.png",)),))
+
+
+def test_a_non_human_character_is_never_rejected_for_a_missing_face(real):
+    """Robotun yüzünü SFace bulamaz: insan olmayan karakterde yüz aranmaz, görsel benzerlik (OpenCLIP) ölçülür."""
+    looks = lambda v: scorer.Result(clip=0.97, face=None, composite=0.97,                        # noqa: E731
+                                    detail={"faces_seen": 0, "faces_measured": 0, "identity": {}, "look": {"Bolt": v}})
+    assert gate._judge(looks(0.82), 1, [], {**CFG, "look_threshold": 0.75}, BOLT, check_identity=True).passed
+    low = gate._judge(looks(0.61), 1, [], {**CFG, "look_threshold": 0.75}, BOLT, check_identity=True)
+    assert not low.passed and low.anomalies == [{"type": "low_likeness", "look": {"Bolt": 0.61}, "threshold": 0.75}]
+
+
+def test_a_small_face_is_not_measured_and_never_rejects(real):
+    small = scorer.Result(clip=0.97, face=None, composite=0.97,
+                          detail={"faces_seen": 1, "faces_measured": 0, "identity": {}})
+    assert gate._judge(small, 1, [], CFG, ELIF, check_identity=True).passed
+
+
+def test_the_gate_compares_the_identity_score_not_the_raw_cosine(monkeypatch):
+    """SFace'in aynı kişi eşiği kosinüs 0,363'tür. Mila'nın 0,58 / 0,46 / 0,57'si aynı kişidir: kapı 0-1 kimlik skorunu
+    (lojistik eğri) karşılaştırır. Küçük yüz ölçülmez; referanslar en yüksek çözünürlüklüden; en yüksek skor alınır."""
+    import numpy as np
+    from PIL import Image
+    ref = np.zeros(128, dtype=np.float32)
+    ref[0] = 1.0
+
+    def at(cos):
+        v = np.zeros(128, dtype=np.float32)
+        v[0], v[1] = cos, (1 - cos ** 2) ** 0.5
+        return v
+
+    class Fake:
+        scale = 100.0
+
+        def __init__(self, faces):
+            self._faces = faces
+
+        def encode_images(self, images):
+            return np.ones((len(images), 4), dtype=np.float32) / 2
+
+        def encode_texts(self, texts):
+            return np.ones((len(texts), 4), dtype=np.float32) / 2
+
+        def faces(self, image):
+            return self._faces
+
+        def reference_face(self, key):
+            return ref
+
+        def reference_look(self, key):
+            return np.ones(4, dtype=np.float32) / 2
+
+    frame = [Image.new("RGB", (64, 36))]
+    mila = scorer.Target(faces=(("Mila", ("assets/m/still/m.png",)),))
+    for cos in (0.58, 0.46, 0.57):
+        monkeypatch.setattr(scorer, "models", lambda c=cos: Fake([(1.0, at(c), 220.0)]))
+        r = scorer.score_images(frame, mila)
+        assert r.detail["identity_cosine"]["Mila"] == pytest.approx(cos, abs=1e-3)
+        assert r.detail["identity"]["Mila"] > 0.8 and not gate.identity_anomalies(r.detail, mila, CFG)
+    monkeypatch.setattr(scorer, "models", lambda: Fake([(1.0, at(0.58), 52.0)]))          # yüz küçük: ölçülmez
+    r = scorer.score_images(frame, mila)
+    assert (r.detail["faces_seen"], r.detail["faces_measured"], r.detail["identity"]) == (1, 0, {})
+    assert gate.identity_anomalies(r.detail, mila, CFG) == []
+    monkeypatch.setattr(scorer, "models", lambda: Fake([]))
+    r = scorer.score_images(frame, scorer.Target(looks=(("Bolt", ("assets/b/still/b.png",)),)))
+    assert r.detail["look"] == {"Bolt": 1.0} and r.detail["faces_seen"] == 0
+
+
+def test_references_are_ordered_sharpest_first():
+    keys = ["assets/a/turnaround/frames/0.jpg", "assets/a/expressions/e.png", "assets/a/still/s.png"]
+    assert scorer.ref_order(keys) == ("assets/a/still/s.png", "assets/a/expressions/e.png", "assets/a/turnaround/frames/0.jpg")
+
+
+def robot(**kw):
+    return SimpleNamespace(**{**dict(id="c2", name="Bolt", reference_images=["assets/b/still/b.png"], asset_id=None,
+                                     embedding_version=1, lora_url=None, lora_scale=1.0, kind="non_human"), **kw})
+
+
+def test_no_face_is_expected_from_a_robot_or_in_a_wide_action_shot():
+    assert h3mode.face_expected(scene(), [robot()]) is False                                  # yalnızca robot
+    assert h3mode.face_expected(scene(), [robot(), char()]) is True                            # insan da var
+    assert h3mode.face_expected(scene(camera={"shot": "wide"}, action_complexity=0.8), [char()]) is False
+    assert h3mode.face_expected(scene(camera={"shot": "wide"}, action_complexity=0.2), [char()]) is True
+
+
+def test_the_character_kind_is_suggested_from_the_description():
+    assert h3mode.suggest_kind("Bolt", "A small rusty robot with one blue eye") == "non_human"
+    assert h3mode.suggest_kind("Pamuk", "Beyaz bir köpek") == "non_human"
+    assert h3mode.suggest_kind("Mila", "A girl with round glasses and overalls") == "human"
+
+
+def test_a_robot_is_measured_by_likeness_and_a_human_by_face():
+    target = scorer.target_for(scene(), [char(), robot()], None)
+    assert [n for n, _ in target.faces] == ["Elif"] and [n for n, _ in target.looks] == ["Bolt"]

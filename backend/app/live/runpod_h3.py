@@ -82,12 +82,25 @@ UNKNOWN_LIMIT = 12            # durum art arda bu kadar sorguda okunamazsa iş k
 JOB_TTL_S = 7 * 3600          # Celery visibility_timeout (6 sa) + pay
 
 
+MODEL_ORDER = ("keyframe", "edit_keyframe", "fl2va", "ref2va")   # kuyruk sırası: Qwen-Image, Qwen-Image-Edit, H3 DiT'leri
+STALE_S = 120                 # bu kadar süredir sorgulanmayan bekleyen iş (süreci ölmüş) sıraya ve sınıra sayılmaz
+GATHER_S = 1.0                # proje boştayken aynı anda gelen işlerin toplanma süresi (en öncelikli model ilk gitsin)
+
+
 def _job_key(jkey: str) -> str:
     return vast_box._k(f"rp_job:{jkey}")
 
 
 def _pending_key(project_id: str | None) -> str:
     return vast_box._k(f"rp_pending:{project_id or '-'}")
+
+
+def _waiting_key(project_id: str | None) -> str:
+    return vast_box._k(f"rp_waiting:{project_id or '-'}")
+
+
+def _s(value) -> str:
+    return value.decode() if isinstance(value, bytes) else value
 
 
 def submitted(jkey: str) -> str | None:
@@ -98,11 +111,21 @@ def submitted(jkey: str) -> str | None:
     return json.loads(raw).get("id")
 
 
-def remember(jkey: str, job_id: str, project_id: str | None) -> None:
+def remember(jkey: str, job_id: str, project_id: str | None, model: str = "fl2va") -> None:
     r = killswitch.r()
     r.set(_job_key(jkey), json.dumps({"id": job_id, "project": project_id, "at": time.time()}), ex=JOB_TTL_S)
-    r.hset(_pending_key(project_id), job_id, jkey)
+    r.hset(_pending_key(project_id), job_id, json.dumps({"jkey": jkey, "model": model, "seen": time.time()}))
     r.expire(_pending_key(project_id), JOB_TTL_S)
+
+
+def touch(job_id: str, project_id: str | None) -> None:
+    """Bekleyen iş hâlâ sorgulanıyor (sahibi yaşıyor)."""
+    r = killswitch.r()
+    raw = r.hget(_pending_key(project_id), job_id)
+    if raw:
+        entry = json.loads(raw)
+        entry["seen"] = time.time()
+        r.hset(_pending_key(project_id), job_id, json.dumps(entry))
 
 
 def settle(job_id: str, project_id: str | None) -> None:
@@ -116,10 +139,62 @@ def forget(jkey: str, job_id: str, project_id: str | None) -> None:
     r.hdel(_pending_key(project_id), job_id)
 
 
+def _pending_entries(project_id: str | None) -> dict[str, dict]:
+    out = {}
+    for k, v in killswitch.r().hgetall(_pending_key(project_id)).items():
+        raw = _s(v)
+        try:
+            entry = json.loads(raw)
+        except (TypeError, ValueError):
+            entry = {"jkey": raw, "model": "fl2va", "seen": time.time()}    # eski biçim: yalnızca iş anahtarı
+        out[_s(k)] = entry
+    return out
+
+
 def pending(project_id: str | None) -> dict[str, str]:
     """Projenin RunPod'da bekleyen ya da çalışan işleri: {iş kimliği: iş anahtarı}."""
-    return {(k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
-            for k, v in killswitch.r().hgetall(_pending_key(project_id)).items()}
+    return {job_id: e["jkey"] for job_id, e in _pending_entries(project_id).items()}
+
+
+def _live_pending(project_id: str | None, now: float) -> dict[str, dict]:
+    """Sahibi hâlâ sorgulayan bekleyen işler (STALE_S içinde görülmüş)."""
+    return {j: e for j, e in _pending_entries(project_id).items() if now - float(e.get("seen") or 0) <= STALE_S}
+
+
+def _waiting(project_id: str | None, now: float) -> dict[str, dict]:
+    r, out = killswitch.r(), {}
+    for k, v in r.hgetall(_waiting_key(project_id)).items():
+        entry = json.loads(_s(v))
+        if now - float(entry.get("seen") or 0) > STALE_S:
+            r.hdel(_waiting_key(project_id), k)            # süreci ölmüş bekleyen
+            continue
+        out[_s(k)] = entry
+    return out
+
+
+def _rank(model: str) -> int:
+    return MODEL_ORDER.index(model) if model in MODEL_ORDER else len(MODEL_ORDER)
+
+
+def may_submit(model: str, token: str, since: float, project_id: str | None, cap: int, now: float) -> str | None:
+    """Gönderilebilir mi; değilse neden (olay için). Kurallar (proje başına, RunPod worker'ında model değişimi az olsun):
+    - projede başka modelin işi bekliyorsa ya da çalışıyorsa, onlar bitene dek beklenir (model grubu sırası);
+    - aynı model çalışırken daha öncelikli bir modelin işi bekliyorsa yeni iş eklenmez (grup boşalır, sıra ona geçer);
+    - proje boştaysa bekleyenlerin en öncelikli modeli gider (aynı anda gelenler GATHER_S içinde toplanır);
+    - proje sınırı (runpod_max_pending_jobs)."""
+    active = _live_pending(project_id, now)
+    waiting = _waiting(project_id, now)
+    better = [e for k, e in waiting.items() if k != token and _rank(e["model"]) < _rank(model)]
+    models = {e.get("model", "fl2va") for e in active.values()}
+    if models and model not in models:
+        return "model"
+    if better:
+        return "model"
+    if not models and now - since < GATHER_S:
+        return "gather"
+    if len(active) >= cap:
+        return "full"
+    return None
 
 
 def _frozen(project_id: str | None) -> bool:
@@ -127,31 +202,42 @@ def _frozen(project_id: str | None) -> bool:
 
 
 def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | None) -> tuple[str, bool]:
-    """(iş kimliği, yeniden kullanıldı mı). Aynı iş anahtarı için bekleyen iş varsa onu döndürür; yoksa proje sınırında
-    yer açılmasını bekleyip gönderir. Gönderim proje başına kilitle sıralanır (iki iş parçacığı sınırı aşamasın)."""
+    """(iş kimliği, yeniden kullanıldı mı). Aynı iş anahtarı için bekleyen iş varsa onu döndürür; yoksa sırası gelince
+    (model grubu ve proje sınırı, `may_submit`) gönderir. Gönderim proje başına kilitle sıralanır."""
     jkey = job.key()
     if (job_id := submitted(jkey)) is not None:
         return job_id, True
     cap = max(1, int(settings.runpod_max_pending_jobs))
+    model = model_kind(job)
+    token, since = uuid.uuid4().hex, time.time()
     deadline = time.monotonic() + float(settings.h3_timeout_s) + QUEUE_WAIT_S
-    noted = False
-    while True:
-        if _frozen(project_id):
-            raise killswitch.ProjectFrozen(project_id)
-        with killswitch.r().lock(vast_box._k(f"rp_submit:{project_id or '-'}"), timeout=60, blocking_timeout=60):
-            if (job_id := submitted(jkey)) is not None:
-                return job_id, True
-            waiting = len(pending(project_id))
-            if waiting < cap:
-                job_id = submit(c, job, kind)
-                remember(jkey, job_id, project_id)
-                return job_id, False
-        if not noted and project_id:
-            killswitch.event(project_id, "runpod_queue_full", pending=waiting, limit=cap)
-            noted = True
-        if time.monotonic() >= deadline:
-            raise TransientError(f"RunPod'da projenin {cap} işi bitmeden yer açılmadı")
-        time.sleep(POLL_S)
+    noted: set[str] = set()
+    r = killswitch.r()
+    try:
+        while True:
+            if _frozen(project_id):
+                raise killswitch.ProjectFrozen(project_id)
+            r.hset(_waiting_key(project_id), token, json.dumps({"model": model, "since": since, "seen": time.time()}))
+            r.expire(_waiting_key(project_id), JOB_TTL_S)
+            with r.lock(vast_box._k(f"rp_submit:{project_id or '-'}"), timeout=60, blocking_timeout=60):
+                if (job_id := submitted(jkey)) is not None:
+                    return job_id, True
+                why = may_submit(model, token, since, project_id, cap, time.time())
+                if why is None:
+                    job_id = submit(c, job, kind)
+                    remember(jkey, job_id, project_id, model)
+                    return job_id, False
+            if project_id and why not in noted and why != "gather":
+                if why == "full":
+                    killswitch.event(project_id, "runpod_queue_full", pending=len(pending(project_id)), limit=cap)
+                else:
+                    killswitch.event(project_id, "runpod_model_wait", model=MODEL_TR.get(model, model))
+                noted.add(why)
+            if time.monotonic() >= deadline:
+                raise TransientError(f"RunPod'da sıra gelmedi ({why}): projenin işleri bitmedi")
+            time.sleep(min(POLL_S, GATHER_S) if why == "gather" else POLL_S)
+    finally:
+        r.hdel(_waiting_key(project_id), token)
 
 
 def cancel_project(project_id: str) -> int:
@@ -416,9 +502,12 @@ def cold_start_due() -> bool:
     return bool(killswitch.r().set(vast_box._k("rp_cold_claim"), time.time(), nx=True, ex=ttl))
 
 
-def estimate_keyframe(model: str = "qwen") -> float:
+EDIT_STEPS = {"full": 40, "medium": 20, "lightning": 4}   # lightning: adım ve cfg şablondaki anahtarla (4, cfg 1)
+
+
+def estimate_keyframe(model: str = "qwen", edit_mode: str = "full") -> float:
     """model: qwen (Qwen-Image, metinden) ya da qwen_edit (Qwen-Image-Edit-2511, karakter referansından)."""
-    return pricing.estimate_keyframe(ENGINE, cold=cold_start_due(), model=model)
+    return pricing.estimate_keyframe(ENGINE, cold=cold_start_due(), model=model, edit_mode=edit_mode)
 
 
 def model_kind(job: vast_h3.Job) -> str:
@@ -476,7 +565,8 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
               "filename_prefix": vast_h3.prefix_for(job, "keyframe" if kind in vast_h3.IMAGE_KINDS else kind),
               "unet_variant": settings.h3_unet_variant}
     if kind == "edit_keyframe":
-        values.update(negative=job.negative, lightning=bool(job.lightning))
+        values.update(negative=job.negative, lightning=job.edit_mode == "lightning",
+                      edit_steps=EDIT_STEPS.get(job.edit_mode, EDIT_STEPS["full"]))
     if job.keyframe:
         values["first_frame"] = add(job.keyframe)
     refs = [add(uri) for _, uri in job.references]
@@ -540,9 +630,11 @@ def wait(c: httpx.Client, job_id: str, job_key: str, project_id: str | None = No
                 raise JobLost(f"RunPod işinin durumu {UNKNOWN_LIMIT} sorguda okunamadı ({job_id}): {why}. İş yeniden "
                               "gönderilmedi; çekimi yeniden üretin.") from e
             vast_box.heartbeat(job_key)
+            touch(job_id, project_id)
             time.sleep(POLL_S)
             continue
         unknown = 0
+        touch(job_id, project_id)
         state = body.get("status")
         if state == "COMPLETED":
             out = body.get("output")
@@ -723,21 +815,25 @@ class RunpodProvider:
                                "negatives_unmapped": list(job.unmapped), "seed_sent": True, "provenance": prov})
 
 
-def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> GenResult:
-    """Storyboard ilk karesi, RunPod worker'ındaki ComfyUI görsel iş akışıyla (keyframe.json; Qwen-Image). Bu kare H3 çıktısı
-    değildir. Çağıran `estimate_keyframe()` kadar rezervasyon almış olmalı."""
-    width, height = vast_h3.SIZES["720p"]
+def keyframe_image(prompt: str, seed: int, project_id: str | None = None, width: int | None = None,
+                   height: int | None = None) -> GenResult:
+    """Storyboard ilk karesi ya da varlık referansı, RunPod worker'ındaki ComfyUI görsel iş akışıyla (keyframe.json;
+    Qwen-Image-2512). Varsayılan boy H3 tuvali (1280x704); referans 1328x1328 / 1664x928. Bu kare H3 çıktısı değildir.
+    Çağıran `estimate_keyframe()` kadar rezervasyon almış olmalı."""
+    if not (width and height):
+        width, height = vast_h3.SIZES["720p"]
     job = vast_h3.Job(task="keyframe", url=server(), prompt=prompt, seed=seed, seconds=vast_h3.SECONDS[0], width=width,
                       height=height, steps=int(settings.h3_steps))
     return _image(job, project_id)
 
 
 def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative: str = "",
-                        project_id: str | None = None) -> GenResult:
+                        project_id: str | None = None, mode: str | None = None) -> GenResult:
     """Karakterli çekimin ilk karesi, Qwen-Image-Edit-2511 ile (edit_keyframe.json): image 1 ana karakterin referansı,
     image 2 / image 3 ikinci karakter ya da mekân; istem onlara "image 1", "image 2" diye başvurur. Kare H3 tuvalinde
-    (1280x704) çizilir; FL2VA test ve tam turu aynı kareden üretir. Lightning LoRA Ayarlar'dan açılır (4 adım, cfg 1).
-    Çağıran `estimate_keyframe("qwen_edit")` kadar rezervasyon almış olmalı."""
+    (1280x704) çizilir; FL2VA test ve tam turu aynı kareden üretir. mode: full (40 adım, cfg 4) | medium (20 adım,
+    cfg 4) | lightning (Lightning LoRA, 4 adım, cfg 1); verilmezse Ayarlar'daki QWEN_EDIT_MODE.
+    Çağıran `estimate_keyframe("qwen_edit", mode)` kadar rezervasyon almış olmalı."""
     guard(KEY)
     if not references:
         raise PaidCallBlocked("Qwen-Image-Edit karesi için karakterin onaylı referans görseli yok.")
@@ -745,7 +841,7 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
     job = vast_h3.Job(task="edit_keyframe", url=server(), prompt=prompt, seed=seed, seconds=vast_h3.SECONDS[0],
                       width=width, height=height, steps=int(settings.h3_steps),
                       references=[(r["name"], vast_h3.reference_uri(r["key"])) for r in references[:3]],
-                      negative=negative or "", lightning=bool(settings.qwen_edit_lightning))
+                      negative=negative or "", edit_mode=mode if mode in EDIT_STEPS else settings.qwen_edit_mode)
     return _image(job, project_id)
 
 
@@ -759,7 +855,7 @@ def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
             history.step(f"{IMAGE_MODEL[kind]} (ComfyUI {kind}.json, RunPod)", job_id, seed=job.seed, reused=reused,
                          resolution=f"{job.width}x{job.height}",
                          prompt=job.prompt[:vast_h3.NOTED_PROMPT_CHARS],
-                         **({"references": job.names, "lightning": job.lightning} if kind == "edit_keyframe" else {}))
+                         **({"references": job.names, "edit_mode": job.edit_mode} if kind == "edit_keyframe" else {}))
             if not reused:
                 _register(job, job_id, "keyframe", project_id)
             vast_box.track(jkey, project_id)
@@ -785,7 +881,8 @@ def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
     seconds = billed_seconds(body)
     gpu = (body.get("output") or {}).get("gpu")
     model = "qwen_edit" if kind == "edit_keyframe" else "qwen"
-    cost = pricing.estimate_runpod(seconds, gpu) if seconds else pricing.estimate_keyframe(ENGINE, model=model)
+    cost = pricing.estimate_runpod(seconds, gpu) if seconds else pricing.estimate_keyframe(ENGINE, model=model,
+                                                                                         edit_mode=job.edit_mode)
     return GenResult(local_path=path, request_id=job_id, cost_usd=cost, engine=ENGINE,
                      meta={"kind": kind, "gpu": gpu, "gpu_seconds": seconds, "references": job.names})
 

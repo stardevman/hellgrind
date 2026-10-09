@@ -8,12 +8,17 @@ aynı kuralı kullanır).
   qwen_edit ise qwen_edit; değilse qwen (Qwen-Image, yalnızca metinden). "Onaylı" proje ayarına bağlıdır (strict):
   lint_strictness block ise varlık en az still_approved olmalı; warn/off ise (onay akışı atlanır, ör. deneme ön ayarı)
   yüklenmiş referans yeterlidir.
-- **Yüz beklentisi (face_expected):** yönetmen seçtiyse o. Seçmediyse karakter varsa evet; kamera aşırı geniş plansa ya da
-  tarif sırt çekimi/silüet diyorsa hayır.
+- **Yüz beklentisi (face_expected):** yönetmen seçtiyse o. Seçmediyse insan karakter varsa evet; kamera aşırı geniş
+  plansa, geniş plan aksiyonsa (koşu, atlayış: yüzler küçük ve bulanık) ya da tarif sırt çekimi/silüet diyorsa hayır.
+  İnsan olmayan karakterler (robot, hayvan, yaratık: `characters.kind = non_human`) yüz kimliğine girmez; onların
+  benzerliği OpenCLIP görüntü gömmesiyle ölçülür.
 """
 import re
 
 APPROVED = ("still_approved", "motion_tested", "locked")
+NON_HUMAN_WORDS = re.compile(r"\b(robot\w*|android\w*|droid\w*|cyborg\w*|mech\w*|animal\w*|creature\w*|"
+                             r"monster\w*|alien\w*|dog|cat|bird|dragon\w*|hayvan\w*|yaratık\w*|canavar\w*|"
+                             r"köpek\w*|kedi\w*|kuş\w*|ejderha\w*)", re.I)
 NO_FACE = re.compile(r"\b(from behind|back to (the )?camera|seen from the back|silhouett\w*|sırt\w*|arkadan|"
                      r"silüet\w*|siluet\w*)", re.I)
 
@@ -73,19 +78,39 @@ def keyframe_model(scene, chars=(), assets=(), strict: bool = True) -> str:
     return "qwen"
 
 
+EDIT_MODES = ("full", "medium", "lightning")
+
+
+def edit_mode(cfg: dict | None = None) -> str:
+    """Qwen-Image-Edit kalitesi: proje ayarı (qwen_edit_mode), yoksa Ayarlar'daki QWEN_EDIT_MODE."""
+    from app.config import settings
+    mode = (cfg or {}).get("qwen_edit_mode") or settings.qwen_edit_mode
+    return mode if mode in EDIT_MODES else "full"
+
+
 def effective_mode(scene, chars=(), assets=()) -> str:
     """Yönetmenin seçimi; seçmediyse FL2VA (karakterli çekimde ilk kare karakter referansından çizilir)."""
     explicit = getattr(scene, "h3_mode", None)
     return explicit if explicit in ("fl2va", "ref2va") else "fl2va"
 
 
+def is_human(ch) -> bool:
+    return (getattr(ch, "kind", None) or "human") != "non_human"
+
+
+def suggest_kind(name: str | None, description: str | None) -> str:
+    """Varlık sayfasının önerisi: tarifte robot, hayvan, yaratık... geçiyorsa non_human."""
+    return "non_human" if NON_HUMAN_WORDS.search(f"{name or ''} {description or ''}") else "human"
+
+
 def face_expected(scene, chars=()) -> bool:
     explicit = getattr(scene, "face_expected", None)
     if explicit is not None:
         return bool(explicit)
-    if not chars:
+    if not any(is_human(ch) for ch in chars or ()):
         return False
-    if ((getattr(scene, "camera", None) or {}).get("shot") or "") == "extreme_wide":
+    shot = ((getattr(scene, "camera", None) or {}).get("shot") or "")
+    if shot == "extreme_wide" or (shot == "wide" and (getattr(scene, "action_complexity", None) or 0) >= 0.6):
         return False
     text = " ".join(str(x) for x in ((getattr(scene, "prompt_spec", None) or {}).get("prompt", ""),
                                      getattr(scene, "description", None) or ""))

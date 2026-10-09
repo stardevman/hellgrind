@@ -292,10 +292,10 @@ def asset_named(pid, name):
         return a
 
 
-def test_a_paid_character_reference_is_an_h3_turnaround(api, sample_scene, studio, h3, monkeypatch):
+def test_a_paid_character_turnaround_is_an_optional_h3_step(api, sample_scene, studio, h3, monkeypatch):
     pid, _ = sample_scene()
     kerem = asset_named(pid, "Kerem")
-    r = api.post(f"/api/assets/{kerem.id}/references/placeholder")
+    r = api.post(f"/api/assets/{kerem.id}/references/placeholder?kind=turnaround")
     assert r.status_code == 201, r.text
     assert studio.calls == []                                                          # fal.ai çağrılmadı
     (job,) = h3.submits
@@ -312,16 +312,21 @@ def test_a_character_with_a_still_turns_around_from_that_still(api, sample_scene
     still = tmp_path / "still.png"
     Image.new("RGB", (320, 180), (30, 140, 200)).save(still)
     assert api.post(f"/api/assets/{kerem.id}/references?kind=still&filename=still.png", content=still.read_bytes()).status_code == 201
-    assert api.post(f"/api/assets/{kerem.id}/references/placeholder").status_code == 201
+    assert api.post(f"/api/assets/{kerem.id}/references/placeholder?kind=turnaround").status_code == 201
     (job,) = h3.submits
     assert job["task"] == "fl2va" and job["conditions"][0]["role"] == "keyframe"
     assert job["conditions"][0]["uri"].startswith("data:image/jpeg;base64,")
 
 
-def test_a_paid_location_reference_is_a_single_flux_still(api, sample_scene, studio, monkeypatch):
+def test_flux_draws_a_reference_only_when_the_fallback_is_switched_on(api, sample_scene, studio, monkeypatch):
+    """Referans görseli RunPod'da Qwen-Image-2512 ile; fal.ai Flux (FLUX.1 [dev] ticari olmayan lisanslı) yalnızca
+    REFERENCE_FAL_FALLBACK açıksa ve Qwen-Image yoksa."""
     pid, _ = sample_scene()
     place = asset_named(pid, "Çöken Köprü")
     go_paid(monkeypatch)
+    r = api.post(f"/api/assets/{place.id}/references/placeholder")
+    assert r.status_code == 409 and "Qwen-Image" in r.text and studio.calls == [] and ledger(pid) == []
+    monkeypatch.setattr(settings, "reference_fal_fallback", True)
     assert api.post(f"/api/assets/{place.id}/references/placeholder").status_code == 201
     assert [app for app, _, _ in studio.calls] == [fal_video.FLUX] and "no people" in studio.calls[0][1]["prompt"]
     assert commits(pid, "flux_lora:reference") == [pricing.estimate_image(1.0)]
@@ -331,11 +336,12 @@ def test_a_paid_location_reference_is_a_single_flux_still(api, sample_scene, stu
 def test_a_blocked_paid_reference_answers_409_and_spends_nothing(api, sample_scene, studio, monkeypatch):
     pid, _ = sample_scene()
     go_paid(monkeypatch)                                          # H3 anahtarı yok: karakter dönüşü üretilemez
-    r = api.post(f"/api/assets/{asset_named(pid, 'Kerem').id}/references/placeholder")
+    r = api.post(f"/api/assets/{asset_named(pid, 'Kerem').id}/references/placeholder?kind=turnaround")
     assert r.status_code == 409 and "RUNPOD_API_KEY" in r.text and studio.calls == [] and ledger(pid) == []
-    monkeypatch.setattr(settings, "fal_key", "")                 # mekân görseli Flux'tan: fal anahtarı gerekir
-    r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder")
-    assert r.status_code == 409 and "FAL_KEY" in r.text and studio.calls == [] and ledger(pid) == []
+    r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder")   # Qwen-Image yok
+    assert r.status_code == 409 and "Qwen-Image" in r.text and studio.calls == [] and ledger(pid) == []
+    r = api.post(f"/api/assets/{asset_named(pid, 'Çöken Köprü').id}/references/placeholder?kind=turnaround")
+    assert r.status_code == 422                                   # mekânın dönüş videosu olmaz
 
 
 def test_a_paid_motion_test_starts_from_the_approved_reference(api, sample_scene, studio, h3, monkeypatch):
@@ -351,7 +357,7 @@ def test_a_paid_motion_test_starts_from_the_approved_reference(api, sample_scene
     assert studio.calls == []                                                                    # Flux çağrılmadı
     (job,) = h3.submits                                                                          # onaylı görselden başlar
     assert job["task"] == "fl2va" and job["conditions"][0]["uri"].startswith("data:image/jpeg;base64,")
-    assert commits(pid, "h3:") == [pricing.estimate_gpu("h3", h3.inference_time_s)]
+    assert commits(pid, "h3:480p:motion_test") == [pricing.estimate_gpu("h3", h3.inference_time_s)]
 
 
 # ---------- elle düzeltme: düzenlenmiş ilk kare ----------

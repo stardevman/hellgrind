@@ -125,6 +125,11 @@ function H3({ sc }: { sc: Scene }) {
     await api.post(`/scenes/${sc.id}/board/draw?paid=true`);
     note("inspector", `${sc.scene_code}: ilk kare yeni seed'lerle yeniden çiziliyor (her deneme ücretli).`, "ok");
   }, "inspector");
+  const accept = () => act(async () => {
+    const r = await api.post<{ stages: string[]; frozen: boolean }>(`/scenes/${sc.id}/board/accept`);
+    note("inspector", r.frozen ? `${sc.scene_code}: kare elle onaylandı. Proje donmuş: üretime devam edince video üretilecek.`
+      : `${sc.scene_code}: kare elle onaylandı; ${r.stages.length ? "video aşamasına geçildi." : "üretilecek aşama yok."}`, "ok");
+  }, "inspector");
   const source = sc.keyframe_source === "upload" ? "upload" : sc.board_source;
   const review = sc.board_status === "changes_requested" && (sc.board_source === "qwen_edit" || sc.board_source === "comfyui" || sc.board_source === "flux");
   const editRefs = sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model === "qwen_edit" ? sc.edit_refs ?? [] : [];
@@ -154,6 +159,8 @@ function H3({ sc }: { sc: Scene }) {
       </div>
       {review && (
         <div className="row">
+          <button className="btn good" type="button" disabled={busy} onClick={accept}
+            title="Kontrolü geçemeyen kareyi gözle kabul et; video bu kareden üretilir">Kareyi elle onayla</button>
           <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : undefined} onClick={redraw}>Kareyi yeniden çiz</button>
         </div>
       )}

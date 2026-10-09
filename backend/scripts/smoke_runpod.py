@@ -21,6 +21,16 @@ FAKE_SETTINGS = dict(dry_run=False, runpod_api_key="test-runpod_api_key", h3_pla
                      runpod_gpu_types="RTX 5090,RTX PRO 6000", runpod_min_balance_usd=10.0, h3_allow_nordic=False)
 
 
+def write_workflows(flows: str) -> None:
+    """Sahte RunPod'a giden en küçük iş akışları; "_hg" düğümü işin modelini taşır (sıra denetimi için)."""
+    for kind, needs in (("t2v", ""), ("i2v", "{{first_frame}}"), ("r2v", "{{reference_1}}"), ("keyframe", ""),
+                        ("edit_keyframe", "{{reference_1}}")):
+        with open(os.path.join(flows, f"{kind}.json"), "w") as f:
+            json.dump({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}", "img": needs}},
+                       "_hg": {"class_type": "Note", "inputs": {"kind": kind}},
+                       "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}, f)
+
+
 def run(c, check, new_project, script: str, seconds: float | None = None) -> None:
     from app.budget import killswitch, pricing
     from app.config import settings
@@ -45,10 +55,7 @@ def run(c, check, new_project, script: str, seconds: float | None = None) -> Non
             fake.polls_to_finish = 10 ** 9                         # işler kuyrukta bekler, hiç bitmez
             flows = os.path.join(tmp, "comfy")
             os.makedirs(flows)
-            for kind, needs in (("t2v", ""), ("i2v", "{{first_frame}}"), ("r2v", "{{reference_1}}")):
-                with open(os.path.join(flows, f"{kind}.json"), "w") as f:
-                    json.dump({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}", "img": needs}},
-                               "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}, f)
+            write_workflows(flows)
             from app import runtime_config
             runtime_config.refresh_if_changed()                   # .env bir kez okunsun; sahte ayarları sonradan ezmesin
             for k, v in {**FAKE_SETTINGS, "h3_comfy_workflow_dir": flows,
@@ -107,6 +114,69 @@ def run(c, check, new_project, script: str, seconds: float | None = None) -> Non
             budget = c.get(f"/projects/{pid}/budget").json()
             check(runpod_h3.pending(pid) == {} and budget["reserved"] == 0,
                   f"bekleyen iş kaydı boş, rezervasyonlar iade edildi (ayrılan ${budget['reserved']:.4f})")
+        finally:
+            for k, v in saved.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S = transport, poll
+
+
+def run_order(c, check, new_project, script: str) -> None:
+    """Kare + video karışık 4 çekim: RunPod'a gönderim sırası model grubuna göre (Qwen-Image -> Qwen-Image-Edit ->
+    FL2VA), en çok 2 model değişimi; videolar karelerden önce başlatılsa da kareler önce gider."""
+    from app import storage
+    from app.config import settings
+    from app.engine.providers import GenRequest
+    from app.live import runpod_h3
+    from tests.media_utils import make_video
+    from tests.runpod_fake import FakeRunpod
+    from PIL import Image
+
+    print("Q) RunPod: kuyruk sırası (sahte RunPod, 4 çekim, kare + video karışık)")
+    pid = new_project("duman-testi-runpod-sira", 5.0, lint_strictness="off")
+    saved = {k: getattr(settings, k) for k in (*FAKE_SETTINGS, "h3_comfy_workflow_dir", "work_dir")}
+    transport, poll = runpod_h3.TRANSPORT, runpod_h3.POLL_S
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            video = open(make_video(os.path.join(tmp, "v.mp4"), seconds=4.0, size="320x180", fps=24), "rb").read()
+            png = os.path.join(tmp, "ref.png")
+            Image.new("RGB", (64, 64), (200, 150, 120)).save(png)
+            storage.put_file(png, f"assets/smoke-{pid}/still/ref.png", "image/png")
+            fake = FakeRunpod(video, open(png, "rb").read())
+            fake.polls_to_finish = 3
+            flows = os.path.join(tmp, "comfy")
+            os.makedirs(flows)
+            write_workflows(flows)
+            from app import runtime_config
+            runtime_config.refresh_if_changed()
+            for k, v in {**FAKE_SETTINGS, "h3_comfy_workflow_dir": flows, "work_dir": os.path.join(tmp, "work")}.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S = fake.transport(), 0.2
+            refs = [{"name": "Mila", "key": f"assets/smoke-{pid}/still/ref.png", "kind": "character"}]
+            jobs = [lambda s=s: runpod_h3.get_live_provider().generate(GenRequest(
+                prompt=f"shot {s}", seed=s, resolution="480p", duration_s=4.0, extra={"project_id": pid}))
+                for s in (1, 2, 3, 4)]                                    # 4 çekimin videoları önce başlatılır
+            jobs += [lambda s=s: runpod_h3.keyframe_image(f"board {s}", s, pid) for s in (5, 6)]
+            jobs += [lambda s=s: runpod_h3.edit_keyframe_image(f"Mila {s}", s, refs, "", pid) for s in (7, 8)]
+            outs = []
+            for fn in jobs:
+                out: dict = {}
+
+                def go(fn=fn, out=out):
+                    try:
+                        out["result"] = fn()
+                    except BaseException as e:      # noqa: BLE001
+                        out["error"] = e
+                t = threading.Thread(target=go, daemon=True)
+                t.start()
+                outs.append((t, out))
+            for t, _ in outs:
+                t.join(120)
+            order = [r["input"]["workflow"]["_hg"]["inputs"]["kind"] for r in fake.runs]
+            switches = sum(1 for a, b in zip(order, order[1:]) if a != b)
+            failed = [o["error"] for _, o in outs if "error" in o]
+            check(not failed and len(order) == 8, f"8 iş gönderildi ve bitti{'' if not failed else f' (hata: {failed[0]})'}")
+            check(switches <= 2 and order.index("t2v") > max(i for i, k in enumerate(order) if k != "t2v"),
+                  f"sıra {order}: {switches} model değişimi, kareler videolardan önce")
         finally:
             for k, v in saved.items():
                 setattr(settings, k, v)

@@ -14,8 +14,8 @@
 7. Qwen-Image-Edit-2511 (image_qwen_image_edit_2511, workflow-templates v0.11.78): gizli latent EmptySD3LatentImage
    (H3 tuvali {{width}} x {{height}}; şablonda 1. görselin VAEEncode'u, çıktı onun boyutunu alırdı), 41 = image 1 (ana
    karakter), 83 = image 2, yeni 171 = image 3 (ikinci karakter ya da mekân); her görsel iki metin kodlayıcısına
-   (170:151 olumlu, 170:149 olumsuz) aynı sırayla gider. Lightning LoRA anahtarı {{lightning}} (kapalı: 40 adım, cfg 4;
-   açık: 4 adım, cfg 1); LoRA dosyası volume'dadır.
+   (170:151 olumlu, 170:149 olumsuz) aynı sırayla gider. Lightning LoRA anahtarı {{lightning}} (açık: 4 adım, cfg 1;
+   kapalı: {{edit_steps}} adım — tam 40, orta 20 —, cfg 4); LoRA dosyası volume'dadır.
 Değişen değerler Hell Grind yer tutucularıyla doldurulur: {{prompt}}, {{seed}}, {{duration}} (kare sayısını iş akışı
 17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}; Qwen düzenleme karesinde
 ayrıca {{negative}} ve {{lightning}}.
@@ -149,6 +149,7 @@ def edit_keyframe() -> dict:
     f["170:151"]["inputs"]["prompt"] = "{{prompt}}"            # şablonun malzeme değiştirme örneği her zaman ezilir
     f["170:149"]["inputs"]["prompt"] = "{{negative}}"
     f["170:168"]["inputs"]["value"] = "{{lightning}}"
+    f["170:166"]["inputs"]["value"] = "{{edit_steps}}"          # Lightning kapalıyken adım: tam 40, orta 20
     f["9"]["inputs"]["filename_prefix"] = "{{filename_prefix}}"
     return check(f, "edit_keyframe", lightning=True)
 

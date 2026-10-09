@@ -39,6 +39,7 @@ def character_shot(pid, code: str, tmp_path, lock: bool = True) -> str:
     """Çekimin karakterlerine durağan referans görseli ve kilitli varlık verir (Qwen-Image-Edit bunları kullanır)."""
     with session_scope() as s:
         sc = s.scalars(select(Scene).where(Scene.project_id == pid, Scene.scene_code == code)).one()
+        sc.face_expected = True                        # köprü çekimi geniş aksiyon planı: kimlik kapısı açık sınansın
         for i, ch in enumerate(load_characters(s, sc.id)):
             png = tmp_path / f"still_{ch.id}.png"
             Image.new("RGB", (64, 64), (200, 150 - 40 * i, 120)).save(png)            # her karakterin kendi görseli
@@ -185,13 +186,25 @@ def test_a_text_frame_is_redrawn_from_the_reference_before_the_video(edit, sampl
         assert s.get(Scene, sid).board_source == "qwen_edit"
 
 
-def test_lightning_is_a_setting(edit, sample_scene, identity, tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode,lightning,steps", [("full", False, 40), ("medium", False, 20), ("lightning", True, 4)])
+def test_the_edit_quality_is_a_setting_and_a_project_choice(edit, sample_scene, identity, tmp_path, monkeypatch,
+                                                            mode, lightning, steps):
+    """Tam (40 adım, cfg 4) / Orta (20 adım, cfg 4) / Lightning (LoRA anahtarı: 4 adım, cfg 1). Proje ayarı önce gelir."""
     from app.engine import storyboard
+    from app.models import Project
     identity([0.9])
-    monkeypatch.setattr(settings, "qwen_edit_lightning", True)
+    monkeypatch.setattr(settings, "qwen_edit_mode", "full")
     pid, codes = sample_scene()
+    with session_scope() as s:
+        p = s.get(Project, pid)
+        p.settings = {**(p.settings or {}), "qwen_edit_mode": mode}
     storyboard.make_board(pid, character_shot(pid, "S002_SH01", tmp_path))
-    assert edit_runs(edit)[0]["input"]["workflow"]["170:168"]["inputs"]["value"] is True
+    wf = edit_runs(edit)[0]["input"]["workflow"]
+    assert (wf["170:168"]["inputs"]["value"], wf["170:166"]["inputs"]["value"]) == (lightning, steps)
+    with session_scope() as s:
+        mode_noted = s.execute(text("SELECT details->>'edit_mode' FROM service_calls WHERE project_id = :p AND "
+                                    "label = 'h3:storyboard:qwen_edit'"), {"p": pid}).scalar()
+    assert mode_noted == mode
 
 
 def test_a_seedance_shot_starts_from_the_same_frame(edit, sample_scene, identity, tmp_path):
@@ -227,13 +240,13 @@ def test_qwen_and_qwen_edit_frames_are_separate_queue_groups():
 
 # ---------- fiyat ve tahmini maliyet ----------
 
-def test_the_qwen_edit_frame_is_priced_from_its_own_row():
+@pytest.mark.parametrize("mode,seconds", [("full", 195), ("medium", 100), ("lightning", 25)])
+def test_the_qwen_edit_frame_is_priced_from_its_own_row(mode, seconds):
     rp = pricing.serverless()
     rate = pricing.runpod_rate()
-    assert rp["keyframe_edit_seconds"] == 60
-    assert pricing.estimate_keyframe("h3", model="qwen_edit") == round(rate * 60, 4)
-    cold = 60 + rp["keyframe_cold_seconds"] - rp["keyframe_seconds"]
-    assert pricing.estimate_keyframe("h3", model="qwen_edit", cold=True) == round(rate * cold, 4)
+    assert pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=mode) == round(rate * seconds, 4)
+    cold = seconds + rp["keyframe_cold_seconds"] - rp["keyframe_seconds"]
+    assert pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=mode, cold=True) == round(rate * cold, 4)
     assert pricing.estimate_keyframe("h3") == round(rate * rp["keyframe_seconds"], 4)
 
 
@@ -241,7 +254,7 @@ def test_the_reader_accepts_the_old_pricing_layout():
     """Kod ve pricing.yaml birlikte devreye girmezse de okunur: düz render_seconds, keyframe_edit_seconds yok."""
     old = pricing.table()
     old = {**old, "serverless": {"runpod": {**{k: v for k, v in old["serverless"]["runpod"].items()
-                                               if k not in ("keyframe_edit_seconds", "pools")},
+                                               if not k.startswith("keyframe_edit") and k != "pools"},
                                            "render_seconds": {"480p": 8, "720p": 16.5}}}}
     pricing.validate_table(json.dumps(old))
     assert pricing.estimate_video("h3", "480p", 4, old, mode="ref2va") == pricing.estimate_runpod(32, None, old)

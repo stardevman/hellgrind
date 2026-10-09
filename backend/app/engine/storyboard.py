@@ -149,11 +149,12 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
     details: harcama geçmişine yazılır (ör. kalite kapısı denemesi)."""
     if source == "qwen_edit":                       # RunPod worker'ında Qwen-Image-Edit-2511, karakter referansından
         from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
-        refs = extra.get("edit_references") or []
-        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit"), SOURCE_LABEL[source], "runpod_api_key",
+        refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
+        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), SOURCE_LABEL[source],
+                         "runpod_api_key",
                          lambda: runpod_h3.edit_keyframe_image(edit_prompt(prompt, refs), seed, refs,
-                                                               extra.get("negative", ""), project_id),
-                         scene_id=scene_id, details=details)
+                                                               extra.get("negative", ""), project_id, mode),
+                         scene_id=scene_id, details={**(details or {}), "edit_mode": mode})
         local = made.local_path
     elif source == "comfyui":                       # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
         if settings.h3_platform == "vast":
@@ -250,10 +251,12 @@ def identity_text(drawn: Drawn) -> str:
     for a in drawn.anomalies or ():
         if a.get("type") == "no_face":
             return "yüz görünmedi"
-        if a.get("type") == "low_identity":
+        if a.get("type") in ("low_identity", "low_likeness"):
             threshold = f"{a['threshold']:.2f}".replace(".", ",")
-            return ", ".join(f"{name} {(v or 0):.2f}".replace(".", ",") + f" < {threshold}"
-                             for name, v in a["identity"].items())
+            values = a.get("identity") or a.get("look") or {}
+            what = "benzerlik" if a["type"] == "low_likeness" else "kimlik"
+            return f"{what} " + ", ".join(f"{name} {(v or 0):.2f}".replace(".", ",") + f" < {threshold}"
+                                          for name, v in values.items())
     return f"skor {drawn.score:.2f}".replace(".", ",") if drawn.score is not None else "kusurlu kare"
 
 
@@ -290,8 +293,10 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), score.detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=score.passed,
-                                 identity=(score.detail or {}).get("identity"),
-                                 faces_seen=(score.detail or {}).get("faces_seen"))
+                                 identity=(score.detail or {}).get("identity"), look=(score.detail or {}).get("look"),
+                                 faces_seen=(score.detail or {}).get("faces_seen"),
+                                 faces_measured=(score.detail or {}).get("faces_measured"),
+                                 reasons=[a.get("type") for a in score.anomalies])
                 if score.passed:
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
@@ -305,7 +310,7 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
     explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; kalite kapısından
     kalmış ücretli kare yeni seed'lerle yeniden çizilir."""
     import time
-    from app.core.h3mode import edit_references, effective_mode, keyframe_model, strict_refs
+    from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
@@ -317,7 +322,8 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
         cfg = project_settings(project.settings)
         strict = strict_refs(cfg)
         model = keyframe_model(scene, chars, assets, strict)
-        extra.update(edit_references=edit_references(scene, chars, assets, strict), negative=composed.negative)
+        extra.update(edit_references=edit_references(scene, chars, assets, strict), negative=composed.negative,
+                     edit_mode=edit_mode(cfg))
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"

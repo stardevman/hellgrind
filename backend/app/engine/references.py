@@ -172,44 +172,68 @@ def visual_keys(references: dict) -> list[str]:
 # ---------- referans üretimi ----------
 
 TURNAROUND_S, TURNAROUND_RESOLUTION = 4.0, "480p"
-REFERENCE_SHOT = {   # tür -> (tarif, kamera)
+REFERENCE_SHOT = {   # tür -> (tarif, kamera): dönüş videosu (karakter) ve eski Flux yolu
     "character": ("Character reference turnaround: full body, neutral pose and expression, plain light grey studio "
                   "background, the camera orbits 360 degrees around the character", {"shot": "medium", "movement": "orbit"}),
     "location": ("Location reference: establishing view of the empty location, no people", {"shot": "wide"}),
     "prop": ("Prop reference: the object alone, centered, plain light grey background", {"shot": "close_up"}),
 }
+REFERENCE_STILL = {  # tür -> (tarif, kamera): yüksek çözünürlüklü durağan referans (Qwen-Image-2512)
+    "character": ("Character reference sheet: full body, standing in a neutral pose facing the camera, the face clearly "
+                  "visible, sharp and evenly lit, neutral expression, plain neutral light grey studio background, soft "
+                  "even lighting, single character, no text", {"shot": "medium", "movement": "static"}),
+    "location": ("Location reference: establishing view of the empty location, no people, no text",
+                 {"shot": "wide", "movement": "static"}),
+    "prop": ("Prop reference: the object alone, centered, plain neutral light grey background, no text",
+             {"shot": "close_up", "movement": "static"}),
+}
+STILL_SIZES = {"character": (1328, 1328), "prop": (1328, 1328), "location": (1664, 928)}   # Qwen-Image'ın doğal boyları
+KEYFRAME_PIXELS = 1280 * 704                     # pricing.yaml › keyframe_seconds bu boyda ölçüldü
 
 
-def reference_prompt(asset, style):
+def reference_kinds(asset_type: str) -> tuple[str, ...]:
+    """Üretilebilen referanslar: karakterde önce durağan görsel, isteğe bağlı ikinci adım dönüş videosu."""
+    return ("still", "turnaround") if asset_type == "character" else ("still",)
+
+
+def reference_prompt(asset, style, kind: str = "still"):
     """Referansın prompt'u da besteciden geçer: varlık, filmdeki ışık diliyle ve kendi render kuralıyla tarif edilir."""
     from app.style.composer import compose_prompt
-    text, camera = REFERENCE_SHOT[asset.type]
+    text, camera = (REFERENCE_SHOT if kind == "turnaround" else REFERENCE_STILL)[asset.type]
     return compose_prompt({"prompt": text, "camera": camera,
                            "characters": [asset.name] if asset.type == "character" else []}, [asset], style)
 
 
-def reference_estimate(asset_type: str) -> tuple[str, float]:
-    """(defter etiketi, tahmin): karakter = 4 sn 480p MiniMax H3 dönüş videosu (kendi GPU sunucumuzda); mekân ve nesne =
-    tek Flux karesi (fal.ai). Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
+def still_fallback() -> bool:
+    """Qwen-Image iş akışı RunPod'da yoksa fal.ai Flux'a düşülsün mü (REFERENCE_FAL_FALLBACK; varsayılan kapalı:
+    FLUX.1 [dev] ağırlıkları ticari olmayan lisanslıdır)."""
+    return bool(settings.reference_fal_fallback)
+
+
+def reference_estimate(asset_type: str, kind: str = "still") -> tuple[str, float]:
+    """(defter etiketi, tahmin): dönüş videosu = 4 sn 480p MiniMax H3; durağan görsel = RunPod'da Qwen-Image-2512 karesi
+    (sıcak worker süresi, boyla orantılı). Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
     from app.budget import pricing
     from app.engine.providers import DEFAULT_ENGINE
-    if asset_type == "character":
+    if kind == "turnaround":
         return f"{DEFAULT_ENGINE}:{TURNAROUND_RESOLUTION}:reference", \
             pricing.estimate_video(DEFAULT_ENGINE, TURNAROUND_RESOLUTION, TURNAROUND_S)
-    return "flux_lora:reference", pricing.estimate_image(1.0)
+    w, h = STILL_SIZES[asset_type]
+    return "h3:reference:qwen", round(pricing.estimate_keyframe("h3", model="qwen") * (w * h) / KEYFRAME_PIXELS, 4)
 
 
-def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> tuple[str, str, str]:
-    """Ücretli referans (Faz 18). Karakterin dönüş videosu MiniMax H3'ten (durağan görseli varsa ondan başlar); mekân ve
-    nesne görseli Flux'tan (fal.ai). Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir (gönderilmiş iş
-    yeniden ödenmez). (tür, yol, dosya adı)."""
+def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str, kind: str = "still") -> tuple[str, str, str]:
+    """Ücretli referans (Faz 18). Durağan görsel: RunPod worker'ında Qwen-Image-2512 (keyframe.json; karakter 1328x1328,
+    düz arka plan, tam boy, yüz net). Dönüş videosu (karakter, isteğe bağlı ikinci adım): MiniMax H3, durağan görsel varsa
+    ondan başlar. fal.ai Flux yalnızca REFERENCE_FAL_FALLBACK açıksa. Kilit rezervasyondan önce çalışır; geçici hatalar
+    yeniden denenir (gönderilmiş iş yeniden ödenmez). (tür, yol, dosya adı)."""
     from dataclasses import replace
     from app.engine import paid
     from app.engine.providers import DEFAULT_ENGINE, GenRequest, get_provider
-    seed = seed_for(str(asset.id), asset.version, "reference")
-    composed = reference_prompt(asset, style)
-    label, estimate = reference_estimate(asset.type)
-    if asset.type == "character":
+    seed = seed_for(str(asset.id), asset.version, "reference", *([kind] if kind != "turnaround" else []))
+    composed = reference_prompt(asset, style, kind)
+    label, estimate = reference_estimate(asset.type, kind)
+    if kind == "turnaround":
         provider = get_provider(DEFAULT_ENGINE)
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
                          duration_s=TURNAROUND_S, extra={**lora, "project_id": project_id})
@@ -222,12 +246,33 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str) -> t
         path = os.path.join(out_dir, "turnaround.mp4")
         os.replace(made.local_path, path)
         return "turnaround", path, "turnaround.mp4"
-    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde
-    frame = paid.call(project_id, estimate, label, "fal_key", lambda: fal_video.image(composed.prompt, seed),
-                      asset_id=asset.id)
+    if settings.h3_platform != "vast" and paid.available("runpod_api_key"):
+        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
+        if runpod_h3.keyframes_ready("keyframe"):
+            w, h = STILL_SIZES[asset.type]
+            made = paid.call(project_id, estimate, label, "runpod_api_key",
+                             lambda: runpod_h3.keyframe_image(composed.prompt, seed, project_id, width=w, height=h),
+                             asset_id=asset.id)
+            ext = os.path.splitext(made.local_path)[1] or ".png"
+            path = os.path.join(out_dir, "still" + ext)
+            os.replace(made.local_path, path)
+            return "still", path, "still" + ext
+    if not (still_fallback() and paid.available("fal_key")):
+        from app.live import PaidCallBlocked
+        raise PaidCallBlocked("Referans görseli Qwen-Image-2512 ile RunPod'da üretilir: Ayarlar'da RunPod anahtarı ve "
+                              "keyframe.json iş akışı gerekli (fal.ai Flux'a düşme REFERENCE_FAL_FALLBACK ile açılır; "
+                              "FLUX.1 [dev] ticari olmayan lisanslıdır).")
+    from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde (isteğe bağlı yedek)
+    frame = paid.call(project_id, pricing_image(), "flux_lora:reference", "fal_key",
+                      lambda: fal_video.image(composed.prompt, seed), asset_id=asset.id)
     path = os.path.join(out_dir, "still.jpg")
     os.replace(frame.local_path, path)
     return "still", path, "still.jpg"
+
+
+def pricing_image() -> float:
+    from app.budget import pricing
+    return pricing.estimate_image(1.0)
 
 
 def motion_source(references: dict) -> str | None:
@@ -243,11 +288,19 @@ def motion_source(references: dict) -> str | None:
 
 # ---------- yerel taslak referans ----------
 
-def placeholder(asset, out_dir: str) -> tuple[str, str, str]:
+def placeholder(asset, out_dir: str, kind: str | None = None) -> tuple[str, str, str]:
     """Ücretsiz modda yönetmenin elinde dosya yokken: prosedürel motordan taslak referans.
-    Karakter: 4 sn'lik yörünge (dönüş) videosu. Mekân ve nesne: durağan görsel. (tür, yol, dosya adı) döndürür."""
-    seed = seed_for(str(asset.id), asset.version, "placeholder")
+    Karakter: 4 sn'lik yörünge (dönüş) videosu (kind="still": tek kare). Mekân ve nesne: durağan görsel.
+    (tür, yol, dosya adı) döndürür."""
+    seed = seed_for(str(asset.id), asset.version, "placeholder", *([kind] if kind == "still" else []))
     label = f"{asset.name} · yerel taslak"
+    if asset.type == "character" and kind == "still":
+        clip = os.path.join(out_dir, "still.mp4")
+        render_clip(clip, seed, 1024, 1024, 1.0, settings.local_render_fps, emotion="neutral",
+                    camera={"shot": "medium", "movement": "static"}, characters=[asset.name], label=label)
+        path = os.path.join(out_dir, "still.png")
+        _ffmpeg("-ss", "0.5", "-i", clip, "-frames:v", "1", path)
+        return "still", path, "still.png"
     if asset.type == "character":
         path = os.path.join(out_dir, "turnaround.mp4")
         render_clip(path, seed, 640, 360, 4.0, settings.local_render_fps, emotion="neutral",
