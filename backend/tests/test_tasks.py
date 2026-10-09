@@ -17,6 +17,9 @@ def scene_row(sid):
 
 
 def fake_task(task_id="task-123"):
+    from app.budget import killswitch
+    from app.worker.tasks import DELIVERIES
+    killswitch.r().delete(DELIVERIES.format(task_id))       # her test görevi ilk kez teslim edilmiş sayılır
     return NS(request=NS(id=task_id))
 
 

@@ -4,6 +4,7 @@ biçiminde (files: base64 ya da url, boyut, SHA-256, GPU, soğuk başlatma) veri
 import base64
 import hashlib
 import json
+import threading
 
 import httpx
 
@@ -31,6 +32,9 @@ class FakeRunpod:
         self.tamper = False                   # bildirilen SHA-256 dosyayla uyuşmasın
         self.expired: set[str] = set()        # sonucu silinmiş işler (404)
         self.graphql_error = False
+        self.cancelled: list[str] = []        # POST /cancel/{id}
+        self.suffix = "-e1"                   # gerçek RunPod iş kimlikleri gibi ("…-e1"); durum sorgusunda aynen kullanılmalı
+        self._lock = threading.Lock()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -84,19 +88,29 @@ class FakeRunpod:
             return httpx.Response(200, json=self.health)
         if rest == "/run" and request.method == "POST":
             body = json.loads(request.content)
-            self.runs.append(body)
-            job_id = f"job-{len(self.runs)}"
-            failed = self.failing > 0
-            self.failing -= int(failed)
-            self.jobs[job_id] = {"id": job_id, "polls": 0, "failed": failed,
-                                 "kind": body["input"]["hellgrind"]["kind"]}
+            with self._lock:
+                self.runs.append(body)
+                job_id = f"job-{len(self.runs)}{self.suffix}"
+                failed = self.failing > 0
+                self.failing -= int(failed)
+                self.jobs[job_id] = {"id": job_id, "polls": 0, "failed": failed,
+                                     "kind": body["input"]["hellgrind"]["kind"]}
             return httpx.Response(200, json={"id": job_id, "status": "IN_QUEUE"})
+        if rest.startswith("/cancel/") and request.method == "POST":
+            job_id = rest.rsplit("/", 1)[1]
+            if job_id not in self.jobs:
+                return httpx.Response(404, json={"error": "job not found"})
+            self.cancelled.append(job_id)
+            self.jobs[job_id]["cancelled"] = True
+            return httpx.Response(200, json={"id": job_id, "status": "CANCELLED"})
         if rest.startswith("/status/"):
             job_id = rest.rsplit("/", 1)[1]
             if job_id in self.expired or job_id not in self.jobs:
                 return httpx.Response(404, json={"error": "job not found"})
             job = self.jobs[job_id]
             job["polls"] += 1
+            if job.get("cancelled"):
+                return httpx.Response(200, json={"id": job_id, "status": "CANCELLED"})
             if job["failed"]:
                 return httpx.Response(200, json={"id": job_id, "status": "FAILED", "error": "CUDA out of memory"})
             if job["polls"] < self.polls_to_finish:

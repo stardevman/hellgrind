@@ -155,6 +155,18 @@ yeniden doğrulayın.
   inceleme gerekiyor" ve video yok. Ref2VA çekim bazında elle seçilir; Ref2VA çekiminde RunPod'a kare işi gönderilmez
   (storyboard için yerel kare; ücretli kare yalnızca `POST /scenes/{id}/board/draw?paid=true` ile). Karaktersiz çekimin
   karesi Qwen-Image ile metinden (en çok 1 kare). fal.ai kancası: `H3_KEYFRAME_REFERENCE=flux_kontext` (varsayılan kapalı).
+- **Yinelenen gönderim yok (2026-10-09 olayından):** gönderilen her iş Redis'te iş anahtarıyla (seed, istem, kare,
+  boyut) kayıtlıdır; worker süreci öldürülüp görev yeniden teslim edilirse yeni deneme aynı işi beklemeyi sürdürür,
+  yenisini göndermez. Durum sorgusu okunamazsa (404: RunPod işi tanımıyor — kuyruk boşaltıldı ya da sonuç silindi —,
+  zaman aşımı, 5xx) iş "durum bilinmiyor" olarak beklenir ve **yeniden gönderilmez**; 12 sorgudan (~1 dk) sonra çekim hata
+  notuyla durur. Bir projede aynı anda en çok `RUNPOD_MAX_PENDING_JOBS` (6) iş bekler; fazlası yer açılana dek gönderilmez
+  ("RunPod kuyruğu dolu" olayı). **Kill-Switch** projenin RunPod'daki bekleyen işlerini `POST /cancel/{id}` ile iptal eder;
+  bekleyen görevler durur, rezervasyonlar iade edilir. Aynı görev 3 kez yarıda kesilirse (süreç her seferinde ölüyorsa)
+  bir daha çalışmaz, çekim açıklamayla `failed` olur; yeniden teslimde önceki denemenin açık rezervasyonları iade edilir.
+  Süpürme RunPod'un tanımadığı işleri `lost` olarak kapatır.
+- **Bellek:** kalite skorlayıcısı (OpenCLIP + SFace) süreç başına ~3,6 GB'tır. Üretim kuyruğu (`gen`) bu yüzden ayrı bir
+  worker'da, tek süreçte iş parçacığı havuzuyla çalışır (`worker-gen`: `--pool threads -c 4`); süreç havuzunda her alt
+  süreç kendi kopyasını yüklüyor, 7,6 GB'lık Docker VM'inde süreçler SIGKILL ile ölüyordu.
 - **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 60 sn (sıcak worker; başlangıç tahmini, ilk ölçümden sonra
   güncellenecek); soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
   (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); metin

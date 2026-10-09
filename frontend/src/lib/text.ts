@@ -155,6 +155,11 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
+    case "runpod_queue_full": return { t: `RunPod kuyruğu dolu: projede ${x.pending}/${x.limit} iş bekliyor; yenisi yer açılınca gönderilecek` };
+    case "runpod_cancelled": return { t: `Kill-Switch: RunPod'daki ${x.jobs} bekleyen iş iptal edildi`, c: "good" };
+    case "runpod_cancel_failed": return { t: `RunPod işleri iptal edilemedi: ${x.error}; RunPod konsolundan kuyruğu kontrol edin`, c: "bad" };
+    case "task_redelivered": return { t: `${where}görev yarıda kesildi, yeniden çalışıyor (${x.delivery}. teslim; yeni iş gönderilmez${x.released ? `, ${x.released} rezervasyon iade edildi` : ""})`, c: "bad" };
+    case "task_abandoned": return { t: `${where}görev defalarca yarıda kesildi; döngüyü önlemek için durduruldu`, c: "bad" };
     case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi${x.edit_boards ? ` (${x.edit_boards} karakter referansından)` : ""}, sonra ${x.videos} çekimin videosu` };
     case "batch_videos": return { t: `${BATCH_GROUP_TR[String(x.group)] ?? "Sıradaki grup"}: ${x.videos} çekim kuyruğa alındı` };
     case "board_attempt": return {

@@ -26,7 +26,7 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 - **Video motoru (ücretli modda):** MiniMax H3, **RunPod Serverless**'ta (varsayılan platform; `/run` + `/status`, httpx ile): modeller bir Network Volume'da (CA-MTL-1, `backend/runpod/setup_volume.sh`), worker RunPod'un resmî ComfyUI worker'ı tabanlı imaj (`backend/runpod/worker`). vast.ai arka ucu (ComfyUI ya da SGLang, `backend/vast/setup.sh`) deneyseldir ve varsayılan olarak kapalıdır (`H3_PLATFORM=vast`). Bölgeler izinli listeyle denetlenir (`app/core/regions.py`). fal.ai isteğe bağlıdır: Seedance (yönetmenin seçtiği çekimler), Flux kareleri, previs aktarımı, dudak senkronu.
 
 ## Repo yapısı
-- `docker-compose.yml`: postgres, redis, minio, api, worker, beat, flower servisleri. Ortak backend ayarları YAML anchor ile paylaşılır; panel kaynağı `additional_contexts: frontend` ile imaja verilir.
+- `docker-compose.yml`: postgres, redis, minio, api, worker, worker-gen, beat, flower servisleri. Ortak backend ayarları YAML anchor ile paylaşılır; panel kaynağı `additional_contexts: frontend` ile imaja verilir.
 - `frontend/`: Next.js paneli (`src/app`, `src/components`, `src/lib`, vitest testleri `tests/`).
 - `.env.example`, `.gitignore`, `Makefile`, `README.md` (Türkçe), `.github/workflows/ci.yml`.
 - `db/init/001_core.sql`: ilk şema; PostgreSQL ilk açılışta uygular.
@@ -49,7 +49,9 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 ## Faz 0 — İskelet ve altyapı
 - docker-compose: postgres (healthcheck, `db/init` bağlı), redis (appendonly, noeviction), minio (9000 ve 9001 portları).
   - api: uvicorn, 8000 portu.
-  - worker: `celery -A app.worker.celery_app worker -Q gen,post,control -c 4`.
+  - worker: `celery -A app.worker.celery_app worker -Q post,control -c 4`.
+  - worker-gen: `celery -A app.worker.celery_app worker -Q gen --pool threads -c 4` (üretim tek süreçte; kalite
+    skorlayıcısı ~3,6 GB, süreç başına bir kez yüklenir).
   - beat ve flower (5555 portu).
 - Backend imajı python:3.12-slim tabanlı olsun ve ffmpeg, espeak-ng, fonts-dejavu-core kursun.
 - `config.py` pydantic-settings ile yazılsın. Ayarlar ve varsayılanları:

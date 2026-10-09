@@ -22,7 +22,7 @@ panel:     ## Paneli tarayıcıda aç (macOS/Linux)
 	@python3 -m webbrowser http://localhost:8000 || true
 
 logs:
-	docker compose logs -f api worker
+	docker compose logs -f api worker worker-gen
 
 ps:
 	docker compose ps

@@ -57,6 +57,8 @@ FIELDS: tuple[Field, ...] = (
           "Boşta bekleme (sn; son işten sonra worker açık kalır ve faturalanır)", minimum=5),
     Field("RUNPOD_MIN_BALANCE_USD", "runpod_min_balance_usd", "number", "runpod",
           "Bakiye eşiği ($; altında yeni iş başlamaz)", minimum=1),
+    Field("RUNPOD_MAX_PENDING_JOBS", "runpod_max_pending_jobs", "number", "runpod",
+          "Projede aynı anda en çok bekleyen RunPod işi (fazlası yer açılana dek gönderilmez)", minimum=1),
     Field("H3_ALLOW_NORDIC", "h3_allow_nordic", "choice", "runpod",
           "Kuzey veri merkezleri de izinli (RunPod EUR-NO-1, EUR-IS-*; vast.ai Norveç, İzlanda). Varsayılan: yalnızca Kanada",
           ("false", "true")),

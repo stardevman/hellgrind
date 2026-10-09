@@ -25,6 +25,31 @@ def _set_status(scene_id: str, status: str, error: str | None = None) -> None:
                 scene.last_error = error
 
 
+class TaskAbandoned(RuntimeError):
+    """Görev çok kez yeniden teslim edildi (worker süreci her seferinde öldürüldü): bir daha çalıştırılmaz."""
+
+
+MAX_DELIVERIES = 3            # aynı görev (kimliği) en çok bu kadar çalışır; worker süreci öldürülünce yeniden teslim edilir
+DELIVERIES = "hg:deliveries:{}"
+
+
+def _delivery(task, project_id: str, scene_id: str) -> int:
+    """Görevin kaçıncı teslimi. Celery acks_late + reject_on_worker_lost: worker süreci öldürülürse (ör. bellek: SIGKILL)
+    görev baştan çalışır. Yeniden teslimde önceki denemenin kapanmamış rezervasyonları iade edilir (RunPod işi sürüyorsa
+    yeni deneme aynı işi bekler ve kendi rezervasyonunu alır)."""
+    task_id = getattr(task.request, "id", None)
+    if not task_id:
+        return 1
+    key = DELIVERIES.format(task_id)
+    n = int(killswitch.r().incr(key))
+    killswitch.r().expire(key, 7 * 3600)
+    if n > 1:
+        released = killswitch.release_orphans(project_id, scene_id)
+        killswitch.event(project_id, "task_redelivered", scene_id=scene_id, delivery=n, released=released,
+                         task=getattr(task, "name", None))
+    return n
+
+
 def _guard(task, project_id: str, scene_id: str, work):
     """Her sahne görevinin ortak sarmalayıcısı: Kill-Switch kontrolü, görev kaydı, hata kaydı.
 
@@ -37,6 +62,12 @@ def _guard(task, project_id: str, scene_id: str, work):
     if killswitch.is_frozen(project_id):
         _set_status(scene_id, "frozen")
         return "frozen"
+    if _delivery(task, project_id, scene_id) > MAX_DELIVERIES:      # süreç her seferinde öldürülüyor: döngüyü kes
+        note = (f"Görev {MAX_DELIVERIES} kez yarıda kesildi (worker süreci sonlandı; bellek yetersiz olabilir). Döngüyü "
+                "önlemek için durduruldu; worker günlüğüne bakıp çekimi yeniden üretin.")
+        _set_status(scene_id, "failed", note)
+        killswitch.event(project_id, "task_abandoned", scene_id=scene_id, task=getattr(task, "name", None))
+        raise TaskAbandoned(note)                 # zincirin sonraki halkaları çalışmaz; görev onaylanır, yeniden gelmez
     killswitch.register_task(project_id, task.request.id)
     try:
         return work()

@@ -50,9 +50,14 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
 
-  worker:
+  worker:        # montaj, ses, renk ve kontrol görevleri (süreç havuzu)
     <<: *backend
-    command: celery -A app.worker.celery_app worker -Q gen,post,control -c 4 --loglevel=INFO
+    command: celery -A app.worker.celery_app worker -Q post,control -c 4 -n worker@%h --loglevel=INFO
+
+  worker-gen:    # üretim (storyboard, varyasyonlar, hareket testi): tek süreç, iş parçacığı havuzu. Kalite skorlayıcısı
+    <<: *backend #   (OpenCLIP + SFace, ~3,6 GB) süreç başına bir kez yüklenir; süreç havuzunda her alt süreç kendi kopyasını
+                 #   yüklüyor, bellek dolunca süreçler SIGKILL ile ölüyor ve görevler yeniden teslim ediliyordu.
+    command: celery -A app.worker.celery_app worker -Q gen --pool threads -c 4 -n gen@%h --loglevel=INFO
 
   beat:
     <<: *backend

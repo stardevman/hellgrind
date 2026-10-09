@@ -29,6 +29,8 @@ Kontroller:
   T. Sekans tavanı dolunca yalnızca o sekans durur, diğer sekans üretmeye devam eder (Faz 11)
   7. Küçük bütçeli (0,05 USD; MiniMax H3 bir klibi birkaç sentlik GPU süresiyle üretir) projede sahne `frozen`, proje
      `paused` olur; harcama bütçeyi aşmaz, yeni render isteği 423 döner
+  P. Yinelenen RunPod gönderimi yok (scripts/smoke_runpod.py): 4 çekim, sahte RunPod; aynı işler yeniden teslim edilince
+     yenisi gönderilmez, 3 dk boyunca iş sayısı sabit kalır ve proje sınırını aşmaz; Kill-Switch bekleyen işleri iptal eder
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
 """
 import os
@@ -369,6 +371,9 @@ def main() -> int:
     check(project["spent_usd"] + project["reserved_usd"] <= TINY_BUDGET, f"harcama {TINY_BUDGET} USD'yi aşmadı (${project['spent_usd']:.4f} + ayrılan ${project['reserved_usd']:.4f})")
     r = c.post(f"/scenes/{ov['scenes'][0]['id']}/render")
     check(r.status_code == 423, f"yeni render isteği 423 döndü ({r.status_code})")
+
+    from scripts import smoke_runpod                # en sonda: süreç içinde, sahte RunPod'la (ağ yok)
+    smoke_runpod.run(c, check, new_project, meta["sample_script"])
 
     print(f"\n{time.time() - t0:.0f} sn")
     if FAILS:

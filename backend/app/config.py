@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     runpod_gpu_types: str = "RTX 5090,RTX PRO 6000"
     runpod_idle_timeout_s: int = 60    # worker son işten sonra bu kadar bekler (faturalanır), sonra kapanır
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
+    runpod_max_pending_jobs: int = 6       # bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer bekler
     # H3 DiT dosyası: fp8_scaled (cu128 torch'lu worker; varsayılan) | int8_convrot (Comfy-Org'un önerisi; cu130 torch ister)
     h3_unet_variant: str = "fp8_scaled"
     # Karakterli çekimin ilk karesi: qwen_edit (varsayılan; Qwen-Image-Edit-2511, karakterin onaylı referansından,

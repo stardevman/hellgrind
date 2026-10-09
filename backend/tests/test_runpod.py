@@ -53,6 +53,9 @@ def runpod(monkeypatch, tmp_path, paid, s3):
     for name in ("rp_balance", "rp_config", "rp_health", "rp_tick", "rp_last_tick", "rp_balance_error", "inflight",
                  "last_activity", "last_project", "retrieval"):
         r.delete(vast_box._k(name))
+    for pattern in ("rp_job:*", "rp_pending:*"):                 # önceki testlerin gönderilmiş iş kayıtları
+        for key in r.scan_iter(vast_box._k(pattern)):
+            r.delete(key)
     return fake
 
 
@@ -77,7 +80,7 @@ def test_a_clip_is_submitted_waited_downloaded_verified_and_charged_by_gpu_time(
     assert flow["6"]["inputs"]["img"] == images[0]["name"] and images[0]["name"].startswith("hg_")
     assert flow["9"]["inputs"]["filename_prefix"].startswith("hellgrind/i2v_")
     assert run["policy"]["executionTimeout"] == settings.h3_timeout_s * 1000 and run["input"]["hellgrind"]["kind"] == "video"
-    assert result.request_id == "job-1" and result.meta["gpu"] == "NVIDIA GeForce RTX 5090"
+    assert result.request_id == "job-1-e1" and result.meta["gpu"] == "NVIDIA GeForce RTX 5090"
     assert result.meta["gpu_seconds"] == 72.0                         # 30 sn çalışma + 42 sn soğuk başlatma (ilk iş)
     assert result.cost_usd == round(72.0 * RATE_5090, 4)
     (row,) = rows()
@@ -132,7 +135,7 @@ def test_a_corrupted_output_is_never_stored_and_a_retry_reuses_the_job(runpod):
         provider.generate(request())
     assert [r["status"] for r in rows()] == ["completed"]
     runpod.tamper = False
-    runpod.jobs["job-1"].pop("output")
+    runpod.jobs["job-1-e1"].pop("output")
     provider.generate(request())
     assert [r["status"] for r in rows()] == ["stored"] and len(runpod.runs) == 1
 
@@ -253,11 +256,13 @@ def test_the_tick_charges_idle_workers_and_retrieves_left_behind_outputs(runpod,
     assert float(spent) == pytest.approx(2 * 60 * RATE_5090, abs=0.002)      # son işi çalıştıran GPU'nun ücreti, ~60 sn
 
 
-def test_an_expired_result_is_reported_missing(runpod):
+def test_an_unknown_job_is_closed_as_lost_and_not_swept_again(runpod):
+    """RunPod işi tanımıyorsa (404: kuyruk boşaltıldı, iptal ya da sonuç silindi) kayıt `lost` olur; süpürme bitip durur."""
     h3_outputs.submitted("runpod://ep123", "job-old", "video", "fl2va", None, {}, backend="runpod", instance_id="runpod:ep123")
     runpod.expired.add("job-old")
     counts = h3_outputs.retrieve("runpod:ep123", "", "")
-    assert counts["missing"] == 1 and "30 dk" in rows()[0]["error"]
+    assert counts["missing"] == 1 and counts["remaining"] == 0
+    assert rows()[0]["status"] == "lost" and "404" in rows()[0]["error"] and "30 dk" in rows()[0]["error"]
 
 
 def test_nothing_runs_in_free_mode(runpod, monkeypatch):

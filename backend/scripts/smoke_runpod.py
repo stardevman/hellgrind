@@ -1,0 +1,113 @@
+"""Duman testi bölümü: yinelenen RunPod gönderimi yok (sahte RunPod, ağ yok).
+
+2026-10-09 ücretli koşusunda worker süreçleri bellekten öldürülünce görevler yeniden teslim edildi ve aynı işler her ~30 sn
+yeniden gönderildi (RunPod kuyruğu 44 işe çıktı). Burada aynı durum süreç içinde, sahte RunPod'la canlandırılır:
+4 çekim × 2 aday gönderilir, 10 sn sonra aynı 8 iş "yeniden teslim edilir"; işler bitmez. `seconds` boyunca (varsayılan
+180 sn, SMOKE_RUNPOD_SECONDS) RunPod'a giden iş sayısı sabit kalmalı ve proje sınırını (runpod_max_pending_jobs) aşmamalı.
+Sonunda Kill-Switch bekleyen işleri RunPod'da iptal eder, rezervasyonlar iade edilir.
+
+Ücretli kilit yalnızca bu süreçteki ayar nesnesinde ve sahte anahtarlarla açılır (testlerdeki `paid` fikstürü gibi); HTTP
+istemcisi sahte RunPod'a bağlıdır, hiçbir istek dışarı çıkmaz. Bitince ayarlar geri yüklenir.
+"""
+import json
+import os
+import tempfile
+import threading
+import time
+
+# sahte RunPod "test-runpod_api_key" anahtarını bekler
+FAKE_SETTINGS = dict(dry_run=False, runpod_api_key="test-runpod_api_key", h3_platform="runpod", runpod_endpoint_id="ep123",
+                     runpod_datacenter="CA-MTL-1", runpod_network_volume_id="vol1",
+                     runpod_gpu_types="RTX 5090,RTX PRO 6000", runpod_min_balance_usd=10.0, h3_allow_nordic=False)
+
+
+def run(c, check, new_project, script: str, seconds: float | None = None) -> None:
+    from app.budget import killswitch, pricing
+    from app.config import settings
+    from app.engine import paid
+    from app.engine.providers import GenRequest
+    from app.live import runpod_h3, vast_box
+    from tests.media_utils import make_video
+    from tests.runpod_fake import FakeRunpod
+
+    seconds = float(seconds if seconds is not None else os.environ.get("SMOKE_RUNPOD_SECONDS", 180))
+    print(f"P) RunPod: yinelenen gönderim yok (sahte RunPod, 4 çekim, {seconds:.0f} sn)")
+    pid = new_project("duman-testi-runpod", 5.0, lint_strictness="off")
+    c.post(f"/projects/{pid}/script", json={"text": script, "auto_render": False}).raise_for_status()
+    scenes = [s["id"] for s in c.get(f"/projects/{pid}/overview").json()["scenes"]]
+    saved = {k: getattr(settings, k) for k in (*FAKE_SETTINGS, "h3_comfy_workflow_dir", "work_dir")}
+    transport, poll = runpod_h3.TRANSPORT, runpod_h3.POLL_S
+    threads: list[tuple[threading.Thread, dict]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            video = open(make_video(os.path.join(tmp, "v.mp4"), seconds=4.0, size="320x180", fps=24), "rb").read()
+            fake = FakeRunpod(video, b"")
+            fake.polls_to_finish = 10 ** 9                         # işler kuyrukta bekler, hiç bitmez
+            flows = os.path.join(tmp, "comfy")
+            os.makedirs(flows)
+            for kind, needs in (("t2v", ""), ("i2v", "{{first_frame}}"), ("r2v", "{{reference_1}}")):
+                with open(os.path.join(flows, f"{kind}.json"), "w") as f:
+                    json.dump({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}", "img": needs}},
+                               "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}, f)
+            from app import runtime_config
+            runtime_config.refresh_if_changed()                   # .env bir kez okunsun; sahte ayarları sonradan ezmesin
+            for k, v in {**FAKE_SETTINGS, "h3_comfy_workflow_dir": flows,
+                         "work_dir": os.path.join(tmp, "work")}.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S = fake.transport(), 0.5
+            for pattern in ("rp_job:*", "rp_pending:*", "rp_cold_claim", "rp_warm"):
+                for key in killswitch.r().scan_iter(vast_box._k(pattern)):
+                    killswitch.r().delete(key)
+            cap = int(settings.runpod_max_pending_jobs)
+            estimate = pricing.estimate_video("h3", "480p", 4.0, mode="fl2va")
+
+            def candidate(sid: str, seed: int) -> dict:
+                out: dict = {}
+
+                def go():
+                    try:
+                        out["result"] = paid.call(
+                            pid, estimate, "h3:480p", "runpod_api_key",
+                            lambda: runpod_h3.get_live_provider().generate(GenRequest(
+                                prompt=f"shot {sid[:8]}", seed=seed, resolution="480p", duration_s=4.0,
+                                extra={"project_id": pid, "h3_mode": "fl2va"})), scene_id=sid)
+                    except BaseException as e:          # noqa: BLE001
+                        out["error"] = e
+                t = threading.Thread(target=go, daemon=True)
+                t.start()
+                threads.append((t, out))
+                return out
+
+            work = [(sid, seed) for sid in scenes for seed in (1, 2)]
+            for sid, seed in work:
+                candidate(sid, seed)
+            time.sleep(10)
+            sent = len(fake.runs)
+            for sid, seed in work:                               # aynı işler yeniden teslim edildi (yeni süreçler)
+                candidate(sid, seed)
+            counts, t0 = [], time.monotonic()
+            while time.monotonic() - t0 < seconds:
+                time.sleep(min(15.0, max(1.0, seconds / 12)))
+                counts.append(len(fake.runs))
+            early = next((o["error"] for _, o in threads if "error" in o), None)
+            if early is not None:
+                print(f"    erken hata: {type(early).__name__}: {str(early)[:300]}")
+            check(sent == min(len(work), cap) and all(n == sent for n in counts),
+                  f"{len(work)} aday, proje sınırı {cap}: RunPod'a {sent} iş gitti; yeniden teslimden sonra {seconds:.0f} sn "
+                  f"boyunca sabit kaldı ({counts})")
+            check(len(runpod_h3.pending(pid)) == sent, f"projenin bekleyen RunPod işleri: {len(runpod_h3.pending(pid))}")
+            killswitch.freeze(pid, "duman testi: Kill-Switch")
+            for t, _ in threads:
+                t.join(30)
+            stopped = [o.get("error") for _, o in threads]
+            check(sorted(fake.cancelled) == sorted(j["id"] for j in fake.jobs.values()) and len(fake.cancelled) == sent,
+                  f"Kill-Switch RunPod'daki {len(fake.cancelled)} bekleyen işi iptal etti")
+            check(all(isinstance(e, killswitch.ProjectFrozen) for e in stopped) and not any(t.is_alive() for t, _ in threads),
+                  f"bekleyen {len(stopped)} görev durdu, hiçbiri yeniden göndermedi (RunPod'a toplam {len(fake.runs)} iş)")
+            budget = c.get(f"/projects/{pid}/budget").json()
+            check(runpod_h3.pending(pid) == {} and budget["reserved"] == 0,
+                  f"bekleyen iş kaydı boş, rezervasyonlar iade edildi (ayrılan ${budget['reserved']:.4f})")
+        finally:
+            for k, v in saved.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S = transport, poll

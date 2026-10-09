@@ -91,6 +91,20 @@ def unregister_task(project_id: str, task_id: str | None) -> None:
 
 # ---------- dondur / devam ----------
 
+def cancel_remote(project_id: str) -> int:
+    """Ücretli modda projenin RunPod'da bekleyen işlerini iptal eder (görev iptali RunPod kuyruğuna ulaşmaz). Ücretsiz
+    modda hiçbir şey yapmaz. Hata dondurmayı engellemez."""
+    if settings.dry_run or settings.h3_platform != "runpod":
+        return 0
+    try:
+        from app.live import runpod_h3            # ücretli modül: yalnızca fonksiyon içinde
+        return runpod_h3.cancel_project(project_id)
+    except Exception as e:                        # noqa: BLE001 — dondurma her durumda tamamlanmalı
+        log.warning("RunPod işleri iptal edilemedi project=%s: %s", project_id, e)
+        event(project_id, "runpod_cancel_failed", error=str(e)[:200])
+        return 0
+
+
 def freeze(project_id: str, reason: str) -> None:
     """Kill-Switch: bayrağı kaldır, projeyi duraklat, kuyruktaki görevleri iptal et."""
     r().set(FROZEN.format(project_id), reason)
@@ -107,6 +121,7 @@ def freeze(project_id: str, reason: str) -> None:
         celery.control.revoke(task_ids)           # kuyrukta bekleyenler hiç başlamaz
     from app.worker.dispatch import drop_batches  # kareleri bekleyen videolar da kuyruğa girmez
     drop_batches(project_id)
+    cancel_remote(project_id)
     event(project_id, "frozen", reason=reason, revoked=len(task_ids))
     log.warning("KILL-SWITCH project=%s reason=%s revoked=%d", project_id, reason, len(task_ids))
 
@@ -336,6 +351,23 @@ def watchdog() -> list[str]:
             freeze(str(pid), f"velocity ({recent[pid]:.2f} USD / 10 dk > {limit})")
             tripped.append(str(pid))
     return tripped
+
+
+def release_orphans(project_id: str, scene_id) -> int:
+    """Çekimin kapanmamış rezervasyonlarını iade eder: yalnızca o çekimin görevi yeniden teslim edildiğinde çağrılır
+    (önceki deneme yarıda kesildi; çekim başına aynı anda tek görev çalışır)."""
+    with session_scope() as s:
+        open_ = s.execute(text("""
+            SELECT l.reservation, l.amount_usd, l.provider, l.variation_id
+            FROM cost_ledger l
+            WHERE l.kind = 'reserve' AND l.project_id = :p AND l.scene_id = :s
+              AND NOT EXISTS (SELECT 1 FROM cost_ledger x
+                              WHERE x.reservation = l.reservation AND x.kind IN ('commit','release'))
+        """), {"p": project_id, "s": scene_id}).all()
+    for rid, amt, prov, vid in open_:
+        release(str(project_id), rid, float(amt), prov, scene_id, vid,
+                error="Görev yarıda kesildi (worker süreci sonlandı); rezervasyon iade edildi.")
+    return len(open_)
 
 
 def reap_stale_reservations(max_age_minutes: int = 60) -> int:

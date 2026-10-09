@@ -176,6 +176,15 @@ def unsafe_count(instance_id: str) -> int:
                              {"i": str(instance_id)}).scalar())
 
 
+def lost(server: str, job_id: str, reason: str) -> None:
+    """Sunucu işi artık tanımıyor (RunPod 404: kuyruk boşaltıldı, iş iptal edildi ya da sonucu silindi): kayıt kapanır,
+    süpürme yeniden denemez."""
+    with session_scope() as s:
+        s.execute(text("""UPDATE h3_outputs SET status = 'lost', error = :e
+                          WHERE server = :s AND job_id = :j AND status IN ('submitted', 'completed')"""),
+                  {"s": server, "j": job_id, "e": reason})
+
+
 def mark_lost(instance_id: str) -> int:
     """Yönetmen kaybı kabul etti: indirilemeyen çıktılar `lost` olur (makine silinebilir)."""
     with session_scope() as s:

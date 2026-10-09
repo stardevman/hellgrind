@@ -29,7 +29,6 @@ import hashlib
 import json
 import logging
 import os
-import threading
 import time
 import uuid
 
@@ -65,6 +64,120 @@ class JobFailed(TransientError):
     """RunPod işi başarısız, iptal ya da zaman aşımı bildirdi: yeni bir gönderimle yeniden denenebilir."""
 
 
+class JobLost(RuntimeError):
+    """Gönderilmiş işin durumu UNKNOWN_LIMIT sorguda da okunamadı (404: RunPod işi tanımıyor — kuyruk boşaltıldı ya da
+    sonucu silindi —, zaman aşımı ya da 5xx). Yeniden GÖNDERİLMEZ (aynı iş ikinci kez ücretlenebilirdi): çekim hata
+    notuyla durur; yönetmen yeniden üretir."""
+
+
+UNKNOWN_LIMIT = 12            # durum art arda bu kadar sorguda okunamazsa iş kayıp sayılır (POLL_S ile ~1 dk)
+
+
+# ---------- gönderilmiş işler (süreçler arası, Redis) ----------
+# Celery worker süreci öldürülürse (ör. bellek: SIGKILL) görev yeniden teslim edilir ve baştan çalışır. Aynı iş anahtarı
+# (seed, istem, kare, boyut...) için RunPod'da bekleyen ya da çalışan iş varsa yenisi gönderilmez: yeni teslim eski işi
+# beklemeyi sürdürür. Bir projede aynı anda en çok `runpod_max_pending_jobs` iş bekler; fazlası yer açılana dek
+# gönderilmez (olay akışına yazılır). Kill-Switch projenin bekleyen işlerini RunPod'da iptal eder (`cancel_project`).
+
+JOB_TTL_S = 7 * 3600          # Celery visibility_timeout (6 sa) + pay
+
+
+def _job_key(jkey: str) -> str:
+    return vast_box._k(f"rp_job:{jkey}")
+
+
+def _pending_key(project_id: str | None) -> str:
+    return vast_box._k(f"rp_pending:{project_id or '-'}")
+
+
+def submitted(jkey: str) -> str | None:
+    """Bu iş anahtarı için RunPod'a gönderilmiş ve henüz bitmemiş işin kimliği."""
+    raw = killswitch.r().get(_job_key(jkey))
+    if not raw:
+        return None
+    return json.loads(raw).get("id")
+
+
+def remember(jkey: str, job_id: str, project_id: str | None) -> None:
+    r = killswitch.r()
+    r.set(_job_key(jkey), json.dumps({"id": job_id, "project": project_id, "at": time.time()}), ex=JOB_TTL_S)
+    r.hset(_pending_key(project_id), job_id, jkey)
+    r.expire(_pending_key(project_id), JOB_TTL_S)
+
+
+def settle(job_id: str, project_id: str | None) -> None:
+    """İş RunPod'da bitti (artık kuyrukta yer tutmuyor); çıktısı alınana dek iş anahtarı kayıtlı kalır."""
+    killswitch.r().hdel(_pending_key(project_id), job_id)
+
+
+def forget(jkey: str, job_id: str, project_id: str | None) -> None:
+    r = killswitch.r()
+    r.delete(_job_key(jkey))
+    r.hdel(_pending_key(project_id), job_id)
+
+
+def pending(project_id: str | None) -> dict[str, str]:
+    """Projenin RunPod'da bekleyen ya da çalışan işleri: {iş kimliği: iş anahtarı}."""
+    return {(k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
+            for k, v in killswitch.r().hgetall(_pending_key(project_id)).items()}
+
+
+def _frozen(project_id: str | None) -> bool:
+    return bool(project_id) and killswitch.is_frozen(project_id)
+
+
+def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | None) -> tuple[str, bool]:
+    """(iş kimliği, yeniden kullanıldı mı). Aynı iş anahtarı için bekleyen iş varsa onu döndürür; yoksa proje sınırında
+    yer açılmasını bekleyip gönderir. Gönderim proje başına kilitle sıralanır (iki iş parçacığı sınırı aşamasın)."""
+    jkey = job.key()
+    if (job_id := submitted(jkey)) is not None:
+        return job_id, True
+    cap = max(1, int(settings.runpod_max_pending_jobs))
+    deadline = time.monotonic() + float(settings.h3_timeout_s) + QUEUE_WAIT_S
+    noted = False
+    while True:
+        if _frozen(project_id):
+            raise killswitch.ProjectFrozen(project_id)
+        with killswitch.r().lock(vast_box._k(f"rp_submit:{project_id or '-'}"), timeout=60, blocking_timeout=60):
+            if (job_id := submitted(jkey)) is not None:
+                return job_id, True
+            waiting = len(pending(project_id))
+            if waiting < cap:
+                job_id = submit(c, job, kind)
+                remember(jkey, job_id, project_id)
+                return job_id, False
+        if not noted and project_id:
+            killswitch.event(project_id, "runpod_queue_full", pending=waiting, limit=cap)
+            noted = True
+        if time.monotonic() >= deadline:
+            raise TransientError(f"RunPod'da projenin {cap} işi bitmeden yer açılmadı")
+        time.sleep(POLL_S)
+
+
+def cancel_project(project_id: str) -> int:
+    """Kill-Switch: projenin RunPod'da bekleyen ve çalışan işlerini iptal eder (POST /cancel/{id}). Dönen değer iptal
+    istenen iş sayısı. Bekleyen işleri sorgulayan görevler CANCELLED görüp durur; rezervasyonları iade edilir."""
+    jobs = pending(project_id)
+    if not jobs:
+        return 0
+    key = guard(KEY)
+    cancelled = 0
+    with _client(key) as c:
+        for job_id, jkey in jobs.items():
+            try:
+                c.post(f"/{endpoint_id()}/cancel/{job_id}").raise_for_status()
+                cancelled += 1
+            except Exception as e:                    # noqa: BLE001 — iş zaten bitmiş ya da silinmiş olabilir
+                log.warning("RunPod işi iptal edilemedi %s: %s", job_id, e)
+            forget(jkey, job_id, project_id)
+            try:
+                h3_outputs.failed(server(), job_id, "Kill-Switch: RunPod'da iptal edildi")
+            except Exception:                         # noqa: BLE001
+                log.warning("çıktı kaydı kapatılamadı: %s", job_id)
+    killswitch.event(project_id, "runpod_cancelled", jobs=len(jobs), cancelled=cancelled)
+    return cancelled
+
+
 # ---------- bağlantı ----------
 
 def endpoint_id() -> str:
@@ -96,7 +209,7 @@ def _status(exc: BaseException) -> int | None:
 
 
 def _classify(exc: BaseException) -> BaseException:
-    if isinstance(exc, (PaidCallBlocked, TransientError)):
+    if isinstance(exc, (PaidCallBlocked, TransientError, JobLost, killswitch.ProjectFrozen)):
         return exc
     status = _status(exc)
     if status in (401, 403):
@@ -399,11 +512,37 @@ def _failure(body: dict) -> str:
     return str(detail)[:300]
 
 
-def wait(c: httpx.Client, job_id: str, job_key: str) -> dict:
-    """İş bitene dek /status sorgular (kuyruk ve soğuk başlatma dahil). Dönen değer tamamlanmış durum yanıtı."""
+def wait(c: httpx.Client, job_id: str, job_key: str, project_id: str | None = None) -> dict:
+    """İş bitene dek /status sorgular (kuyruk ve soğuk başlatma dahil). Dönen değer tamamlanmış durum yanıtı.
+    Durum okunamazsa (404: RunPod işi tanımıyor; zaman aşımı, 429, 5xx) iş "durum bilinmiyor" olarak beklenir ve yeniden
+    gönderilmez; UNKNOWN_LIMIT sorgudan sonra JobLost. Proje dondurulursa iş iptal edilir ve ProjectFrozen fırlar."""
     deadline = time.monotonic() + float(settings.h3_timeout_s) + QUEUE_WAIT_S
+    unknown = 0
     while True:
-        body = status(c, job_id)
+        if _frozen(project_id):
+            if job_id in pending(project_id):        # Kill-Switch henüz iptal etmediyse (cancel_project kaydı siler)
+                try:
+                    c.post(f"/{endpoint_id()}/cancel/{job_id}")
+                except Exception:                    # noqa: BLE001 — iptal edilemese de beklemeyi bırak
+                    log.warning("RunPod işi iptal edilemedi: %s", job_id)
+            raise killswitch.ProjectFrozen(project_id)
+        try:
+            body = status(c, job_id)
+        except Exception as e:                       # noqa: BLE001
+            problem = _classify(e)
+            if isinstance(problem, PaidCallBlocked) and _status(e) != 404:
+                raise problem from e                 # anahtar reddedildi: beklemenin anlamı yok
+            unknown += 1
+            log.warning("RunPod iş durumu okunamadı (%d/%d) %s: %s", unknown, UNKNOWN_LIMIT, job_id, e)
+            if unknown >= UNKNOWN_LIMIT:
+                why = "RunPod işi tanımıyor (404: kuyruk boşaltılmış ya da sonuç silinmiş)" if _status(e) == 404 \
+                    else f"durum okunamadı ({type(e).__name__})"
+                raise JobLost(f"RunPod işinin durumu {UNKNOWN_LIMIT} sorguda okunamadı ({job_id}): {why}. İş yeniden "
+                              "gönderilmedi; çekimi yeniden üretin.") from e
+            vast_box.heartbeat(job_key)
+            time.sleep(POLL_S)
+            continue
+        unknown = 0
         state = body.get("status")
         if state == "COMPLETED":
             out = body.get("output")
@@ -518,10 +657,6 @@ class RunpodProvider:
     image_first = False
     whole_wave = True
 
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._jobs: dict[str, str] = {}
-
     def billed_seconds(self, duration_s: float) -> float:
         return float(vast_h3.seconds_for(duration_s))
 
@@ -542,36 +677,37 @@ class RunpodProvider:
         job = vast_h3.build_job(req, server=server())
         kind = vast_h3.comfy_kind(job)
         jkey = job.key()
+        project_id = req.extra.get("project_id")
+        job_id = None
         try:
             with _client(key) as c:
-                with self._lock:
-                    job_id = self._jobs.get(jkey)
-                if job_id is None:
-                    job_id = submit(c, job, kind)
+                job_id, reused = submit_once(c, job, kind, project_id)
+                if not reused:
                     vast_h3._note(job, job_id, req.negative)
-                    _register(job, job_id, "video", req.extra.get("project_id"))
-                    with self._lock:
-                        self._jobs[jkey] = job_id
-                else:
+                    _register(job, job_id, "video", project_id)
+                else:                                # yeniden teslim edilen görev: aynı işi beklemeyi sürdürür
                     history.step(settings.h3_model, job_id, task=job.task, reused=True)
-                vast_box.track(jkey, req.extra.get("project_id"))
+                vast_box.track(jkey, project_id)
                 try:
-                    body = wait(c, job_id, jkey)
-                except JobFailed as e:
-                    with self._lock:
-                        self._jobs.pop(jkey, None)
+                    body = wait(c, job_id, jkey, project_id)
+                except (JobFailed, JobLost) as e:
+                    forget(jkey, job_id, project_id)
                     h3_outputs.failed(server(), job_id, str(e))
                     raise
+                except killswitch.ProjectFrozen:
+                    forget(jkey, job_id, project_id)
+                    h3_outputs.failed(server(), job_id, "Kill-Switch: RunPod'da iptal edildi")
+                    raise
+            settle(job_id, project_id)
             note_worker(job, body)
             h3_outputs.completed(server(), job_id, remote_meta(body))
             prov = provenance(job, body)
             path = collect(body, job_id, extra={"provenance": prov})
+            forget(jkey, job_id, project_id)          # çıktı alındı; indirme bozuksa yeniden deneme aynı işi kullanır
         except Exception as e:
             _reraise(e)
         finally:
             vast_box.untrack(jkey)
-        with self._lock:
-            self._jobs.pop(jkey, None)
         cut = req.duration_s if self.billed_seconds(req.duration_s) - req.duration_s > 0.05 else None
         vast_h3.finish(path, cut, prov)
         seconds = billed_seconds(body)
@@ -619,21 +755,29 @@ def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
     kind, jkey = job.task, job.key()
     try:
         with _client(key) as c:
-            job_id = submit(c, job, kind)
-            history.step(f"{IMAGE_MODEL[kind]} (ComfyUI {kind}.json, RunPod)", job_id, seed=job.seed,
+            job_id, reused = submit_once(c, job, kind, project_id)
+            history.step(f"{IMAGE_MODEL[kind]} (ComfyUI {kind}.json, RunPod)", job_id, seed=job.seed, reused=reused,
                          resolution=f"{job.width}x{job.height}",
                          prompt=job.prompt[:vast_h3.NOTED_PROMPT_CHARS],
                          **({"references": job.names, "lightning": job.lightning} if kind == "edit_keyframe" else {}))
-            _register(job, job_id, "keyframe", project_id)
+            if not reused:
+                _register(job, job_id, "keyframe", project_id)
             vast_box.track(jkey, project_id)
             try:
-                body = wait(c, job_id, jkey)
-            except JobFailed as e:
+                body = wait(c, job_id, jkey, project_id)
+            except (JobFailed, JobLost) as e:
+                forget(jkey, job_id, project_id)
                 h3_outputs.failed(server(), job_id, str(e))
                 raise
+            except killswitch.ProjectFrozen:
+                forget(jkey, job_id, project_id)
+                h3_outputs.failed(server(), job_id, "Kill-Switch: RunPod'da iptal edildi")
+                raise
+        settle(job_id, project_id)
         note_worker(job, body)
         h3_outputs.completed(server(), job_id, remote_meta(body))
         path = collect(body, job_id, image=True)
+        forget(jkey, job_id, project_id)
     except Exception as e:
         _reraise(e)
     finally:
@@ -670,7 +814,8 @@ def retrieve_row(row: dict) -> str:
         except httpx.HTTPStatusError as e:
             if _status(e) != 404:
                 raise
-            h3_outputs.note(row["id"], "RunPod sonucu artık tutulmuyor (tamamlandıktan 30 dk sonra silinir)")
+            h3_outputs.lost(row["server"], row["job_id"], "RunPod işi tanımıyor (404): kuyruk boşaltılmış, iş iptal "
+                            "edilmiş ya da sonucu silinmiş (tamamlandıktan 30 dk sonra)")
             return "missing"
     state = body.get("status")
     if state in ("IN_QUEUE", "IN_PROGRESS"):

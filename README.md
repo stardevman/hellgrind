@@ -50,7 +50,8 @@ docker compose up -d --build  # tüm servisleri derler ve başlatır
 curl localhost:8000/healthz   # {"ok":true,"dry_run":true}
 ```
 
-Servisler: `postgres`, `redis`, `minio`, `api`, `worker`, `beat`, `flower`. Veritabanı şeması ilk açılışta kurulur; sonraki şema değişiklikleri API açılışında `backend/migrations/*.sql` dosyalarından, veritabanı silinmeden uygulanır.
+Servisler: `postgres`, `redis`, `minio`, `api`, `worker` (montaj, ses, kontrol), `worker-gen` (üretim: tek süreç, iş
+parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`, `flower`. Veritabanı şeması ilk açılışta kurulur; sonraki şema değişiklikleri API açılışında `backend/migrations/*.sql` dosyalarından, veritabanı silinmeden uygulanır.
 
 | Adres | Ne |
 |---|---|
@@ -303,8 +304,8 @@ işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/his
   olduğu denetlenir, yorumlar korunur. Bütçe rezervasyonları hemen yeni fiyatlarla yapılır.
 - **Değişiklik kaydı:** kim neyi ne zaman değiştirdi (anahtar değerleri kaydedilmez).
 
-Değişiklikler `.env` dosyasına (fiyatlar `backend/pricing.yaml`'a) yazılır; docker-compose bu dosyaları `api`, `worker` ve
-`beat` konteynerlerine bağlar. Servisler **yeniden başlatılmadan** yeni ayarı kullanır: kayıt Redis'teki bir sayacı artırır, API
+Değişiklikler `.env` dosyasına (fiyatlar `backend/pricing.yaml`'a) yazılır; docker-compose bu dosyaları `api`, `worker`,
+`worker-gen` ve `beat` konteynerlerine bağlar. Servisler **yeniden başlatılmadan** yeni ayarı kullanır: kayıt Redis'teki bir sayacı artırır, API
 her istekte ve worker her görevden önce sayacı görüp `.env`'i yeniden okur. Panel yalnızca beyaz listedeki ücretli servis
 ayarlarını yazabilir; veritabanı ve depo ayarlarına dokunamaz. Bağlantı sınaması yalnızca ücretsiz, salt okunur doğrulama
 uçlarına gider (Anthropic model listesi, ElevenLabs hesap bilgisi, fal.ai kuyruk durumu, H3 sunucusunun `/health` ucu) ve
@@ -695,6 +696,7 @@ Bilinmesi gerekenler:
 | `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
 | `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
+| `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |
 | `QWEN_EDIT_LIGHTNING` | `false` | Qwen-Image-Edit Lightning LoRA: `true` 4 adım, cfg 1; `false` 40 adım, cfg 4 |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
