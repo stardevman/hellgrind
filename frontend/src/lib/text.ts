@@ -50,6 +50,8 @@ const attemptText = (x: Record<string, unknown>) => {
   if (look) parts.push(`benzerlik ${look}`);
   if (x.faces_seen && x.faces_measured === 0) parts.push("yüz küçük, kimlik ölçülemedi");
   if (reasons.includes("low_clip")) parts.push("istem uyumu düşük");
+  if (reasons.includes("continuity_jump")) parts.push(`süreklilik ${num2(Number(x.continuity ?? 0))}: önceki kareyle mekân farklı`);
+  else if (x.chain && x.continuity != null) parts.push(`süreklilik ${num2(Number(x.continuity))}`);
   if (reasons.some((r) => ["black", "freeze", "flat"].includes(r))) parts.push("kusurlu kare");
   return parts.length ? ` (${parts.join("; ")})` : "";
 };
@@ -138,7 +140,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "sequence_capped": return { t: `${x.code} sekansı bütçe tavanına ulaştı (${usd(x.spent)} / ${usd(x.cap)}); diğer sekanslar sürüyor`, c: "bad" };
     case "sequence_reopened": return { t: `${x.code} sekansı yeniden açıldı`, c: "good" };
     case "track_changed": return { t: `Film kanalı ${x.removed ? "kaldırıldı" : "değişti"}; hiçbir çekim yeniden üretilmedi, film yeniden birleştiriliyor` };
-    case "board_ready": return { t: `${x.code}: storyboard karesi hazır` };
+    case "board_ready": return { t: `${x.code}: storyboard karesi hazır${x.chain ? ` (${x.chain} karesinden devam)` : ""}` };
     case "board_status": return {
       t: `${x.code}: kare ${lowerTr(BOARD_TR[x.status] || x.status)}`,
       c: x.status === "approved" ? "good" : x.status === "changes_requested" ? "bad" : "",
@@ -167,6 +169,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
+    case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "runpod_model_wait": return { t: `RunPod: ${x.model} işi sırasını bekliyor (önce çalışan model grubu bitsin)` };
     case "runpod_queue_full": return { t: `RunPod kuyruğu dolu: projede ${x.pending}/${x.limit} iş bekliyor; yenisi yer açılınca gönderilecek` };
     case "runpod_cancelled": return { t: `Kill-Switch: RunPod'daki ${x.jobs} bekleyen iş iptal edildi`, c: "good" };

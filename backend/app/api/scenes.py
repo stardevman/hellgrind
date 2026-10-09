@@ -32,6 +32,8 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         changes["h3_mode"] = None
     if "face_expected" in changes:
         changes["face_expected"] = {"auto": None, "true": True, "false": False}[changes["face_expected"]]
+    if changes.get("transition_in") == "auto":                    # senaryodan gelen geçişe dön
+        changes["transition_in"] = None
     if "prompt_spec" in changes:                                  # düzeltme turlarının eklediği anahtarlar kalır
         changes["prompt_spec"] = {**(sc.prompt_spec or {}), **changes["prompt_spec"]}
     for key, value in changes.items():

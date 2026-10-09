@@ -139,6 +139,10 @@ class Scene(Base):
     board_source: Mapped[str | None] = mapped_column(Text)                  # local | flux | comfyui | upload
     h3_mode: Mapped[str | None] = mapped_column(Text)                       # None: otomatik (core/h3mode.py) | fl2va | ref2va
     face_expected: Mapped[bool | None] = mapped_column(Boolean)            # None: otomatik; kimlik kapısı
+    transition_auto: Mapped[str | None] = mapped_column(Text)              # senaryodan: continuous | cut | new_scene
+    transition_in: Mapped[str | None] = mapped_column(Text)                # yönetmenin seçimi; None: otomatik
+    board_sha: Mapped[str | None] = mapped_column(Text)                    # ilk karenin (yazısız) SHA-256'sı
+    board_parent: Mapped[str | None] = mapped_column(Text)                 # zincirle çizildiyse önceki karenin board_sha'sı
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -179,6 +183,7 @@ class Asset(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     references: Mapped[dict] = mapped_column("references", JSONB, default=dict)
     reference_history: Mapped[list] = mapped_column(JSONB, default=list)   # yerini yenisine bırakan referanslar
+    invariants: Mapped[list] = mapped_column(JSONB, default=list)          # tasarım değişmezleri (her isteme eklenir)
     motion_test_variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

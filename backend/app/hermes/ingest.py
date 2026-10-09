@@ -95,6 +95,11 @@ def shot_assets(shot: dict) -> tuple[str | None, list[str]]:
     return location, list(props)
 
 
+def transition_guess(shots: list[dict], i: int) -> str:
+    """Geçişi olmayan çekim (LLM ayrıştırıcısı): sahne başlığı değiştiyse new_scene, değilse continuous."""
+    return "new_scene" if i == 0 or shots[i].get("heading") != shots[i - 1].get("heading") else "continuous"
+
+
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     with session_scope() as s:
         known = list(s.scalars(select(Character.name).where(Character.project_id == project_id)))
@@ -119,7 +124,8 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             fields = dict(seq_order=order, sequence_id=seqs[shot.get("sequence", DEFAULT_SEQUENCE["code"])].id,
                           script_text=script_text(shot), description=shot["description"],
                           emotion=shot["emotion"], camera=shot["camera"], duration_s=shot["duration_s"],
-                          action_complexity=shot["action_complexity"])
+                          action_complexity=shot["action_complexity"],
+                          transition_auto=shot.get("transition") or transition_guess(parsed["shots"], order - 1))
             prompt = {"prompt": shot["visual_prompt"], "lang": lang}
             if sc is None:
                 sc = Scene(project_id=project_id, scene_code=shot["scene_id"], prompt_spec=prompt, **fields)

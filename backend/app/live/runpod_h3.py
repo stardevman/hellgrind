@@ -527,6 +527,7 @@ def note_worker(job: vast_h3.Job, body: dict) -> None:
     out = body.get("output") or {}
     timing = out.get("timing") or {}
     _cache_set("warm", {"until": time.time() + int(settings.runpod_idle_timeout_s)})
+    killswitch.r().set(vast_box._k("rp_job_end"), time.time(), ex=24 * 3600)   # boşta süre bu andan başlar
     kind = model_kind(job)
     cold = timing.get("cold_start_s") or 0
     previous = killswitch.r().get(vast_box._k("rp_last_model"))
@@ -569,11 +570,14 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
                       edit_steps=EDIT_STEPS.get(job.edit_mode, EDIT_STEPS["full"]))
     if job.keyframe:
         values["first_frame"] = add(job.keyframe)
+    if job.last_frame:
+        values["last_frame"] = add(job.last_frame)
     refs = [add(uri) for _, uri in job.references]
     for i in range(1, vast_h3.MAX_REFERENCES + 1):
         if refs:
             values[f"reference_{i}"] = refs[min(i, len(refs)) - 1]
-    workflow = vast_h3.fill(vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs)), values)
+    workflow = vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs))
+    workflow = vast_h3.fill(vast_h3.prune_unfilled(workflow, values), values)
     timeout_ms = int(float(settings.h3_timeout_s) * 1000)
     return {"input": {"workflow": workflow, "images": images,
                       "hellgrind": {"kind": "keyframe" if kind in vast_h3.IMAGE_KINDS else "video", "job": job.key(),
@@ -929,6 +933,18 @@ def retrieve_row(row: dict) -> str:
 
 # ---------- dakikalık görev: boşta bekleme bedeli, bakiye, ayar, yarım indirmeler ----------
 
+def idle_overlap(last_tick: float, now: float, job_end: float | None) -> float:
+    """Faturalanan boşta süre: bu tik aralığının [son işin bitişi, bitiş + boşta bekleme] penceresiyle kesişimi. Worker son
+    işten sonra en çok RUNPOD_IDLE_TIMEOUT_S açık kalır; o pencere dışındaki süre (işin kendisi — işin bedelinde — ya da
+    kapanmakta olan worker'ın /health'te bir tik daha "idle" görünmesi) yazılmaz. Böylece art arda iki tik aynı
+    60 sn'yi iki kez saymaz."""
+    if not last_tick or job_end is None:
+        return 0.0
+    start = max(last_tick, job_end)
+    stop = min(now, job_end + float(settings.runpod_idle_timeout_s))
+    return max(0.0, min(stop - start, MAX_TICK_S))
+
+
 def tick() -> str:
     """Beat görevi (`hg.runpod_tick`, dakikada bir). Boşta bekleyen worker'ların süresi son etkin projeye yazılır (en pahalı
     GPU tipinin ücretiyle: hangi tipte bekledikleri bilinmez), bakiye ve uç nokta ayarı tazelenir, worker'ın artık
@@ -943,7 +959,8 @@ def tick() -> str:
     h = health(key)
     idle = int((h.get("workers") or {}).get("idle") or 0)
     charged = 0.0
-    seconds = min(now - last, MAX_TICK_S) if last else 0.0
+    end = r.get(vast_box._k("rp_job_end"))
+    seconds = idle_overlap(last, now, float(end) if end else None)
     busy = vast_box.inflight(now) > 0          # iş sürerken worker'ın süresi işin bedelinde (soğuk başlatma dahil): çift sayım yok
     if idle and seconds >= 1 and not busy and (project := vast_box.last_project()):
         gpu = killswitch.r().get(vast_box._k("rp_last_gpu"))

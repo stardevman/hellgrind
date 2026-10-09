@@ -77,7 +77,7 @@ def test_filled_values_land_as_numbers_and_the_first_frame_is_named_in_the_promp
     assert job.prompt.endswith(vast_h3.FIRST_FRAME_NOTE)
     values = {"prompt": job.prompt, "seed": job.seed, "width": job.width, "height": job.height, "duration": job.seconds,
               "first_frame": "hg_1.jpg", "filename_prefix": "hellgrind/i2v_x", "unet_variant": "fp8_scaled"}
-    f = vast_h3.fill(flow("i2v"), values)
+    f = vast_h3.fill(vast_h3.prune_unfilled(flow("i2v"), values), values)     # son kare gönderilmedi: düğüm çıkar
     node = f["105:104"]["inputs"]
     assert (node["width"], node["height"], f["105:15"]["inputs"]["noise_seed"], f["105:111"]["inputs"]["value"]) == (1280, 704, 7, 5)
     assert f["114"]["inputs"]["image"] == "hg_1.jpg" and "{{" not in json.dumps(f)

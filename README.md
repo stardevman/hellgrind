@@ -424,12 +424,24 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
   yeni seed'le en çok 2 kez yeniden çizilir (her deneme maliyetiyle harcama geçmişine yazılır); yine olmazsa çekim "Kare
   inceleme gerekiyor" olur, kare ve skor denetçide görünür ve video üretilmez (**Kareyi yeniden çiz** yeni seed'ler dener;
   **Kareyi elle onayla** kareyi gözle kabul edip video aşamasına geçer). Robot, hayvan gibi karakterler Varlıklar'da
-  "İnsan değil" olarak işaretlenir: onlarda yüz aranmaz, görsel benzerlik (OpenCLIP, `look_threshold`) ölçülür.
+  "İnsan değil" olarak işaretlenir: onlarda yüz aranmaz, görsel benzerlik (OpenCLIP ve DINOv2) ölçülür. Varlıklarda
+  **Değişmez özellikler** (ör. Bolt: "exactly one bent antenna with a small bulb") her kare ve video istemine eklenir.
   "Kimlik kayabilir" uyarısı yalnızca karakterli çekimin karesi düz Qwen-Image'dan geldiyse çıkar. Seedance çekimleri de
   aynı kareyi image-to-video başlangıcı olarak kullanır. Kareyi yine de
   onaylayabilir ya da **Kendi ilk kareni yükle** ile kendi karenizi verebilirsiniz (yüklenen kare storyboard'un yerine geçer,
   çizim ve ücret yoktur). İlk kare kaynağı yoksa (ne `keyframe.json` ne fal.ai anahtarı) FL2VA çekimi üretilmez ve neden
   denetçide yazar.
+- **Sahneler arası süreklilik (anahtar kare zinciri):** bir sekansta çekimlerin ilk kareleri sırayla çizilir (K1, K2 …).
+  Aynı sahne başlığı altında art arda gelen çekim *devam* (continuous) sayılır: Kn, Qwen-Image-Edit ile image 1 = K(n-1)
+  ve karakterlerin durağan referanslarıyla çizilir ("aynı oda, yerleşim, nesneler, ışık ve karakter tasarımları; yalnızca
+  çekimin anlattığı değişir"). Senaryoda `CUT TO:` (ya da `KESME:`) satırından sonraki çekim *kesme*dir: kamera açısı
+  değişebilir, mekân ve karakterlerin durumu korunur. Yeni sahne başlığı zinciri kırar (kare referanslardan). Geçiş
+  denetçiden çekim bazında değiştirilir. Kn çizilmeden K(n+1) çizilmez; kare kalite kapısı Kn ile K(n-1) arasında
+  karakter bölgesi dışındaki mekân benzerliğini (DINOv2) ölçer (`continuity_threshold` 0,80; kesmede
+  `cut_continuity_threshold` 0,60); kalan kare yeniden çizilir. Bir kare yeniden çizilince sonraki zincir kareleri "eski"
+  olur; denetçide **Sonraki N kareyi yeniden çiz** çıkar. Video (FL2VA) sonraki çekimin geçişi devam ise iki kare arasında
+  üretilir: ilk kare Kn, son kare (`last_frame`) K(n+1); klibin son karesi K(n+1)'e benzemezse aday elenir
+  (`transition_threshold` 0,80). Birleştirilmiş filmde geçişler kesme olarak kalır.
 - **Karakter referanslarıyla (Ref2VA, elle seçilir):** çekim bazında denetçiden seçilir; kare çizilmez. Çekimdeki karakterlerin
   referans seti (durağan görsel, ifade sayfası ve dönüş videosundan önden, yandan, arkadan üç kare; karakterler arasında
   paylaşılan en çok 9 görsel) ve varsa ilk kare gider; istemde `<Picture 1>, <Picture 2> show Kerem` gibi eşlenir. Ref2VA
@@ -701,7 +713,7 @@ Bilinmesi gerekenler:
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |
-| `QWEN_EDIT_MODE` | `full` | Karakterli ilk kare kalitesi: `full` 40 adım cfg 4 (~195 sn), `medium` 20 adım cfg 4 (~100 sn), `lightning` 4 adım cfg 1 (~25 sn); proje ayarı `qwen_edit_mode` önce gelir |
+| `QWEN_EDIT_MODE` | `full` | Karakterli ilk kare kalitesi: `full` 40 adım cfg 4 (~195 sn), `medium` 20 adım cfg 4 (~100 sn), `lightning` 4 adım cfg 1 (~15 sn); proje ayarı `qwen_edit_mode` önce gelir |
 | `REFERENCE_FAL_FALLBACK` | `false` | Referans görseli için RunPod'da Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ağırlıkları ticari olmayan lisanslı) |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |
 | `H3_BACKEND` | `comfyui` | `comfyui` ya da `sglang` (deneysel) |
@@ -720,7 +732,7 @@ Bilinmesi gerekenler:
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 
-Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (insan karakterde 0-1 yüz kimliği — SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde — bunun altında kalan ya da yüzü hiç görünmeyen aday rafine havuza giremez; kısa kenarı 80 px'ten küçük yüzde kimlik ölçülmez, eleme olmaz) · `look_threshold` 0,75 (insan olmayan karakter — robot, hayvan, yaratık —: kare/klip ile referans arasındaki OpenCLIP görüntü benzerliği; yüz aranmaz) · `qwen_edit_mode` boş (Ayarlar'daki QWEN_EDIT_MODE; full / medium / lightning) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
+Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (insan karakterde 0-1 yüz kimliği — SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde — bunun altında kalan ya da yüzü hiç görünmeyen aday rafine havuza giremez; kısa kenarı 80 px'ten küçük yüzde kimlik ölçülmez, eleme olmaz) · `look_threshold` 0,80 ve `look_dino_threshold` 0,84 (insan olmayan karakter — robot, hayvan, yaratık —: kare/klip ile referans arasındaki OpenCLIP görüntü benzerliği ve karenin kırpımlarıyla DINOv2 benzerliği; ikisi de geçmeli; yüz aranmaz) · `continuity_threshold` 0,80 · `cut_continuity_threshold` 0,60 · `transition_threshold` 0,80 · `qwen_edit_mode` boş (Ayarlar'daki QWEN_EDIT_MODE; full / medium / lightning) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
 ## Depo yapısı
 

@@ -223,7 +223,12 @@ def assemble(state: State) -> dict:
             continue
         shots = []
         location = rules.location_name(heading)
-        for shot in draft.shots:
+        # Geçişler ("CUT TO:") kodla: kural tabanlı ayrıştırıcı aynı sayıda çekim bulduysa onunkiler, yoksa ilk çekim
+        # new_scene, diğerleri continuous (LLM geçiş satırlarını çekimlere bağlamaz).
+        ruled = [s.get("transition") for s in rules.parse(chunk)["shots"]]
+        transitions = ruled if len(ruled) == len(draft.shots) else \
+            ["new_scene" if i == 0 else "continuous" for i in range(len(draft.shots))]
+        for shot, transition in zip(draft.shots, transitions):
             dialogue = [{"character": l.character, "line": l.line.strip(), "emotion": l.emotion or shot.emotion} for l in shot.dialogue]
             speakers = [l["character"] for l in dialogue]
             characters = list(dict.fromkeys([*shot.characters, *speakers]))
@@ -235,7 +240,7 @@ def assemble(state: State) -> dict:
                 "visual_prompt": shot.visual_prompt.strip() or rules.visual_prompt_for(heading, draft_shot),
                 "camera": camera, "emotion": shot.emotion, "characters": characters, "dialogue": dialogue,
                 "duration_s": rules.shot_duration(draft_shot["description"], dialogue, shot.kind != "dialogue"),
-                "action_complexity": complexity,
+                "action_complexity": complexity, "transition": transition,
             })
         # Senaryodaki [NESNE: ...] işaretleri kod tarafından okunur: LLM'in hiçbir çekime koymadığı nesne, kural tabanlı
         # ayrıştırıcıdaki gibi sahnenin tüm çekimlerine bağlanır (eksik referans sessizce kaybolmasın).

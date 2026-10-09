@@ -73,7 +73,15 @@ def asset_text(asset, bible, names=(), lang: str | None = None) -> str:
     what = f"{TYPE_LABEL[asset.type]} {name}"
     description = translate.to_english(" ".join((asset.description or "").split()), names, lang).rstrip(".")
     body = ", ".join(x for x in (description, style_text(effective_style(asset, bible))) if x)
-    return sentence(f"{what}: {body}")
+    return " ".join(x for x in (sentence(f"{what}: {body}"), invariant_text(asset, names, lang)) if x)
+
+
+def invariant_text(asset, names=(), lang: str | None = None) -> str:
+    """Tasarım değişmezleri (varlık sayfasında; ör. Bolt: "exactly one bent antenna with a small bulb"): her kare ve
+    video istemine aynen eklenir; model ayrıntıyı (anten sayısı) unutmasın."""
+    items = [translate.to_english(" ".join(str(x).split()), names, lang).rstrip(".")
+             for x in (getattr(asset, "invariants", None) or []) if str(x).strip()]
+    return sentence(f"{asset.name} must always have: {'; '.join(items)}") if items else ""
 
 
 def _join_negative(*parts: str) -> str:

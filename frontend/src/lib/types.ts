@@ -91,6 +91,8 @@ export interface Scene {
   keyframe_source: "upload" | "board" | null; keyframe_url: string | null;
   h3_refs: { name: string; url: string | null }[];
   keyframe_model?: "qwen_edit" | "qwen";
+  transition?: "continuous" | "cut" | "new_scene"; transition_explicit?: string | null;
+  chain_parent?: string | null; chain_stale?: boolean; chain_redraw?: string[];
   edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
 }
 
@@ -135,6 +137,7 @@ export interface Asset {
   references: Record<string, Reference>; motion_test: MotionTest | null; scenes: string[];
   character: { id: string; voice_id: string | null; embedding_version: number; kind: "human" | "non_human"; kind_suggested: "human" | "non_human" } | null;
   reference_history?: { kind: string; version: number; replaced_at: number; entry: Reference }[];
+  invariants?: string[];
 }
 
 /* ---------- stil ---------- */
@@ -159,7 +162,7 @@ export interface StyleImpact {
 
 export interface Metrics {
   variations: number; accepted_shots: number; variations_per_accepted_shot: number | null;
-  cost_per_film_minute_usd: number | null; spent_usd: number; film_minutes: number | null; film_minutes_source: string;
+  cost_per_film_minute_usd: number | null; spend_mode?: string; spent_usd: number; film_minutes: number | null; film_minutes_source: string;
   probe: { success_rate: number | null; succeeded: number; rounds: number; mean_correction_rounds: number | null; scenes: number };
   draft: { upgrade_ratio: number | null; upgraded: number; drafted: number };
   sequences: {

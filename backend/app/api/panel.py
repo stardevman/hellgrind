@@ -27,7 +27,7 @@ from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2
 from app.core.hashing import grade_settings
 from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
-from app.engine.storyboard import clean_key
+from app.engine.storyboard import chain_enabled, clean_key
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
@@ -147,6 +147,30 @@ def _film(key: str | None) -> dict | None:
     return {"url": _media(key), "cut": cut}
 
 
+def chain_info(scenes: list, enabled: bool = True) -> dict:
+    """Anahtar kare zinciri (core/chain.py), sorgusuz: çekimin geçişi, zincirdeki önceki çekimi, karesinin eskiyip
+    eskimediği ve bu kareden türeyen eski/eksik sonraki kareler ("sonraki N kareyi yeniden çiz")."""
+    from app.core.chain import CHAINED, stale, transition_of
+    out, by_seq = {}, defaultdict(list)
+    for sc in scenes:                                  # scenes seq_order sırasında
+        by_seq[sc.sequence_id or sc.project_id].append(sc)
+    for shots in by_seq.values():
+        for i, sc in enumerate(shots):
+            transition = transition_of(sc)
+            parent = shots[i - 1] if enabled and i > 0 and transition in CHAINED else None
+            out[sc.id] = {"transition": transition, "transition_explicit": sc.transition_in,
+                          "chain_parent": parent.scene_code if parent else None,
+                          "chain_stale": bool(parent is not None and stale(sc, parent)), "chain_redraw": []}
+        for i, sc in enumerate(shots):                  # her kare için: kendisinden türeyen eski ya da eksik kareler
+            pending, j = [], i + 1
+            while j < len(shots) and out[shots[j].id]["chain_parent"]:
+                if out[shots[j].id]["chain_stale"] or not shots[j].board_key or pending:
+                    pending.append(shots[j].scene_code)
+                j += 1
+            out[sc.id]["chain_redraw"] = pending
+    return out
+
+
 @router.get("/projects/{project_id}/overview")
 def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     """Paneli tek çağrıda besler. Sorgu sayısı sahne sayısından bağımsızdır (sahne başına sorgu yok)."""
@@ -190,6 +214,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     check = cfg["lint_strictness"] != "off"
 
     strict = strict_refs(cfg)
+    chain = chain_info(scenes, chain_enabled())
 
     def shot_assets(sid) -> list:
         return [r.asset for r in refs[sid] if r.asset] + places[sid]
@@ -204,6 +229,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "h3_mode_explicit": sc.h3_mode,
         "h3_mode_warning": fl2va_identity_warning(sc, refs[sc.id], shot_assets(sc.id), strict),
         "keyframe_model": keyframe_model(sc, refs[sc.id], shot_assets(sc.id), strict),
+        **chain[sc.id],
         "edit_refs": [{"name": r["name"], "kind": r["kind"], "url": _media(r["key"])}
                       for r in edit_references(sc, refs[sc.id], shot_assets(sc.id), strict)],
         "face_expected": face_expected(sc, cast[sc.id]), "face_expected_explicit": sc.face_expected,

@@ -103,6 +103,7 @@ def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
         out.append({
             "id": str(a.id), "project_id": str(a.project_id), "type": a.type, "name": a.name,
             "description": a.description, "render_style": a.render_style, "status": a.status, "version": a.version,
+            "invariants": list(a.invariants or []),
             "effective_style": bible.effective_style(a, style),       # render_style boşsa kılavuzun tür kuralı
             "references": {k: _reference_out(v) for k, v in (a.references or {}).items()},
             "motion_test": _test_out(tests.get(a.motion_test_variation_id), a.version),
@@ -173,7 +174,9 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
     changes = body.model_dump(exclude_unset=True)
     if "render_style" in changes:                       # boş: istisnayı kaldır, kılavuzun tür kuralına dön
         changes["render_style"] = " ".join((changes["render_style"] or "").split()) or None
-    visual = {k: v for k, v in changes.items() if k in ("description", "render_style") and v != getattr(a, k)}
+    visual = {k: v for k, v in changes.items()
+              if k in ("description", "render_style", "invariants") and v != getattr(a, k)
+              and not (k == "invariants" and v is None)}
     if visual:
         ensure_editable(a)
         for key, value in visual.items():

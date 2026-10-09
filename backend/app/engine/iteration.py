@@ -74,6 +74,7 @@ class Ctx:
     render: dict
     target: object = None          # gerçek kalite skorunun ölçütü (scorer.Target)
     keyframe: str | None = None    # MiniMax H3: her varyasyonun ilk karesi (sağlayıcıya yüklenmiş hâli)
+    last_frame: str | None = None  # FL2VA: son kare = sonraki çekimin ilk karesi (geçişi continuous ise; yüklenmiş hâli)
 
 
 # ---------- yardımcılar ----------
@@ -198,14 +199,16 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
 
     label = f"{c.render.get('label', '')}  {tier} {resolution} #{seed % 10000}"
     req = GenRequest(prompt=c.prompt_spec.get("prompt", ""), negative=c.prompt_spec.get("negative", ""), seed=seed,
-                     resolution=resolution, duration_s=c.duration, image_url=c.keyframe, extra={**c.render, "label": label})
+                     resolution=resolution, duration_s=c.duration, image_url=c.keyframe,
+                     extra={**c.render, "label": label, **({"last_frame": c.last_frame} if c.last_frame else {})})
     with session_scope() as s:                                                         # 3. Variation satırı
         v = Variation(scene_id=c.scene_id, tier=tier, wave_no=wave_no, engine=c.provider.engine, seed=seed,
                       prompt_revision=c.revision, status="queued",
                       params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
                               "negative": req.negative, "run": c.run_id,
                               **({"keyframe_key": c.render["keyframe_key"], "h3_mode": c.render["h3_mode"]}
-                                 if c.keyframe and c.render.get("keyframe_key") else {})})
+                                 if c.keyframe and c.render.get("keyframe_key") else {}),
+                              **({"last_frame_key": c.render["last_frame_key"]} if c.last_frame else {})})
         s.add(v)
         s.flush()
         vid = v.id
@@ -373,11 +376,18 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
         keyframe_key = keyframe_of(scene, visual_hash)
+        last_key = next_keyframe_of(s, scene, style.version if style else None) \
+            if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else None
     if keyframe_key and hasattr(ctx.provider, "upload"):
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:   # bir kez yüklenir, bütün varyasyonlar kullanır
             ctx.keyframe = ctx.provider.upload(storage.download(keyframe_key, os.path.join(tmp, "keyframe.jpg")))
+            if last_key:                                  # çekimin son karesi sonraki çekimin ilk karesi olsun
+                ctx.last_frame = ctx.provider.upload(storage.download(last_key, os.path.join(tmp, "last.jpg")))
     ctx.render["keyframe_key"] = keyframe_key
+    if ctx.last_frame:
+        ctx.render["last_frame_key"] = last_key
+        ctx.target = replace(ctx.target, next_frame=last_key)
     return ctx
 
 
@@ -421,13 +431,29 @@ def keyframe_of(scene, fp: str) -> str | None:
     return None
 
 
+def next_keyframe_of(s, scene, style_version) -> str | None:
+    """FL2VA last_frame: sonraki çekimin geçişi continuous ve ilk karesi (bu görsel özet için, incelemede değil) hazırsa
+    onun yazısız hâli (anahtar kare zinciri; core/chain.py)."""
+    from app.core.chain import next_continuous
+    from app.engine.storyboard import clean_key
+    nxt = next_continuous(s, scene)
+    if nxt is None or not nxt.board_key or nxt.board_status == "changes_requested":
+        return None
+    if nxt.board_hash != visual_fingerprint(nxt, load_characters(s, nxt.id), load_assets(s, nxt.id), style_version):
+        return None
+    key = clean_key(nxt.board_key)
+    return key if storage.exists(key) else None
+
+
 def keyframe_blocks(project_id: str, scene_id: str) -> bool:
     """Ücretli modda MiniMax H3 FL2VA çekiminin ilk karesi hazır değilse görüntü üretilmez: storyboard karesi yoksa ya da
     karakterli çekimin karesi metinden çizilmişse önce (karakter referansından) çizilir ve kalite kapısından geçer;
     kullanılamıyorsa sahne onaya kalır ve neden Türkçe yazılır. Seedance çekimi de aynı kareyi kullanır: RunPod'da
     çizilebiliyorsa çizilir; kalite kapısından kalırsa video üretilmez, yoksa her varyasyon kendi Flux karesini üretir."""
+    from app.core.chain import parent_of, stale
     from app.core.h3mode import keyframe_model, strict_refs
-    from app.engine.storyboard import SHARED_SOURCES, board_source, keyframe_problem, make_board, outdated
+    from app.engine.storyboard import (SHARED_SOURCES, board_source, chain_enabled, keyframe_problem, make_board,
+                                       outdated)
     if settings.dry_run:
         return False
     with session_scope() as s:
@@ -440,9 +466,12 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         style = bible.active_version(s, project_id)
         fp = visual_fingerprint(scene, chars, assets, style)
         strict = strict_refs(s.get(Project, project_id).settings)
-        source = None if scene.keyframe_key else board_source("fl2va", False, keyframe_model(scene, chars, assets, strict))
+        parent = parent_of(s, scene) if chain_enabled() else None   # anahtar kare zinciri: kare önceki karesinden
+        model = "qwen_edit" if parent is not None else keyframe_model(scene, chars, assets, strict)
+        source = None if scene.keyframe_key else board_source("fl2va", False, model)
         current = bool(scene.board_key and scene.board_hash == fp)
-        missing = not scene.keyframe_key and (not current or outdated(scene.board_source, source))
+        missing = not scene.keyframe_key and (not current or outdated(scene.board_source, source)
+                                              or (parent is not None and stale(scene, parent)))
     if engine == "seedance" and source not in SHARED_SOURCES and not scene.keyframe_key:
         return False                                      # Seedance kendi ilk karesini üretir (fal.ai Flux)
     if missing:
@@ -450,6 +479,11 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
         problem = keyframe_problem(scene, fp)
+        parent = parent_of(s, scene) if chain_enabled() else None
+        if problem is None and parent is not None and parent.board_status == "changes_requested" \
+                and not scene.keyframe_key and scene.board_parent is None:
+            problem = (f"Zincirdeki önceki kare ({parent.scene_code}) inceleme bekliyor: bu çekimin karesi ondan çizilir. "
+                       f"{parent.scene_code} karesini onaylayın ya da yeniden çizdirin.")
     if problem is None:
         return False
     advance_scene(project_id, scene_id, status="board_review", last_error=problem)

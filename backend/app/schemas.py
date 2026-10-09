@@ -27,6 +27,10 @@ SETTING_RULES = {
     "clip_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "identity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "look_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "look_dino_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "cut_continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "transition_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "qwen_edit_mode": (lambda v: v in (None, "full", "medium", "lightning"), "full, medium, lightning ya da boş"),
     "excellent_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "min_pass_rate": (_num(0, 1), "0 ile 1 arasında bir sayı"),
@@ -128,6 +132,7 @@ class ScenePatch(BaseModel):
     engine: Engine | None = None
     h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
     face_expected: Literal["auto", "true", "false"] | None = None
+    transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
 
 
 class AudioIn(BaseModel):
@@ -187,6 +192,17 @@ class AssetPatch(BaseModel):
     render_style: str | None = Field(None, max_length=200)
     voice_id: str | None = Field(None, max_length=200)         # yalnızca karakter: ses kimliği karakterde tutulur
     character_kind: Literal["human", "non_human"] | None = None  # yalnızca karakter: kimlik kontrolünün türü
+    invariants: list[str] | None = Field(None, max_length=12)  # tasarım değişmezleri (her kare ve video istemine eklenir)
+
+    @field_validator("invariants")
+    @classmethod
+    def _invariants(cls, v):
+        if v is None:
+            return v
+        out = [" ".join(x.split()) for x in v if x and x.strip()]
+        if any(len(x) > 200 for x in out):
+            raise ValueError("Her değişmez en çok 200 karakter olmalı")
+        return out
 
 
 class SceneAssetIn(BaseModel):

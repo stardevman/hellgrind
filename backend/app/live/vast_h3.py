@@ -75,7 +75,8 @@ COMFY_KINDS = ("t2v", "i2v", "r2v", "keyframe", "edit_keyframe")
 COMFY_REQUIRED = {"t2v": ("prompt",), "i2v": ("prompt", "first_frame"), "r2v": ("prompt", "reference_1"),
                   "keyframe": ("prompt",), "edit_keyframe": ("prompt", "reference_1")}
 IMAGE_KINDS = ("keyframe", "edit_keyframe")   # görsel çıktılı iş akışları (Qwen-Image; Qwen-Image-Edit karakter referansıyla)
-OPTIONAL_IMAGE_INPUTS = ("image2", "image3")  # Qwen-Image-Edit metin kodlayıcısının isteğe bağlı görsel girdileri
+OPTIONAL_IMAGE_INPUTS = ("image2", "image3", "last_frame")  # Qwen-Image-Edit'in image2/3'ü, FL2VA'nın son karesi
+LAST_FRAME_NOTE = "The video ends exactly on the provided last frame."
 COMFY_CLIENT_ID = "hellgrind"
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
@@ -209,6 +210,7 @@ class Job:
     references: list[tuple[str, str]] = field(default_factory=list)   # (karakter, data URI)
     unmapped: tuple[str, ...] = ()                                 # pozitif kısıta çevrilemeyen negatifler
     negative: str = ""            # yalnızca Qwen-Image-Edit karesi (cfg 4 olumsuz istemi kullanır; H3 kullanmaz)
+    last_frame: str | None = None  # FL2VA: son kare (data URI; sonraki çekimin ilk karesi)
     edit_mode: str = "full"       # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20, cfg 4) | lightning (4, cfg 1)
 
     @property
@@ -218,7 +220,8 @@ class Job:
     def key(self) -> str:
         return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references,
-                            *([self.negative, self.edit_mode] if self.task == "edit_keyframe" else [])])
+                            *([self.negative, self.edit_mode] if self.task == "edit_keyframe" else []),
+                            *([self.last_frame] if self.last_frame else [])])
 
 
 def reference_prompt(prompt: str, names: list[str]) -> str:
@@ -261,9 +264,10 @@ def build_job(req: GenRequest, server: str | None = None) -> Job:
         return Job(task="ref2va", url=url.rstrip("/"), prompt=reference_prompt(prompt, [n for n, _ in references]),
                    references=references, **common)
     task = "fl2va" if req.image_url else "t2va"
+    last = req.extra.get("last_frame") if task == "fl2va" else None
     if task == "fl2va":                                  # resmî FL2VA şablonu ilk kareye <Picture 1> diye başvurur
-        prompt = f"{prompt} {FIRST_FRAME_NOTE}"
-    return Job(task=task, url=(server or settings.h3_endpoint_url).rstrip("/"), prompt=prompt, **common)
+        prompt = f"{prompt} {FIRST_FRAME_NOTE}" + (f" {LAST_FRAME_NOTE}" if last else "")
+    return Job(task=task, url=(server or settings.h3_endpoint_url).rstrip("/"), prompt=prompt, last_frame=last, **common)
 
 
 def _client(url: str, token: str, observer=_AUTO) -> httpx.Client:
@@ -416,6 +420,26 @@ def fill(value, values: dict):
 REF_SLOT = re.compile(r"^\{\{\s*reference_(\d+)\s*\}\}$")
 
 
+def prune_unfilled(workflow: dict, values: dict) -> dict:
+    """Değeri gönderilmeyen isteğe bağlı görseli (ör. `{{last_frame}}`) yükleyen LoadImage düğümünü ve ona bağlanan
+    isteğe bağlı girdiyi çıkarır (zorunlu girdiye bağlıysa dokunmaz)."""
+    links: dict[str, list[tuple[str, str]]] = {}
+    for node_id, node in workflow.items():
+        for key, value in (node.get("inputs") or {}).items():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                links.setdefault(value[0], []).append((node_id, key))
+    for node_id, node in list(workflow.items()):
+        m = PLACEHOLDER.fullmatch(str((node.get("inputs") or {}).get("image", "")).strip())
+        if not m or m.group(1) in values or REF_SLOT.match(m.group(0)):
+            continue
+        users = links.get(node_id, [])
+        if users and all(key in OPTIONAL_IMAGE_INPUTS for _, key in users):
+            for user, key in users:
+                workflow[user]["inputs"].pop(key, None)
+            workflow.pop(node_id)
+    return workflow
+
+
 def prune_references(workflow: dict, n: int) -> dict:
     """Gönderilen görselden fazla referans yuvasını çıkarır: `{{reference_k}}` (k > n) görselini yükleyen LoadImage
     düğümü, ona yalnızca isteğe bağlı referans girdilerinden (Ref2VA'nın `ref_images.ref_image_*`, Qwen-Image-Edit'in
@@ -487,7 +511,9 @@ class Comfy:
 
     def submit(self, job: Job, kind: str | None = None) -> str:
         kind = kind or comfy_kind(job)
-        workflow = fill(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), self.values(job, kind))
+        values = self.values(job, kind)
+        workflow = fill(prune_unfilled(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), values),
+                        values)
         r = self.c.post("/prompt", json={"prompt": workflow, "client_id": COMFY_CLIENT_ID})
         if r.status_code == 400:
             body = r.json() if r.content else {}

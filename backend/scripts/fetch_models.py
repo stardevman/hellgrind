@@ -10,6 +10,7 @@ Hepsi ücretsizdir ve ticari kullanıma açık lisanslıdır:
   YuNet yüz bulucu                                MIT          OpenCV Zoo
   SFace yüz tanıma                                Apache 2.0   OpenCV Zoo
   Helsinki-NLP opus-mt-tr-en (MarianMT)           Apache 2.0   prompt çevirisi: görüntü modelleri İngilizce istemi izler
+  facebook/dinov2-small (DINOv2)                  Apache 2.0   robot/hayvan karakter benzerliği, kareler arası süreklilik
 InsightFace'in hazır modelleri (buffalo_l) yalnızca ticari olmayan araştırma lisanslı olduğu için kullanılmaz.
 Dosyalar belirli bir sürüme sabitlenmiştir; özet tutmazsa kurulum durur.
 """
@@ -21,6 +22,7 @@ import urllib.request
 HF = "https://huggingface.co/laion/CLIP-ViT-B-32-xlm-roberta-base-laion5B-s13B-b90k/resolve/506d40eb551f4801a1c27fc20a31c7b8f590deda"
 MT = "https://huggingface.co/Helsinki-NLP/opus-mt-tr-en/resolve/19c65427cc2af5f191337d4899e0348c4af25902"
 ZOO = "https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models"
+DINO = "https://huggingface.co/facebook/dinov2-small/resolve/ed25f3a31f01632728cabb09d1542f84ab7b0056"
 
 CLIP_MODEL = "xlm-roberta-base-ViT-B-32"
 CLIP_FILE = "clip/open_clip_pytorch_model.bin"
@@ -36,6 +38,12 @@ MT_FILES = {   # dosya -> sha256
     "tokenizer_config.json": "3483b08070a3abacc4422dc1672ba9a175a9ce7503a17d1ca999fb34664dfea7",
     "vocab.json": "f6518b18a71fea3de99b5883cb80bcd188b74c33e7c6a5a597b7c64119f1b1fe",
 }
+DINO_DIR = "dinov2"
+DINO_FILES = {   # dosya -> sha256
+    "config.json": "1809f83e3bdb1609a501a610ad4a742f4fd8ae44d72ca4aa0df52d1f2ac8628d",
+    "preprocessor_config.json": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828",
+    "model.safetensors": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1",
+}
 MODELS = {   # yerel yol -> (adres, sha256)
     CLIP_FILE: (f"{HF}/open_clip_pytorch_model.bin",
                  "a5412f19cca70db8d434f68361f7254bd322a553455a63dbb709bd6a650cf378"),
@@ -44,6 +52,7 @@ MODELS = {   # yerel yol -> (adres, sha256)
     SFACE_FILE: (f"{ZOO}/face_recognition_sface/face_recognition_sface_2021dec.onnx",
                  "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"),
     **{f"{MT_DIR}/{name}": (f"{MT}/{name}", digest) for name, digest in MT_FILES.items()},
+    **{f"{DINO_DIR}/{name}": (f"{DINO}/{name}", digest) for name, digest in DINO_FILES.items()},
 }
 
 
@@ -89,6 +98,14 @@ def warm(root: str) -> None:
                                skip_special_tokens=True)
     assert "bridge" in out[0].lower(), out
     print("çeviri modeli hazır:", MT_DIR, "->", out[0])
+    from PIL import Image
+    from transformers import AutoImageProcessor, AutoModel
+    path = os.path.join(root, DINO_DIR)
+    processor, dino = AutoImageProcessor.from_pretrained(path), AutoModel.from_pretrained(path).eval()
+    with torch.no_grad():
+        vec = dino(**processor(images=Image.new("RGB", (64, 64), (120, 90, 60)), return_tensors="pt")).pooler_output
+    assert vec.shape[-1] == 384, vec.shape
+    print("DINOv2 hazır:", DINO_DIR)
 
 
 if __name__ == "__main__":

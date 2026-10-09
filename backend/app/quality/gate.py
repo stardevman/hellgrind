@@ -57,6 +57,7 @@ def clip_score_dry(seed: int) -> float:
 
 
 IDENTITY_ANOMALIES = ("no_face", "low_identity", "low_likeness")
+CHAIN_ANOMALIES = ("continuity_jump", "transition_jump")
 
 
 def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
@@ -80,11 +81,17 @@ def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
             if low:
                 out.append({"type": "low_identity", "identity": low, "threshold": threshold})
     if getattr(target, "looks", ()) and "look" in detail:
-        threshold = float(cfg.get("look_threshold", 0.75))
+        threshold = float(cfg.get("look_threshold", 0.80))
         look = detail.get("look") or {}
         low = {name: look.get(name) for name, _ in target.looks if (look.get(name) or 0.0) < threshold}
         if low:
             out.append({"type": "low_likeness", "look": low, "threshold": threshold})
+        elif "look_dino" in detail:               # DINOv2 (kırpımlar): ayrıntıyı (anten sayısı) OpenCLIP'ten iyi ayırır
+            threshold = float(cfg.get("look_dino_threshold", 0.84))
+            dino = detail.get("look_dino") or {}
+            low = {name: dino.get(name) for name, _ in target.looks if name in dino and dino[name] < threshold}
+            if low:
+                out.append({"type": "low_likeness", "look_dino": low, "threshold": threshold})
     return out
 
 
@@ -112,10 +119,18 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
     if scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_video(path, target or scorer.Target())
+        if measured is not None and getattr(target, "next_frame", None):   # FL2VA last_frame: son kare = K(n+1)
+            value = scorer.transition(path, target.next_frame)
+            if value is not None:
+                measured.detail["transition"] = value
+                threshold = float(cfg.get("transition_threshold", 0.8))
+                if value < threshold:
+                    anomalies.append({"type": "transition_jump", "score": value, "threshold": threshold})
     return _judge(measured, seed, anomalies, cfg, target, check_identity=True)
 
 
-def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False) -> Score:
+def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
+                transition: str | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz)."""
@@ -124,6 +139,15 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
     if scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_image(path, target or scorer.Target())
+        if measured is not None and previous:          # zincir karesi: önceki çekimin karesiyle aynı mekân mı
+            value = scorer.continuity(path, previous)
+            if value is not None:
+                measured.detail["continuity"] = value
+                threshold = float(cfg.get("cut_continuity_threshold" if transition == "cut" else "continuity_threshold",
+                                          0.6 if transition == "cut" else 0.8))
+                if value < threshold:
+                    anomalies.append({"type": "continuity_jump", "score": value, "threshold": threshold,
+                                      "transition": transition or "continuous"})
     return _judge(measured, seed, anomalies, cfg, target, check_identity=check_identity)
 
 

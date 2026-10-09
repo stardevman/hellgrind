@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
 import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
@@ -130,6 +130,14 @@ function H3({ sc }: { sc: Scene }) {
     note("inspector", r.frozen ? `${sc.scene_code}: kare elle onaylandı. Proje donmuş: üretime devam edince video üretilecek.`
       : `${sc.scene_code}: kare elle onaylandı; ${r.stages.length ? "video aşamasına geçildi." : "üretilecek aşama yok."}`, "ok");
   }, "inspector");
+  const setTransition = (transition_in: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { transition_in });
+    note("inspector", `${sc.scene_code}: geçiş ${transition_in === "auto" ? "senaryodaki gibi" : TRANSITION_TR[transition_in]?.split(":")[0]}. Kare zinciri buna göre yeniden çizilir.`, "ok");
+  }, "inspector");
+  const redrawChain = () => act(async () => {
+    const r = await api.post<{ codes: string[] }>(`/scenes/${sc.id}/board/redraw-chain`);
+    note("inspector", r.codes.length ? `Sonraki ${r.codes.length} kare sırayla yeniden çiziliyor: ${r.codes.join(", ")}.` : "Yeniden çizilecek kare yok.", "ok");
+  }, "inspector");
   const source = sc.keyframe_source === "upload" ? "upload" : sc.board_source;
   const review = sc.board_status === "changes_requested" && (sc.board_source === "qwen_edit" || sc.board_source === "comfyui" || sc.board_source === "flux");
   const editRefs = sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model === "qwen_edit" ? sc.edit_refs ?? [] : [];
@@ -143,6 +151,24 @@ function H3({ sc }: { sc: Scene }) {
         </select>
       </label>
       {sc.h3_mode_warning && <p className="warn small">{sc.h3_mode_warning}</p>}
+      <label className="field">Çekime geçiş
+        <select value={sc.transition_explicit ?? "auto"} disabled={busy} aria-label="Çekime geçiş" onChange={(e) => setTransition(e.target.value)}>
+          <option value="auto">Senaryodaki gibi (şu an: {TRANSITION_TR[sc.transition ?? "continuous"]?.split(":")[0]})</option>
+          {Object.entries(TRANSITION_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </label>
+      {sc.chain_parent && (
+        <p className={sc.chain_stale ? "warn small" : "faint small"}>
+          {sc.chain_stale ? `Kare eski: zincirdeki önceki kare (${sc.chain_parent}) değişti; videodan önce yeniden çizilecek.`
+            : `Kare ${sc.chain_parent} karesinden devam eder (anahtar kare zinciri).`}
+        </p>
+      )}
+      {(sc.chain_redraw?.length ?? 0) > 0 && (
+        <div className="row">
+          <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : "Zincirde bu kareden türeyen eski ya da eksik kareler sırayla çizilir (ücretli)"}
+            onClick={redrawChain}>Sonraki {sc.chain_redraw!.length} kareyi yeniden çiz</button>
+        </div>
+      )}
       <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
       <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
         {sc.keyframe_url

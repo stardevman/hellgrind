@@ -114,7 +114,11 @@ settings = Settings()
 DEFAULT_PROJECT_SETTINGS: dict = {
     "clip_threshold": 0.85,        # Quality Gate eşiği
     "identity_threshold": 0.60,
-    "look_threshold": 0.75,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans)
+    "look_threshold": 0.80,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans)
+    "look_dino_threshold": 0.84,   # insan olmayan karakter: DINOv2 (kırpımlar) — Kıvılcım ölçümü: Bolt 0,85-0,89, iki antenli 0,82
+    "continuity_threshold": 0.80,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
+    "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
+    "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
     "qwen_edit_mode": None,        # karakterli ilk kare: None = Ayarlar'daki QWEN_EDIT_MODE; full | medium | lightning    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
     "excellent_threshold": 0.92,   # tam turda erken durma için "mükemmel" eşiği
     "min_pass_rate": 0.3,          # test turunun geçmesi için gereken oran

@@ -168,7 +168,7 @@ yeniden doğrulayın.
   worker'da, tek süreçte iş parçacığı havuzuyla çalışır (`worker-gen`: `--pool threads -c 4`); süreç havuzunda her alt
   süreç kendi kopyasını yüklüyor, 7,6 GB'lık Docker VM'inde süreçler SIGKILL ile ölüyordu.
 - **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 195 sn (tam: 40 adım, cfg 4; ölçülen ~190-200 sn, ≈0,085 $),
-  `keyframe_edit_medium_seconds` 100 (20 adım) ve `keyframe_edit_lightning_seconds` 25 (Lightning) başlangıç tahmini;
+  `keyframe_edit_medium_seconds` 100 (20 adım) ve `keyframe_edit_lightning_seconds` 15 (Lightning; ölçülen model yükleme dahil 0,048 $) başlangıç tahmini;
   soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Kalite: Ayarlar › `QWEN_EDIT_MODE` ya da proje ayarı `qwen_edit_mode`. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
   (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); metin
   kodlayıcı ve VAE Qwen-Image ile ortak. fp8mixed cu128 worker'da çalışır (int8_convrot cu130 ister). Worker imajı değişmez.
@@ -180,6 +180,11 @@ yeniden doğrulayın.
   karakterde (`characters.kind = non_human`; Varlıklar'dan seçilir, tarifte robot/hayvan/yaratık geçiyorsa önerilir) yüz
   aranmaz: OpenCLIP görüntü benzerliği `look_threshold`'la (0,75) ölçülür. Hepsi kalırsa çekim "Kimlik düşük" gerekçesiyle
   incelemeye düşer; kontrolü geçemeyen ilk kare denetçiden elle onaylanabilir.
+- **Anahtar kare zinciri ve FL2VA last_frame:** aynı sahnede devam eden çekimin ilk karesi önceki çekimin karesinden
+  (Qwen-Image-Edit, image 1 = K(n-1)) sekans başına bir kilitle sırayla çizilir; `CUT TO:` sonrası kesme, yeni sahne
+  başlığı zinciri kırar. i2v.json'a isteğe bağlı `{{last_frame}}` (LoadImage -> MiniMaxH3ImageToVideo.last_frame) eklendi;
+  sonraki çekim devam ediyorsa video iki kare arasında üretilir, değilse düğüm istekten çıkarılır. Worker imajı değişmez
+  (iş akışı istekle gider); ComfyUI 0.39.0'daki düğümün last_frame girdisi ilk ücretli işte doğrulanacak.
 - **Referanslar:** karakter ve mekân referansı RunPod'da Qwen-Image-2512 ile durağan görsel olarak üretilir (keyframe.json;
   karakter 1328x1328, düz açık gri arka plan, tam boy, yüz net; mekân 1664x928). Karakterin dönüş videosu (H3) isteğe bağlı
   ikinci adımdır ve durağan görselden başlar. Qwen-Image-Edit'e image 1 olarak bu durağan görsel gider. Yeni referans

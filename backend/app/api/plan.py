@@ -79,12 +79,18 @@ def board_upgrade(s: Session, sc: Scene) -> bool:
     """Ücretli modda karakterli çekimin karesi metinden (Qwen-Image) ya da ücretsiz moddan kalma yerel çizilmişse ve
     karakter referansından çizilebiliyorsa: kare STORYBOARD aşamasında yeniden çizilir."""
     from app.config import settings
-    if settings.dry_run or sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance") or not sc.board_key:
+    if sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance") or not sc.board_key:
         return False
+    from app.core.chain import parent_of, stale
     from app.core.h3mode import effective_mode, keyframe_model, strict_refs
-    from app.engine.storyboard import board_source, outdated
+    from app.engine.storyboard import board_source, chain_enabled, outdated
     chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
     if (sc.engine or "h3") == "h3" and effective_mode(sc, chars, assets) == "ref2va":
+        return False
+    parent = parent_of(s, sc) if chain_enabled() else None
+    if parent is not None and stale(sc, parent):      # zincirdeki önceki kare değişti: bu kare eski
+        return True
+    if settings.dry_run:
         return False
     strict = strict_refs(project_settings(s.get(Project, sc.project_id).settings))
     return outdated(sc.board_source, board_source("fl2va", False, keyframe_model(sc, chars, assets, strict)))

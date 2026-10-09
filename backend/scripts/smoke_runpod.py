@@ -25,10 +25,14 @@ def write_workflows(flows: str) -> None:
     """Sahte RunPod'a giden en küçük iş akışları; "_hg" düğümü işin modelini taşır (sıra denetimi için)."""
     for kind, needs in (("t2v", ""), ("i2v", "{{first_frame}}"), ("r2v", "{{reference_1}}"), ("keyframe", ""),
                         ("edit_keyframe", "{{reference_1}}")):
+        flow = {"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}", "img": needs}},
+                "_hg": {"class_type": "Note", "inputs": {"kind": kind}},
+                "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}
+        if kind == "i2v":                              # isteğe bağlı son kare (FL2VA last_frame)
+            flow["116"] = {"class_type": "LoadImage", "inputs": {"image": "{{last_frame}}"}}
+            flow["6"]["inputs"]["last_frame"] = ["116", 0]
         with open(os.path.join(flows, f"{kind}.json"), "w") as f:
-            json.dump({"6": {"class_type": "CLIPTextEncode", "inputs": {"text": "{{prompt}}", "img": needs}},
-                       "_hg": {"class_type": "Note", "inputs": {"kind": kind}},
-                       "9": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "{{filename_prefix}}"}}}, f)
+            json.dump(flow, f)
 
 
 def run(c, check, new_project, script: str, seconds: float | None = None) -> None:
@@ -181,3 +185,81 @@ def run_order(c, check, new_project, script: str) -> None:
             for k, v in saved.items():
                 setattr(settings, k, v)
             runpod_h3.TRANSPORT, runpod_h3.POLL_S = transport, poll
+
+
+CHAIN_SCRIPT = """INT. ATTIC WORKSHOP - NIGHT
+
+Rain taps on the round attic window while a desk lamp glows over scattered gears.
+
+A small round copper robot sits lifeless on the workbench.
+
+The robot's eyes flicker on with a soft blue glow.
+
+The robot tilts its head and looks at the window.
+"""
+
+
+def run_chain(c, check, new_project) -> None:
+    """Anahtar kare zinciri: 4 çekimlik continuous sekansta kareler sırayla (K1 referanslardan, K2..K4 önceki kareden
+    Qwen-Image-Edit ile) çizilir; video isteklerinde last_frame (sonraki çekimin karesi) vardır, sonuncuda yoktur."""
+    from app.config import settings
+    from app.db import session_scope
+    from app.engine import storyboard
+    from app.engine.iteration import _prepare
+    from app.engine.providers import GenRequest
+    from app.live import runpod_h3
+    from app.models import Scene
+    from app.quality import gate
+    from sqlalchemy import select
+    from tests.media_utils import make_video
+    from tests.runpod_fake import FakeRunpod
+
+    print("Z) Anahtar kare zinciri (sahte RunPod, 4 çekim, continuous)")
+    pid = new_project("duman-testi-zincir", 5.0, lint_strictness="off")
+    c.post(f"/projects/{pid}/script", json={"text": CHAIN_SCRIPT, "auto_render": False}).raise_for_status()
+    saved = {k: getattr(settings, k) for k in (*FAKE_SETTINGS, "h3_comfy_workflow_dir", "work_dir")}
+    transport, poll, frame_score = runpod_h3.TRANSPORT, runpod_h3.POLL_S, gate.score_frame
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            video = open(make_video(os.path.join(tmp, "v.mp4"), seconds=4.0, size="320x180", fps=24), "rb").read()
+            from PIL import Image
+            png = os.path.join(tmp, "k.png")
+            Image.new("RGB", (64, 36), (120, 90, 60)).save(png)
+            fake = FakeRunpod(video, open(png, "rb").read())
+            fake.polls_to_finish = 2
+            flows = os.path.join(tmp, "comfy")
+            os.makedirs(flows)
+            write_workflows(flows)
+            from app import runtime_config
+            runtime_config.refresh_if_changed()
+            for k, v in {**FAKE_SETTINGS, "h3_comfy_workflow_dir": flows, "work_dir": os.path.join(tmp, "work")}.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S = fake.transport(), 0.1
+            gate.score_frame = lambda *a, **k: gate.Score(clip=0.95, face=None, composite=0.95, anomalies=[], passed=True,
+                                                          detail={})       # sıra ve istek içeriği sınanır, skor değil
+            with session_scope() as s:
+                shots = [(sc.scene_code, str(sc.id)) for sc in s.scalars(
+                    select(Scene).where(Scene.project_id == pid).order_by(Scene.seq_order))]
+            storyboard.make_board(pid, shots[-1][1])          # son kare istenir: zincir baştan sırayla çizilir
+            kinds = [r["input"]["workflow"]["_hg"]["inputs"]["kind"] for r in fake.runs]
+            with session_scope() as s:
+                rows = [s.get(Scene, sid) for _, sid in shots]
+                linked = [rows[i].board_parent == rows[i - 1].board_sha and rows[i].board_parent for i in range(1, 4)]
+            check(kinds == ["keyframe", "edit_keyframe", "edit_keyframe", "edit_keyframe"] and all(linked),
+                  f"kareler sırayla çizildi ({kinds}); K2..K4 bir önceki kareden (image 1)")
+            prompts = [r["input"]["workflow"]["6"]["inputs"]["text"] for r in fake.runs[1:]]
+            check(all("previous shot" in p for p in prompts), "zincir istemi önceki kareyi korumasını söylüyor")
+            sent = []
+            for code, sid in shots:
+                ctx = _prepare(pid, sid, "smoke")
+                runpod_h3.get_live_provider().generate(GenRequest(
+                    prompt="shot", seed=1, resolution="480p", duration_s=4.0, image_url=ctx.keyframe,
+                    extra={**ctx.render, **({"last_frame": ctx.last_frame} if ctx.last_frame else {})}))
+                wf = fake.runs[-1]["input"]["workflow"]
+                sent.append((code, "116" in wf and "last_frame" in wf["6"]["inputs"]))
+            check([x for _, x in sent] == [True, True, True, False],
+                  f"video isteklerinde last_frame: {sent} (son çekimde sonraki kare yok)")
+        finally:
+            for k, v in saved.items():
+                setattr(settings, k, v)
+            runpod_h3.TRANSPORT, runpod_h3.POLL_S, gate.score_frame = transport, poll, frame_score

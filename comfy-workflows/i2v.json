@@ -215,6 +215,10 @@
       "first_frame": [
         "114",
         0
+      ],
+      "last_frame": [
+        "116",
+        0
       ]
     },
     "class_type": "MiniMaxH3ImageToVideo",
@@ -323,6 +327,15 @@
     "class_type": "PrimitiveBoolean",
     "_meta": {
       "title": "Boolean (Enable Lightning LoRA)"
+    }
+  },
+  "116": {
+    "inputs": {
+      "image": "{{last_frame}}"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
     }
   }
 }

@@ -39,6 +39,7 @@ CLIP_MODEL = "xlm-roberta-base-ViT-B-32"                  # scripts/fetch_models
 CLIP_FILE = "clip/open_clip_pytorch_model.bin"
 YUNET_FILE = "face/face_detection_yunet_2023mar.onnx"
 SFACE_FILE = "face/face_recognition_sface_2021dec.onnx"
+DINO_DIR = "dinov2"                                        # facebook/dinov2-small (Apache 2.0); yoksa DINOv2 ölçümü atlanır
 SCORER_ID = "openclip:xlm-roberta-base-ViT-B-32/laion5b_s13b_b90k+yunet-2023mar+sface-2021dec"
 PACKAGES = ("torch", "open_clip", "cv2")
 
@@ -75,6 +76,7 @@ class Target:
     faces: tuple = ()
     face_expected: bool = True        # yüz görünmeli mi (kimlik kapısı; core/h3mode.face_expected)
     looks: tuple = ()
+    next_frame: str | None = None     # sonraki çekimin ilk karesi (FL2VA last_frame): klibin son karesi ona benzemeli
 
 
 def target_for(scene, chars, style) -> Target:
@@ -226,6 +228,46 @@ class Models:
                 self.refs.popitem(last=False)
         return vector
 
+    # ---------- DINOv2: nesne ve karakter kimliği, mekân sürekliliği ----------
+
+    def _dino(self):
+        """DINOv2 modeli (ilk kullanımda yüklenir); dosyaları yoksa None (ölçüm atlanır)."""
+        if not hasattr(self, "_dino_model"):
+            path = os.path.join(settings.quality_model_dir, DINO_DIR)
+            self._dino_model = None
+            if os.path.exists(os.path.join(path, "model.safetensors")):
+                from transformers import AutoImageProcessor, AutoModel
+                self._dino_model = (AutoImageProcessor.from_pretrained(path), AutoModel.from_pretrained(path).eval())
+        return self._dino_model
+
+    def encode_dino(self, images: list[Image.Image]) -> np.ndarray | None:
+        dino = self._dino()
+        if dino is None:
+            return None
+        processor, model = dino
+        with self.lock, self.torch.no_grad():
+            out = model(**processor(images=[im.convert("RGB") for im in images], return_tensors="pt")).pooler_output
+        e = out.float().numpy()
+        return e / np.linalg.norm(e, axis=1, keepdims=True)
+
+    def reference_dino(self, key: str) -> np.ndarray | None:
+        cache_key = "dino:" + key
+        with self.lock:
+            if cache_key in self.refs:
+                return self.refs[cache_key]
+        from app import storage
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            path = storage.download(key, os.path.join(tmp, "ref" + os.path.splitext(key)[1]))
+            with Image.open(path) as im:
+                vectors = self.encode_dino([im.convert("RGB")])
+        vector = None if vectors is None else vectors[0]
+        with self.lock:
+            self.refs[cache_key] = vector
+            while len(self.refs) > REF_CACHE:
+                self.refs.popitem(last=False)
+        return vector
+
     def reference_look(self, key: str) -> np.ndarray:
         """Referans görselin OpenCLIP görüntü gömmesi (insan olmayan karakterin görsel benzerliği için)."""
         cache_key = "look:" + key
@@ -276,6 +318,92 @@ def combine(clip: float, face: float | None, weight: float) -> float:
     return clip if face is None else (1.0 - weight) * clip + weight * face
 
 
+def crops(image: Image.Image) -> list[Image.Image]:
+    """Karakteri karede bulmak için: 3x3 ızgarada yarım boy kırpımlar (karakter karenin bir bölümünü kaplar; tam kare
+    gömmesi mekânı da taşır ve robotun anten sayısı gibi ayrıntıyı yakalamaz)."""
+    w, h = image.size
+    return [image.crop((int(x * w / 4), int(y * h / 4), int(x * w / 4 + w / 2), int(y * h / 4 + h / 2)))
+            for x in range(3) for y in range(3)]
+
+
+def dino_likeness(m, images: list[Image.Image], keys) -> float | None:
+    """İnsan olmayan karakter: karelerin kırpımlarıyla referanslar arasındaki en yüksek DINOv2 benzerliği."""
+    refs = [r for r in (m.reference_dino(k) for k in keys[:LOOK_REFS * 3]) if r is not None]
+    if not refs:
+        return None
+    vectors = m.encode_dino([c for im in images for c in crops(im)])
+    if vectors is None:
+        return None
+    return float(max(float(v @ r) for v in vectors for r in refs))
+
+
+def character_mask(image: Image.Image, faces: list) -> Image.Image:
+    """Karakterlerin kapladığı bölge griye boyanır: çerçevenin orta-alt bölgesi (karakterler çoğunlukla orada) ve yüzlerden
+    tahmin edilen gövde kutuları. Süreklilik mekânla (oda, yerleşim, nesneler, ışık) ölçülür."""
+    from PIL import ImageDraw
+    out = image.convert("RGB").copy()
+    w, h = out.size
+    d = ImageDraw.Draw(out)
+    d.rectangle([int(w * 0.25), int(h * 0.3), int(w * 0.75), h], fill=(128, 128, 128))
+    for box in faces:
+        x, y, fw, fh = box
+        d.rectangle([int(x - fw), int(y - fh * 0.5), int(x + 2 * fw), int(min(h, y + fh * 7))], fill=(128, 128, 128))
+    return out
+
+
+def face_boxes(m, image: Image.Image) -> list:
+    """Yüz kutuları (x, y, w, h), özgün çözünürlükte."""
+    image = image.convert("RGB")
+    bgr = np.ascontiguousarray(np.asarray(image)[:, :, ::-1])
+    with m.lock:
+        m.detector.setInputSize((bgr.shape[1], bgr.shape[0]))
+        _, found = m.detector.detect(bgr)
+    return [tuple(float(v) for v in row[:4]) for row in (found if found is not None else [])]
+
+
+def continuity(path: str, previous: str) -> float | None:
+    """Kn ile K(n-1) arasında mekân benzerliği: karakter bölgeleri (iki karede de) griye boyanır, kalan görüntünün DINOv2
+    gömmeleri karşılaştırılır (DINOv2 yoksa OpenCLIP). Ölçüm (Kıvılcım, bağımsız çizilmiş kareler): aynı odada devam eden
+    çekimler 0,87-0,88; SH05->SH06 sıçraması 0,78; pencere -> yakın plan kesmesi 0,65."""
+    m = models()
+    with Image.open(path) as a, Image.open(previous) as b:
+        a, b = a.convert("RGB"), b.convert("RGB").resize(a.size)
+    boxes = face_boxes(m, a) + face_boxes(m, b)
+    pair = [character_mask(a, boxes), character_mask(b, boxes)]
+    vectors = m.encode_dino(pair)
+    if vectors is None:
+        vectors = m.encode_images(pair)
+    return round(float(vectors[0] @ vectors[1]), 4)
+
+
+def last_frame(path: str) -> Image.Image | None:
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        out = os.path.join(tmp, "last.png")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.1", "-i", path, "-frames:v", "1", out],
+                       capture_output=True)
+        if not os.path.exists(out):
+            return None
+        with Image.open(out) as im:
+            return im.convert("RGB")
+
+
+def transition(path: str, next_key: str) -> float | None:
+    """Klibin son karesi ile sonraki çekimin ilk karesi (K(n+1)) arasındaki DINOv2 benzerliği (yoksa OpenCLIP)."""
+    from app import storage
+    m = models()
+    end = last_frame(path)
+    if end is None:
+        return None
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        with Image.open(storage.download(next_key, os.path.join(tmp, "next.jpg"))) as im:
+            nxt = im.convert("RGB")
+    vectors = m.encode_dino([end, nxt])
+    if vectors is None:
+        vectors = m.encode_images([end, nxt])
+    return round(float(vectors[0] @ vectors[1]), 4)
+
+
 def score_images(images: list[Image.Image], target: Target) -> Result:
     """identity: insan karakter başına 0-1 kimlik skoru (SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde lojistik
     eğrisi; kapı bununla identity_threshold'u karşılaştırır), identity_cosine: ham kosinüs. Yalnızca kısa kenarı
@@ -294,17 +422,21 @@ def score_images(images: list[Image.Image], target: Target) -> Result:
         if refs and measured:
             best[name] = max(float(v @ r) for v in measured for r in refs)
     looks: dict[str, float] = {}
+    dinos: dict[str, float] = {}
     for name, keys in target.looks:
         refs = [m.reference_look(k) for k in keys[:LOOK_REFS]]
         if refs:
             looks[name] = max(float(v @ r) for v in vectors for r in refs)
+        if (d := dino_likeness(m, images, keys)) is not None:
+            dinos[name] = d
     face = float(np.mean([identity(c) for c in best.values()])) if best else None
     composite = combine(clip, face, settings.score_face_weight)
     detail = {"scorer": SCORER_ID, "alignment": {k: round(p, 4) for k, p in zip(texts, probs)},
               "faces_seen": len(found), "faces_measured": len(measured),
               "identity": {k: round(identity(c), 4) for k, c in best.items()},
               "identity_cosine": {k: round(c, 4) for k, c in best.items()},
-              **({"look": {k: round(v, 4) for k, v in looks.items()}} if target.looks else {})}
+              **({"look": {k: round(v, 4) for k, v in looks.items()}} if target.looks else {}),
+              **({"look_dino": {k: round(v, 4) for k, v in dinos.items()}} if dinos else {})}
     return Result(clip=round(clip, 4), face=None if face is None else round(face, 4), composite=round(composite, 4),
                   detail=detail)
 

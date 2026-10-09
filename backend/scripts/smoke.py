@@ -33,6 +33,8 @@ Kontroller:
      yenisi gönderilmez, 3 dk boyunca iş sayısı sabit kalır ve proje sınırını aşmaz; Kill-Switch bekleyen işleri iptal eder
   Q. Kuyruk sırası: kare + video karışık 4 çekimde RunPod'a önce kareler (Qwen-Image, Qwen-Image-Edit) sonra videolar
      gider, en çok 2 model değişimi
+  Z. Anahtar kare zinciri: 4 çekimlik continuous sekansta kareler sırayla, her biri öncekinden çizilir; video
+     isteklerinde last_frame (sonraki çekimin karesi) vardır, son çekimde yoktur
 Duman testi geliştirme veritabanına "duman-testi" başlıklı projeler ekler; hiçbir şey silmez.
 """
 import os
@@ -377,6 +379,7 @@ def main() -> int:
     from scripts import smoke_runpod                # en sonda: süreç içinde, sahte RunPod'la (ağ yok)
     smoke_runpod.run(c, check, new_project, meta["sample_script"])
     smoke_runpod.run_order(c, check, new_project, meta["sample_script"])
+    smoke_runpod.run_chain(c, check, new_project)
 
     print(f"\n{time.time() - t0:.0f} sn")
     if FAILS:

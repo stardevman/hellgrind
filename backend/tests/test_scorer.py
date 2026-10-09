@@ -70,6 +70,8 @@ def test_the_model_files_are_the_ones_the_build_downloads():
     from app.hermes import translate
     assert fetch_models.MT_DIR == translate.MT_DIR
     mt = {f"{fetch_models.MT_DIR}/{name}" for name in fetch_models.MT_FILES}
+    mt |= {f"{fetch_models.DINO_DIR}/{name}" for name in fetch_models.DINO_FILES}     # DINOv2 (benzerlik, süreklilik)
+    assert fetch_models.DINO_DIR == scorer.DINO_DIR
     assert {fetch_models.CLIP_FILE, fetch_models.YUNET_FILE, fetch_models.SFACE_FILE} == \
         {scorer.CLIP_FILE, scorer.YUNET_FILE, scorer.SFACE_FILE} == set(fetch_models.MODELS) - mt
     assert "pytorch_model.bin" in fetch_models.MT_FILES and "source.spm" in fetch_models.MT_FILES

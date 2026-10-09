@@ -39,6 +39,9 @@ def compute(project_id: str) -> dict:
                                    WHERE project_id = :p AND kind = 'commit' GROUP BY 1 ORDER BY 2 DESC"""),
                            {"p": project_id}).all()
         spent = float(project.spent_usd)
+        modes = {bool(x) for x in s.execute(text("""SELECT DISTINCT dry_run FROM service_calls WHERE project_id = :p
+                                                     AND status = 'succeeded'"""), {"p": project_id}).scalars()}
+        spend_mode = "mixed" if len(modes) > 1 else "virtual" if modes == {True} else "real" if modes else "none"
         minutes, minutes_source = _film_minutes(project, scenes)
         minutes = round(minutes, 3)                     # gösterilen dakika ile maliyet aynı sayıdan hesaplansın
         s.expunge_all()
@@ -77,6 +80,7 @@ def compute(project_id: str) -> dict:
         "spent_usd": round(spent, 4),
         "film_minutes": minutes, "film_minutes_source": minutes_source,
         "cost_per_film_minute_usd": _ratio(spent, minutes, 2),
+        "spend_mode": spend_mode,          # virtual (ücretsiz mod, sanal) | real (ücretli mod) | mixed | none
         "spent_by_kind": {kind: round(float(usd), 4) for kind, usd in ledger},
         "sequences": [{
             "id": str(q.id), "code": q.code, "title": q.title, "variations": seq_vars.get(q.id, 0),

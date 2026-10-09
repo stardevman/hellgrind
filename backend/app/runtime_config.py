@@ -70,7 +70,7 @@ FIELDS: tuple[Field, ...] = (
           "(Qwen-Image, yalnızca metinden; kimlik kayabilir)", ("qwen_edit", "qwen")),
     Field("QWEN_EDIT_MODE", "qwen_edit_mode", "choice", "runpod",
           "Qwen-Image-Edit kalitesi (karakterli ilk kare): full 40 adım cfg 4 (~195 sn), medium 20 adım cfg 4 (~100 sn), "
-          "lightning 4 adım cfg 1 (~25 sn). Proje ayarı (Senaryo › Yoğunluk) bunun önüne geçer", ("full", "medium", "lightning")),
+          "lightning 4 adım cfg 1 (~15 sn). Proje ayarı (Senaryo › Yoğunluk) bunun önüne geçer", ("full", "medium", "lightning")),
     Field("H3_KEYFRAME_REFERENCE", "h3_keyframe_reference", "choice", "runpod",
           "fal.ai kancası: flux_kontext ise ilk kare karakter referansından Flux Kontext ile çizilir (görsel başına ücretli; "
           "Qwen'in önüne geçer). Varsayılan off", ("off", "flux_kontext")),

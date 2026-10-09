@@ -142,6 +142,20 @@ def edit_prompt(prompt: str, refs: list[dict]) -> str:
     return (f"{'; '.join(parts)}. {keep} {prompt} A single cinematic film frame, 16:9, no text, no captions.").strip()
 
 
+def chain_prompt(prompt: str, refs: list[dict], transition: str) -> str:
+    """Zincir karesi (Kn, n>1): image 1 önceki çekimin ilk karesi (K(n-1)); image 2/3 karakterlerin durağan referansları.
+    continuous: aynı oda, yerleşim, nesneler, ışık ve karakter tasarımları korunur; yalnızca çekimin anlattığı değişir.
+    cut: kamera açısı ve kadraj değişebilir, mekân, nesneler ve karakterlerin durumu korunur."""
+    parts = ["Image 1 is the previous shot of this scene"]
+    parts += [f"{r['name']} is the person in image {i}" if r["kind"] == "character"
+              else f"the location is shown in image {i}" for i, r in enumerate(refs, start=1) if r["kind"] != "frame"]
+    keep = ("Keep the same room, layout, props, lighting and characters' designs as image 1." if transition != "cut" else
+            "The camera angle and framing may change for this shot, but keep the same location, props, lighting, the "
+            "characters' designs and the characters' state as in image 1.")
+    return (f"{'; '.join(parts)}. {keep} Change only what this shot describes: {prompt} "
+            "A single cinematic film frame, 16:9, no text, no captions.").strip()
+
+
 def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
                details: dict | None = None) -> str:
     """Ücretli kare (yazısız): fal.ai Flux (karakter LoRA'larıyla ya da referans görseliyle Kontext) ya da H3
@@ -150,10 +164,12 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
     if source == "qwen_edit":                       # RunPod worker'ında Qwen-Image-Edit-2511, karakter referansından
         from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
         refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
+        chain = extra.get("chain")
+        text = chain_prompt(prompt, refs, chain["transition"]) if chain else edit_prompt(prompt, refs)
         made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), SOURCE_LABEL[source],
                          "runpod_api_key",
-                         lambda: runpod_h3.edit_keyframe_image(edit_prompt(prompt, refs), seed, refs,
-                                                               extra.get("negative", ""), project_id, mode),
+                         lambda: runpod_h3.edit_keyframe_image(text, seed, refs, extra.get("negative", ""), project_id,
+                                                               mode),
                          scene_id=scene_id, details={**(details or {}), "edit_mode": mode})
         local = made.local_path
     elif source == "comfyui":                       # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
@@ -244,6 +260,7 @@ class Drawn:
     attempts: int
     anomalies: list | None = None
     detail: dict | None = None
+    sha: str | None = None           # yazısız karenin SHA-256'sı (zincirde sonraki karenin `board_parent`'ı)
 
 
 def identity_text(drawn: Drawn) -> str:
@@ -253,10 +270,13 @@ def identity_text(drawn: Drawn) -> str:
             return "yüz görünmedi"
         if a.get("type") in ("low_identity", "low_likeness"):
             threshold = f"{a['threshold']:.2f}".replace(".", ",")
-            values = a.get("identity") or a.get("look") or {}
+            values = a.get("identity") or a.get("look") or a.get("look_dino") or {}
             what = "benzerlik" if a["type"] == "low_likeness" else "kimlik"
             return f"{what} " + ", ".join(f"{name} {(v or 0):.2f}".replace(".", ",") + f" < {threshold}"
                                           for name, v in values.items())
+        if a.get("type") == "continuity_jump":
+            return (f"süreklilik {a['score']:.2f}".replace(".", ",") + f" < {a['threshold']:.2f}".replace(".", ",")
+                    + f" (önceki kareyle mekân farklı)")
     return f"skor {drawn.score:.2f}".replace(".", ",") if drawn.score is not None else "kusurlu kare"
 
 
@@ -265,12 +285,15 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
     """Kareyi çizer ya da yüklenen ilk kareden alır; yazısız hâlini ve yazılı panel karesini depoya koyar. Ücretli kaynakta
     kare kalite kapısından geçer; Qwen-Image-Edit karesi ayrıca yüz kimliğinden (SFace) geçer ve kalırsa yeni seed'le en çok
     EDIT_RETRIES kez yeniden çizilir (her deneme ayrı ücretlenir). salt: yönetmenin açık "yeniden çiz" isteği (yeni seed'ler)."""
+    from app.core.chain import sha_of
     from app.quality import gate
     from app.quality.anomaly import detect_frame_anomalies
     os.makedirs(settings.work_dir, exist_ok=True)
     seed0 = seed_for(scene_id, fp, "board", *([salt] if salt else []))
+    chain = extra.get("chain")
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         clean = os.path.join(tmp, "clean.jpg")
+        previous = storage.download(chain["key"], os.path.join(tmp, "previous.jpg")) if chain else None
         drawn = Drawn(source, None, True, 1)
         if source == "upload":                                  # yönetmenin ilk karesi: çizim yok, ücret yok
             storage.download(info["keyframe_key"], clean)
@@ -289,41 +312,115 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", *([salt] if salt else []), attempt)
                 paid_frame(clean, source, project_id, scene_id, seed, prompt, extra,
                            details={"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed})
-                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit)
+                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=previous,
+                                         transition=chain["transition"] if chain else None)
                 drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), score.detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=score.passed,
                                  identity=(score.detail or {}).get("identity"), look=(score.detail or {}).get("look"),
                                  faces_seen=(score.detail or {}).get("faces_seen"),
                                  faces_measured=(score.detail or {}).get("faces_measured"),
+                                 continuity=(score.detail or {}).get("continuity"),
+                                 chain=chain["code"] if chain else None,
                                  reasons=[a.get("type") for a in score.anomalies])
                 if score.passed:
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
+        drawn.sha = sha_of(clean)
         board = board_from(clean, lines, os.path.join(tmp, "board.jpg"))
         storage.put_file(board, key, "image/jpeg")
     return drawn
 
 
+CHAIN_LOCK_S = 2 * 3600          # zincirin en uzun süresi (her kare 3 denemeye kadar, kare başına ~3 dk)
+
+
+def chain_enabled() -> bool:
+    """Anahtar kare zinciri çizilebilir mi: ücretsiz modda (yerel kareler; sıra ve kayıt aynı) ya da ücretli modda
+    Qwen-Image-Edit (edit_keyframe.json) RunPod'da varsa. Değilse kareler eskisi gibi bağımsız çizilir; zincir kaydı
+    tutulmaz (karelere "eski" denmez)."""
+    if settings.dry_run:
+        return True
+    return board_source("fl2va", False, "qwen_edit") == "qwen_edit"
+
+
 def make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False) -> str:
     """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır.
-    explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; kalite kapısından
-    kalmış ücretli kare yeni seed'lerle yeniden çizilir."""
+    explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; ücretli kare yeni
+    seed'lerle yeniden çizilir.
+    Anahtar kare zinciri (core/chain.py): bir sekansın kareleri tek kilitle sırayla çizilir; çekim zincirdeyse (geçişi
+    continuous ya da cut) önceki kareler eksik ya da eskiyse önce onlar çizilir (K(n-1) çizilmeden Kn çizilmez)."""
+    from app.core.chain import ancestors, parent_of
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        chain = [sc.id for sc in ancestors(s, scene)] if chain_enabled() else []
+        lock_key = f"hg:chain:{scene.sequence_id or scene.project_id}"
+    # Sekansın bütün kareleri aynı kilitle: zincirin başı da (kendi görevi, sonraki çekimin görevi onu "önceki kare" olarak
+    # çizerken) aynı anda iki kez çizilmesin.
+    with killswitch.r().lock(lock_key, timeout=CHAIN_LOCK_S, blocking_timeout=CHAIN_LOCK_S):
+        for target in [*chain, scene_id]:             # önce zincirin eksik ya da eski kareleri, en eskisinden
+            with session_scope() as s:
+                shot = s.get(Scene, target)
+                parent = parent_of(s, shot) if chain else None
+                if parent is not None and parent.board_status == "changes_requested" and not shot.keyframe_key:
+                    killswitch.event(project_id, "chain_waiting", scene_id=scene_id, code=shot.scene_code,
+                                     parent=parent.scene_code)
+                    if target != scene_id:
+                        break                         # zincir incelemedeki karede durur: sonrakiler ondan çizilecek
+                    return shot.board_key or ""
+            if target != scene_id:
+                _make_board(project_id, str(target), keep_status=True)
+        with session_scope() as s:
+            current = s.get(Scene, scene_id)
+            parent = parent_of(s, current) if chain else None
+            if parent is not None and parent.board_status == "changes_requested" and not current.keyframe_key:
+                return current.board_key or ""
+        return _make_board(project_id, scene_id, standalone, explicit)
+
+
+def _chain_parent(s, scene, fp_of) -> tuple:
+    """(önceki çekim, kullanılabilir mi): zincir varsa önceki çekim; karesi bu görsel özet için çizilmiş, yazısız hâli
+    depoda ve inceleme beklemiyorsa kullanılabilir."""
+    from app.core.chain import parent_of
+    parent = parent_of(s, scene)
+    if parent is None:
+        return None, False
+    usable = bool(parent.board_key and parent.board_hash == fp_of(parent) and parent.board_status != "changes_requested"
+                  and storage.exists(clean_key(parent.board_key)))
+    return parent, usable
+
+
+def _make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False,
+                keep_status: bool = False) -> str:
+    """Tek bir çekimin karesi. keep_status: zincirin önceki karesi olarak çizildi; çekimin durumuna dokunulmaz (kendi
+    görevi ya da yönetmen yönetir)."""
     import time
+    from app.core.chain import stale, transition_of
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
         scene, project = s.get(Scene, scene_id), s.get(Project, project_id)
         chars, assets, style = load_characters(s, scene_id), load_assets(s, scene_id), bible.active(s, project_id)
-        fp = visual_fingerprint(scene, chars, assets, style.version if style else None)
+        version = style.version if style else None
+        fp = visual_fingerprint(scene, chars, assets, version)
         composed = compose_for_scene(scene, chars, assets, style)
         prompt, extra = composed.prompt, loras_of(chars)
         cfg = project_settings(project.settings)
         strict = strict_refs(cfg)
         model = keyframe_model(scene, chars, assets, strict)
-        extra.update(edit_references=edit_references(scene, chars, assets, strict), negative=composed.negative,
-                     edit_mode=edit_mode(cfg))
+        refs = edit_references(scene, chars, assets, strict)
+        parent, usable = _chain_parent(s, scene, lambda sc: visual_fingerprint(
+            sc, load_characters(s, sc.id), load_assets(s, sc.id), version)) if chain_enabled() else (None, False)
+        chain_stale = stale(scene, parent if usable else None)
+        extra["base_references"] = refs
+        if parent is not None and usable:             # Kn: image 1 = K(n-1), sonra karakterlerin durağan görselleri
+            extra["chain"] = {"key": clean_key(parent.board_key), "transition": transition_of(scene),
+                              "code": parent.scene_code, "sha": parent.board_sha}
+            refs = [{"name": parent.scene_code, "key": clean_key(parent.board_key), "kind": "frame"},
+                    *[r for r in refs if r["kind"] == "character"][:2]]
+            model = "qwen_edit"
+        extra.update(edit_references=refs, negative=composed.negative, edit_mode=edit_mode(cfg))
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
@@ -335,14 +432,19 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
                             "lighting": style.lighting_prefix if style else ""})
     key = f"storyboard/{scene_id}/{fp}.jpg"
     source = "upload" if info["keyframe_key"] else board_source(mode, explicit, model)
+    if extra.get("chain") and source not in ("qwen_edit", "local", "upload"):
+        extra.pop("chain")                            # zincir Qwen-Image-Edit ister (iş akışı yoksa referanslardan)
+        extra["edit_references"] = extra["base_references"]
     stored = storage.exists(key) and storage.exists(clean_key(key))
     # ücretsiz moddan kalan yerel kare ya da karakterli çekimin metinden çizilmiş karesi: karakter referansından yeniden
     upgrade = outdated(info["board_source"], source)
-    redraw = explicit and source in PAID_SOURCES and info["board_status"] == "changes_requested" and stored
-    if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade and not redraw):
+    redraw = explicit and source in PAID_SOURCES and stored                 # yönetmenin açık isteği: yeni seed'lerle
+    if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade and not redraw
+            and not chain_stale):
         drawn = None
-        if not stored or upgrade or redraw:
-            advance_scene(project_id, scene_id, status="storyboard")
+        if not stored or upgrade or redraw or chain_stale:
+            if not keep_status:
+                advance_scene(project_id, scene_id, status="storyboard")
             lines = [f"{info['code']} · {camera_text(info['camera'])} · {seconds_text(info['duration'])}"]
             lines += [textwrap.shorten(f"{(who or 'Anlatıcı').upper()}: {text}", 84, placeholder="…")
                       for who, text in dialogue[:2]]
@@ -351,7 +453,8 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
         changed = info["board_hash"] is not None and info["board_hash"] != fp
         fields = {"board_key": key, "board_hash": fp}
         if drawn is not None:
-            fields.update(board_source=drawn.source, board_score=drawn.score)
+            fields.update(board_source=drawn.source, board_score=drawn.score, board_sha=drawn.sha,
+                          board_parent=(extra.get("chain") or {}).get("sha"))
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
             if drawn.source == "qwen_edit":
                 note = f"{REVIEW}: {identity_text(drawn)} ({drawn.attempts} deneme)"
@@ -366,11 +469,15 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
         elif changed or info["board_status"] == "changes_requested":
             fields["board_status"] = "pending"          # yeni kare yeni onay ister
         advance_scene(project_id, scene_id, **fields)
-        killswitch.event(project_id, "board_ready", scene_id=scene_id, code=info["code"])
+        killswitch.event(project_id, "board_ready", scene_id=scene_id, code=info["code"],
+                         **({"chain": extra["chain"]["code"]} if extra.get("chain") else {}))
         info["board_status"] = fields.get("board_status", info["board_status"])
+    if keep_status:
+        return key
     if standalone or (cfg["require_board_approval"] and info["board_status"] != "approved"):
         advance_scene(project_id, scene_id, status="board_review")
     return key
+
 
 
 def board_ready(scene, fp_visual: str) -> bool:

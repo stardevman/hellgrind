@@ -76,6 +76,11 @@ function Detail({ a }: { a: Asset }) {
       : `${a.name}: insan. Kimlik yüzle (SFace) ölçülür.`, "ok");
   }, "assets");
   const history = a.reference_history ?? [];
+  const [inv, setInv] = useState((a.invariants ?? []).join("\n"));
+  const saveInv = () => act(async () => {
+    const r = await api.patch<{ version: number }>(`/assets/${a.id}`, { invariants: inv.split("\n").map((x) => x.trim()).filter(Boolean) });
+    note("assets", `Değişmezler kaydedildi (sürüm ${r.version}); her kare ve video istemine eklenir. Çekimler yeniden üretilince uygulanır.`, "ok");
+  }, "assets");
   const bad = t && (t.status === "rejected" || t.status === "failed");
   return (
     <section className="pnl" aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
@@ -87,6 +92,13 @@ function Detail({ a }: { a: Asset }) {
         <div className="pad stack">
           <Pipeline a={a} />
           {a.description && <p>{a.description}</p>}
+          {a.type !== "location" && !locked && (
+            <label className="field">Değişmez özellikler (her satır bir özellik; her kare ve video istemine eklenir)
+              <textarea rows={3} value={inv} disabled={busy} aria-label="Değişmez özellikler" onChange={(e) => setInv(e.target.value)}
+                placeholder="ör. exactly one bent antenna with a small bulb" />
+              <div className="row mt8"><button className="btn" type="button" disabled={busy || inv === (a.invariants ?? []).join("\n")} onClick={saveInv}>Değişmezleri kaydet</button></div>
+            </label>
+          )}
           {ch && (
             <label className="field">Karakter türü
               <select value={ch.kind} disabled={busy} onChange={(e) => setKind2(e.target.value)} aria-label="Karakter türü">

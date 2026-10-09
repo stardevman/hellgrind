@@ -7,7 +7,9 @@
 2. Turbo LoRA açık: FL2VA ve T2V fl2v_turbo_8step + 8 adım, Ref2VA ref2v_turbo_4step + 4 adım.
 3. Qwen anahtar karesi: volume'da olmayan Lightning LoRA ve anahtar düğümleri çıkarılır; 50 adım, cfg 4 doğrudan.
 4. Tuval: ResolutionSelector (115) yerine {{width}} / {{height}} (480p 864x480, 720p 1280x704; 32'nin katları).
-5. FL2VA'daki bağlantısız 119 / 120 düğümleri silinir.
+5. FL2VA'daki bağlantısız 119 / 120 düğümleri silinir. FL2VA'ya isteğe bağlı son kare eklenir: 116 = {{last_frame}} ->
+   MiniMaxH3ImageToVideo.last_frame (anahtar kare zinciri: çekimin son karesi sonraki çekimin ilk karesi); gönderilmezse
+   Hell Grind düğümü ve girdiyi istekten çıkarır.
 6. H3 DiT dosyası türe bağlıdır: minimax_h3_{fl2va,ref2va}_pruned_{{unet_variant}}.safetensors. Hell Grind
    {{unet_variant}}'ı Ayarlar'daki H3_UNET_VARIANT'tan doldurur: fp8_scaled (varsayılan; cu128 torch'lu worker) ya da
    int8_convrot (Comfy-Org'un önerisi; cu130 torch ister). Metin kodlayıcı nvfp4_awq, video VAE fp16 kalır.
@@ -84,6 +86,9 @@ def i2v() -> dict:
     node = f["105:104"]["inputs"]
     node.update(prompt="{{prompt}}", width="{{width}}", height="{{height}}")
     f["114"]["inputs"]["image"] = "{{first_frame}}"
+    f["116"] = copy.deepcopy(f["114"])                           # isteğe bağlı son kare (sonraki çekimin ilk karesi)
+    f["116"]["inputs"]["image"] = "{{last_frame}}"
+    node["last_frame"] = ["116", 0]
     f["105:15"]["inputs"]["noise_seed"] = "{{seed}}"
     f["105:111"]["inputs"]["value"] = "{{duration}}"
     f["92"]["inputs"]["filename_prefix"] = "{{filename_prefix}}"

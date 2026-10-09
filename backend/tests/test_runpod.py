@@ -50,7 +50,7 @@ def runpod(monkeypatch, tmp_path, paid, s3):
     with session_scope() as s:
         s.execute(text("DELETE FROM h3_outputs"))
     r = vast_box._r()
-    for name in ("rp_balance", "rp_config", "rp_health", "rp_tick", "rp_last_tick", "rp_balance_error", "inflight",
+    for name in ("rp_balance", "rp_config", "rp_health", "rp_tick", "rp_last_tick", "rp_job_end", "rp_balance_error", "inflight",
                  "last_activity", "last_project", "retrieval"):
         r.delete(vast_box._k(name))
     for pattern in ("rp_job:*", "rp_pending:*", "rp_waiting:*"):  # önceki testlerin gönderilmiş/bekleyen iş kayıtları
@@ -247,6 +247,7 @@ def test_the_tick_charges_idle_workers_and_retrieves_left_behind_outputs(runpod,
     r = vast_box._r()
     r.set(vast_box._k("last_project"), pid)
     r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+    r.set(vast_box._k("rp_job_end"), time.time() - 60)                      # iş 60 sn önce bitti
     runpod.health["workers"]["idle"] = 2
     from app.worker.tasks import runpod_tick
     assert runpod_tick().startswith("idle 2 worker")
@@ -281,8 +282,8 @@ def test_runpod_prices_by_gpu_type_and_reserves_at_the_primary_gpu():
     assert pricing.runpod_rate("NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", prices) == 0.000969
     assert pricing.runpod_rate("NVIDIA H100", prices) == 0.000969                    # bilinmeyen tip: en pahalısı
     assert pricing.runpod_rate(None, prices) == RATE_5090                            # GPU bilinmiyor: birincil tip
-    assert pricing.estimate_video("h3", "720p", 5.0, prices) == round(22 * 5 * RATE_5090, 4)
-    assert pricing.estimate_video("h3", "720p", 5.0, prices, mode="ref2va") == round(14 * 5 * RATE_5090, 4)
+    assert pricing.estimate_video("h3", "720p", 5.0, prices) == round(27 * 5 * RATE_5090, 4)
+    assert pricing.estimate_video("h3", "720p", 5.0, prices, mode="ref2va") == round(17 * 5 * RATE_5090, 4)
 
 
 def test_the_pricing_table_validates_the_serverless_section():
@@ -372,6 +373,7 @@ def test_idle_workers_are_not_charged_while_a_job_runs(runpod, mk_project):
         assert float(s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar()) == 0.0
     vast_box.untrack("job-key")
     r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+    r.set(vast_box._k("rp_job_end"), time.time() - 60)
     r.set(vast_box._k("rp_last_gpu"), "NVIDIA GeForce RTX 5090")
     runpod_h3.tick()
     with session_scope() as s:
@@ -453,3 +455,15 @@ def test_fl2va_gets_the_full_size_clean_frame_not_the_board(runpod, sample_scene
     assert clean.size == (1280, 704) and board.size == (960, 540)
     from app.live import vast_h3
     assert abs(clean.size[0] / clean.size[1] - vast_h3.SIZES["720p"][0] / vast_h3.SIZES["720p"][1]) < 0.01
+
+
+def test_two_ticks_after_one_job_charge_the_idle_window_once(runpod, monkeypatch):
+    """10:51 ve 10:52'de art arda iki "boşta" kaydı (60 sn + 60 sn): worker son işten sonra en çok RUNPOD_IDLE_TIMEOUT_S
+    (60 sn) açık kalır; iki tik birlikte 60 sn'yi geçmemeli. İşin kendi süresi (işin bedelinde) boşta sayılmaz."""
+    monkeypatch.setattr(settings, "runpod_idle_timeout_s", 60)
+    end = 1000.0                                             # iş 1000. saniyede bitti
+    first = runpod_h3.idle_overlap(end - 30, end + 30, end)   # tik: işin son 30 sn'si + boşta 30 sn
+    second = runpod_h3.idle_overlap(end + 30, end + 90, end)  # sonraki tik: kalan 30 sn; worker 1060'ta kapandı
+    third = runpod_h3.idle_overlap(end + 90, end + 150, end)  # kapanmış worker /health'te hâlâ "idle" görünse de
+    assert (first, second, third) == (30.0, 30.0, 0.0) and first + second == 60
+    assert runpod_h3.idle_overlap(end - 60, end, None) == 0.0                # iş bitişi bilinmiyorsa yazılmaz

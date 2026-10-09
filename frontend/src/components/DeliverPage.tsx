@@ -32,6 +32,10 @@ const EXPORTS = [
   ["package", "Çekim paketi (zip)", "paket.zip", "Her çekim için final, rafine adaylar ve ayrı ses stem'leri", "zip"],
 ] as const;
 
+const SPEND_TR: Record<string, string> = {
+  virtual: "sanal maliyet", real: "gerçek harcama", mixed: "harcama (gerçek + sanal)", none: "maliyet",
+};
+
 export function DeliverPage() {
   const { ov, projectId, filmKind, setFilmKind, assembling, setAssembling, busy, act, note } = usePanel();
   const { data: m } = useSWR<Metrics>(projectId ? `/projects/${projectId}/metrics` : null, fetcher, { refreshInterval: POLL_MS });
@@ -131,7 +135,7 @@ export function DeliverPage() {
           <>
             <div className="kpis">
               <Kpi value={ratio(m.variations_per_accepted_shot)} label="Kabul edilen çekim başına varyasyon" hint={`${m.variations} varyasyon / ${m.accepted_shots} çekim`} />
-              <Kpi value={m.cost_per_film_minute_usd == null ? "—" : usd(m.cost_per_film_minute_usd)} label="Film dakikası başına sanal maliyet"
+              <Kpi value={m.cost_per_film_minute_usd == null ? "—" : usd(m.cost_per_film_minute_usd)} label={`Film dakikası başına ${SPEND_TR[m.spend_mode ?? "virtual"] ?? "maliyet"}`}
                 hint={`${usd(m.spent_usd)} / ${minutes} ${m.film_minutes_source === "film" ? "film" : "tamamlanan çekim"}`} />
               <Kpi value={pct(m.probe.success_rate)} label="Test turu başarı oranı" hint={`${m.probe.succeeded} başarılı / ${m.probe.rounds} tur`} />
               <Kpi value={ratio(m.probe.mean_correction_rounds)} label="Ortalama düzeltme turu" hint={`${m.probe.scenes} çekimde`} />

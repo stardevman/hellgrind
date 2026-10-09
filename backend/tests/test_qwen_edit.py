@@ -240,7 +240,7 @@ def test_qwen_and_qwen_edit_frames_are_separate_queue_groups():
 
 # ---------- fiyat ve tahmini maliyet ----------
 
-@pytest.mark.parametrize("mode,seconds", [("full", 195), ("medium", 100), ("lightning", 25)])
+@pytest.mark.parametrize("mode,seconds", [("full", 195), ("medium", 100), ("lightning", 15)])
 def test_the_qwen_edit_frame_is_priced_from_its_own_row(mode, seconds):
     rp = pricing.serverless()
     rate = pricing.runpod_rate()

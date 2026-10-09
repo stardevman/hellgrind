@@ -73,10 +73,21 @@ def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session))
 @curated("storyboard_prepare")
 def draw_board(scene_id: SceneId, paid: bool = False, s: Session = Depends(get_session)):
     """Tek çekimin karesini çizer (yalnızca STORYBOARD; görüntü üretilmez). Ref2VA çekiminde varsayılan kare yereldir
-    (ücretsiz); paid=true ücretli kareyi (ComfyUI keyframe.json ya da Flux) açıkça ister."""
+    (ücretsiz); paid=true ücretli kareyi yeni seed'lerle her zaman yeniden çizer (Qwen-Image / Qwen-Image-Edit ya da
+    Flux); ücretli kaynak yoksa 409 döner (iş kuyruğa alınmış gibi görünmesin)."""
     sc = scene_or_404(s, scene_id)
     ensure_not_frozen(str(sc.project_id))
     ensure_idle(sc)
+    if paid and not settings.dry_run:
+        from app.core.h3mode import keyframe_model, strict_refs
+        from app.engine.storyboard import PAID_SOURCES, board_source
+        from app.config import project_settings
+        from app.models import Project
+        chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+        strict = strict_refs(project_settings(s.get(Project, sc.project_id).settings))
+        if board_source("fl2va", True, keyframe_model(sc, chars, assets, strict)) not in PAID_SOURCES:
+            raise HTTPException(409, f"{sc.scene_code}: ücretli kare kaynağı yok (RunPod'da keyframe.json / "
+                                     "edit_keyframe.json iş akışı ya da fal.ai anahtarı); kare yeniden çizilemez.")
     sc.status, sc.last_error = "storyboard", None
     s.commit()
     from app.worker import tasks
@@ -115,9 +126,43 @@ def accept_board(scene_id: SceneId, s: Session = Depends(get_session)):
     s.commit()
     pid = str(sc.project_id)
     killswitch.event(pid, "board_status", scene_id=scene_id, code=sc.scene_code, status="approved", manual=True)
+    redraw = chain_redraw(s, sc)
     if killswitch.is_frozen(pid):
-        return {"scene_id": scene_id, "board_status": "approved", "stages": [], "frozen": True}
-    return {"scene_id": scene_id, "board_status": "approved", "frozen": False, **dispatch_result(s, sc)}
+        return {"scene_id": scene_id, "board_status": "approved", "stages": [], "frozen": True, "chain_redraw": redraw}
+    return {"scene_id": scene_id, "board_status": "approved", "frozen": False, "chain_redraw": redraw,
+            **dispatch_result(s, sc)}
+
+
+def chain_redraw(s: Session, sc: Scene) -> list[str]:
+    """Bu kareden zincirle türeyen ve karesi eski ya da eksik olan sonraki çekimler (kodlar)."""
+    from app.core.chain import parent_of, stale, successors
+    from app.engine.storyboard import chain_enabled
+    out = []
+    if not chain_enabled():
+        return out
+    for nxt in successors(s, sc):
+        parent = parent_of(s, nxt)
+        if not nxt.board_key or stale(nxt, parent) or (parent is not None and parent.scene_code in out):
+            out.append(nxt.scene_code)
+    return out
+
+
+@router.post("/scenes/{scene_id}/board/redraw-chain")
+@curated("storyboard_prepare")
+def redraw_chain(scene_id: SceneId, s: Session = Depends(get_session)):
+    """"Sonraki N kareyi yeniden çiz": bu kareden türeyen eski ya da eksik zincir karelerini sırayla çizer (zincirin son
+    eski karesi istenir; make_board öncekileri en eskisinden başlayarak çizer). Görüntü üretilmez."""
+    from app.core.chain import successors
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    codes = chain_redraw(s, sc)
+    if not codes:
+        return {"queued": [], "codes": []}
+    last = next(x for x in reversed(successors(s, sc)) if x.scene_code == codes[-1])
+    ensure_idle(last)
+    from app.worker import tasks
+    tasks.storyboard_scene.si(project_id=str(sc.project_id), scene_id=str(last.id), standalone=True).apply_async()
+    return {"queued": [last.scene_code], "codes": codes}
 
 
 @router.post("/scenes/{scene_id}/upgrade")

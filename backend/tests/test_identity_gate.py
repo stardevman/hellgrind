@@ -193,6 +193,12 @@ def test_the_gate_compares_the_identity_score_not_the_raw_cosine(monkeypatch):
         def reference_look(self, key):
             return np.ones(4, dtype=np.float32) / 2
 
+        def encode_dino(self, images):                      # DINOv2 kurulu değil: ölçüm atlanır
+            return None
+
+        def reference_dino(self, key):
+            return None
+
     frame = [Image.new("RGB", (64, 36))]
     mila = scorer.Target(faces=(("Mila", ("assets/m/still/m.png",)),))
     for cos in (0.58, 0.46, 0.57):

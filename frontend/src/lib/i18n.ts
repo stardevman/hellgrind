@@ -52,7 +52,8 @@ export const EMOTION_COLOR: Record<string, string> = {
 
 export const ANOMALY_TR: Record<string, string> = {
   black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya",
-  no_face: "karakterin yüzü görünmedi", low_identity: "kimlik eşiğin altında",
+  no_face: "karakterin yüzü görünmedi", low_identity: "kimlik eşiğin altında", low_likeness: "karakter benzerliği düşük",
+  continuity_jump: "önceki kareyle mekân farklı", transition_jump: "son kare sonraki çekimin karesine uymuyor",
   unreadable: "okunamayan dosya", flat: "tek renk kare",
 };
 
@@ -85,6 +86,11 @@ export const H3_MODE_TR: Record<string, string> = {
 export const BOARD_SOURCE_TR: Record<string, string> = {
   local: "yerel çizim", flux: "Flux (fal.ai)", comfyui: "Qwen-Image (metinden)", qwen_edit: "Qwen-Image-Edit (karakter referansından)",
   upload: "yüklenen kare",
+};
+/** Çekime geçiş (core/chain.py). */
+export const TRANSITION_TR: Record<string, string> = {
+  continuous: "Devam (aynı sahne): kare önceki çekimin karesinden", cut: "Kesme: açı değişir, mekân ve durum korunur",
+  new_scene: "Yeni sahne: zincir kırılır, kare referanslardan",
 };
 /** Çekimin ilk kare modeli (core/h3mode.keyframe_model). */
 export const KEYFRAME_MODEL_TR: Record<string, string> = {

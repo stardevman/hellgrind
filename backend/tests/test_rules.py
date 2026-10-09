@@ -49,7 +49,7 @@ def test_sample_emotions_come_from_stems_in_hints_and_text():
 
 def test_every_shot_has_the_documented_fields():
     expected = {"scene_id", "sequence", "heading", "location", "props", "description", "visual_prompt", "camera",
-                "emotion", "characters", "dialogue", "duration_s", "action_complexity"}
+                "emotion", "characters", "dialogue", "duration_s", "action_complexity", "transition"}
     for shot in shots_of(rules.SAMPLE_SCRIPT):
         assert set(shot) == expected
         assert set(shot["camera"]) == {"shot", "movement", "angle", "lens_mm"}

@@ -191,6 +191,7 @@ export function ScriptPage() {
           <li><code>İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE</code>Sahne başlığı (İÇ., DIŞ., İÇ/DIŞ., INT., EXT.). Mekân başlıktan çıkar.</li>
           <li><code>Kızıl bir ışık kazanların arasından süzülüyor.</code>Aksiyon: her paragraf yeni bir çekim. Koş, atla, patla gibi kelimeler geniş açı ve yüksek aksiyon demektir.</li>
           <li><code>Kerem bir taksiye biner. [NESNE: Taksi]</code>Nesne: paragraf içindeyse o çekime, tek satırdaysa sahnenin bütün çekimlerine bağlanır.</li>
+          <li><code>CUT TO:</code>Sonraki çekim kesmeyle gelir: kamera açısı değişebilir, mekân ve karakterlerin durumu korunur. Aynı sahne başlığı altındaki diğer çekimler önceki çekimin karesinden devam eder (anahtar kare zinciri); yeni sahne başlığı zinciri kırar.</li>
           <li><code>{"KEREM\n(tedirgin)\nBurada kimse yok mu?"}</code>Konuşan karakter (büyük harf, en çok 4 kelime), parantezde duygu, ardından replik.</li>
           <li><code>[KARAKTER: Kerem]</code>Konuşmayan karakter: kadroya girer ve adı geçen çekimlere bağlanır; tek satırdaysa sahnenin bütün çekimlerine.</li>
           <li><code>EXT. ROOFTOP - SUNSET</code>Senaryo İngilizce de yazılabilir ([CHARACTER: …], [PROP: …]). Ücretli modda Türkçe tarifler sağlayıcıya gitmeden İngilizceye çevrilir.</li>
@@ -243,7 +244,7 @@ function Intensity() {
                       <option value="">Ayarlar'daki gibi</option>
                       <option value="full">Tam: 40 adım, cfg 4 (~195 sn)</option>
                       <option value="medium">Orta: 20 adım, cfg 4 (~100 sn)</option>
-                      <option value="lightning">Lightning: 4 adım, cfg 1 (~25 sn)</option>
+                      <option value="lightning">Lightning: 4 adım, cfg 1 (~15 sn)</option>
                     </select>
                   ) : f.kind === "res" ? (
                     <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
