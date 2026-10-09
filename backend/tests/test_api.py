@@ -57,7 +57,7 @@ def test_the_fal_trial_preset_is_cheap_and_valid(api, api_project):
     meta = api.get("/api/meta").json()
     trial = meta["presets"]["trial"]
     assert trial["probe_n"] + trial["full_n"] <= 4 and trial["max_correction_rounds"] == 0
-    assert trial["probe_resolution"] == trial["full_resolution"] == "480p" and trial["lint_strictness"] == "warn"
+    assert trial["probe_resolution"] == "480p" and trial["full_resolution"] == "720p" and trial["lint_strictness"] == "warn"
     pid = api_project(3.0, **trial)                                     # ayarlar doğrulamadan geçer
     from app.hermes.rules import parse
     shots = parse(meta["trial_script"])["shots"]
@@ -679,9 +679,24 @@ def test_small_files_are_served_directly_with_an_immutable_cache(api, tmp_path, 
     assert "immutable" in img.headers["cache-control"] and "max-age=31536000" in img.headers["cache-control"]
 
 
-def test_videos_redirect_to_a_signed_url_for_the_address_the_browser_uses(api, tmp_path, s3):
+def test_videos_are_served_from_the_same_origin_with_ranges(api, tmp_path, s3):
+    """Gömülü tarayıcılar (Claude masaüstü paneli) başka host'a yönlenen videoyu oynatmaz: video API'den, Range ile."""
     put(tmp_path, "final/x/v.mp4", b"0123456789" * 100, "video/mp4")
-    r = api.get("/api/media?key=final/x/v.mp4", follow_redirects=False)
+    full = api.get("/api/media?key=final/x/v.mp4", follow_redirects=False)
+    assert full.status_code == 200 and len(full.content) == 1000 and full.headers["content-type"] == "video/mp4"
+    assert full.headers["accept-ranges"] == "bytes" and full.headers["content-length"] == "1000"
+    part = api.get("/api/media?key=final/x/v.mp4", headers={"Range": "bytes=0-1"})
+    assert part.status_code == 206 and part.content == b"01" and part.headers["content-range"] == "bytes 0-1/1000"
+    tail = api.get("/api/media?key=final/x/v.mp4", headers={"Range": "bytes=-3"})
+    assert tail.status_code == 206 and tail.content == b"789" and tail.headers["content-range"] == "bytes 997-999/1000"
+    head = api.head("/api/media?key=final/x/v.mp4", headers={"Range": "bytes=0-1"})
+    assert head.status_code == 206 and head.headers["content-length"] == "2" and head.content == b""
+    assert api.get("/api/media?key=final/x/v.mp4", headers={"Range": "bytes=5000-"}).status_code == 416
+
+
+def test_external_share_links_still_redirect_to_a_signed_url(api, tmp_path, s3):
+    put(tmp_path, "final/x/v.mp4", b"0123456789" * 100, "video/mp4")
+    r = api.get("/api/media?key=final/x/v.mp4&redirect=true", follow_redirects=False)
     assert r.status_code == 307
     target = urlsplit(r.headers["location"])
     assert f"{target.scheme}://{target.netloc}" == settings.s3_public_endpoint_url and "X-Amz-Signature=" in target.query
@@ -690,7 +705,7 @@ def test_videos_redirect_to_a_signed_url_for_the_address_the_browser_uses(api, t
 def test_the_signed_url_works_for_the_browser_host_and_supports_ranges(api, tmp_path, s3):
     """SigV4 imzası Host'a bağlıdır: tarayıcı localhost:9000'e gider, imza da o adrese göre atılmalı."""
     put(tmp_path, "final/x/v.mp4", b"0123456789" * 100, "video/mp4")
-    target = urlsplit(api.get("/api/media?key=final/x/v.mp4", follow_redirects=False).headers["location"])
+    target = urlsplit(api.get("/api/media?key=final/x/v.mp4&redirect=true", follow_redirects=False).headers["location"])
     inside = f"{settings.s3_endpoint_url}{target.path}?{target.query}"                  # konteynerden MinIO'ya
     browser_host = {"Host": urlsplit(settings.s3_public_endpoint_url).netloc}
     full = httpx.get(inside, headers=browser_host)

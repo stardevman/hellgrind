@@ -62,7 +62,8 @@ export function measureText(m: Measure | null): string {
   if (!m) return "";
   const parts = Object.entries(m.alignment).map(([k, x]) => `${ALIGN_TR[k] || k} ${num2(x)}`);
   parts.push(...Object.entries(m.identity).map(([who, x]) => `${who} yüzü ${num2(x)}`));
-  if (!Object.keys(m.identity).length && m.faces_seen) parts.push(`${m.faces_seen} yüz görüldü`);
+  if (m.faces_seen === 0) parts.push("yüz görünmedi");
+  else if (m.faces_seen != null) parts.push(`${m.faces_seen} yüz görüldü`);
   return " (" + parts.join(", ") + ")";
 }
 
@@ -136,6 +137,9 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "h3_tls_pinned": return { t: `H3 sunucusunun sertifikası sabitlendi (${String(x.fingerprint ?? "").slice(0, 23)}…)`, c: "good" };
     case "h3_tls_mismatch": return { t: `H3 sunucusunun sertifikası değişti (${x.endpoint}): istek gönderilmedi`, c: "bad" };
     case "h3_tls_fallback": return { t: `Sertifika sabitlenemedi (${x.reason}); doğrulamasız sürüyor`, c: "bad" };
+    case "runpod_cold_start": return { t: `Model yükleniyor (soğuk başlatma): ${x.model}, ${Number(x.seconds).toFixed(0)} sn` };
+    case "runpod_model_swap": return { t: `Model değişti: ${x.previous} → ${x.model} (iş ${Number(x.seconds).toFixed(0)} sn; yeniden yükleme dahil)` };
+    case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
     case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi, sonra ${x.videos} çekimin videosu` };

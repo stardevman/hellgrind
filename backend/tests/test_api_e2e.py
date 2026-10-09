@@ -48,8 +48,8 @@ def test_the_sample_script_becomes_four_finished_scenes_with_clean_pools(api, fi
             if v["rank"]:
                 assert v["anomalies"] == [] and v["thumb_url"] and v["video_url"]
     assert spent(api, pid) > 0
-    final = api.get(scenes[0]["final_url"], follow_redirects=False)
-    assert final.status_code == 307
+    final = api.get(scenes[0]["final_url"], headers={"Range": "bytes=0-1"}, follow_redirects=False)
+    assert final.status_code == 206 and final.headers["content-type"] == "video/mp4"
     key = scenes[0]["final_url"].split("key=")[1]
     info = probe(storage.download(key, str(tmp_path / "final.mp4")))
     assert len(info["video"]) == 1 and len(info["audio"]) == 1

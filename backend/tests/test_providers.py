@@ -73,9 +73,9 @@ def test_engines_with_a_minimum_length_are_billed_for_what_they_render(engine, s
 
 def test_h3_is_priced_by_gpu_time_on_runpod_by_default():
     rp = pricing.serverless()
-    top = max(rp["per_second"].values())
+    rate = rp["per_second"]["RTX 5090"]                                    # birincil GPU tipi
     assert LocalProvider("h3").estimate(request(resolution="720p", duration=6.0)) == pytest.approx(
-        round(top * rp["render_seconds"]["720p"] * 6, 4))
+        round(rate * rp["render_seconds"]["fl2va"]["720p"] * 6, 4))
 
 
 def test_h3_is_priced_by_gpu_time_on_the_rented_machine(monkeypatch):

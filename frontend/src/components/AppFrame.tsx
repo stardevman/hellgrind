@@ -66,7 +66,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
     <div className="switcher" ref={box}>
       <button type="button" className="switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label="Proje seçici" onClick={() => setOpen((v) => !v)}>
         <span className="sw-title">{current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok"}</span>
-        {current && <span className="sw-status">{PROJECT_STATUS_TR[current.status] || current.status}</span>}
+        {current && <span className="sw-status">{PROJECT_STATUS_TR[current.display_status ?? current.status] || current.status}</span>}
         <Icon.chevron />
       </button>
       {open && (
@@ -76,7 +76,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
               onClick={() => { selectProject(p.id); setOpen(false); }}>
               <span className="mi-ck">{p.id === projectId && <Icon.check />}</span>
               <span className="mi-t">{p.title}</span>
-              <span className="mi-s">{PROJECT_STATUS_TR[p.status] || p.status}</span>
+              <span className="mi-s">{PROJECT_STATUS_TR[p.display_status ?? p.status] || p.status}</span>
             </button>
           ))}
           {projects?.length ? <div className="menu-sep" /> : null}

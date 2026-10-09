@@ -12,7 +12,7 @@ export const WORKING = new Set(["storyboard", "probing", "generating", "correcti
 
 export const PROJECT_STATUS_TR: Record<string, string> = {
   draft: "Taslak", parsing: "Ayrıştırılıyor", producing: "Üretimde", paused: "Durduruldu", killed: "İptal edildi",
-  completed: "Tamamlandı",
+  completed: "Tamamlandı", idle: "Beklemede",
 };
 
 export const TYPE_TR: Record<string, string> = { character: "Karakter", location: "Mekân", prop: "Nesne" };
@@ -52,6 +52,7 @@ export const EMOTION_COLOR: Record<string, string> = {
 
 export const ANOMALY_TR: Record<string, string> = {
   black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya",
+  no_face: "karakterin yüzü görünmedi", low_identity: "kimlik eşiğin altında",
   unreadable: "okunamayan dosya", flat: "tek renk kare",
 };
 
@@ -108,7 +109,7 @@ export const CALL_STATUS_TR: Record<string, string> = { running: "Sürüyor", su
 export const TIER_TR: Record<string, string> = { probe: "Test turu", full: "Tam tur" };
 /** Sağlayıcıya giden isteğin kayda geçen parametreleri (app/live: vast_h3, fal_video.NOTED_ARGUMENTS, elevenlabs, hermes_llm). */
 export const STEP_TR: Record<string, string> = {
-  unet_variant: "H3 DiT türü", gpu: "GPU", resolution: "Çözünürlük", num_frames: "Kare sayısı", frames_per_second: "Kare hızı", duration: "Süre (sn)",
+  unet_variant: "H3 DiT türü", gpu: "GPU", idle_workers: "Boşta worker", resolution: "Çözünürlük", num_frames: "Kare sayısı", frames_per_second: "Kare hızı", duration: "Süre (sn)",
   image_size: "Görsel boyutu", num_images: "Görsel sayısı", seed: "Tohum", strength: "Rehbere bağlılık", sync_mode: "Senkron modu",
   aspect_ratio: "En-boy oranı", generate_audio: "Yerleşik ses", loras: "LoRA", characters: "Karakter sayısı", voice_id: "Ses kimliği",
   emotion: "Duygu", voice: "Ses ayarları", http_status: "HTTP durumu", input_tokens: "Girdi belirteci",

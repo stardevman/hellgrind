@@ -68,6 +68,21 @@ def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session))
     return {"queued": queued, "current": current, "skipped": skipped}
 
 
+@router.post("/scenes/{scene_id}/board/draw")
+@curated("storyboard_prepare")
+def draw_board(scene_id: SceneId, paid: bool = False, s: Session = Depends(get_session)):
+    """Tek çekimin karesini çizer (yalnızca STORYBOARD; görüntü üretilmez). Ref2VA çekiminde varsayılan kare yereldir
+    (ücretsiz); paid=true ücretli kareyi (ComfyUI keyframe.json ya da Flux) açıkça ister."""
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    ensure_idle(sc)
+    sc.status, sc.last_error = "storyboard", None
+    s.commit()
+    from app.worker import tasks
+    tasks.storyboard_scene.si(project_id=str(sc.project_id), scene_id=scene_id, standalone=True, paid=paid).apply_async()
+    return {"queued": [sc.scene_code], "paid": paid}
+
+
 @router.post("/scenes/{scene_id}/board")
 @curated(lambda kw, r: BOARD_ACTIONS[kw["body"].status])
 def review_board(scene_id: SceneId, body: BoardIn, s: Session = Depends(get_session)):

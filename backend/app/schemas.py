@@ -25,6 +25,7 @@ def _num(lo, hi, open_low=False):
 # refined_rank CHECK (1..3) ile sınırlıdır; loudnorm hedefi -70..-5 LUFS dışında FFmpeg'de hata verir.
 SETTING_RULES = {
     "clip_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "identity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "excellent_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "min_pass_rate": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "probe_n": (_int(1, 200), "1 ile 200 arasında tam sayı"),
@@ -123,7 +124,8 @@ class ScenePatch(BaseModel):
     duration_s: float | None = Field(None, ge=2, le=10)
     prompt_spec: PromptSpecIn | None = None
     engine: Engine | None = None
-    h3_mode: Literal["fl2va", "ref2va"] | None = None
+    h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
+    face_expected: Literal["auto", "true", "false"] | None = None
 
 
 class AudioIn(BaseModel):

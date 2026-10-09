@@ -77,7 +77,9 @@ def _item(r) -> dict:
     return {
         "id": r.id, "reservation": str(r.reservation),
         "started_at": r.started_at.isoformat(), "finished_at": r.finished_at.isoformat() if r.finished_at else None,
-        "duration_s": round((r.finished_at - r.started_at).total_seconds(), 2) if r.finished_at else None,
+        # Boşta bekleme satırı anlık yazılır: süre, worker'ın boşta geçirdiği gerçek saniyedir.
+        "duration_s": (float(d["idle_seconds"]) if d.get("idle_seconds") is not None
+                       else round((r.finished_at - r.started_at).total_seconds(), 2) if r.finished_at else None),
         "service": r.service, "service_name": service_name(r.service),
         "console": SERVICES.get(r.service, {}).get("console"),
         "operation": r.operation, "operation_title": OPERATIONS.get(r.operation, r.operation),

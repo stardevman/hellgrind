@@ -75,6 +75,14 @@ def ensure_idle(sc: Scene) -> None:
         raise Busy(f"{sc.scene_code} şu an işleniyor ({sc.status}); bitince yeniden dene.")
 
 
+def model_group(sc: Scene, s: Session) -> str:
+    """Toplu dağıtımda çekimin model grubu: H3 Ref2VA ya da FL2VA (T2V ve diğer motorlar da bu grupta)."""
+    if (sc.engine or "h3") != "h3":
+        return "fl2va"
+    from app.core.h3mode import effective_mode
+    return effective_mode(sc, load_characters(s, sc.id), load_assets(s, sc.id))
+
+
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
                       mode: str = "full", allowed: Stage | None = None, batch: Batch | None = None) -> list[str]:
     """Planlanan aşamaların adlarını döndürür ve zinciri kuyruğa verir; yapılacak iş yoksa [] döner.
@@ -123,7 +131,7 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
         sc.status, sc.last_error = "pending", None
         s.commit()
         if batch is not None:
-            batch.add(sc.id, stages, mode)
+            batch.add(sc.id, stages, mode, model=model_group(sc, s))
         else:
             build_chain(pid, str(sc.id), stages, mode=mode).apply_async()
     except Exception:

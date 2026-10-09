@@ -398,8 +398,10 @@ def check_history(pid: str) -> None:
     check(rp["platform"] == "runpod" and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
           f"izinli bölgeler yalnızca Kanada veri merkezleri ({', '.join(rp['allowed_datacenters'])})")
     ov = overview(pid)
-    check(all(sc["h3_mode"] == "fl2va" and sc["keyframe_url"] for sc in ov["scenes"]),
-          "her çekimin H3 ilk karesi var (storyboard karesinin yazısız hâli; koşul FL2VA)")
+    modes = {sc["scene_code"]: sc["h3_mode"] for sc in ov["scenes"]}
+    check(all(sc["keyframe_url"] if sc["h3_mode"] == "fl2va" else sc["board_source"] == "local" for sc in ov["scenes"])
+          and "ref2va" in modes.values(),
+          f"kilitli karakterli çekimler Ref2VA (ilk kare işi yok, kare yerel), FL2VA çekimlerinin ilk karesi var: {modes}")
     ops = {x["operation"] for x in calls}
     check({"video", "storyboard", "reference", "motion_test"} <= ops, f"işlemler: {sorted(ops)}")
     s = c.get("/history/summary", params={"project_id": pid}).json()

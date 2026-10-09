@@ -28,6 +28,10 @@ def get_scene(scene_id: SceneId, s: Session = Depends(get_session)):
 def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_session)):
     sc = scene_or_404(s, scene_id)
     changes = body.model_dump(exclude_none=True)
+    if changes.get("h3_mode") == "auto":
+        changes["h3_mode"] = None
+    if "face_expected" in changes:
+        changes["face_expected"] = {"auto": None, "true": True, "false": False}[changes["face_expected"]]
     if "prompt_spec" in changes:                                  # düzeltme turlarının eklediği anahtarlar kalır
         changes["prompt_spec"] = {**(sc.prompt_spec or {}), **changes["prompt_spec"]}
     for key, value in changes.items():
@@ -40,9 +44,14 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
 
 @router.post("/scenes/{scene_id}/render")
 @curated(lambda kw, r: "force_rerender" if kw.get("force_visual") else "render")
-def render(scene_id: SceneId, force_visual: bool = False, s: Session = Depends(get_session)):
-    """Yalnızca değişen girdilerin aşamalarını çalıştırır; force_visual görüntüyü baştan üretir."""
-    return dispatch_result(s, scene_or_404(s, scene_id), force_visual=force_visual)
+def render(scene_id: SceneId, force_visual: bool = False, thaw: bool = False, s: Session = Depends(get_session)):
+    """Yalnızca değişen girdilerin aşamalarını çalıştırır; force_visual görüntüyü baştan üretir. thaw: proje donmuşsa
+    yalnızca bu çekim için donma kaldırılır, çekimin işi bitince proje yeniden dondurulur."""
+    sc = scene_or_404(s, scene_id)
+    if thaw:
+        from app.budget import killswitch
+        killswitch.thaw_for_scene(str(sc.project_id), scene_id)
+    return dispatch_result(s, sc, force_visual=force_visual)
 
 
 def _content_hash(body: AudioIn, mood: str | None, emotion: str | None) -> str:

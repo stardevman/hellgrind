@@ -142,6 +142,35 @@ def reopen_sequence(project_id: str, sequence_id) -> bool:
     return True
 
 
+REFREEZE = "hg:refreeze:{}"
+
+
+def thaw_for_scene(project_id: str, scene_id: str) -> str | None:
+    """Tek çekim için donmayı geçici kaldırır; çekimin işi bitince (ya da hata verince) proje aynı gerekçeyle yeniden
+    dondurulur (`refreeze_after`). Dönen değer donma gerekçesi; proje donmuş değilse None."""
+    if not is_frozen(project_id):
+        return None
+    raw = r().get(FROZEN.format(project_id))
+    reason = (raw.decode() if isinstance(raw, bytes) else raw) or "manual"
+    resume(project_id)
+    r().set(REFREEZE.format(project_id), json.dumps({"scene_id": str(scene_id), "reason": reason}), ex=6 * 3600)
+    event(project_id, "thawed_for_scene", scene_id=str(scene_id), reason=reason)
+    return reason
+
+
+def refreeze_after(project_id: str, scene_id: str) -> bool:
+    """thaw_for_scene'in açtığı çekim bittiyse projeyi yeniden dondurur."""
+    raw = r().get(REFREEZE.format(project_id))
+    if not raw:
+        return False
+    data = json.loads(raw)
+    if data.get("scene_id") != str(scene_id):
+        return False
+    r().delete(REFREEZE.format(project_id))
+    freeze(project_id, f"{data.get('reason') or 'manual'} (tek çekim üretimi bitti)")
+    return True
+
+
 def resume(project_id: str) -> None:
     """freeze'in tersi. Hız penceresi de sıfırlanır: yönetmenin bilinçli kararı, dondurmaya yol açan eski
     harcamayla ezilmez (yoksa bekçi 30 sn içinde aynı 10 dakikalık toplamı görüp yeniden dondururdu)."""

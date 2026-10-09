@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
 import { usePanel } from "@/lib/panel";
+import { clipCost } from "@/lib/pricing";
 import type { DispatchAll, PricingTable } from "@/lib/types";
 import { NoteBox, Panel } from "./ui";
 
@@ -30,10 +31,11 @@ export function ScriptPage() {
   // RunPod (varsayılan): en pahalı GPU tipinin saniye ücreti; vast.ai (deneysel): makinenin saatlik ücreti.
   const runpod = meta?.h3_platform !== "vast" ? prices?.table.serverless?.runpod : undefined;
   const h3 = prices?.table.self_hosted?.h3;
-  const rate = runpod ? Math.max(...Object.values(runpod.per_second)) : h3 ? h3.gpu_hourly_usd / 3600 : null;
-  const renders = runpod?.render_seconds ?? h3?.render_seconds;
-  const perShot = trial && rate != null && renders ? (Number(trial.probe_n) + Number(trial.full_n))
-    * rate * (renders["480p"] ?? Math.max(...Object.values(renders))) * 4 : null;
+  const probeRes = String(trial?.probe_resolution ?? "480p"), fullRes = String(trial?.full_resolution ?? "720p");
+  const perShot = !trial ? null : runpod
+    ? Math.max(...["fl2va", "ref2va"].map((m) => Number(trial.probe_n) * clipCost(runpod, m, probeRes) + Number(trial.full_n) * clipCost(runpod, m, fullRes)))
+    : h3 ? (Number(trial.probe_n) + Number(trial.full_n)) * (h3.gpu_hourly_usd / 3600)
+      * (h3.render_seconds[probeRes] ?? Math.max(...Object.values(h3.render_seconds))) * 4 : null;
   const pickIntensity = (x: string) => {
     setIntensity(x);
     if (x === "trial") {
@@ -160,6 +162,8 @@ export function ScriptPage() {
         <textarea aria-label="Senaryo" spellCheck={false} required minLength={10} value={text} onChange={(e) => setScript(e.target.value)} />
       </section>
 
+      {!newProject && ov && <Intensity />}
+
       <Panel title="Biçim">
         <ul className="syntax pad">
           <li><code># SEKANS: Dökümhane</code>Yeni sekans başlatır; sonraki sahne başlıkları ona aittir.</li>
@@ -172,5 +176,65 @@ export function ScriptPage() {
         </ul>
       </Panel>
     </form>
+  );
+}
+
+
+const RESOLUTIONS = ["480p", "720p"];
+
+/** Proje yoğunluğu: test ve tam tur aday sayısı, çözünürlükler ve kimlik eşiği (proje ayarları; PATCH /projects). */
+function Intensity() {
+  const { ov, busy, act, note } = usePanel();
+  const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const fields: { key: string; label: string; kind: "int" | "res" | "num"; min?: number; max?: number; step?: string }[] = [
+    { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
+    { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
+    { key: "full_n", label: "Tam tur en çok aday", kind: "int", min: 1, max: 1000 },
+    { key: "wave_size", label: "Tam tur dalga büyüklüğü", kind: "int", min: 1, max: 200 },
+    { key: "full_resolution", label: "Tam tur çözünürlüğü", kind: "res" },
+    { key: "refined_k", label: "Rafine havuz", kind: "int", min: 1, max: 3 },
+    { key: "identity_threshold", label: "Kimlik eşiği (yüz benzerliği)", kind: "num", min: 0, max: 1, step: "0.01" },
+  ];
+  const value = (k: string) => draft[k] ?? String(cfg[k] ?? "");
+  const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
+  const save = () => act(async () => {
+    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" ? value(f.key) : Number(value(f.key))]));
+    await api.patch(`/projects/${ov!.project.id}`, { settings });
+    setDraft({});
+    note("script", "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
+  }, "script");
+  return (
+    <Panel title="Yoğunluk" meta="test ve tam tur">
+      <div className="pad stack">
+        <table className="tbl">
+          <tbody>
+            {fields.map((f) => (
+              <tr key={f.key}>
+                <td style={{ width: "45%" }}>{f.label}<small className="mono">{f.key}</small></td>
+                <td>
+                  {f.kind === "res" ? (
+                    <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      {RESOLUTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  ) : (
+                    <input type="number" className="mono" style={{ width: 110 }} aria-label={f.label} disabled={busy}
+                      min={f.min} max={f.max} step={f.step ?? "1"} value={value(f.key)}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                      onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })} />
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="faint small">Kimlik eşiği: yüz beklenen çekimde karakter benzerliği bunun altında kalan ya da yüzü görünmeyen aday rafine
+          havuza giremez. Tam tur için 720p önerilir; test turu 480p'de ucuzdur.</p>
+        <div className="row">
+          <button className="btn primary" type="button" disabled={busy || !dirty.length} onClick={save}>Kaydet{dirty.length ? ` (${dirty.length})` : ""}</button>
+          {dirty.length > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
+        </div>
+      </div>
+    </Panel>
   );
 }

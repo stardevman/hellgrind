@@ -37,7 +37,7 @@ from app.style import bible
 
 BOARD_W, BOARD_H = 960, 540
 BOARD_MEGAPIXELS = 1.0                 # ücretli karşılığı: tek bir 1 MP Flux karesi
-BOARD_ATTEMPTS = 3                     # ücretli kare kalite kapısını geçemezse yeni seed'le deneme sayısı
+BOARD_ATTEMPTS = 1                     # ücretli kare: bir çekim × bir çizim için en çok 1 kare (gerekirse yönetmen yeniden ister)
 PAID_SOURCES = ("flux", "comfyui")
 SHOT_TR = {"extreme_wide": "çok geniş", "wide": "geniş", "pov": "öznel", "medium": "orta",
            "over_shoulder": "omuz üstü", "close_up": "yakın", "extreme_close_up": "çok yakın"}
@@ -90,11 +90,18 @@ def board_label(reference) -> str:
     return "flux_kontext:storyboard" if reference else "flux_lora:storyboard"
 
 
-def board_source() -> str:
-    """Ücretli modda karenin kaynağı: H3 makinesindeki ComfyUI görsel iş akışı (keyframe.json), fal.ai Flux ya da yerel
-    prosedürel kare (yerel kare H3'e ilk kare olarak verilmez)."""
+def board_source(h3_mode: str = "fl2va", explicit: bool = False) -> str:
+    """Ücretli modda karenin kaynağı: H3 platformundaki ComfyUI görsel iş akışı (keyframe.json), fal.ai Flux ya da yerel
+    prosedürel kare (yerel kare H3'e ilk kare olarak verilmez).
+    Ref2VA çekimi ilk kareyi kullanmaz: storyboard için yerel (ücretsiz) kare çizilir; ücretli kare yalnızca yönetmen açıkça
+    isterse (explicit). H3_KEYFRAME_REFERENCE=flux_kontext (kanca; varsayılan kapalı) ve fal.ai anahtarı varsa ilk kare
+    karakterin referans görselinden Flux Kontext ile çizilir."""
     if settings.dry_run:
         return "local"
+    if h3_mode == "ref2va" and not explicit:
+        return "local"
+    if settings.h3_keyframe_reference == "flux_kontext" and paid.available("fal_key"):
+        return "flux"
     if settings.h3_platform == "vast":
         if paid.available("vast_api_key"):
             from app.live import vast_h3            # ücretli modül: yalnızca fonksiyon içinde
@@ -117,7 +124,8 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
         else:
             from app.live import runpod_h3 as platform
             key_name = "runpod_api_key"
-        made = paid.call(project_id, pricing.estimate_keyframe(), "h3:storyboard", key_name,
+        estimate = platform.estimate_keyframe() if hasattr(platform, "estimate_keyframe") else pricing.estimate_keyframe()
+        made = paid.call(project_id, estimate, "h3:storyboard", key_name,
                          lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id)
         local = made.local_path
     else:
@@ -229,8 +237,10 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
     return drawn
 
 
-def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
-    """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır."""
+def make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False) -> str:
+    """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır.
+    explicit: Ref2VA çekiminde de ücretli kare çizilir (yönetmenin açık isteği; storyboard sayfası)."""
+    from app.core.h3mode import effective_mode
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
@@ -241,6 +251,7 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
         cfg = project_settings(project.settings)
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
+        mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
         info = dict(code=scene.scene_code, camera=dict(scene.camera or {}), duration=scene.duration_s,
                     board_key=scene.board_key, board_hash=scene.board_hash, board_status=scene.board_status,
                     board_source=scene.board_source, keyframe_key=scene.keyframe_key,
@@ -248,7 +259,7 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False) -> str:
                             "characters": [c.name for c in chars], "action": scene.action_complexity,
                             "lighting": style.lighting_prefix if style else ""})
     key = f"storyboard/{scene_id}/{fp}.jpg"
-    source = "upload" if info["keyframe_key"] else board_source()
+    source = "upload" if info["keyframe_key"] else board_source(mode, explicit)
     stored = storage.exists(key) and storage.exists(clean_key(key))
     upgrade = info["board_source"] == "local" and source in PAID_SOURCES      # ücretsiz moddan kalan yerel kare
     if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade):

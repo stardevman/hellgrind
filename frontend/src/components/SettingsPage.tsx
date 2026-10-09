@@ -8,6 +8,7 @@ import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { bytesText, clock, durText, stepDurations, usd, usdExact, whenText } from "@/lib/text";
 import { COMFY_KIND_TR } from "@/lib/i18n";
+import { primaryRate, renderRows } from "@/lib/pricing";
 import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, RunpodState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
@@ -25,13 +26,17 @@ function priceRows(id: Service["id"], t: PricingTable | undefined): [string, str
     const rp = t.serverless?.runpod;
     if (!rp) return [];
     const rows: [string, string][] = Object.entries(rp.per_second).map(([gpu, rate]) => [`${gpu} (saat · saniye)`, `$${(rate * 3600).toFixed(2)} · $${rate}`]);
-    const top = Math.max(...Object.values(rp.per_second));
-    for (const [res, sec] of Object.entries(rp.render_seconds)) {
-      rows.push([`${res}: video saniyesi başına GPU süresi ${sec} sn (rezervasyon, en pahalı tip)`, `$${(top * sec).toFixed(4)}`]);
+    const top = primaryRate(rp);
+    for (const [mode, byRes] of Object.entries(renderRows(rp))) {
+      for (const [res, sec] of Object.entries(byRes)) {
+        rows.push([`${mode === "ref2va" ? "Ref2VA" : "FL2VA"} ${res}: video saniyesi başına ${sec} GPU sn; 4 sn klip (sıcak worker)`, `$${(top * sec * 4).toFixed(4)}`]);
+      }
     }
-    if (rp.keyframe_seconds) rows.push([`Storyboard ilk karesi (${rp.keyframe_seconds} sn, tahmin)`, `$${(top * rp.keyframe_seconds).toFixed(4)}`]);
-    if (rp.cold_start_seconds) rows.push([`Soğuk başlatma (${rp.cold_start_seconds} sn, tahmin; işlenen tutar worker'ın bildirdiği)`, `$${(top * rp.cold_start_seconds).toFixed(4)}`]);
-    rows.push(["Boşta bekleyen worker (dakika, en pahalı tip)", `$${(top * 60).toFixed(4)}`]);
+    if (rp.keyframe_seconds) rows.push([`Storyboard ilk karesi: sıcak ${rp.keyframe_seconds} sn${rp.keyframe_cold_seconds ? `, soğuk ${rp.keyframe_cold_seconds} sn` : ""}`,
+      `$${(top * rp.keyframe_seconds).toFixed(4)}${rp.keyframe_cold_seconds ? ` · $${(top * rp.keyframe_cold_seconds).toFixed(4)}` : ""}`]);
+    if (rp.cold_start_seconds) rows.push([`Soğuk başlatma (+${rp.cold_start_seconds} sn ilk işe; işlenen tutar worker'ın bildirdiği)`, `$${(top * rp.cold_start_seconds).toFixed(4)}`]);
+    rows.push(["Boşta bekleyen worker (dakika)", `$${(top * 60).toFixed(4)}`]);
+    rows.push(["Tahminler birincil GPU'nun ücretiyle (ilk satır); iş başka tipte çalışırsa işlenen tutar o tipin ücretidir", ""]);
     return rows;
   }
   if (id === "vast") {

@@ -57,7 +57,8 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
         payload["guide"] = scene.guide_hash
     if getattr(scene, "keyframe_hash", None):
         payload["keyframe"] = scene.keyframe_hash
-    if getattr(scene, "h3_mode", None) == "ref2va":
+    from app.core.h3mode import effective_mode
+    if (scene.engine or "h3") == "h3" and effective_mode(scene, characters, assets) == "ref2va":
         payload["h3_mode"] = "ref2va"
     return stable_hash(payload)
 

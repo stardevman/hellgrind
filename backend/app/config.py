@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     # H3 DiT dosyası: fp8_scaled (cu128 torch'lu worker; varsayılan) | int8_convrot (Comfy-Org'un önerisi; cu130 torch ister)
     h3_unet_variant: str = "fp8_scaled"
+    # İlk kareyi karakter referansıyla çizme kancası: off (varsayılan; keyframe.json metinden) | flux_kontext (fal.ai)
+    h3_keyframe_reference: str = "off"
     vast_api_key: str = ""
     vast_instance_id: str = ""
     h3_api_key: str = ""               # portal belirteci (Authorization: Bearer); boşsa gönderilmez
@@ -105,6 +107,7 @@ settings = Settings()
 # Proje oluşturulurken verilmeyen ayarlar bu değerleri alır.
 DEFAULT_PROJECT_SETTINGS: dict = {
     "clip_threshold": 0.85,        # Quality Gate eşiği
+    "identity_threshold": 0.60,    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
     "excellent_threshold": 0.92,   # tam turda erken durma için "mükemmel" eşiği
     "min_pass_rate": 0.3,          # test turunun geçmesi için gereken oran
     "probe_n": 10,                 # test turu varyasyon sayısı

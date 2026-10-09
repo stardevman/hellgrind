@@ -33,8 +33,24 @@ def project_out(p: Project, s: Session) -> dict:
 @router.get("/projects")
 def list_projects(s: Session = Depends(get_session)):
     rows = s.scalars(select(Project).order_by(Project.created_at.desc())).all()
-    return [{"id": str(p.id), "title": p.title, "status": p.status, "spent_usd": float(p.spent_usd),
-             "budget_limit_usd": float(p.budget_limit_usd)} for p in rows]
+    statuses: dict = {}
+    for pid, st in s.execute(select(Scene.project_id, Scene.status)):
+        statuses.setdefault(pid, []).append(st)
+    return [{"id": str(p.id), "title": p.title, "status": p.status, "display_status": display_status(p.status, statuses.get(p.id, [])),
+             "spent_usd": float(p.spent_usd), "budget_limit_usd": float(p.budget_limit_usd)} for p in rows]
+
+
+ACTIVE_SCENE = ("pending", "storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
+
+
+def display_status(status: str, scene_statuses: list[str]) -> str:
+    """Panelde görünen durum: "Üretimde" yalnızca gerçekten işlenen bir çekim varken. Proje durumu üretim bitince
+    değişmediği için türetilir: bütün çekimler bittiyse completed, değilse idle (beklemede)."""
+    if status != "producing":
+        return status
+    if any(st in ACTIVE_SCENE for st in scene_statuses):
+        return "producing"
+    return "completed" if scene_statuses and all(st == "done" for st in scene_statuses) else "idle"
 
 
 @router.post("/projects", status_code=201)

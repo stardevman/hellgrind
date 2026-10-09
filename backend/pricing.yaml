@@ -20,11 +20,18 @@ serverless:
     per_second:
       "RTX 5090": 0.000439
       "RTX PRO 6000": 0.000969
-    render_seconds:           # video saniyesi başına GPU saniyesi (5090 ölçümü; PRO 6000 en az bu hızda)
-      "480p": 8
-      "720p": 16.5
-    keyframe_seconds: 40      # storyboard ilk karesi (keyframe.json: Qwen-Image-2512, 50 adım, 1280x704); tahmini
-    cold_start_seconds: 60    # worker açılışı + model yükleme; tahmini, ilk gerçek işte ölçün
+    pools:                    # RunPod GPU havuz kimlikleri -> fiyat satırı (uç nokta ayarındaki adlar)
+      ADA_32_PRO: "RTX 5090"
+      BLACKWELL_96: "RTX PRO 6000"
+    # Video saniyesi başına GPU saniyesi, model yüklüyken (sıcak worker), H3 koşuluna göre. İlk gerçek ölçüm (2026-10-08,
+    # RTX 5090, fp8_scaled, turbo, 480p, 4 sn klip = 107 kare): FL2VA 42-44 sn/klip, Ref2VA ~27 sn/klip. 720p ilk 720p
+    # testinden sonra doldurulacak; şimdilik 480p x 2.
+    render_seconds:
+      fl2va: {"480p": 11, "720p": 22}
+      ref2va: {"480p": 7, "720p": 14}
+    keyframe_seconds: 45        # storyboard ilk karesi (Qwen-Image-2512, 50 adım, 1280x704), sıcak worker: ölçülen 38-42
+    keyframe_cold_seconds: 140  # soğuk worker'da ilk kare (açılış + model yükleme dahil, faturalanan): ölçülen ~139
+    cold_start_seconds: 140     # soğuk worker'da ilk video işine eklenen faturalanan süre (açılış + H3 yükleme): ~136-141
 
 video_per_second:
   fal_wan:            # Wan 2.2 A14B image-to-video (yalnızca bu motorla açılmış eski çekimler)

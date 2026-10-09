@@ -22,6 +22,15 @@ settings.database_url = make_url(settings.database_url).set(database=TEST_DB).re
 # testlerde kapalıdır: ayar testleri geçici bir dosya kullanır.
 settings.dry_run = True
 settings.config_env_file = ""
+
+# Testler geliştirme .env'inden bağımsızdır: konteyner .env'i ortam değişkeni olarak yükler (ör. H3_ALLOW_NORDIC=true,
+# RUNPOD_DATACENTER=EUR-NO-1, anahtarlar). Panelden düzenlenen bütün ayarlar varsayılana döner ve ortamdan silinir; böylece
+# Settings() da varsayılanları görür. Ücretli testler sahte anahtarlarını kendileri verir (paid fikstürü).
+from app import runtime_config as _rc  # noqa: E402
+for _f in _rc.FIELDS:
+    os.environ.pop(_f.env, None)
+    if _f.kind != "mode":
+        setattr(settings, _f.attr, type(settings).model_fields[_f.attr].default)
 # Prompt çevirisi testlerde kapalı: ücretli modu sahteyle açan testler yerel çeviri modelini yüklemesin (CI'da model yok).
 # Çeviri testleri ayarı kendi içinde açar (tests/test_translate.py).
 settings.prompt_translation = "off"

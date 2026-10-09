@@ -136,7 +136,8 @@ class Scene(Base):
     board_hash: Mapped[str | None] = mapped_column(Text)
     board_score: Mapped[float | None] = mapped_column(Float)                # storyboard karesinin kalite skoru (ücretli mod)
     board_source: Mapped[str | None] = mapped_column(Text)                  # local | flux | comfyui | upload
-    h3_mode: Mapped[str | None] = mapped_column(Text)                       # None/fl2va: ilk kareden | ref2va: karakter referanslarıyla
+    h3_mode: Mapped[str | None] = mapped_column(Text)                       # None: otomatik (core/h3mode.py) | fl2va | ref2va
+    face_expected: Mapped[bool | None] = mapped_column(Boolean)            # None: otomatik; kimlik kapısı
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)

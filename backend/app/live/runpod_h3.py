@@ -287,6 +287,55 @@ def preflight(key: str) -> None:
         raise PaidCallBlocked(problem)
 
 
+# ---------- soğuk başlatma ve model türü ----------
+
+def cold_start_due() -> bool:
+    """Bu iş soğuk bir worker'a mı düşecek (rezervasyona açılış + model yükleme eklensin mi). Az önce biten bir iş ya da
+    /health'te açık bir worker varsa hayır. Aynı anda gönderilen işlerden yalnızca biri soğuk başlatmayı üstlenir (dalganın
+    bütün işleri birlikte gönderilir; worker bir kez açılır)."""
+    warm = _cache_get("warm", float("inf"))
+    if warm and warm.get("until", 0) > time.time():
+        return False
+    h = _cache_get("health", 90)
+    if h and int((h.get("workers") or {}).get("idle") or 0) + int((h.get("workers") or {}).get("running") or 0) > 0:
+        return False
+    ttl = int(settings.runpod_idle_timeout_s) + int(pricing.serverless().get("cold_start_seconds", 140)) + 60
+    return bool(killswitch.r().set(vast_box._k("rp_cold_claim"), time.time(), nx=True, ex=ttl))
+
+
+def estimate_keyframe() -> float:
+    return pricing.estimate_keyframe(ENGINE, cold=cold_start_due())
+
+
+def model_kind(job: vast_h3.Job) -> str:
+    """Worker'da hangi model yüklü kalır: keyframe (Qwen-Image), fl2va (FL2VA DiT; t2va da), ref2va."""
+    return {"keyframe": "keyframe", "ref2va": "ref2va"}.get(job.task, "fl2va")
+
+
+MODEL_TR = {"keyframe": "Qwen-Image (ilk kare)", "fl2va": "H3 FL2VA", "ref2va": "H3 Ref2VA"}
+
+
+def note_worker(job: vast_h3.Job, body: dict) -> None:
+    """İş bitti: worker artık sıcak (boşta bekleme süresi boyunca). Soğuk başlatma ya da model değişimi olay akışına
+    süresiyle yazılır (modeller 30-40 GB; değişim her seferinde dakikalar sürer)."""
+    out = body.get("output") or {}
+    timing = out.get("timing") or {}
+    _cache_set("warm", {"until": time.time() + int(settings.runpod_idle_timeout_s)})
+    kind = model_kind(job)
+    cold = timing.get("cold_start_s") or 0
+    previous = killswitch.r().get(vast_box._k("rp_last_model"))
+    previous = previous.decode() if isinstance(previous, bytes) else previous
+    killswitch.r().set(vast_box._k("rp_last_model"), kind, ex=24 * 3600)
+    seconds = round(float(body.get("executionTime") or 0) / 1000.0 + float(cold), 1)
+    if cold:
+        vast_box._event("runpod_cold_start", model=MODEL_TR[kind], seconds=round(float(cold), 1), job_seconds=seconds)
+    elif previous and previous != kind:
+        vast_box._event("runpod_model_swap", model=MODEL_TR[kind], previous=MODEL_TR.get(previous, previous),
+                        seconds=seconds)
+    if out.get("gpu"):
+        killswitch.r().set(vast_box._k("rp_last_gpu"), str(out["gpu"]), ex=24 * 3600)
+
+
 # ---------- iş ----------
 
 def _b64(uri: str) -> str:
@@ -473,7 +522,9 @@ class RunpodProvider:
         return vast_h3.priced_resolution(requested)
 
     def estimate(self, req: GenRequest) -> float:
-        return pricing.estimate_video(ENGINE, self.resolution(req.resolution), self.billed_seconds(req.duration_s))
+        """Rezervasyon: koşula göre GPU süresi; worker soğuksa açılış + model yükleme de (yalnızca bir iş üstlenir)."""
+        return pricing.estimate_video(ENGINE, self.resolution(req.resolution), self.billed_seconds(req.duration_s),
+                                      mode=req.extra.get("h3_mode"), cold=cold_start_due())
 
     def upload(self, path: str) -> str:
         return vast_h3.data_uri(path)
@@ -504,6 +555,7 @@ class RunpodProvider:
                         self._jobs.pop(jkey, None)
                     h3_outputs.failed(server(), job_id, str(e))
                     raise
+            note_worker(job, body)
             h3_outputs.completed(server(), job_id, remote_meta(body))
             prov = provenance(job, body)
             path = collect(body, job_id, extra={"provenance": prov})
@@ -519,7 +571,8 @@ class RunpodProvider:
         gpu = (body.get("output") or {}).get("gpu")
         if seconds:
             history.step(settings.h3_model, job_id, gpu_seconds=round(seconds, 1), gpu=gpu)
-        cost = pricing.estimate_runpod(seconds, gpu) if seconds else self.estimate(req)
+        cost = pricing.estimate_runpod(seconds, gpu) if seconds else pricing.estimate_video(
+            ENGINE, self.resolution(req.resolution), self.billed_seconds(req.duration_s), mode=req.extra.get("h3_mode"))
         return GenResult(local_path=path, request_id=job_id, cost_usd=cost, engine=ENGINE,
                          meta={"task": job.task, "billed_seconds": self.billed_seconds(req.duration_s),
                                "size": f"{job.width}x{job.height}", "gpu_seconds": seconds, "gpu": gpu,
@@ -548,6 +601,7 @@ def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> Gen
             except JobFailed as e:
                 h3_outputs.failed(server(), job_id, str(e))
                 raise
+        note_worker(job, body)
         h3_outputs.completed(server(), job_id, remote_meta(body))
         path = collect(body, job_id, image=True)
     except Exception as e:
@@ -616,10 +670,14 @@ def tick() -> str:
     idle = int((h.get("workers") or {}).get("idle") or 0)
     charged = 0.0
     seconds = min(now - last, MAX_TICK_S) if last else 0.0
-    if idle and seconds >= 1 and (project := vast_box.last_project()):
-        cost = pricing.estimate_runpod(idle * seconds)
+    busy = vast_box.inflight(now) > 0          # iş sürerken worker'ın süresi işin bedelinde (soğuk başlatma dahil): çift sayım yok
+    if idle and seconds >= 1 and not busy and (project := vast_box.last_project()):
+        gpu = killswitch.r().get(vast_box._k("rp_last_gpu"))
+        gpu = gpu.decode() if isinstance(gpu, bytes) else gpu
+        cost = pricing.estimate_runpod(idle * seconds, gpu)     # son işi çalıştıran GPU'nun ücreti (yoksa birincil tip)
         try:
-            with killswitch.spend(project, cost, "h3:idle", details={"idle_workers": idle, "idle_seconds": round(seconds, 1)}) as ch:
+            with killswitch.spend(project, cost, "h3:idle", details={"idle_workers": idle, "idle_seconds": round(seconds, 1),
+                                                                     "gpu": gpu}) as ch:
                 ch.actual = cost
             charged = cost
         except killswitch.ProjectFrozen:
@@ -635,5 +693,5 @@ def tick() -> str:
             swept = h3_outputs.retrieve(instance(), "", "", limit=h3_outputs.SWEEP_LIMIT, settle=True)
     except Exception as e:                                           # noqa: BLE001
         log.warning("RunPod çıktı taraması yapılamadı: %s", e)
-    _cache_set("tick", {"idle_workers": idle, "charged_usd": charged, "swept": swept})
+    _cache_set("tick", {"idle_workers": idle, "charged_usd": charged, "swept": swept, "busy": busy})
     return f"idle {idle} worker, {charged:.4f} $"

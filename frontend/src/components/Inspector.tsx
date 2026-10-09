@@ -28,14 +28,21 @@ export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
   );
 }
 
+const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
+
 function Shot({ sc }: { sc: Scene }) {
   const { busy, frozen, act, note, setVar } = usePanel();
   const cam = sc.camera || {};
   const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
-  const regen = () => act(async () => {
-    const r = await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true`);
+  const regen = (thaw = false) => act(async () => {
+    const r = thaw ? await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true&thaw=true`)
+      : await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true`);
     setVar(null);
-    note("inspector", resultText(r), r.blocked ? "err" : "ok");
+    note("inspector", (thaw ? "Donma bu çekim için kaldırıldı; iş bitince proje yeniden donacak. " : "") + resultText(r), r.blocked ? "err" : "ok");
+  }, "inspector");
+  const pickFace = (face_expected: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { face_expected });
+    note("inspector", `${sc.scene_code}: yüz beklentisi ${face_expected === "auto" ? "otomatik" : face_expected === "true" ? "evet" : "hayır"}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
   }, "inspector");
   const engines: string[] = [...ENGINE_CHOICES, ...(sc.engine && !(ENGINE_CHOICES as readonly string[]).includes(sc.engine) ? [sc.engine] : [])];
   const pickEngine = (engine: string) => act(async () => {
@@ -62,17 +69,34 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Motor</dt>
         <dd>
           <select value={sc.engine ?? ENGINE_CHOICES[0]} disabled={busy || frozen} aria-label="Video motoru"
-            title="MiniMax H3 kendi GPU sunucunuzda çalışır; Seedance fal.ai'de, yalnızca seçtiğiniz çekimlerde"
+            title={frozen ? FROZEN_TITLE : "MiniMax H3 RunPod'da (varsayılan) çalışır; Seedance fal.ai'de, yalnızca seçtiğiniz çekimlerde"}
             onChange={(e) => pickEngine(e.target.value)}>
             {engines.map((e) => <option key={e} value={e}>{ENGINE_TR[e] ?? e}</option>)}
           </select>
         </dd>
         <dt>Karakterler</dt><dd>{sc.characters.join(", ") || "—"}</dd>
+        {sc.characters.length > 0 && <>
+          <dt>Yüz görünmeli</dt>
+          <dd>
+            <select value={sc.face_expected_explicit == null ? "auto" : String(sc.face_expected_explicit)} disabled={busy}
+              aria-label="Yüz görünmeli" title="Kimlik kapısı: yüz beklenen çekimde yüzü görünmeyen ya da kimlik eşiğinin altındaki aday havuza giremez. Sırt çekimi, silüet, uzak planda Hayır seçin."
+              onChange={(e) => pickFace(e.target.value)}>
+              <option value="auto">Otomatik ({sc.face_expected ? "evet" : "hayır"})</option>
+              <option value="true">Evet</option>
+              <option value="false">Hayır (sırt, silüet, uzak plan)</option>
+            </select>
+          </dd>
+        </>}
         <dt>Kesim</dt><dd>{sc.cut_tier === "draft" ? "Taslak (kaba kurgu)" : sc.cut_tier === "final" ? "Final" : "—"}</dd>
         <dt>Harcama</dt><dd className="mono">{usd(sc.spent_usd)}</dd>
       </dl>
       <div className="row">
-        <button className="btn" type="button" disabled={busy || frozen} onClick={regen}>Bu sahneyi baştan üret</button>
+        <button className="btn" type="button" disabled={busy || frozen} onClick={() => regen()} title={frozen ? FROZEN_TITLE : undefined}>Bu sahneyi baştan üret</button>
+        {frozen && (
+          <button className="btn" type="button" disabled={busy} onClick={() => regen(true)}
+            title="Donma yalnızca bu çekim için kaldırılır; çekimin işi bitince (ya da hata verirse) proje yeniden donar">
+            Yalnızca bu çekimi üret (donmayı geçici kaldır)</button>
+        )}
         {(sc.cut_tier === "draft" || sc.upgrade_requested) && (
           <button className="btn" type="button" aria-pressed={sc.upgrade_requested} disabled={busy} onClick={upgrade}>
             {sc.upgrade_requested ? "İyileştirilecek" : "İyileştir"}
@@ -87,7 +111,7 @@ function H3({ sc }: { sc: Scene }) {
   const { busy, frozen, act, note } = usePanel();
   const pickMode = (h3_mode: string) => act(async () => {
     await api.patch(`/scenes/${sc.id}`, { h3_mode });
-    note("inspector", `${sc.scene_code}: ${H3_MODE_TR[h3_mode]}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+    note("inspector", `${sc.scene_code}: ${H3_MODE_TR[h3_mode] ?? "otomatik koşul"}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
   }, "inspector");
   const upload = (file: File) => act(async () => {
     const r = await api.upload<{ hint: string }>(`/scenes/${sc.id}/keyframe?filename=${encodeURIComponent(file.name)}`, file);
@@ -101,10 +125,13 @@ function H3({ sc }: { sc: Scene }) {
   return (
     <Section title="H3 koşulu" meta={sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"}>
       <label className="field">Kompozisyon nereden gelsin
-        <select value={sc.h3_mode} disabled={busy || frozen} aria-label="H3 koşulu" onChange={(e) => pickMode(e.target.value)}>
+        <select value={sc.h3_mode_explicit ?? "auto"} disabled={busy || frozen} aria-label="H3 koşulu" title={frozen ? FROZEN_TITLE : undefined}
+          onChange={(e) => pickMode(e.target.value)}>
+          <option value="auto">Otomatik (şu an: {sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"})</option>
           {Object.entries(H3_MODE_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </label>
+      {sc.h3_mode_warning && <p className="warn small">{sc.h3_mode_warning}</p>}
       <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
       <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
         {sc.keyframe_url

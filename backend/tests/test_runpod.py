@@ -250,7 +250,7 @@ def test_the_tick_charges_idle_workers_and_retrieves_left_behind_outputs(runpod,
     assert [x["status"] for x in rows()] == ["stored"]
     with session_scope() as s:
         spent = s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar()
-    assert float(spent) == pytest.approx(2 * 60 * 0.000969, abs=0.002)      # en pahalı tipin ücreti, ~60 sn
+    assert float(spent) == pytest.approx(2 * 60 * RATE_5090, abs=0.002)      # son işi çalıştıran GPU'nun ücreti, ~60 sn
 
 
 def test_an_expired_result_is_reported_missing(runpod):
@@ -270,12 +270,14 @@ def test_nothing_runs_in_free_mode(runpod, monkeypatch):
 
 # ---------- fiyat ----------
 
-def test_runpod_prices_by_gpu_type_and_reserves_at_the_most_expensive():
+def test_runpod_prices_by_gpu_type_and_reserves_at_the_primary_gpu():
     prices = pricing.table()
     assert pricing.runpod_rate("NVIDIA GeForce RTX 5090", prices) == RATE_5090
     assert pricing.runpod_rate("NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", prices) == 0.000969
-    assert pricing.runpod_rate("NVIDIA H100", prices) == 0.000969 and pricing.runpod_rate(None, prices) == 0.000969
-    assert pricing.estimate_video("h3", "720p", 5.0, prices) == round(16.5 * 5 * 0.000969, 4)
+    assert pricing.runpod_rate("NVIDIA H100", prices) == 0.000969                    # bilinmeyen tip: en pahalısı
+    assert pricing.runpod_rate(None, prices) == RATE_5090                            # GPU bilinmiyor: birincil tip
+    assert pricing.estimate_video("h3", "720p", 5.0, prices) == round(22 * 5 * RATE_5090, 4)
+    assert pricing.estimate_video("h3", "720p", 5.0, prices, mode="ref2va") == round(14 * 5 * RATE_5090, 4)
 
 
 def test_the_pricing_table_validates_the_serverless_section():
@@ -309,3 +311,138 @@ def test_the_probe_reads_balance_region_and_workers_without_starting_any(runpod)
     assert "0 boşta" in r["message"] and runpod.runs == []
     runpod.config["dataCenterIds"] = ["US-GA-1"]
     assert probe.check("runpod", "test-runpod_api_key")["ok"] is False
+
+
+# ---------- ilk gerçek testlerden ----------
+
+MEASURED = {                     # 2026-10-08, RTX 5090, fp8_scaled, turbo, 480p, 4 sn klip: faturalanan tutarlar
+    ("fl2va", False): (0.0179, 0.0192), ("ref2va", False): (0.0116, 0.0118),
+    ("fl2va", True): (0.0791, 0.0791), ("ref2va", True): (0.0743, 0.0743)}
+
+
+@pytest.mark.parametrize("mode,cold", list(MEASURED))
+def test_estimates_are_within_25_percent_of_the_measured_cost(runpod, mode, cold):
+    low, high = MEASURED[(mode, cold)]
+    estimate = pricing.estimate_video("h3", "480p", 4, mode=mode, cold=cold)
+    assert 0.75 * low <= estimate <= 1.25 * high, (estimate, low, high)
+
+
+def test_keyframe_estimates_match_warm_and_cold_measurements(runpod):
+    warm, cold = pricing.estimate_keyframe("h3"), pricing.estimate_keyframe("h3", cold=True)
+    assert 0.75 * 0.0169 <= warm <= 1.25 * 0.0182 and 0.75 * 0.0606 <= cold <= 1.25 * 0.0609
+
+
+def test_pool_ids_map_to_gpu_rates():
+    assert pricing.runpod_rate("ADA_32_PRO") == RATE_5090 and pricing.runpod_rate("BLACKWELL_96") == 0.000969
+
+
+def test_only_one_job_of_a_wave_reserves_the_cold_start_and_none_after_a_job(runpod):
+    vast_box._r().delete(vast_box._k("rp_cold_claim"), vast_box._k("rp_warm"))
+    assert runpod_h3.cold_start_due() is True and runpod_h3.cold_start_due() is False
+    vast_box._r().delete(vast_box._k("rp_cold_claim"))
+    runpod_h3.get_live_provider().generate(request())                      # biten iş worker'ı sıcak bırakır
+    vast_box._r().delete(vast_box._k("rp_cold_claim"))
+    assert runpod_h3.cold_start_due() is False
+
+
+def test_the_cold_start_is_reported_in_the_event_feed(runpod, mk_project):
+    pid = mk_project(10.0)
+    runpod_h3.get_live_provider().generate(request(extra={"project_id": pid}))
+    from app.budget import killswitch
+    events = [e for e in killswitch.events(pid) if e["kind"] == "runpod_cold_start"] if hasattr(killswitch, "events") else None
+    raw = [__import__("json").loads(x) for x in killswitch.r().lrange(killswitch.EVENTS.format(pid), 0, -1)]
+    cold = [e for e in (events or raw) if e["kind"] == "runpod_cold_start"]
+    assert cold and cold[0]["seconds"] == 42.0 and cold[0]["model"] == "H3 FL2VA"
+
+
+def test_idle_workers_are_not_charged_while_a_job_runs(runpod, mk_project):
+    pid = mk_project(10.0)
+    r = vast_box._r()
+    r.set(vast_box._k("last_project"), pid)
+    r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+    runpod.health["workers"]["idle"] = 1
+    vast_box.track("job-key", pid)                                          # soğuk başlatma sürüyor: işin bedelinde
+    runpod_h3.tick()
+    with session_scope() as s:
+        assert float(s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar()) == 0.0
+    vast_box.untrack("job-key")
+    r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+    r.set(vast_box._k("rp_last_gpu"), "NVIDIA GeForce RTX 5090")
+    runpod_h3.tick()
+    with session_scope() as s:
+        spent = float(s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar())
+        idle_row = s.execute(text("SELECT details FROM service_calls WHERE project_id = :p AND label = 'h3:idle'"), {"p": pid}).scalar()
+    assert spent == pytest.approx(60 * RATE_5090, abs=0.002)               # son işi çalıştıran GPU'nun ücreti
+    assert idle_row["idle_seconds"] >= 59 and idle_row["gpu"] == "NVIDIA GeForce RTX 5090"
+
+
+def test_history_shows_the_real_idle_seconds(api, runpod, mk_project):
+    pid = mk_project(10.0)
+    from app.budget import killswitch
+    with killswitch.spend(pid, 0.01, "h3:idle", details={"idle_seconds": 61.5, "idle_workers": 1}) as ch:
+        ch.actual = 0.01
+    rows = api.get("/api/history", params={"project_id": pid}).json()["items"]
+    assert [x["duration_s"] for x in rows if x["label"] == "h3:idle"] == [61.5]
+
+
+def test_a_ref2va_shot_never_sends_a_keyframe_job(runpod, sample_scene, monkeypatch):
+    """Ref2VA ilk kareyi kullanmaz: storyboard için yerel (ücretsiz) kare çizilir; RunPod'a keyframe işi gitmez."""
+    from app.engine import storyboard
+    from app.engine.iteration import keyframe_blocks
+    from app.models import Asset, Character, Scene
+    pid, codes = sample_scene()
+    sid = codes["S002_SH01"]
+    with session_scope() as s:
+        for ch in s.query(Character).filter(Character.project_id == pid):
+            ch.reference_images = [f"assets/{ch.id}/still/a.png"]               # karakterin referansı...
+            if ch.asset_id:
+                s.get(Asset, ch.asset_id).status = "locked"                     # ...ve onaylı varlığı
+    assert keyframe_blocks(pid, sid) is False                                  # görüntü öncesi kare istenmez
+    storyboard.make_board(pid, sid)
+    keyframes = [r for r in runpod.runs if r["input"]["hellgrind"]["kind"] == "keyframe"]
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        assert keyframes == [] and sc.board_source == "local" and sc.board_key
+
+
+def test_an_fl2va_board_is_drawn_at_most_once_per_render(runpod, sample_scene, monkeypatch):
+    """Kalite kapısını geçemeyen ücretli kare yeniden çizilmez (eskiden 3 deneme = 3 ayrı ücretli kare)."""
+    from app.engine import storyboard
+    from app.quality import gate
+    monkeypatch.setattr(gate, "score_frame", lambda *a, **k: gate.Score(clip=0.81, face=None, composite=0.81,
+                                                                       anomalies=[{"type": "low_clip"}], passed=False))
+    pid, codes = sample_scene()
+    storyboard.make_board(pid, codes["S001_SH01"])
+    assert [r["input"]["hellgrind"]["kind"] for r in runpod.runs] == ["keyframe"]
+
+
+def test_fl2va_gets_the_full_size_clean_frame_not_the_board(runpod, sample_scene, monkeypatch, tmp_path):
+    """Storyboard karesi 960x540 (yazılı bant), keyframe.json 1280x704 üretir: FL2VA'ya giden ilk kare tam boy yazısız
+    kare olmalı ve H3 tuvaliyle aynı en-boy oranında."""
+    import io
+    from PIL import Image
+    from app import storage
+    from app.engine import storyboard
+    from app.engine.iteration import keyframe_of
+    from app.models import Scene
+    from app.quality import gate
+    buf = io.BytesIO()
+    Image.new("RGB", (1280, 704), (30, 60, 90)).save(buf, "PNG")
+    runpod.image = buf.getvalue()
+    monkeypatch.setattr(gate, "score_frame", lambda *a, **k: gate.Score(clip=0.95, face=None, composite=0.95, anomalies=[], passed=True))
+    pid, codes = sample_scene()
+    sid = codes["S001_SH01"]
+    storyboard.make_board(pid, sid)
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        from app.core.hashing import visual_fingerprint
+        from app.core.state import load_assets, load_characters
+        fp = visual_fingerprint(sc, load_characters(s, sid), load_assets(s, sid), None)
+        key = keyframe_of(sc, fp)
+        board_key = sc.board_key
+    assert key == storyboard.clean_key(board_key)
+    clean = Image.open(io.BytesIO(storage.read_bytes(key)))
+    board = Image.open(io.BytesIO(storage.read_bytes(board_key)))
+    assert clean.size == (1280, 704) and board.size == (960, 540)
+    from app.live import vast_h3
+    assert abs(clean.size[0] / clean.size[1] - vast_h3.SIZES["720p"][0] / vast_h3.SIZES["720p"][1]) < 0.01

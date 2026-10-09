@@ -130,16 +130,32 @@ denetimi) ve worker/kuyruk sayılarını okur; worker başlatmaz.
 (0,000439 $/sn), RTX PRO 6000 **3,49 $/sa** (0,000969 $/sn). Fiyatları ücretli moda geçmeden önce RunPod'un sayfasından
 yeniden doğrulayın.
 
-- **Rezervasyon:** en pahalı GPU tipiyle, video saniyesi başına GPU süresi (`render_seconds`) × süre.
+- **Ölçüm (2026-10-08, RTX 5090, fp8_scaled, turbo, 480p, 4 sn klip = 107 kare; faturalanan):** FL2VA 42-44 sn/klip
+  (≈ 0,018-0,019 $), Ref2VA ~27 sn/klip (≈ 0,012 $), soğuk worker'da ilk işe ~140 sn eklenir (≈ +0,06 $), storyboard karesi
+  sıcak 38-42 sn, soğuk ~139 sn. Duvar saati süreleri (175-215 sn) kuyruk ve imaj indirmeyi de içerir; faturalanan değildir.
+- **Rezervasyon:** birincil GPU tipinin (Ayarlar'daki ilk GPU, RTX 5090) ücretiyle, H3 koşuluna göre video saniyesi başına
+  GPU süresi (`render_seconds.fl2va` 11, `ref2va` 7; 720p şimdilik ×2) × üretilen süre (en az 4 sn). Worker soğuksa
+  (az önce biten iş yok, /health'te açık worker yok) dalgadaki işlerden yalnızca biri soğuk başlatmayı da rezerve eder.
 - **İşlenen tutar:** RunPod'un bildirdiği çalışma süresi (`executionTime`) ve worker'ın ilk işiyse soğuk başlatma süresi,
   işi çalıştıran GPU tipinin saniye ücretiyle.
-- **Boşta bekleyen worker'lar:** dakikalık görev (`hg.runpod_tick`) `/health`'teki boşta worker sayısı × geçen süre × en
-  pahalı tipin ücretini son etkin projeye yazar.
+- **Boşta bekleyen worker'lar:** dakikalık görev (`hg.runpod_tick`) `/health`'teki boşta worker sayısı × geçen süre × son
+  işi çalıştıran GPU'nun ücretini son etkin projeye yazar. Bir H3 işi sürerken yazılmaz (o süre işin bedelinde, soğuk
+  başlatma dahil): çift sayım yok. Geçmişte satırın süresi gerçek boşta saniyedir.
 - **Bakiye koruması:** her yeni işten önce RunPod bakiyesi okunur (GraphQL `myself.clientBalance`, 60 sn önbellek). Bakiye
   **Bakiye eşiği**nin (varsayılan 10 $) altındaysa iş başlamaz; panelde uyarı görünür. Bakiye okunamazsa uyarı yazılır ama
   üretim durmaz. RunPod GraphQL'i 2027 başında kaldıracağını duyurdu.
-- **Toplu gönderim:** bir dalganın bütün işleri (test turu ve tam tur dalgası) birlikte kuyruğa girer. Soğuk başlatma işler
-  arasında paylaşılır. Önce bütün storyboard kareleri, sonra bütün videolar sırası korunur.
+- **Toplu gönderim:** bir dalganın bütün işleri (test turu ve tam tur dalgası) birlikte kuyruğa girer. Birden çok çekim
+  birlikte işlenirken kuyruk model türüne göre gruplanır: önce bekleyen bütün kareler (Qwen-Image), sonra bütün FL2VA/T2V
+  videoları, sonra bütün Ref2VA videoları (her model değişimi 30-40 GB'ı yeniden yükler, ~2-3 dk). Olay akışına "Model
+  yükleniyor (soğuk başlatma)" ve "Model değişti" süreleriyle yazılır.
+- **H3 koşulu:** onaylı referansı olan karakterli çekimde varsayılan Ref2VA'dır (storyboard karesi metinden çizilir,
+  karakter referansı içermez; FL2VA'da kimlik kayar). Ref2VA çekiminde RunPod'a storyboard/keyframe işi gönderilmez:
+  storyboard için yerel kare çizilir; ücretli kare yalnızca storyboard sayfasından açıkça istenir
+  (`POST /scenes/{id}/board/draw?paid=true`). Ücretli kare kalite kapısını geçemezse yeniden çizilmez (en çok 1 kare).
+  İlk kareyi karakter referansından çizmek için kanca: `H3_KEYFRAME_REFERENCE=flux_kontext` (fal.ai; varsayılan kapalı).
+- **Kimlik kapısı:** yüz beklenen çekimde (karakter varsa; sırt çekimi, silüet, aşırı geniş planda hayır; denetçiden
+  değiştirilir) yüzü hiç görünmeyen ya da karakter benzerliği proje ayarı `identity_threshold`'un (0,60) altında kalan aday
+  rafine havuza giremez. Hepsi kalırsa çekim "Kimlik düşük" gerekçesiyle incelemeye düşer.
 
 ## Bilinen sınırlar
 

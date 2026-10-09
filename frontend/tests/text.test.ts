@@ -59,7 +59,8 @@ describe("tileSpec", () => {
 
   it("includes the real measurement when present", () => {
     expect(measureText({ alignment: { style: 0.91, content: 0.97 }, identity: { Kerem: 0.66 }, faces_seen: 1 }))
-      .toBe(" (stil 0,91, tarif 0,97, Kerem yüzü 0,66)");
+      .toBe(" (stil 0,91, tarif 0,97, Kerem yüzü 0,66, 1 yüz görüldü)");
+    expect(measureText({ alignment: { generic: 0.99 }, identity: {}, faces_seen: 0 })).toBe(" (genel 0,99, yüz görünmedi)");
     expect(measureText({ alignment: { generic: 0.5 }, identity: {}, faces_seen: 2 })).toBe(" (genel 0,50, 2 yüz görüldü)");
   });
 });

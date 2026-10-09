@@ -69,14 +69,17 @@ class Target:
     style: str = ""
     content: str = ""
     faces: tuple = ()
+    face_expected: bool = True        # yüz görünmeli mi (kimlik kapısı; core/h3mode.face_expected)
 
 
 def target_for(scene, chars, style) -> Target:
     """Çekimin ölçütü: kılavuzun ışık ve hareket dili, çekim tarifi ve referans görseli olan karakterler."""
+    from app.core.h3mode import face_expected
     return Target(style=" ".join(x for x in ((style.lighting_prefix or "") if style else "",
                                              (style.motion_style or "") if style else "") if x),
                   content=(scene.prompt_spec or {}).get("prompt", ""),
-                  faces=tuple((ch.name, tuple(ch.reference_images or ())) for ch in chars if ch.reference_images))
+                  faces=tuple((ch.name, tuple(ch.reference_images or ())) for ch in chars if ch.reference_images),
+                  face_expected=face_expected(scene, chars))
 
 
 @dataclass

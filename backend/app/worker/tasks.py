@@ -46,6 +46,7 @@ def _guard(task, project_id: str, scene_id: str, work):
     except Exception as e:
         log.exception("görev hatası scene=%s", scene_id)
         _set_status(scene_id, "failed", f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}")
+        killswitch.refreeze_after(project_id, scene_id)       # tek çekim için çözülen proje yeniden donar
         raise
     finally:
         killswitch.unregister_task(project_id, task.request.id)
@@ -54,12 +55,13 @@ def _guard(task, project_id: str, scene_id: str, work):
 # ---------- sahne aşamaları ----------
 
 @celery.task(bind=True, name="hg.storyboard_scene")
-def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False, batch: str | None = None):
+def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False, batch: str | None = None,
+                     paid: bool = False):
     """batch: toplu dağıtımın parçası; bitince (başarılı ya da değil) bariyere haber verir, son kareden sonra videolar
     kuyruğa girer."""
     def work():
         from app.engine.storyboard import make_board
-        return make_board(project_id, scene_id, standalone=standalone)
+        return make_board(project_id, scene_id, standalone=standalone, **({"explicit": True} if paid else {}))
     ok = False
     try:
         result = _guard(self, project_id, scene_id, work)
@@ -72,13 +74,23 @@ def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = Fa
 
 
 @celery.task(bind=True, name="hg.generate_scene")
-def generate_scene(self, project_id: str, scene_id: str, mode: str = "full"):
+def generate_scene(self, project_id: str, scene_id: str, mode: str = "full", batch: str | None = None):
+    """batch: model gruplu toplu dağıtımın parçası; bitince (başarılı ya da değil) bariyere haber verir, grubun son işi
+    bitince sıradaki model grubu kuyruğa girer."""
     release_dispatch(scene_id)          # kuyruk aralığı bitti: sahne artık durum ve görev kaydıyla korunur
 
     def work():
         from app.engine.iteration import run_tiered_generation
         return run_tiered_generation(project_id, scene_id, mode)
-    return _guard(self, project_id, scene_id, work)
+    ok = False
+    try:
+        result = _guard(self, project_id, scene_id, work)
+        ok = result != "frozen"
+        return result
+    finally:
+        if batch:
+            from app.worker.dispatch import batch_done
+            batch_done(batch, scene_id, ok)
 
 
 @celery.task(bind=True, name="hg.lipsync_scene")
@@ -105,6 +117,7 @@ def mux_scene(self, project_id: str, scene_id: str):
     result = _guard(self, project_id, scene_id, work)
     maybe_assemble_draft(project_id, scene_id)
     maybe_refresh_continuity(project_id, scene_id)
+    killswitch.refreeze_after(project_id, scene_id)
     return result
 
 

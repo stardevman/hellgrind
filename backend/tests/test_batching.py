@@ -112,8 +112,8 @@ def test_videos_wait_even_for_scenes_whose_board_is_already_drawn(queued, mk_pro
     b.add(s3, Stage.MUX)                                               # yalnızca montaj: beklemez
     b.add(s4, Stage.STORYBOARD)                                        # onay bekleyen kare: kare aşamasının parçası
     bid = b.launch()
-    assert [(c["scene"], c["stages"]) for c in queued] == [(s1, ["STORYBOARD"]), (s3, ["MUX"]), (s4, ["STORYBOARD"])]
-    assert queued[2]["batch"] == bid and queued[0]["standalone"] is False and queued[2]["standalone"] is None
+    assert [(c["scene"], c["stages"]) for c in queued] == [(s3, ["MUX"]), (s1, ["STORYBOARD"]), (s4, ["STORYBOARD"])]
+    assert queued[2]["batch"] == bid and queued[1]["standalone"] is False and queued[2]["standalone"] is None
     dispatch.batch_done(bid, s1, True)
     assert len(queued) == 3 and dispatch.batch_holding(s2)
     dispatch.batch_done(bid, s4, True)
@@ -147,7 +147,7 @@ def test_the_storyboard_task_reports_to_the_barrier_even_when_it_fails(pg, monke
 def test_end_to_end_every_board_is_drawn_before_the_first_video(sample_scene, eager, monkeypatch):
     """Görevler aynı süreçte çalışır: çizim ve üretim sırası kaydedilir (gerçek render yerine)."""
     order = []
-    monkeypatch.setattr("app.engine.storyboard.make_board", lambda pid, sid, standalone=False: order.append(("board", sid)))
+    monkeypatch.setattr("app.engine.storyboard.make_board", lambda pid, sid, standalone=False, **k: order.append(("board", sid)))
     monkeypatch.setattr("app.engine.iteration.run_tiered_generation", lambda pid, sid, mode="full": order.append(("video", sid)))
     for name in ("voice_and_lipsync", "grade_scene", "mux_scene"):
         monkeypatch.setattr(f"app.post.pipeline.{name}", lambda sid: None)
@@ -159,3 +159,36 @@ def test_end_to_end_every_board_is_drawn_before_the_first_video(sample_scene, ea
         dispatch_all(s, pid)
     assert [k for k, _ in order] == ["board"] * 4 + ["video"] * 4
     assert {sid for _, sid in order} == set(codes.values())
+
+
+def test_videos_are_grouped_by_model_fl2va_then_ref2va(queued, mk_project, mk_scene):
+    """Aynı worker'da model değişimi (Qwen -> FL2VA -> Ref2VA) her seferinde modeli yeniden yükler: kuyruk gruplanır."""
+    pid = mk_project()
+    a, b, c, d = (mk_scene(pid, status="pending") for _ in range(4))
+    batch = dispatch.Batch(pid)
+    batch.add(a, Stage.VISUAL | Stage.MUX, model="ref2va")
+    batch.add(b, Stage.STORYBOARD | Stage.VISUAL | Stage.MUX, model="fl2va")
+    batch.add(c, Stage.VISUAL | Stage.MUX, model="fl2va")
+    batch.add(d, Stage.VISUAL | Stage.MUX, model="ref2va")
+    bid = batch.launch()
+    assert [(x["scene"], x["stages"]) for x in queued] == [(b, ["STORYBOARD"])]          # önce kareler
+    dispatch.batch_done(bid, b, True)
+    fl2va = queued[1:]
+    assert sorted(x["scene"] for x in fl2va) == sorted([b, c]) and all(x["batch"] == bid for x in fl2va)
+    assert dispatch.batch_holding(a) and dispatch.batch_holding(d)                        # Ref2VA bekliyor
+    dispatch.batch_done(bid, b, True)
+    assert len(queued) == 3                                                              # c bitmedi
+    dispatch.batch_done(bid, c, True)
+    assert sorted(x["scene"] for x in queued[3:]) == sorted([a, d])                      # sonra Ref2VA
+    dispatch.batch_done(bid, a, True)
+    dispatch.batch_done(bid, d, True)
+    assert len(queued) == 5 and not killswitch.r().exists(dispatch.BATCH.format(bid, "project"))
+
+
+def test_only_ref2va_videos_need_no_barrier(queued, mk_project, mk_scene):
+    pid = mk_project()
+    a, b = mk_scene(pid, status="pending"), mk_scene(pid, status="pending")
+    batch = dispatch.Batch(pid)
+    batch.add(a, Stage.VISUAL | Stage.MUX, model="ref2va")
+    batch.add(b, Stage.VISUAL | Stage.MUX, model="ref2va")
+    assert batch.launch() is None and len(queued) == 2 and all(x["batch"] is None for x in queued)

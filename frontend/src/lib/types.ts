@@ -4,7 +4,10 @@ export type Emotion = "neutral" | "joy" | "anger" | "fear" | "sadness" | "surpri
 
 export interface QualityMeta { mode: "dry" | "real" | "invalid"; ready: boolean; reason: string | null }
 
-export interface Preset { probe_n?: number; full_n?: number; wave_size?: number; max_correction_rounds?: number }
+export interface Preset {
+  probe_n?: number; full_n?: number; wave_size?: number; max_correction_rounds?: number;
+  probe_resolution?: string; full_resolution?: string;
+}
 
 export interface Meta {
   dry_run: boolean;
@@ -19,7 +22,11 @@ export interface Meta {
   trial_script?: string;
 }
 
-export interface ProjectListItem { id: string; title: string; status: string; spent_usd: number; budget_limit_usd: number }
+export interface ProjectListItem {
+  id: string; title: string; status: string; spent_usd: number; budget_limit_usd: number;
+  /** Panelde görünen durum: "producing" yalnızca işlenen bir çekim varken; bitince completed ya da idle. */
+  display_status?: string;
+}
 
 export interface ProjectSettings {
   soft_budget_ratio: number;
@@ -36,7 +43,7 @@ export interface ContinuityPair {
 }
 
 export interface Project {
-  id: string; title: string; status: string;
+  id: string; title: string; status: string; display_status?: string;
   budget_limit_usd: number; spent_usd: number; reserved_usd: number;
   frozen: boolean; soft_limited: boolean; settings: ProjectSettings; dry_run: boolean;
   style_version: number | null; lut: boolean;
@@ -76,7 +83,11 @@ export interface Scene {
   correction_count: number; characters: string[]; final_url: string | null;
   assets: SceneAssetRef[]; missing: SceneAssetRef[]; tracks: Track[]; variations: Variation[];
   /** MiniMax H3 koşulu: fl2va (ilk kareden) | ref2va (karakter referans setiyle). */
-  h3_mode: "fl2va" | "ref2va"; board_score: number | null; board_source: string | null;
+  /** Geçerli H3 koşulu (yönetmenin seçimi ya da otomatik); h3_mode_explicit: seçim (null = otomatik). */
+  h3_mode: "fl2va" | "ref2va"; h3_mode_explicit?: "fl2va" | "ref2va" | null; h3_mode_warning?: string | null;
+  /** Kimlik kapısı: yüz görünmeli mi (geçerli) ve yönetmenin seçimi (null = otomatik). */
+  face_expected?: boolean; face_expected_explicit?: boolean | null;
+  board_score: number | null; board_source: string | null;
   keyframe_source: "upload" | "board" | null; keyframe_url: string | null;
   h3_refs: { name: string; url: string | null }[];
 }
@@ -264,7 +275,12 @@ export interface RunpodState {
 export interface SelfHosted { gpu_hourly_usd: number; render_seconds: Record<string, number>; keyframe_seconds?: number }
 
 /** RunPod Serverless: GPU tipine göre saniye ücreti. */
-export interface Serverless { per_second: Record<string, number>; render_seconds: Record<string, number>; keyframe_seconds?: number; cold_start_seconds?: number }
+export interface Serverless {
+  per_second: Record<string, number>; pools?: Record<string, string>;
+  /** koşul (fl2va | ref2va) -> çözünürlük -> video saniyesi başına GPU saniyesi (eski düz biçim de okunur) */
+  render_seconds: Record<string, Record<string, number>> | Record<string, number>;
+  keyframe_seconds?: number; keyframe_cold_seconds?: number; cold_start_seconds?: number;
+}
 
 export interface PricingTable {
   self_hosted?: Record<string, SelfHosted>;

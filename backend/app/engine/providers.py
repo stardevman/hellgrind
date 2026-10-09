@@ -59,7 +59,8 @@ class LocalProvider:
         self.engine = engine
 
     def estimate(self, req: GenRequest) -> float:
-        return pricing.estimate_video(self.engine, req.resolution, billed_seconds(self.engine, req.duration_s))
+        return pricing.estimate_video(self.engine, req.resolution, billed_seconds(self.engine, req.duration_s),
+                                      mode=req.extra.get("h3_mode"))
 
     def generate(self, req: GenRequest) -> GenResult:
         # Geçici hata seed'e bağlı DEĞİL: aynı isteği yeniden denemek gerçekte olduğu gibi kurtarabilmeli.

@@ -27,7 +27,7 @@ import subprocess
 import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from statistics import mean
 
 from sqlalchemy import and_, or_, select
@@ -35,6 +35,7 @@ from sqlalchemy import and_, or_, select
 from app import storage
 from app.budget import killswitch
 from app.config import project_settings, settings
+from app.core.h3mode import effective_mode
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
@@ -56,6 +57,7 @@ class VarResult:
     id: str
     passed: bool
     composite: float | None
+    anomalies: list = field(default_factory=list)
 
 
 @dataclass
@@ -192,7 +194,7 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
     done = _reusable(c, seed, tier, resolution)
     if done is not None:
         _merge_params(done.id, run=c.run_id)
-        return VarResult(str(done.id), done.status in ("passed", "refined"), done.composite_score)
+        return VarResult(str(done.id), done.status in ("passed", "refined"), done.composite_score, list(done.anomalies or []))
 
     label = f"{c.render.get('label', '')}  {tier} {resolution} #{seed % 10000}"
     req = GenRequest(prompt=c.prompt_spec.get("prompt", ""), negative=c.prompt_spec.get("negative", ""), seed=seed,
@@ -245,9 +247,9 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
         v.clip_score, v.face_score, v.composite_score = score.clip, score.face, score.composite
         v.anomalies = score.anomalies
         v.params = {**(v.params or {}), **extra}
-        for field, value in fields.items():
-            setattr(v, field, value)
-    return VarResult(str(vid), score.passed, score.composite)
+        for name, value in fields.items():
+            setattr(v, name, value)
+    return VarResult(str(vid), score.passed, score.composite, list(score.anomalies))
 
 
 def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
@@ -280,7 +282,7 @@ def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
         v.clip_score, v.face_score, v.composite_score = score.clip, score.face, score.composite
         v.anomalies = score.anomalies
         v.params = {**(v.params or {}), **extra}
-    return VarResult(str(vid), False, score.composite)
+    return VarResult(str(vid), False, score.composite, list(score.anomalies))
 
 
 def _attempts(c: Ctx, estimate: float, label: str, vid, call):
@@ -367,7 +369,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
                     **loras_of(chars),
-                    "project_id": project_id, "h3_mode": scene.h3_mode or "fl2va",
+                    "project_id": project_id, "h3_mode": effective_mode(scene, chars, assets),
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
         keyframe_key = keyframe_of(scene, visual_hash)
@@ -422,10 +424,12 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         return False
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
-        if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" or scene.h3_mode == "ref2va":
-            return False
+        chars, assets = load_characters(s, scene_id), load_assets(s, scene_id)
+        if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" \
+                or effective_mode(scene, chars, assets) == "ref2va":
+            return False                                  # Ref2VA ilk kareyi kullanmaz: kare çizilmez
         style = bible.active_version(s, project_id)
-        fp = visual_fingerprint(scene, load_characters(s, scene_id), load_assets(s, scene_id), style)
+        fp = visual_fingerprint(scene, chars, assets, style)
         missing = not scene.keyframe_key and not (scene.board_key and scene.board_hash == fp)
     if missing:
         make_board(project_id, scene_id)
@@ -454,6 +458,18 @@ def board_blocks(project_id: str, scene_id: str) -> bool:
     advance_scene(project_id, scene_id, status="board_review")
     killswitch.event(project_id, "board_required", scene_id=scene_id)
     return True
+
+
+def review_reason(results, cfg: dict, stage: str) -> str:
+    """needs_review gerekçesi. Adayların çoğu kimlik kapısında kaldıysa "Kimlik düşük" denir (yüz görünmedi ya da karakter
+    benzerliği eşiğin altında): çözüm referanslarda ve koşuldadır, yeni seed'de değil."""
+    failed = [r for r in results if not r.passed]
+    identity = [r for r in failed if any(a.get("type") in gate.IDENTITY_ANOMALIES for a in (r.anomalies or []))]
+    if failed and len(identity) * 2 >= len(failed):
+        return (f"Kimlik düşük: {stage} adaylarının çoğunda karakterin yüzü görünmedi ya da benzerlik eşiğin "
+                f"({float(cfg.get('identity_threshold', 0.6)):.2f}) altında. Ref2VA referanslarını ve çekimin "
+                "'yüz görünmeli' ayarını gözden geçirin.")
+    return "test turu eşiği geçilemedi" if stage == "test turu" else "tam turda eşiği geçen varyasyon yok"
 
 
 def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") -> str:
@@ -497,7 +513,7 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
             scene.correction_count += 1
         advance_scene(project_id, scene_id, status="correcting")
     else:
-        advance_scene(project_id, scene_id, status="needs_review", last_error="test turu eşiği geçilemedi")
+        advance_scene(project_id, scene_id, status="needs_review", last_error=review_reason(results, cfg, "test turu"))
         return "needs_review"
 
     # 2) Tam tur: dalgalar halinde, erken durmalı
@@ -522,7 +538,8 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
         "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
         "last_error": None, "cut_tier": "final", "upgrade_requested": False})
     if not winners:
-        advance_scene(project_id, scene_id, status="needs_review", last_error="tam turda eşiği geçen varyasyon yok")
+        advance_scene(project_id, scene_id, status="needs_review",
+                      last_error=review_reason(gate.run_results(scene_id, ctx.run_id), cfg, "tam tur"))
         return "needs_review"
     killswitch.event(project_id, "refined", scene_id=scene_id, pool=len(winners))
     return "refined"

@@ -698,7 +698,7 @@ Bilinmesi gerekenler:
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 
-Proje ayarları (proje oluştururken verilir): `clip_threshold` 0,85 · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
+Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (yüz beklenen çekimde karakter benzerliği bunun altında kalan ya da yüzü görünmeyen aday rafine havuza giremez) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).
 
 ## Depo yapısı
 

@@ -35,13 +35,31 @@ def _squash(text: str) -> str:
 
 
 def runpod_rate(gpu: str | None = None, prices: dict | None = None) -> float:
-    """GPU tipinin saniye ücreti. Ad eşleşmezse (ya da bilinmiyorsa) en pahalı tip: bütçe tutucu kalsın.
-    "NVIDIA GeForce RTX 5090" -> "RTX 5090"; "NVIDIA RTX PRO 6000 Blackwell ..." -> "RTX PRO 6000"."""
-    rates = serverless(prices)["per_second"]
+    """GPU tipinin saniye ücreti. Ad ya da RunPod havuz kimliği (ADA_32_PRO, BLACKWELL_96) kabul edilir. Bilinmiyorsa
+    uç noktanın birincil GPU tipi (Ayarlar'daki ilk GPU; varsayılan RTX 5090): işler çoğunlukla orada çalışır, ölçülen
+    bedele yakın tahmin. "NVIDIA GeForce RTX 5090" -> "RTX 5090"; "NVIDIA RTX PRO 6000 Blackwell ..." -> "RTX PRO 6000"."""
+    table_ = serverless(prices)
+    rates, pools = table_["per_second"], table_.get("pools") or {}
+    if gpu and gpu in pools:
+        gpu = pools[gpu]
     for name, rate in sorted(rates.items(), key=lambda kv: -len(kv[0])):
         if gpu and _squash(name) in _squash(gpu):
             return float(rate)
+    if gpu is None:
+        primary = (settings.runpod_gpu_types or "").split(",")[0].strip()
+        if primary and primary != gpu:
+            for name, rate in rates.items():
+                if _squash(name) == _squash(pools.get(primary, primary)):
+                    return float(rate)
     return float(max(rates.values()))
+
+
+def render_rows(rp: dict, mode: str | None) -> dict:
+    """H3 koşuluna göre video saniyesi başına GPU saniyesi (t2va FL2VA DiT'iyle çalışır). Eski düz biçim de okunur."""
+    rows = rp["render_seconds"]
+    if rows and all(isinstance(v, dict) for v in rows.values()):
+        return rows.get("ref2va" if mode == "ref2va" else "fl2va") or next(iter(rows.values()))
+    return rows
 
 
 def estimate_runpod(seconds: float, gpu: str | None = None, prices: dict | None = None) -> float:
@@ -49,11 +67,14 @@ def estimate_runpod(seconds: float, gpu: str | None = None, prices: dict | None 
     return round(runpod_rate(gpu, prices) * max(0.0, seconds), 4)
 
 
-def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict | None = None) -> float:
+def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict | None = None, mode: str | None = None,
+                   cold: bool = False) -> float:
+    """mode: H3 koşulu (fl2va | ref2va | t2va). cold: worker soğuk (açılış + model yükleme bu işe eklenir)."""
     prices = prices or table()
-    if (rp := _runpod(engine, prices)) is not None:            # tahmin en pahalı GPU tipiyle; işlenen tutar gerçek süreyle
-        rows = rp["render_seconds"]
-        return estimate_runpod(rows.get(resolution, max(rows.values())) * duration_s, None, prices)
+    if (rp := _runpod(engine, prices)) is not None:            # birincil GPU tipiyle; işlenen tutar gerçek süreyle
+        rows = render_rows(rp, mode)
+        seconds = rows.get(resolution, max(rows.values())) * duration_s
+        return estimate_runpod(seconds + (float(rp.get("cold_start_seconds", 0)) if cold else 0.0), None, prices)
     if (hosted := self_hosted(engine, prices)) is not None:
         rows = hosted["render_seconds"]
         gpu_seconds = rows.get(resolution, max(rows.values())) * duration_s      # bilinmeyen çözünürlük: en yavaşı
@@ -63,10 +84,11 @@ def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict
     return round(per_second * duration_s, 4)
 
 
-def estimate_keyframe(engine: str = "h3", prices: dict | None = None) -> float:
-    """H3 platformunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli."""
+def estimate_keyframe(engine: str = "h3", prices: dict | None = None, cold: bool = False) -> float:
+    """H3 platformunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli; cold: soğuk worker."""
     if (rp := _runpod(engine, prices)) is not None:
-        return estimate_runpod(rp.get("keyframe_seconds", 10), None, prices)
+        seconds = rp.get("keyframe_cold_seconds", rp.get("keyframe_seconds", 10)) if cold else rp.get("keyframe_seconds", 10)
+        return estimate_runpod(seconds, None, prices)
     return estimate_gpu(engine, self_hosted(engine, prices).get("keyframe_seconds", 10), prices)
 
 
@@ -164,10 +186,17 @@ def validate_table(text: str) -> dict:
             _positive(rate, f"serverless.runpod.per_second.{gpu}")
         seconds = rp.get("render_seconds")
         if not isinstance(seconds, dict) or not seconds:
-            raise PricingError("serverless.runpod.render_seconds eksik (çözünürlük: video saniyesi başına GPU saniyesi)")
-        for res, value in seconds.items():
-            _positive(value, f"serverless.runpod.render_seconds.{res}")
-        for name in ("keyframe_seconds", "cold_start_seconds"):
+            raise PricingError("serverless.runpod.render_seconds eksik (koşul -> çözünürlük -> video saniyesi başına GPU saniyesi)")
+        for key, value in seconds.items():
+            if isinstance(value, dict):
+                for res, n in value.items():
+                    _positive(n, f"serverless.runpod.render_seconds.{key}.{res}")
+            else:
+                _positive(value, f"serverless.runpod.render_seconds.{key}")
+        for gpu in (rp.get("pools") or {}).values():
+            if gpu not in rp["per_second"]:
+                raise PricingError(f"serverless.runpod.pools: {gpu} için per_second satırı yok")
+        for name in ("keyframe_seconds", "keyframe_cold_seconds", "cold_start_seconds"):
             if name in rp:
                 _positive(rp[name], f"serverless.runpod.{name}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")

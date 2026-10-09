@@ -115,14 +115,14 @@ def test_the_scored_storyboard_frame_is_the_first_frame_of_every_variation(sampl
     assert all(v.params["keyframe_key"] == storyboard.clean_key(sc.board_key) for v in variations(sid))
 
 
-def test_a_frame_that_fails_the_gate_is_redrawn_then_blocks(sample_scene, studio, h3, monkeypatch):
+def test_a_frame_that_fails_the_gate_is_drawn_once_then_blocks(sample_scene, studio, h3, monkeypatch):
     pid, codes = sample_scene(**SHORT)
     sid = codes["S001_SH01"]
     fake_scorer(monkeypatch)
     studio.black_frames = 99                                               # her kare siyah: kalite kapısı geçmez
     assert run_tiered_generation(pid, sid) == "board_review"
     sc = scene(sid)
-    assert len(studio.frames) == storyboard.BOARD_ATTEMPTS and len({f for f in studio.frames}) == 3   # yeni seed'lerle
+    assert len(studio.frames) == storyboard.BOARD_ATTEMPTS == 1          # bir çekim x bir çizim: en çok 1 ücretli kare
     assert sc.board_status == "changes_requested" and sc.board_note.startswith("Kalite kapısı")
     assert "kalite kapısını geçemedi" in sc.last_error and h3.submits == []
 

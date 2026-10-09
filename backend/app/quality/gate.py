@@ -56,7 +56,26 @@ def clip_score_dry(seed: int) -> float:
     return round(min(max(rng.gauss(settings.dry_run_score_mean, settings.dry_run_score_sd), 0.0), 1.0), 4)
 
 
-def _judge(measured, seed: int, anomalies: list[dict], cfg: dict) -> Score:
+IDENTITY_ANOMALIES = ("no_face", "low_identity")
+
+
+def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
+    """Kimlik kapısı (yalnızca videoda): çekimde referanslı karakter var ve yüz bekleniyorsa, yüzü hiç görünmeyen aday
+    (`no_face`) ya da bir karakterin benzerliği `identity_threshold`'un altında kalan aday (`low_identity`) geçemez:
+    yüzün görünmemesi, kötü benzemesinden avantajlı olmasın. Sırt çekimi, silüet, uzak plan: face_expected false."""
+    if target is None or not getattr(target, "faces", ()) or not getattr(target, "face_expected", True) or not detail:
+        return []
+    if "faces_seen" not in detail:
+        return []
+    threshold = float(cfg.get("identity_threshold", 0.6))
+    if not detail.get("faces_seen"):
+        return [{"type": "no_face", "faces_seen": 0, "characters": [name for name, _ in target.faces]}]
+    identity = detail.get("identity") or {}
+    low = {name: identity.get(name) for name, _ in target.faces if (identity.get(name) or 0.0) < threshold}
+    return [{"type": "low_identity", "identity": low, "threshold": threshold}] if low else []
+
+
+def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, check_identity: bool = False) -> Score:
     """Birleşik skor + anomaliler. Eşik altı birleşik skor da `low_clip` anomalisi sayılır; geçmek = anomali yok.
     measured: gerçek ölçüm (scorer.Result), okunamayan medyada None; sahte modda kullanılmaz."""
     if scorer_mode() == "dry":
@@ -68,6 +87,8 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict) -> Score:
         clip, face, composite, detail = measured.clip, measured.face, measured.composite, measured.detail
     if composite < cfg["clip_threshold"]:
         anomalies.append({"type": "low_clip", "score": composite, "threshold": cfg["clip_threshold"]})
+    if check_identity:
+        anomalies.extend(identity_anomalies(detail, target, cfg))
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 
@@ -78,7 +99,7 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
     if scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_video(path, target or scorer.Target())
-    return _judge(measured, seed, anomalies, cfg)
+    return _judge(measured, seed, anomalies, cfg, target, check_identity=True)
 
 
 def score_frame(path: str, seed: int, cfg: dict, target=None) -> Score:
@@ -100,6 +121,15 @@ def excellent_count(scene_id, run_id: str, threshold: float) -> int:
         return len(s.scalars(select(Variation.id).where(
             Variation.scene_id == scene_id, Variation.tier == "full", Variation.status == "passed",
             Variation.params["run"].astext == run_id, Variation.composite_score >= threshold)).all())
+
+
+def run_results(scene_id, run_id: str) -> list:
+    """Bu çalıştırmanın tam tur adayları (needs_review gerekçesi için): geçti mi ve anomalileri."""
+    from types import SimpleNamespace
+    with session_scope() as s:
+        rows = s.execute(select(Variation.status, Variation.anomalies).where(
+            Variation.scene_id == scene_id, Variation.tier == "full", Variation.params["run"].astext == run_id)).all()
+    return [SimpleNamespace(passed=st in ("passed", "refined"), anomalies=list(an or [])) for st, an in rows]
 
 
 def finalize_refined_pool(scene_id, run_id: str, k: int, scene_update: dict) -> list[str]:

@@ -115,6 +115,9 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 
   const { data: ov, error: ovError } = useSWR<Overview>(projectId ? `/projects/${projectId}/overview` : null, fetcher,
     { refreshInterval: POLL_MS, keepPreviousData: false, revalidateOnFocus: true });
+  // Üst bandın proje listesi (durum, harcama) her olayda tazelenir: üretim bitince eski değerde kalmasın.
+  const freshness = ov ? `${ov.project.id}:${ov.project.spent_usd}:${ov.project.display_status ?? ov.project.status}:${ov.events?.[0]?.ts ?? ""}` : "";
+  useEffect(() => { if (freshness) void mutate("/projects"); }, [freshness, mutate]);
   const offline = Boolean(ovError && !(ovError as { status?: number }).status) || Boolean(listError && !(listError as { status?: number }).status);
 
   const pageParam = search.get("page") as Page | null;

@@ -4,14 +4,17 @@ from typing import Literal
 from collections import defaultdict
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse, Response
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
+from app.api.projects import display_status
 from app.api.sequences import sequences_out
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
@@ -19,6 +22,7 @@ from app.curation import curated
 from app.db import get_session
 from app.hermes.ingest import ingest
 from app.hermes.rules import SAMPLE_SCRIPT
+from app.core.h3mode import effective_mode, face_expected, fl2va_identity_warning
 from app.core.hashing import grade_settings
 from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
@@ -36,7 +40,7 @@ PRESETS = {
     # Yalnızca MiniMax H3 sunucusuyla en ucuz ücretli deneme: çekim başına en çok 4 klip (2 test + 2 tam), 480p, düzeltme
     # turu yok. Referans kontrolü uyarıya iner: varlık onay akışı ve hareket testleri (GPU süresi) atlanır. Ses yereldir.
     "trial": {"probe_n": 2, "full_n": 2, "wave_size": 2, "refined_k": 1, "max_correction_rounds": 0,
-              "probe_resolution": "480p", "full_resolution": "480p", "lint_strictness": "warn",
+              "probe_resolution": "480p", "full_resolution": "720p", "lint_strictness": "warn",
               "paid_audio": False},
 }
 
@@ -149,7 +153,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                 .outerjoin(Asset, Asset.id == Character.asset_id)
                 .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
             cast[scene_id].append(name)
-            refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or []))
+            refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or [], asset_id=aid,
+                                                  asset=SimpleNamespace(id=aid, status=status) if aid else None))
             items[scene_id].append((str(aid) if aid else None, "character", name, status))
         for scene_id, aid, type_, name, status in s.execute(
                 select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status)
@@ -164,7 +169,11 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
-        "h3_mode": sc.h3_mode or "fl2va", "board_score": sc.board_score, "board_source": sc.board_source,
+        "h3_mode": effective_mode(sc, refs[sc.id], [r.asset for r in refs[sc.id] if r.asset]),
+        "h3_mode_explicit": sc.h3_mode,
+        "h3_mode_warning": fl2va_identity_warning(sc, refs[sc.id], [r.asset for r in refs[sc.id] if r.asset]),
+        "face_expected": face_expected(sc, cast[sc.id]), "face_expected_explicit": sc.face_expected,
+        "board_score": sc.board_score, "board_source": sc.board_source,
         "keyframe_source": "upload" if sc.keyframe_key else ("board" if sc.board_key and sc.board_source else None),
         "keyframe_url": _media(sc.keyframe_key or (clean_key(sc.board_key) if sc.board_key and sc.board_source else None)),
         "h3_refs": [{"name": r["name"], "url": _media(r["key"])} for r in reference_set(refs[sc.id])],
@@ -198,6 +207,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     timeline, draft_timeline = _film(p.timeline_key), _film(p.draft_timeline_key)
     return {
         "project": {"id": str(p.id), "title": p.title, "status": p.status,
+                    "display_status": display_status(p.status, [sc.status for sc in scenes]),
                     "budget_limit_usd": float(p.budget_limit_usd), "spent_usd": float(p.spent_usd),
                     "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(project_id),
                     "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
@@ -210,22 +220,71 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     }
 
 
-@router.get("/media")
-def media(key: str = Query(min_length=1, max_length=512)):
-    """Depodaki bir nesneyi sunar. Küçük ve değişmez dosyalar (jpg, json) doğrudan ve önbellekli; videolar ve sesler,
-    tarayıcının MinIO'ya erişeceği adresle imzalanmış bir URL'ye 307 ile yönlenir (ileri-geri sarılabilir)."""
+MEDIA_TYPES = {".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".wav": "audio/wav",
+               ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".png": "image/png", ".pdf": "application/pdf",
+               ".zip": "application/zip"}
+RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+CHUNK = 1 << 20
+
+
+def _byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """"bytes=a-b" / "bytes=a-" / "bytes=-n" -> (başlangıç, bitiş); geçersizse 416, başlık yoksa None."""
+    if not header:
+        return None
+    m = RANGE.match(header.strip())
+    if not m or (m.group(1) == "" and m.group(2) == ""):
+        raise HTTPException(416, "Geçersiz aralık", headers={"Content-Range": f"bytes */{size}"})
+    if m.group(1) == "":
+        start, end = max(0, size - int(m.group(2))), size - 1
+    else:
+        start, end = int(m.group(1)), min(int(m.group(2)) if m.group(2) else size - 1, size - 1)
+    if start >= size or start > end:
+        raise HTTPException(416, "Aralık dosyanın dışında", headers={"Content-Range": f"bytes */{size}"})
+    return start, end
+
+
+@router.api_route("/media", methods=["GET", "HEAD"])
+def media(request: Request, key: str = Query(min_length=1, max_length=512), redirect: bool = False):
+    """Depodaki bir nesneyi aynı adresten (API'nin origin'i) sunar. Küçük ve değişmez dosyalar (jpg, json) doğrudan;
+    videolar ve sesler Range desteğiyle (206 Partial Content, Accept-Ranges): tarayıcı ileri-geri sarabilir ve başka bir
+    host'a (MinIO) yönlenmediği için gömülü tarayıcılarda da (Claude masaüstü paneli) oynar. redirect=true: imzalı MinIO
+    adresine 307 (dış paylaşım bağlantısı)."""
     if not key.startswith(MEDIA_PREFIXES) or any(part in ("", ".", "..") for part in key.split("/")):
         raise HTTPException(400, "Geçersiz medya anahtarı")
-    if key.endswith((".jpg", ".json")):
+    cache = {"Cache-Control": "public, max-age=31536000, immutable"}
+    if key.endswith((".jpg", ".json")) and request.method == "GET":
         try:
             data = storage.read_bytes(key)
         except Exception:
             raise HTTPException(404, "Dosya bulunamadı")
         kind = "image/jpeg" if key.endswith(".jpg") else "application/json"
-        return Response(data, media_type=kind, headers={"Cache-Control": "public, max-age=31536000, immutable"})
-    if not storage.exists(key):
+        return Response(data, media_type=kind, headers=cache)
+    try:
+        head = storage.client().head_object(Bucket=settings.s3_bucket, Key=key)
+    except Exception:
         raise HTTPException(404, "Dosya bulunamadı")
-    return RedirectResponse(storage.presign(key), status_code=307)
+    if redirect:
+        return RedirectResponse(storage.presign(key), status_code=307)
+    size = int(head["ContentLength"])
+    ext = "." + key.rsplit(".", 1)[-1].lower() if "." in key else ""
+    kind = MEDIA_TYPES.get(ext) or ("image/jpeg" if ext == ".jpg" else head.get("ContentType") or "application/octet-stream")
+    span = _byte_range(request.headers.get("range"), size)
+    start, end = span or (0, size - 1)
+    headers = {**cache, "Accept-Ranges": "bytes", "Content-Length": str(end - start + 1)}
+    if span:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    status = 206 if span else 200
+    if request.method == "HEAD" or size == 0:
+        return Response(status_code=status, headers=headers, media_type=kind)
+    body = storage.client().get_object(Bucket=settings.s3_bucket, Key=key, Range=f"bytes={start}-{end}")["Body"]
+
+    def stream():
+        try:
+            for chunk in iter(lambda: body.read(CHUNK), b""):
+                yield chunk
+        finally:
+            body.close()
+    return StreamingResponse(stream(), status_code=status, headers=headers, media_type=kind)
 
 
 @router.post("/projects/{project_id}/assemble")
