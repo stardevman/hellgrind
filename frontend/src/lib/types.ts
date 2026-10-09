@@ -56,7 +56,7 @@ export interface Measure { alignment: Record<string, number>; identity: Record<s
 export interface Variation {
   id: string; tier: "probe" | "full"; wave_no: number; status: string; seed: number;
   score: number | null; rank: number | null; cost_usd: number; anomalies: string[];
-  reason: string | null; stage: string | null; measure: Measure | null;
+  reason: string | null; stage: string | null; measure: Measure | null; stale?: string | null; review?: string[] | null;
   thumb_url: string | null; video_url: string | null;
   source: string; revisions: number; revision: number | null;
 }

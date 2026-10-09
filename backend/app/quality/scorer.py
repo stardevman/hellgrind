@@ -338,16 +338,18 @@ def dino_likeness(m, images: list[Image.Image], keys) -> float | None:
 
 
 def character_mask(image: Image.Image, faces: list) -> Image.Image:
-    """Karakterlerin kapladığı bölge griye boyanır: çerçevenin orta-alt bölgesi (karakterler çoğunlukla orada) ve yüzlerden
-    tahmin edilen gövde kutuları. Süreklilik mekânla (oda, yerleşim, nesneler, ışık) ölçülür."""
+    """Karakterlerin kapladığı bölge griye boyanır: çerçevenin geniş orta-alt bölgesi (karakterler çoğunlukla orada; kadrajdaki
+    karakter değişse de arka plan skoru düşmesin) ve iki karedeki yüzlerden tahmin edilen geniş gövde kutuları. Süreklilik
+    mekânla (oda, yerleşim, nesneler, ışık) ölçülür. Kıvılcım zincir koşusu (dar -> geniş maske): SH02->SH03 0,67 -> 0,74
+    (gözle aynı oda), SH01->SH02 0,85 -> 0,94, SH03->SH04 0,96 -> 0,97."""
     from PIL import ImageDraw
     out = image.convert("RGB").copy()
     w, h = out.size
     d = ImageDraw.Draw(out)
-    d.rectangle([int(w * 0.25), int(h * 0.3), int(w * 0.75), h], fill=(128, 128, 128))
+    d.rectangle([int(w * 0.12), int(h * 0.15), int(w * 0.88), h], fill=(128, 128, 128))
     for box in faces:
         x, y, fw, fh = box
-        d.rectangle([int(x - fw), int(y - fh * 0.5), int(x + 2 * fw), int(min(h, y + fh * 7))], fill=(128, 128, 128))
+        d.rectangle([int(x - 2 * fw), int(y - fh), int(x + 3 * fw), int(min(h, y + fh * 9))], fill=(128, 128, 128))
     return out
 
 
@@ -363,8 +365,7 @@ def face_boxes(m, image: Image.Image) -> list:
 
 def continuity(path: str, previous: str) -> float | None:
     """Kn ile K(n-1) arasında mekân benzerliği: karakter bölgeleri (iki karede de) griye boyanır, kalan görüntünün DINOv2
-    gömmeleri karşılaştırılır (DINOv2 yoksa OpenCLIP). Ölçüm (Kıvılcım, bağımsız çizilmiş kareler): aynı odada devam eden
-    çekimler 0,87-0,88; SH05->SH06 sıçraması 0,78; pencere -> yakın plan kesmesi 0,65."""
+    gömmeleri karşılaştırılır (DINOv2 yoksa OpenCLIP); devam eşiği 0,70, kesme 0,60."""
     m = models()
     with Image.open(path) as a, Image.open(previous) as b:
         a, b = a.convert("RGB"), b.convert("RGB").resize(a.size)

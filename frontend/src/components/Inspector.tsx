@@ -121,11 +121,18 @@ function H3({ sc }: { sc: Scene }) {
     const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/keyframe`);
     note("inspector", r.hint, "ok");
   }, "inspector");
+  const impactOk = async (what: string) => {
+    const i = await api.get<{ frames: number; clips: number; estimate_usd: number; clip_codes: string[] }>(`/scenes/${sc.id}/chain-impact`);
+    if (i.frames <= 1 && i.clips === 0) return true;
+    return window.confirm(`${what}: ${i.frames} kare ve ${i.clips} klip yeniden üretilecek${i.clips ? ` (${i.clip_codes.join(", ")})` : ""}, tahmini $${i.estimate_usd.toFixed(2)}. Devam edilsin mi?`);
+  };
   const redraw = () => act(async () => {
+    if (!(await impactOk("Kare yeniden çizilirse"))) return;
     await api.post(`/scenes/${sc.id}/board/draw?paid=true`);
     note("inspector", `${sc.scene_code}: ilk kare yeni seed'lerle yeniden çiziliyor (her deneme ücretli).`, "ok");
   }, "inspector");
   const accept = () => act(async () => {
+    if (!(await impactOk("Kare onaylanıp zincir devam ederse"))) return;
     const r = await api.post<{ stages: string[]; frozen: boolean }>(`/scenes/${sc.id}/board/accept`);
     note("inspector", r.frozen ? `${sc.scene_code}: kare elle onaylandı. Proje donmuş: üretime devam edince video üretilecek.`
       : `${sc.scene_code}: kare elle onaylandı; ${r.stages.length ? "video aşamasına geçildi." : "üretilecek aşama yok."}`, "ok");
@@ -241,7 +248,9 @@ function Pool({ sc }: { sc: Scene }) {
           {pool.map((v) => (
             <li key={v.id} style={{ display: "grid", gridTemplateColumns: "56px 1fr auto", gap: 8, alignItems: "center" }}>
               {v.thumb_url ? <img src={v.thumb_url} alt="" loading="lazy" style={{ width: 56, height: 32, objectFit: "cover", borderRadius: 2 }} /> : <span />}
-              <span><b className="mono">#{v.rank}</b> <span className="dim mono">skor {v.score != null ? v.score.toFixed(3) : "—"}</span></span>
+              <span><b className="mono">#{v.rank}</b> <span className="dim mono">skor {v.score != null ? v.score.toFixed(3) : "—"}</span>
+                {v.stale && <small className="warn"> · eski kareden ({v.stale}); kurguda kullanılmaz</small>}
+                {!v.stale && v.review?.length ? <small className="warn"> · inceleme önerilir: {v.review.join("; ")}</small> : null}</span>
               {v.rank === 1 ? <span className="tag ok">Kullanımda</span>
                 : <button type="button" className="btn" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}
             </li>

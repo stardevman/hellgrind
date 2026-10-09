@@ -163,6 +163,17 @@ def close_call(s, rid, status: str, amount: float, call: Call | None = None, err
            "req": request_id, "d": json.dumps(details, ensure_ascii=False)})
 
 
+def annotate_last(scene_id, label_prefix: str, details: dict) -> None:
+    """Çekimin bu etiketle başlayan en son servis çağrısına ayrıntı ekler (ör. kare kalite kapısının ölçümleri)."""
+    from app.db import session_scope
+    with session_scope() as s:
+        s.execute(text("""
+            UPDATE service_calls SET details = details || CAST(:d AS jsonb)
+            WHERE id = (SELECT id FROM service_calls WHERE scene_id = :s AND label LIKE :l
+                        ORDER BY started_at DESC LIMIT 1)
+        """), {"s": scene_id, "l": label_prefix + "%", "d": json.dumps(details, ensure_ascii=False, default=str)})
+
+
 # ---------- eski kayıtlar ----------
 
 def mode_at(ts: float, switches: list[tuple[float, bool]]) -> bool:

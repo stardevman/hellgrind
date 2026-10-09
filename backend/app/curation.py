@@ -34,6 +34,7 @@ ACTIONS_TR = {
     "audio_change": "Ses kanalı değişti", "music_change": "Müzik değişti", "assemble": "Film birleştirme",
     "killswitch_freeze": "Üretim durduruldu", "killswitch_resume": "Üretime devam edildi",
     "refund_idle": "Boşta bekleme kayıtları iade edildi", "budget_change": "Bütçe değiştirildi",
+    "chain_reset": "Temiz başlangıç (klipler eski, zincir kareleri yeniden çizilecek)",
     "asset_create": "Varlık eklendi", "asset_edit": "Varlık düzenlendi", "asset_reference": "Referans yüklendi",
     "asset_approve_still": "Durağan referans onayı", "motion_test": "Hareket testi istendi",
     "asset_approve_motion": "Hareket testi onayı", "asset_link": "Sahneye varlık bağlandı", "asset_unlink": "Varlık bağı kaldırıldı",

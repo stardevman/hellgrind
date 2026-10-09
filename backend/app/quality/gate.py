@@ -81,18 +81,36 @@ def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
             if low:
                 out.append({"type": "low_identity", "identity": low, "threshold": threshold})
     if getattr(target, "looks", ()) and "look" in detail:
-        threshold = float(cfg.get("look_threshold", 0.80))
+        threshold = float(cfg.get("look_threshold", 0.70))
         look = detail.get("look") or {}
         low = {name: look.get(name) for name, _ in target.looks if (look.get(name) or 0.0) < threshold}
         if low:
             out.append({"type": "low_likeness", "look": low, "threshold": threshold})
-        elif "look_dino" in detail:               # DINOv2 (kırpımlar): ayrıntıyı (anten sayısı) OpenCLIP'ten iyi ayırır
-            threshold = float(cfg.get("look_dino_threshold", 0.84))
+        elif "look_dino" in detail:               # DINOv2 (kırpımlar)
+            threshold = float(cfg.get("look_dino_threshold", 0.78))
             dino = detail.get("look_dino") or {}
             low = {name: dino.get(name) for name, _ in target.looks if name in dino and dino[name] < threshold}
             if low:
                 out.append({"type": "low_likeness", "look_dino": low, "threshold": threshold})
     return out
+
+
+def identity_review(detail: dict, target, cfg: dict) -> list[str]:
+    """Sınırda kalan benzerlik (eşiğin üstünde ama `look_review_margin` içinde): elenmez, "inceleme önerilir" notuyla
+    geçer. Kıvılcım zincir koşusu: gözle doğru Bolt kareleri OpenCLIP 0,71-0,80 / DINOv2-kırpım 0,80-0,88 aldı; iki
+    antenli eski kare 0,76 / 0,82 almıştı. Bu ölçümler ayrıntıyı (anten sayısı) güvenilir ayıramıyor: sınırdakiler
+    yönetmene gösterilir."""
+    if target is None or not detail or not getattr(target, "looks", ()):
+        return []
+    margin = float(cfg.get("look_review_margin", 0.05))
+    notes = []
+    for key, name_tr, threshold in (("look", "OpenCLIP", float(cfg.get("look_threshold", 0.70))),
+                                    ("look_dino", "DINOv2", float(cfg.get("look_dino_threshold", 0.78)))):
+        for name, _ in target.looks:
+            value = (detail.get(key) or {}).get(name)
+            if value is not None and threshold <= value < threshold + margin:
+                notes.append(f"{name} benzerliği sınırda ({name_tr} {value:.2f}, eşik {threshold:.2f})".replace(".", ","))
+    return notes
 
 
 def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, check_identity: bool = False) -> Score:
@@ -109,6 +127,8 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, c
         anomalies.append({"type": "low_clip", "score": composite, "threshold": cfg["clip_threshold"]})
     if check_identity:
         anomalies.extend(identity_anomalies(detail, target, cfg))
+        if not anomalies and (review := identity_review(detail, target, cfg)):
+            detail = {**detail, "review": review}             # geçer, ama yönetmen bakmalı
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 

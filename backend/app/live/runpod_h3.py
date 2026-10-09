@@ -111,10 +111,11 @@ def submitted(jkey: str) -> str | None:
     return json.loads(raw).get("id")
 
 
-def remember(jkey: str, job_id: str, project_id: str | None, model: str = "fl2va") -> None:
+def remember(jkey: str, job_id: str, project_id: str | None, model: str = "fl2va", scene_id: str | None = None) -> None:
     r = killswitch.r()
     r.set(_job_key(jkey), json.dumps({"id": job_id, "project": project_id, "at": time.time()}), ex=JOB_TTL_S)
-    r.hset(_pending_key(project_id), job_id, json.dumps({"jkey": jkey, "model": model, "seen": time.time()}))
+    r.hset(_pending_key(project_id), job_id, json.dumps({"jkey": jkey, "model": model, "seen": time.time(),
+                                                         "scene": scene_id}))
     r.expire(_pending_key(project_id), JOB_TTL_S)
 
 
@@ -201,7 +202,8 @@ def _frozen(project_id: str | None) -> bool:
     return bool(project_id) and killswitch.is_frozen(project_id)
 
 
-def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | None) -> tuple[str, bool]:
+def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | None,
+                scene_id: str | None = None) -> tuple[str, bool]:
     """(iş kimliği, yeniden kullanıldı mı). Aynı iş anahtarı için bekleyen iş varsa onu döndürür; yoksa sırası gelince
     (model grubu ve proje sınırı, `may_submit`) gönderir. Gönderim proje başına kilitle sıralanır."""
     jkey = job.key()
@@ -225,7 +227,7 @@ def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | 
                 why = may_submit(model, token, since, project_id, cap, time.time())
                 if why is None:
                     job_id = submit(c, job, kind)
-                    remember(jkey, job_id, project_id, model)
+                    remember(jkey, job_id, project_id, model, scene_id)
                     return job_id, False
             if project_id and why not in noted and why != "gather":
                 if why == "full":
@@ -240,6 +242,31 @@ def submit_once(c: httpx.Client, job: vast_h3.Job, kind: str, project_id: str | 
         r.hdel(_waiting_key(project_id), token)
 
 
+def cancel_scenes(project_id: str, scene_ids: list[str]) -> int:
+    """Zincirde karesi eskiyen çekimlerin RunPod'da bekleyen ve çalışan işlerini iptal eder."""
+    wanted = {str(x) for x in scene_ids}
+    jobs = {j: e for j, e in _pending_entries(project_id).items() if str(e.get("scene")) in wanted}
+    if not jobs:
+        return 0
+    key = guard(KEY)
+    for job_id, entry in jobs.items():
+        forget(entry["jkey"], job_id, project_id)
+    cancelled = 0
+    with _client(key) as c:
+        for job_id, entry in jobs.items():
+            try:
+                c.post(f"/{endpoint_id()}/cancel/{job_id}").raise_for_status()
+                cancelled += 1
+            except Exception as e:                    # noqa: BLE001 — iş zaten bitmiş olabilir
+                log.warning("RunPod işi iptal edilemedi %s: %s", job_id, e)
+            try:
+                h3_outputs.failed(server(), job_id, "Zincirdeki kare değişti: iş iptal edildi")
+            except Exception:                         # noqa: BLE001
+                log.warning("çıktı kaydı kapatılamadı: %s", job_id)
+    killswitch.event(project_id, "runpod_cancelled", jobs=len(jobs), cancelled=cancelled, reason="chain")
+    return cancelled
+
+
 def cancel_project(project_id: str) -> int:
     """Kill-Switch: projenin RunPod'da bekleyen ve çalışan işlerini iptal eder (POST /cancel/{id}). Dönen değer iptal
     istenen iş sayısı. Bekleyen işleri sorgulayan görevler CANCELLED görüp durur; rezervasyonları iade edilir."""
@@ -247,6 +274,8 @@ def cancel_project(project_id: str) -> int:
     if not jobs:
         return 0
     key = guard(KEY)
+    for job_id, jkey in jobs.items():                 # önce kayıttan düşür: bekleyen görevler ikinci kez iptal etmesin
+        forget(jkey, job_id, project_id)
     cancelled = 0
     with _client(key) as c:
         for job_id, jkey in jobs.items():
@@ -255,7 +284,6 @@ def cancel_project(project_id: str) -> int:
                 cancelled += 1
             except Exception as e:                    # noqa: BLE001 — iş zaten bitmiş ya da silinmiş olabilir
                 log.warning("RunPod işi iptal edilemedi %s: %s", job_id, e)
-            forget(jkey, job_id, project_id)
             try:
                 h3_outputs.failed(server(), job_id, "Kill-Switch: RunPod'da iptal edildi")
             except Exception:                         # noqa: BLE001
@@ -614,7 +642,7 @@ def _failure(body: dict) -> str:
     return str(detail)[:300]
 
 
-def wait(c: httpx.Client, job_id: str, job_key: str, project_id: str | None = None) -> dict:
+def wait(c: httpx.Client, job_id: str, job_key: str, project_id: str | None = None, scene_id: str | None = None) -> dict:
     """İş bitene dek /status sorgular (kuyruk ve soğuk başlatma dahil). Dönen değer tamamlanmış durum yanıtı.
     Durum okunamazsa (404: RunPod işi tanımıyor; zaman aşımı, 429, 5xx) iş "durum bilinmiyor" olarak beklenir ve yeniden
     gönderilmez; UNKNOWN_LIMIT sorgudan sonra JobLost. Proje dondurulursa iş iptal edilir ve ProjectFrozen fırlar."""
@@ -628,6 +656,12 @@ def wait(c: httpx.Client, job_id: str, job_key: str, project_id: str | None = No
                 except Exception:                    # noqa: BLE001 — iptal edilemese de beklemeyi bırak
                     log.warning("RunPod işi iptal edilemedi: %s", job_id)
             raise killswitch.ProjectFrozen(project_id)
+        if scene_id and killswitch.r().exists(f"hg:chain_stale:{scene_id}"):   # zincirdeki kare değişti
+            try:
+                c.post(f"/{endpoint_id()}/cancel/{job_id}")
+            except Exception:                        # noqa: BLE001
+                log.warning("RunPod işi iptal edilemedi: %s", job_id)
+            raise JobFailed(f"RunPod işi iptal edildi ({job_id}): zincirdeki kare değişti, video eski kareden üretilmez")
         try:
             body = status(c, job_id)
         except Exception as e:                       # noqa: BLE001
@@ -785,7 +819,7 @@ class RunpodProvider:
         job_id = None
         try:
             with _client(key) as c:
-                job_id, reused = submit_once(c, job, kind, project_id)
+                job_id, reused = submit_once(c, job, kind, project_id, req.extra.get("scene_id"))
                 if not reused:
                     vast_h3._note(job, job_id, req.negative)
                     _register(job, job_id, "video", project_id)
@@ -793,7 +827,7 @@ class RunpodProvider:
                     history.step(settings.h3_model, job_id, task=job.task, reused=True)
                 vast_box.track(jkey, project_id)
                 try:
-                    body = wait(c, job_id, jkey, project_id)
+                    body = wait(c, job_id, jkey, project_id, req.extra.get("scene_id"))
                 except (JobFailed, JobLost) as e:
                     forget(jkey, job_id, project_id)
                     h3_outputs.failed(server(), job_id, str(e))

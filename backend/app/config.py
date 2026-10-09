@@ -115,9 +115,10 @@ settings = Settings()
 DEFAULT_PROJECT_SETTINGS: dict = {
     "clip_threshold": 0.85,        # Quality Gate eşiği
     "identity_threshold": 0.60,
-    "look_threshold": 0.80,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans)
-    "look_dino_threshold": 0.84,   # insan olmayan karakter: DINOv2 (kırpımlar) — Kıvılcım ölçümü: Bolt 0,85-0,89, iki antenli 0,82
-    "continuity_threshold": 0.80,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
+    "look_threshold": 0.70,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans), alt sınır
+    "look_dino_threshold": 0.78,   # insan olmayan karakter: DINOv2 (kırpımlar), alt sınır (zincir koşusu: doğru Bolt 0,80-0,91)
+    "look_review_margin": 0.05,    # eşiğin bu kadar üstüne kadar: geçer ama "inceleme önerilir"
+    "continuity_threshold": 0.70,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
     "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
     "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
     "audio": "on",                 # off: H3 sesi üretilmez (ses VAE'si yüklenmez, video sessiz); film sesi Hell Grind'den

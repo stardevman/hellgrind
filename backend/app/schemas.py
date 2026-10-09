@@ -29,6 +29,7 @@ SETTING_RULES = {
     "identity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "look_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "look_dino_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "look_review_margin": (_num(0, 0.5), "0 ile 0,5 arasında bir sayı"),
     "continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "cut_continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "transition_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),

@@ -77,6 +77,19 @@ class Ctx:
     last_frame: str | None = None  # FL2VA: son kare = sonraki çekimin ilk karesi (geçişi continuous ise; yüklenmiş hâli)
 
 
+class ChainStale(Exception):
+    """Zincirdeki bir kare değişti: bu çekimin videosu artık eski kareden üretiliyor; üretim durur."""
+
+
+CHAIN_STALE = "hg:chain_stale:{}"     # çekim -> neden (anahtar kare değişti; süren üretim durmalı)
+
+
+def chain_check(c) -> None:
+    reason = killswitch.r().get(CHAIN_STALE.format(c.scene_id))
+    if reason:
+        raise ChainStale(reason.decode() if isinstance(reason, bytes) else reason)
+
+
 # ---------- yardımcılar ----------
 
 def make_thumb(video_path: str, key: str) -> str | None:
@@ -121,6 +134,7 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
             Variation.params["resolution"].astext == resolution,
             or_(Variation.status.in_(usable),
                 and_(Variation.status == "purged", Variation.params["purge_reason"].astext == "quality_gate")),
+            Variation.params["stale_keyframe"].astext.is_(None),                  # eski kareden üretilenler değil
         ).order_by(Variation.created_at.desc()).limit(1)).first()
         if v is None:
             return None
@@ -189,6 +203,7 @@ def loras_of(chars) -> dict:
 def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarResult:
     if killswitch.is_frozen(c.project_id):                                             # 1. Frozen kontrolü
         raise killswitch.ProjectFrozen(c.project_id)
+    chain_check(c)                                                                     #    zincir karesi değişmedi mi
     seed_parts = [c.scene_id, c.visual_hash, tier, wave_no, idx]                       # 2. Seed
     seed = seed_for(*seed_parts, *([c.revision] if c.revision else []))                #    ("baştan üret" yeni seed'ler verir)
 
@@ -292,6 +307,7 @@ def _attempts(c: Ctx, estimate: float, label: str, vid, call):
     """Geçici hatalarda en fazla MAX_ATTEMPTS deneme; her deneme kendi rezervasyonunu alır, başarısızsa iade eder.
     İşlenen tutar sağlayıcının bildirdiği bedeldir (`cost_usd`)."""
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        chain_check(c)                              # iptal edilen (eski kareden) işin yeniden denemesi gönderilmez
         try:
             with killswitch.spend(c.project_id, estimate, label, scene_id=c.scene_id, variation_id=vid,
                                   details={"attempt": attempt}) as charge:
@@ -343,6 +359,7 @@ def summarize(results: list[VarResult]) -> dict:
 # ---------- sahne ----------
 
 def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
+    killswitch.r().delete(CHAIN_STALE.format(scene_id))   # yeni çalıştırma güncel karelerle başlar
     with session_scope() as s:
         project, scene = s.get(Project, project_id), s.get(Scene, scene_id)
         cfg = project_settings(project.settings)
@@ -372,7 +389,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "lighting": style.lighting_prefix if style else "",
                     "action": scene.action_complexity,
                     **loras_of(chars),
-                    "project_id": project_id, "h3_mode": effective_mode(scene, chars, assets),
+                    "project_id": project_id, "scene_id": str(scene_id), "h3_mode": effective_mode(scene, chars, assets),
                     "audio": cfg.get("audio", "on") != "off",
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
@@ -481,10 +498,13 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         scene = s.get(Scene, scene_id)
         problem = keyframe_problem(scene, fp)
         parent = parent_of(s, scene) if chain_enabled() else None
-        if problem is None and parent is not None and parent.board_status == "changes_requested" \
-                and not scene.keyframe_key and scene.board_parent is None:
-            problem = (f"Zincirdeki önceki kare ({parent.scene_code}) inceleme bekliyor: bu çekimin karesi ondan çizilir. "
-                       f"{parent.scene_code} karesini onaylayın ya da yeniden çizdirin.")
+        if problem is None and parent is not None and not scene.keyframe_key:
+            if parent.board_status == "changes_requested":   # zincir durdu: eski kareden video üretilmez
+                problem = (f"Zincirdeki önceki kare ({parent.scene_code}) inceleme bekliyor: bu çekimin karesi ondan "
+                           f"çizilir. {parent.scene_code} karesini onaylayın ya da yeniden çizdirin.")
+            elif stale(scene, parent):                       # yeniden çizilemedi: kare hâlâ eski
+                problem = (f"Kare eski: zincirdeki önceki kare ({parent.scene_code}) değişti ve bu kare yeniden "
+                           "çizilemedi. Video eski kareden üretilmez.")
     if problem is None:
         return False
     advance_scene(project_id, scene_id, status="board_review", last_error=problem)
@@ -545,6 +565,16 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
     if keyframe_blocks(project_id, scene_id):             # ilk kare çizilecekse skorlayıcı hazır olduktan sonra
         return "board_review"
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
+    try:
+        return _tiered(ctx, project_id, scene_id, mode)
+    except ChainStale as e:                               # zincirdeki kare değişti: eski kareden video üretilmez
+        advance_scene(project_id, scene_id, status="board_review",
+                      last_error=f"Üretim durdu: {e}. Kare zincirle yeniden çizilip video yeniden üretilecek.")
+        killswitch.event(project_id, "chain_stale_stop", scene_id=scene_id, reason=str(e))
+        return "board_review"
+
+
+def _tiered(ctx: Ctx, project_id: str, scene_id: str, mode: str) -> str:
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 
     # 1) Test turu, gerekirse yeni seed'lerle yeniden denemeler

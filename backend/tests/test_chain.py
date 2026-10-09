@@ -135,11 +135,11 @@ def test_a_redrawn_frame_makes_the_next_frames_stale(chained, api):
 def test_a_frame_that_breaks_continuity_is_redrawn_and_the_chain_waits(chained):
     from app.engine import storyboard
     fake, pid, codes, state = chained
-    state["continuity"] = [0.62, 0.70, 0.71]                       # K2 üç denemede de önceki kareden farklı oda
+    state["continuity"] = [0.62, 0.65, 0.66]                       # K2 üç denemede de önceki kareden farklı oda
     storyboard.make_board(pid, codes["S001_SH03"])
     with session_scope() as s:
         k2, k3 = s.get(Scene, codes["S001_SH02"]), s.get(Scene, codes["S001_SH03"])
-        assert k2.board_status == "changes_requested" and "süreklilik 0,71 < 0,80" in k2.board_note
+        assert k2.board_status == "changes_requested" and "süreklilik 0,66 < 0,70" in k2.board_note
         assert k3.board_key is None                                # K3, kabul edilmemiş K2'den çizilmez
     assert len(edit_runs(fake)) == 3
 

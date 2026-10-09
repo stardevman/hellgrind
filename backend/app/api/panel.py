@@ -255,6 +255,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "score": v.composite_score, "rank": v.refined_rank, "cost_usd": float(v.cost_usd),
             "anomalies": sorted({a["type"] for a in (v.anomalies or [])}),
             "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
+            "stale": (v.params or {}).get("stale_keyframe"),                       # eski kareden üretildi
+            "review": ((v.params or {}).get("score_detail") or {}).get("review"),   # sınırda: inceleme önerilir
             "measure": measure_of(v.params),
             "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir

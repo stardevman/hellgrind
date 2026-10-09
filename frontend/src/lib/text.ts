@@ -49,6 +49,9 @@ const attemptText = (x: Record<string, unknown>) => {
   if (id) parts.push(`kimlik ${id}`);
   if (look) parts.push(`benzerlik ${look}`);
   if (x.faces_seen && x.faces_measured === 0) parts.push("yüz küçük, kimlik ölçülemedi");
+  const dino = scores(x.look_dino);
+  if (dino) parts.push(`DINOv2 ${dino}`);
+  if ((x.review as string[] | undefined)?.length) parts.push(`inceleme önerilir`);
   if (reasons.includes("low_clip")) parts.push("istem uyumu düşük");
   if (reasons.includes("continuity_jump")) parts.push(`süreklilik ${num2(Number(x.continuity ?? 0))}: önceki kareyle mekân farklı`);
   else if (x.chain && x.continuity != null) parts.push(`süreklilik ${num2(Number(x.continuity))}`);
@@ -172,6 +175,9 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };
     case "budget_changed": return { t: `Bütçe ${usd(Number(x.old))} → ${usd(Number(x.new))}` };
+    case "chain_invalidated": return { t: `${x.reason}: ${(x.codes as string[]).length ? `${(x.codes as string[]).join(", ")} eski kareden; yeniden üretilecek` : "bağlı çekim yok"}${x.clips ? ` (${x.clips} klip eski)` : ""}`, c: "bad" };
+    case "chain_stale_stop": return { t: `${where}üretim durdu: ${x.reason}; video eski kareden üretilmez`, c: "bad" };
+    case "chain_reset": return { t: `Temiz başlangıç: ${x.clips} klip eski, ${x.stale_frames} zincir karesi yeniden çizilecek` };
     case "runpod_model_wait": return { t: `RunPod: ${x.model} işi sırasını bekliyor (önce çalışan model grubu bitsin)` };
     case "runpod_queue_full": return { t: `RunPod kuyruğu dolu: projede ${x.pending}/${x.limit} iş bekliyor; yenisi yer açılınca gönderilecek` };
     case "runpod_cancelled": return { t: `Kill-Switch: RunPod'daki ${x.jobs} bekleyen iş iptal edildi`, c: "good" };

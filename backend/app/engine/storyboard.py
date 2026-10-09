@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 from sqlalchemy import select
 
 from app import storage
-from app.budget import killswitch, pricing
+from app.budget import history, killswitch, pricing
 from app.config import project_settings, settings
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
@@ -318,11 +318,18 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=score.passed,
                                  identity=(score.detail or {}).get("identity"), look=(score.detail or {}).get("look"),
+                                 look_dino=(score.detail or {}).get("look_dino"),
                                  faces_seen=(score.detail or {}).get("faces_seen"),
                                  faces_measured=(score.detail or {}).get("faces_measured"),
                                  continuity=(score.detail or {}).get("continuity"),
+                                 review=(score.detail or {}).get("review"),
                                  chain=chain["code"] if chain else None,
                                  reasons=[a.get("type") for a in score.anomalies])
+                history.annotate_last(scene_id, "h3:storyboard", {"gate": {     # kalibrasyon için kalıcı kayıt
+                    "attempt": attempt + 1, "passed": score.passed, "composite": score.composite,
+                    "reasons": [a.get("type") for a in score.anomalies],
+                    **{k: (score.detail or {}).get(k) for k in ("look", "look_dino", "identity", "continuity", "review")
+                       if (score.detail or {}).get(k) is not None}}})
                 if score.passed:
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
@@ -378,6 +385,59 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
         return _make_board(project_id, scene_id, standalone, explicit)
 
 
+FINISHED = ("done", "refined", "audio", "lipsync", "grading", "muxing", "needs_review")
+RUNNING = ("pending", "probing", "generating", "correcting")
+
+
+def dependents(s, scene) -> list:
+    """Bir karenin değişmesinden etkilenen çekimler: önceki çekim (videosu bu karede bitiyorsa: FL2VA last_frame), çekimin
+    kendisi ve zincirde ondan türeyen sonraki çekimler."""
+    from app.core.chain import neighbours, successors, transition_of
+    previous, _ = neighbours(s, scene)
+    out = [previous] if previous is not None and transition_of(scene) == "continuous" else []
+    return [*out, scene, *(successors(s, scene) if chain_enabled() else [])]
+
+
+def invalidate_dependents(project_id: str, scene_id: str, reason: str) -> dict:
+    """Zincirin ortasında bir kare değişti: ona bağlı çekimlerin klipleri "eski kareden" işaretlenir (silinmez; yeniden
+    kullanılmaz, kurguda kullanılmaz: çekim needs_review olur ve görüntüsü yeniden üretilir), süren üretimleri durur ve
+    RunPod'daki bekleyen işleri iptal edilir. Karesi değişen çekimin kendi akışına (onu çizen görev) dokunulmaz."""
+    from app.engine.iteration import CHAIN_STALE
+    from app.models import Variation
+    stopped, clips, codes = [], 0, []
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        for sc in dependents(s, scene):
+            marked = 0
+            for v in s.scalars(select(Variation).where(Variation.scene_id == sc.id,
+                                                       Variation.status.in_(("passed", "refined", "generated")))):
+                if not (v.params or {}).get("stale_keyframe"):
+                    v.params = {**(v.params or {}), "stale_keyframe": reason}
+                    marked += 1
+            clips += marked
+            if marked or sc.id != scene.id:
+                sc.visual_hash = None                     # görüntü yeniden üretilecek (plan VISUAL der)
+            if sc.id == scene.id:
+                continue
+            if sc.status in FINISHED and marked:
+                sc.status = "needs_review"
+                sc.last_error = f"Klip eski kareden üretildi ({reason}); yeniden üretin."
+                codes.append(sc.scene_code)
+            elif sc.status in RUNNING:
+                killswitch.r().set(CHAIN_STALE.format(sc.id), reason, ex=7 * 3600)
+                stopped.append(str(sc.id))
+                codes.append(sc.scene_code)
+    if stopped and not settings.dry_run and settings.h3_platform == "runpod":
+        try:
+            from app.live import runpod_h3            # ücretli modül: yalnızca fonksiyon içinde
+            runpod_h3.cancel_scenes(project_id, stopped)
+        except Exception as e:                        # noqa: BLE001 — iptal edilemese de üretim kendi kendine durur
+            killswitch.event(project_id, "runpod_cancel_failed", error=str(e)[:200])
+    if codes or clips:
+        killswitch.event(project_id, "chain_invalidated", scene_id=scene_id, reason=reason, codes=codes, clips=clips)
+    return {"codes": codes, "clips": clips, "stopped": len(stopped)}
+
+
 def _chain_parent(s, scene, fp_of) -> tuple:
     """(önceki çekim, kullanılabilir mi): zincir varsa önceki çekim; karesi bu görsel özet için çizilmiş, yazısız hâli
     depoda ve inceleme beklemiyorsa kullanılabilir."""
@@ -426,7 +486,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
         info = dict(code=scene.scene_code, camera=dict(scene.camera or {}), duration=scene.duration_s,
                     board_key=scene.board_key, board_hash=scene.board_hash, board_status=scene.board_status,
-                    board_source=scene.board_source, keyframe_key=scene.keyframe_key,
+                    board_source=scene.board_source, keyframe_key=scene.keyframe_key, board_sha=scene.board_sha,
                     render={"emotion": scene.emotion, "camera": dict(scene.camera or {}),
                             "characters": [c.name for c in chars], "action": scene.action_complexity,
                             "lighting": style.lighting_prefix if style else ""})
@@ -464,11 +524,16 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
             fields.update(board_status="changes_requested", board_note=note)
             killswitch.event(project_id, "board_rejected", scene_id=scene_id, code=info["code"], score=drawn.score,
                              note=note)
+        elif drawn is not None and (drawn.detail or {}).get("review"):      # sınırda: geçti, yönetmen bakmalı
+            fields.update(board_status="pending",
+                          board_note="İnceleme önerilir: " + "; ".join(drawn.detail["review"]))
         elif drawn is not None and drawn.source in PAID_SOURCES and info["board_status"] == "changes_requested":
             fields.update(board_status="pending", board_note=None)    # yeniden çizilen kare geçti
         elif changed or info["board_status"] == "changes_requested":
             fields["board_status"] = "pending"          # yeni kare yeni onay ister
         advance_scene(project_id, scene_id, **fields)
+        if drawn is not None and info.get("board_sha") and drawn.sha != info["board_sha"]:
+            invalidate_dependents(project_id, scene_id, f"{info['code']} karesi değişti")   # eski karelerden klip yok
         killswitch.event(project_id, "board_ready", scene_id=scene_id, code=info["code"],
                          **({"chain": extra["chain"]["code"]} if extra.get("chain") else {}))
         info["board_status"] = fields.get("board_status", info["board_status"])

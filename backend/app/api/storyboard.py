@@ -147,6 +147,57 @@ def chain_redraw(s: Session, sc: Scene) -> list[str]:
     return out
 
 
+@router.get("/scenes/{scene_id}/chain-impact")
+def chain_impact(scene_id: SceneId, s: Session = Depends(get_session)):
+    """Bu kare yeniden çizilirse (ya da kabul edilip zincir devam ederse) yeniden üretilecekler: N kare (kendisi ve
+    zincirde ondan türeyenler), M klip (önceki çekim dahil, klibi olan çekimler) ve tahmini maliyet."""
+    from app.budget import estimate as costs
+    from app.config import project_settings
+    from app.core.h3mode import edit_mode
+    from app.engine.storyboard import dependents
+    from app.models import Project, Variation
+    sc = scene_or_404(s, scene_id)
+    cfg = project_settings(s.get(Project, sc.project_id).settings)
+    shots = dependents(s, sc)
+    frames = [x for x in shots if x.id == sc.id or x.seq_order > sc.seq_order]
+    clipped = [x for x in shots if s.scalar(select(Variation.id).where(
+        Variation.scene_id == x.id, Variation.status.in_(("passed", "refined"))).limit(1)) is not None]
+    from app.budget import pricing
+    frame_usd = pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=edit_mode(cfg)) * len(frames)
+    shot_costs = [costs.shot(cfg, x.scene_code, float(x.duration_s or 4.0), x.engine or "h3") for x in clipped]
+    clip_usd = sum(c["expected_usd"] - c["frame_usd"] for c in shot_costs)          # kare ayrıca sayıldı
+    return {"frames": len(frames), "clips": len(clipped), "estimate_usd": round(frame_usd + clip_usd, 4),
+            "frame_codes": [x.scene_code for x in frames], "clip_codes": [x.scene_code for x in clipped]}
+
+
+@router.post("/projects/{project_id}/chain/reset")
+@curated("chain_reset")
+def chain_reset(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Temiz başlangıç: bütün çekimlerin klipleri "eski" işaretlenir (silinmez), zincirdeki kareler (her sekansın ilk
+    karesi hariç) eskir ve videodan önce yeniden çizilir; çekimler yeniden üretilmeye hazır olur."""
+    from app.core.chain import parent_of
+    from app.models import Variation
+    project_or_404(s, project_id)
+    if killswitch.has_running_tasks(project_id):
+        raise HTTPException(409, "Üretim sürüyor; önce 'Üretimi durdur' ile durdurun.")
+    reason = "temiz başlangıç"
+    clips = stale = 0
+    for sc in _scenes(s, project_id):
+        for v in s.scalars(select(Variation).where(Variation.scene_id == sc.id,
+                                                   Variation.status.in_(("passed", "refined", "generated")))):
+            v.params = {**(v.params or {}), "stale_keyframe": reason}
+            clips += 1
+        sc.visual_hash = None
+        if sc.status not in ("blocked",):
+            sc.status, sc.last_error = "parsed", None
+        if parent_of(s, sc) is not None and sc.board_key:
+            sc.board_parent = "reset"                       # önceki kareyle bağı koptu: zincirle yeniden çizilir
+            stale += 1
+    s.commit()
+    killswitch.event(project_id, "chain_reset", clips=clips, stale_frames=stale)
+    return {"clips": clips, "stale_frames": stale}
+
+
 @router.post("/scenes/{scene_id}/board/redraw-chain")
 @curated("storyboard_prepare")
 def redraw_chain(scene_id: SceneId, s: Session = Depends(get_session)):
