@@ -8,7 +8,7 @@ from app.api.deps import ProjectId, project_or_404
 from app.budget import killswitch
 from app.curation import curated
 from app.db import get_session
-from app.schemas import KillSwitchIn
+from app.schemas import IdleRefundIn, KillSwitchIn
 
 router = APIRouter(tags=["budget"])
 
@@ -27,6 +27,16 @@ def budget(project_id: ProjectId, s: Session = Depends(get_session)):
         "ledger": [{"provider": a, "kind": b, "count": c, "usd": float(d)} for a, b, c, d in ledger],
         "recent_events": events,
     }
+
+
+@router.post("/projects/{project_id}/refund-idle")
+@curated("refund_idle")
+def refund_idle(project_id: ProjectId, body: IdleRefundIn, s: Session = Depends(get_session)):
+    """Aralıktaki boşta bekleme ("h3:idle") kayıtlarını iade eder: defterde iade satırı, proje harcaması düşer, servis
+    geçmişinde "iade edildi" görünür. Aynı kayıt iki kez iade edilmez."""
+    project_or_404(s, project_id)
+    s.close()
+    return killswitch.refund_idle(project_id, body.start, body.end, body.reason)
 
 
 @router.post("/projects/{project_id}/killswitch")

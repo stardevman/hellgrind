@@ -1,5 +1,6 @@
 """API girdi şemaları ve doğrulama kuralları."""
 import re
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -32,6 +33,7 @@ SETTING_RULES = {
     "cut_continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "transition_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "qwen_edit_mode": (lambda v: v in (None, "full", "medium", "lightning"), "full, medium, lightning ya da boş"),
+    "audio": (lambda v: v in ("on", "off"), "on ya da off"),
     "excellent_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "min_pass_rate": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "probe_n": (_int(1, 200), "1 ile 200 arasında tam sayı"),
@@ -167,6 +169,13 @@ class AudioIn(BaseModel):
 class KillSwitchIn(BaseModel):
     action: Literal["freeze", "resume"]
     reason: str = "manual"
+
+
+class IdleRefundIn(BaseModel):
+    """[start, end] aralığındaki boşta bekleme kayıtlarının iadesi (RunPod'un faturalamadığı hayalet boşta süre)."""
+    start: datetime
+    end: datetime
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class ScriptIn(BaseModel):
@@ -307,8 +316,9 @@ class UpgradeIn(BaseModel):
 
 
 class ProjectPatch(BaseModel):
-    """Proje adı ve ayarları; verilen ayarlar mevcutlarla birleştirilir (ProjectIn ile aynı doğrulama)."""
+    """Proje adı, bütçesi ve ayarları; verilen ayarlar mevcutlarla birleştirilir (ProjectIn ile aynı doğrulama)."""
     title: str | None = Field(None, min_length=1, max_length=200)
+    budget_limit_usd: float | None = Field(None, gt=0, le=1e7)
     settings: dict = {}
 
     _settings = field_validator("settings")(ProjectIn._settings.__func__)

@@ -117,7 +117,9 @@ export const GRADE_FIELDS = ["exposure", "contrast", "saturation", "gamma", "tem
 /* ---------- servis geçmişi ---------- */
 
 export const CALL_MODE_TR: Record<string, string> = { real: "Gerçek", virtual: "Sanal", unknown: "Bilinmiyor" };
-export const CALL_STATUS_TR: Record<string, string> = { running: "Sürüyor", succeeded: "Başarılı", failed: "Başarısız" };
+export const CALL_STATUS_TR: Record<string, string> = {
+  running: "Sürüyor", succeeded: "Başarılı", failed: "Başarısız", refunded: "İade edildi",
+};
 export const TIER_TR: Record<string, string> = { probe: "Test turu", full: "Tam tur" };
 /** Sağlayıcıya giden isteğin kayda geçen parametreleri (app/live: vast_h3, fal_video.NOTED_ARGUMENTS, elevenlabs, hermes_llm). */
 export const STEP_TR: Record<string, string> = {

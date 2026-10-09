@@ -68,10 +68,18 @@ def get_project(project_id: ProjectId, s: Session = Depends(get_session)):
 
 
 @router.patch("/projects/{project_id}")
-@curated("project_settings")
+@curated(lambda kw, r: "budget_change" if kw["body"].budget_limit_usd is not None else "project_settings")
 def patch_project(project_id: ProjectId, body: ProjectPatch, s: Session = Depends(get_session)):
-    """Proje adı ve ayarları (ör. {"settings": {"require_board_approval": true}}). Ayarlar birleştirilir."""
+    """Proje adı, bütçesi ve ayarları (ör. {"settings": {"require_board_approval": true}}). Ayarlar birleştirilir.
+    Bütçe harcanan + ayrılan toplamın altına indirilemez; değişiklik olay akışına ve kürasyon kaydına yazılır."""
     p = project_or_404(s, project_id)
+    if body.budget_limit_usd is not None:
+        used = float(p.spent_usd) + float(p.reserved_usd)
+        if body.budget_limit_usd < used:
+            raise HTTPException(422, f"Bütçe harcanan ve ayrılan toplamdan ({used:.2f} $) az olamaz.")
+        old = float(p.budget_limit_usd)
+        p.budget_limit_usd = body.budget_limit_usd
+        killswitch.event(str(p.id), "budget_changed", old=old, new=float(body.budget_limit_usd))
     if body.title is not None:
         p.title = body.title.strip() or p.title
     if body.settings:

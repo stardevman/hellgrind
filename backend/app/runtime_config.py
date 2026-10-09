@@ -53,6 +53,9 @@ FIELDS: tuple[Field, ...] = (
           "Veri merkezi (volume'un merkezi; EUR-* yalnızca Kuzey izni açıkken)",
           ("CA-MTL-1", "CA-MTL-2", "CA-MTL-3", "EUR-NO-1", "EUR-IS-1", "EUR-IS-2", "EUR-IS-3")),
     Field("RUNPOD_GPU_TYPES", "runpod_gpu_types", "text", "runpod", "GPU tipleri (virgülle; RTX 5090, RTX PRO 6000)"),
+    Field("RUNPOD_WORKERS_MAX", "runpod_workers_max", "choice", "runpod",
+          "En çok worker (aynı anda çalışan GPU): keep uç noktadaki değeri değiştirmez; 1-3 'Ayarları uç noktaya uygula' ile "
+          "yazılır (projenin bekleyen iş sınırı RUNPOD_MAX_PENDING_JOBS bundan küçük olmamalı)", ("keep", "1", "2", "3")),
     Field("RUNPOD_IDLE_TIMEOUT_S", "runpod_idle_timeout_s", "number", "runpod",
           "Boşta bekleme (sn; son işten sonra worker açık kalır ve faturalanır)", minimum=5),
     Field("RUNPOD_MIN_BALANCE_USD", "runpod_min_balance_usd", "number", "runpod",

@@ -467,3 +467,51 @@ def test_two_ticks_after_one_job_charge_the_idle_window_once(runpod, monkeypatch
     third = runpod_h3.idle_overlap(end + 90, end + 150, end)  # kapanmış worker /health'te hâlâ "idle" görünse de
     assert (first, second, third) == (30.0, 30.0, 0.0) and first + second == 60
     assert runpod_h3.idle_overlap(end - 60, end, None) == 0.0                # iş bitişi bilinmiyorsa yazılmaz
+
+
+def test_a_sleeping_flashboot_worker_is_never_charged_as_idle(runpod, mk_project, monkeypatch):
+    """"Kıvılcım": film 11:48'de bitti; 11:49-13:08 her dakika "GPU makinesi boşta" yazıldı. O sırada RunPod'un harcama
+    hızı 0,019 $/sa (yalnızca disk), /health {idle: 1, ready: 1, running: 0} (FlashBoot ile uyuyan worker). Son işin
+    bitişinden 60 sn sonra hiç boşta kaydı yazılmaz; harcama hızı yalnızca diskse o 60 sn de yazılmaz."""
+    monkeypatch.setattr(settings, "runpod_idle_timeout_s", 60)
+    pid = mk_project(10.0)
+    r = vast_box._r()
+    r.set(vast_box._k("last_project"), pid)
+    runpod.health["workers"] = {"idle": 1, "ready": 1, "running": 0}
+    ended = time.time() - 600                                        # son iş 10 dk önce bitti
+    r.set(vast_box._k("rp_job_end"), ended)
+    for minute in range(3):                                          # her dakika bir tik
+        r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+        runpod_h3.tick()
+    runpod.spend_per_hr = 0.019                                      # yalnızca disk
+    r.delete(vast_box._k("rp_balance"))
+    r.set(vast_box._k("rp_job_end"), time.time() - 30)               # iş az önce bitti ama worker faturalanmıyor
+    r.set(vast_box._k("rp_last_tick"), time.time() - 60)
+    runpod_h3.tick()
+    with session_scope() as s:
+        rows = s.execute(text("SELECT count(*) FROM cost_ledger WHERE project_id = :p AND provider = 'h3:idle'"),
+                         {"p": pid}).scalar()
+    assert rows == 0
+
+
+def test_ghost_idle_charges_are_refunded_and_shown_as_refunded(api, runpod, mk_project):
+    from app.budget import killswitch
+    pid = mk_project(10.0)
+    for _ in range(3):
+        with killswitch.spend(pid, 0.0263, "h3:idle", details={"idle_seconds": 60, "idle_workers": 1}) as ch:
+            ch.actual = 0.0263
+    with killswitch.spend(pid, 0.05, "h3:480p") as ch:                 # gerçek bir iş: iade edilmez
+        ch.actual = 0.05
+    r = api.post(f"/api/projects/{pid}/refund-idle", json={
+        "start": "2000-01-01T00:00:00Z", "end": "2100-01-01T00:00:00Z", "reason": "RunPod faturalamadı (FlashBoot)"})
+    assert r.json() == {"count": 3, "refunded_usd": 0.0789}
+    budget = api.get(f"/api/projects/{pid}/budget").json()
+    assert budget["spent"] == pytest.approx(0.05) and {"provider": "h3:idle", "kind": "refund", "count": 3,
+                                                       "usd": pytest.approx(0.0789)} in budget["ledger"]
+    with session_scope() as s:
+        statuses = s.execute(text("SELECT status, details->>'refund_reason' FROM service_calls WHERE project_id = :p "
+                                  "AND label = 'h3:idle'"), {"p": pid}).all()
+    assert [tuple(x) for x in statuses] == [("refunded", "RunPod faturalamadı (FlashBoot)")] * 3
+    again = api.post(f"/api/projects/{pid}/refund-idle", json={
+        "start": "2000-01-01T00:00:00Z", "end": "2100-01-01T00:00:00Z", "reason": "tekrar"}).json()
+    assert again["refunded_usd"] == 0 and api.get(f"/api/projects/{pid}/budget").json()["spent"] == pytest.approx(0.05)

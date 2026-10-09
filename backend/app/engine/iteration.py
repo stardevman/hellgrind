@@ -373,6 +373,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "action": scene.action_complexity,
                     **loras_of(chars),
                     "project_id": project_id, "h3_mode": effective_mode(scene, chars, assets),
+                    "audio": cfg.get("audio", "on") != "off",
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
         keyframe_key = keyframe_of(scene, visual_hash)

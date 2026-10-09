@@ -35,9 +35,10 @@ def compute(project_id: str) -> dict:
                               .order_by(Sequence.seq_order)).all()
         variations = s.scalars(select(Variation).join(Scene, Scene.id == Variation.scene_id)
                                .where(Scene.project_id == project_id)).all()
-        ledger = s.execute(text("""SELECT split_part(provider, ':', 1), SUM(amount_usd) FROM cost_ledger
-                                   WHERE project_id = :p AND kind = 'commit' GROUP BY 1 ORDER BY 2 DESC"""),
-                           {"p": project_id}).all()
+        ledger = s.execute(text("""SELECT split_part(provider, ':', 1),
+                                          SUM(CASE WHEN kind = 'refund' THEN -amount_usd ELSE amount_usd END)
+                                   FROM cost_ledger WHERE project_id = :p AND kind IN ('commit', 'refund')
+                                   GROUP BY 1 ORDER BY 2 DESC"""), {"p": project_id}).all()
         spent = float(project.spent_usd)
         modes = {bool(x) for x in s.execute(text("""SELECT DISTINCT dry_run FROM service_calls WHERE project_id = :p
                                                      AND status = 'succeeded'"""), {"p": project_id}).scalars()}

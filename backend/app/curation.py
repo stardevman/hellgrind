@@ -33,6 +33,7 @@ ACTIONS_TR = {
     "character_create": "Karakter eklendi", "scene_create": "Sahne eklendi", "scene_edit": "Sahne düzenlendi",
     "audio_change": "Ses kanalı değişti", "music_change": "Müzik değişti", "assemble": "Film birleştirme",
     "killswitch_freeze": "Üretim durduruldu", "killswitch_resume": "Üretime devam edildi",
+    "refund_idle": "Boşta bekleme kayıtları iade edildi", "budget_change": "Bütçe değiştirildi",
     "asset_create": "Varlık eklendi", "asset_edit": "Varlık düzenlendi", "asset_reference": "Referans yüklendi",
     "asset_approve_still": "Durağan referans onayı", "motion_test": "Hareket testi istendi",
     "asset_approve_motion": "Hareket testi onayı", "asset_link": "Sahneye varlık bağlandı", "asset_unlink": "Varlık bağı kaldırıldı",

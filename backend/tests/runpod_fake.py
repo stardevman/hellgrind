@@ -32,6 +32,7 @@ class FakeRunpod:
         self.tamper = False                   # bildirilen SHA-256 dosyayla uyuşmasın
         self.expired: set[str] = set()        # sonucu silinmiş işler (404)
         self.graphql_error = False
+        self.spend_per_hr = 1.58              # hesabın harcama hızı ($/sa): bir RTX 5090 worker'ı çalışıyor
         self.cancelled: list[str] = []        # POST /cancel/{id}
         self.suffix = "-e1"                   # gerçek RunPod iş kimlikleri gibi ("…-e1"); durum sorgusunda aynen kullanılmalı
         self._lock = threading.Lock()
@@ -69,7 +70,7 @@ class FakeRunpod:
         if host == "api.runpod.io" and path == "/graphql":
             if self.graphql_error:
                 return httpx.Response(200, json={"errors": [{"message": "deprecated"}]})
-            return httpx.Response(200, json={"data": {"myself": {"clientBalance": self.balance, "currentSpendPerHr": 0.0,
+            return httpx.Response(200, json={"data": {"myself": {"clientBalance": self.balance, "currentSpendPerHr": self.spend_per_hr,
                                                                  "spendLimit": 80}}})
         if host == "api.runpod.io" and path == f"/v2/serverless/{self.endpoint}":
             if request.method == "PATCH":

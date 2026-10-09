@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     runpod_idle_timeout_s: int = 60    # worker son işten sonra bu kadar bekler (faturalanır), sonra kapanır
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     runpod_max_pending_jobs: int = 6       # bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer bekler
+    runpod_workers_max: str = "keep"       # uç noktanın en çok worker'ı: keep (değiştirme) | 1 | 2 | 3
     # H3 DiT dosyası: fp8_scaled (cu128 torch'lu worker; varsayılan) | int8_convrot (Comfy-Org'un önerisi; cu130 torch ister)
     h3_unet_variant: str = "fp8_scaled"
     # Karakterli çekimin ilk karesi: qwen_edit (varsayılan; Qwen-Image-Edit-2511, karakterin onaylı referansından,
@@ -119,6 +120,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "continuity_threshold": 0.80,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
     "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
     "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
+    "audio": "on",                 # off: H3 sesi üretilmez (ses VAE'si yüklenmez, video sessiz); film sesi Hell Grind'den
     "qwen_edit_mode": None,        # karakterli ilk kare: None = Ayarlar'daki QWEN_EDIT_MODE; full | medium | lightning    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
     "excellent_threshold": 0.92,   # tam turda erken durma için "mükemmel" eşiği
     "min_pass_rate": 0.3,          # test turunun geçmesi için gereken oran

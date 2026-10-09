@@ -170,6 +170,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
+    case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };
+    case "budget_changed": return { t: `Bütçe ${usd(Number(x.old))} → ${usd(Number(x.new))}` };
     case "runpod_model_wait": return { t: `RunPod: ${x.model} işi sırasını bekliyor (önce çalışan model grubu bitsin)` };
     case "runpod_queue_full": return { t: `RunPod kuyruğu dolu: projede ${x.pending}/${x.limit} iş bekliyor; yenisi yer açılınca gönderilecek` };
     case "runpod_cancelled": return { t: `Kill-Switch: RunPod'daki ${x.jobs} bekleyen iş iptal edildi`, c: "good" };

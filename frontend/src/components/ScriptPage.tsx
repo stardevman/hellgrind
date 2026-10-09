@@ -210,7 +210,7 @@ function Intensity() {
   const { ov, busy, act, note } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio"; min?: number; max?: number; step?: string }[] = [
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
     { key: "full_n", label: "Tam tur en çok aday", kind: "int", min: 1, max: 1000 },
@@ -220,26 +220,42 @@ function Intensity() {
     { key: "identity_threshold", label: "Kimlik eşiği (insan: yüz)", kind: "num", min: 0, max: 1, step: "0.01" },
     { key: "look_threshold", label: "Benzerlik eşiği (robot, hayvan: görsel)", kind: "num", min: 0, max: 1, step: "0.01" },
     { key: "qwen_edit_mode", label: "Karakterli ilk kare kalitesi (Qwen-Image-Edit)", kind: "edit" },
+    { key: "audio", label: "H3 sesi (ortak ses + video üretimi)", kind: "audio" },
   ];
   const value = (k: string) => draft[k] ?? String(cfg[k] ?? "");
+  const budgetNow = String(ov?.project.budget_limit_usd ?? "");
+  const budget = draft.__budget ?? budgetNow;
+  const budgetDirty = draft.__budget != null && draft.__budget !== budgetNow;
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
-    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" ? value(f.key)
+    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" ? value(f.key)
       : f.kind === "edit" ? (value(f.key) || null) : Number(value(f.key))]));
-    await api.patch(`/projects/${ov!.project.id}`, { settings });
+    await api.patch(`/projects/${ov!.project.id}`, { settings, ...(budgetDirty ? { budget_limit_usd: Number(budget) } : {}) });
     setDraft({});
-    note("script", "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
+    note("script", budgetDirty ? `Kaydedildi; bütçe $${Number(budget).toFixed(2)}.` : "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
   }, "script");
+  const changes = dirty.length + (budgetDirty ? 1 : 0);
   return (
     <Panel title="Yoğunluk" meta="test ve tam tur">
       <div className="pad stack">
         <table className="tbl">
           <tbody>
+            <tr>
+              <td style={{ width: "45%" }}>Bütçe (USD)<small className="mono">budget_limit_usd · harcanan ${(ov?.project.spent_usd ?? 0).toFixed(2)}</small></td>
+              <td><input type="number" className="mono" style={{ width: 110 }} aria-label="Bütçe (USD)" disabled={busy} min={0.01} step="0.5"
+                value={budget} onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                onChange={(e) => setDraft({ ...draft, __budget: e.target.value })} /></td>
+            </tr>
             {fields.map((f) => (
               <tr key={f.key}>
                 <td style={{ width: "45%" }}>{f.label}<small className="mono">{f.key}</small></td>
                 <td>
-                  {f.kind === "edit" ? (
+                  {f.kind === "audio" ? (
+                    <select value={value(f.key) || "on"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="on">Açık: H3 sesi üretilir (filmde kullanılmaz)</option>
+                      <option value="off">Kapalı: ses VAE'si yüklenmez, video sessiz</option>
+                    </select>
+                  ) : f.kind === "edit" ? (
                     <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                       <option value="">Ayarlar'daki gibi</option>
                       <option value="full">Tam: 40 adım, cfg 4 (~195 sn)</option>
@@ -265,8 +281,8 @@ function Intensity() {
           havuza giremez; küçük yüzde kimlik ölçülmez, eleme olmaz. Benzerlik eşiği: robot, hayvan gibi karakterlerde kare ile
           referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur.</p>
         <div className="row">
-          <button className="btn primary" type="button" disabled={busy || !dirty.length} onClick={save}>Kaydet{dirty.length ? ` (${dirty.length})` : ""}</button>
-          {dirty.length > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
+          <button className="btn primary" type="button" disabled={busy || !changes} onClick={save}>Kaydet{changes ? ` (${changes})` : ""}</button>
+          {changes > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
         </div>
       </div>
     </Panel>

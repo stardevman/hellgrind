@@ -353,6 +353,46 @@ def watchdog() -> list[str]:
     return tripped
 
 
+def refund(project_id: str, rid, reason: str) -> float:
+    """İşlenmiş (commit) bir harcamayı geri alır: defterde `refund` satırı, proje/sekans/sahne harcaması düşer, servis
+    geçmişinde çağrı "refunded" olur ve nedeni yazılır. Aynı rezervasyon ikinci kez iade edilmez. Dönen değer iade tutarı."""
+    with session_scope() as s:
+        row = s.execute(text("""SELECT amount_usd, provider, scene_id, variation_id, sequence_id FROM cost_ledger
+                                WHERE project_id = :p AND reservation = :r AND kind = 'commit'"""),
+                        {"p": project_id, "r": rid}).first()
+        done = s.execute(text("SELECT 1 FROM cost_ledger WHERE reservation = :r AND kind = 'refund'"), {"r": rid}).first()
+        if row is None or done is not None:
+            return 0.0
+        amount, provider, scene_id, variation_id, seq = float(row[0]), row[1], row[2], row[3], row[4]
+        s.execute(text("""INSERT INTO cost_ledger (project_id, scene_id, variation_id, sequence_id, provider, kind,
+                                                   amount_usd, reservation)
+                          VALUES (:p, :s, :v, :q, :prov, 'refund', :amt, :r)"""),
+                  {"p": project_id, "s": scene_id, "v": variation_id, "q": seq, "prov": provider, "amt": amount, "r": rid})
+        s.execute(text("UPDATE projects SET spent_usd = GREATEST(spent_usd - :a, 0) WHERE id = :p"), {"a": amount, "p": project_id})
+        if seq is not None:
+            s.execute(text("UPDATE sequences SET spent_usd = GREATEST(spent_usd - :a, 0) WHERE id = :q"), {"a": amount, "q": seq})
+        if scene_id is not None:
+            s.execute(text("UPDATE scenes SET spent_usd = GREATEST(spent_usd - :a, 0) WHERE id = :s"), {"a": amount, "s": scene_id})
+        s.execute(text("""UPDATE service_calls SET status = 'refunded',
+                              details = details || jsonb_build_object('refund_reason', CAST(:why AS text),
+                                                                      'refunded_usd', CAST(:a AS numeric))
+                          WHERE reservation = :r"""), {"r": rid, "why": reason, "a": amount})
+    return amount
+
+
+def refund_idle(project_id: str, start, end, reason: str) -> dict:
+    """[start, end] aralığındaki boşta bekleme ("h3:idle") kayıtlarını iade eder (ör. RunPod faturalamadığı hayalet
+    boşta süre: FlashBoot ile uyuyan worker /health'te "idle" göründü)."""
+    with session_scope() as s:
+        rids = s.execute(text("""SELECT reservation FROM cost_ledger
+                                 WHERE project_id = :p AND provider = 'h3:idle' AND kind = 'commit'
+                                   AND created_at BETWEEN :a AND :b ORDER BY created_at"""),
+                         {"p": project_id, "a": start, "b": end}).scalars().all()
+    total = sum(refund(project_id, rid, reason) for rid in rids)
+    event(project_id, "refunded", label="h3:idle", count=len(rids), usd=round(total, 4), reason=reason)
+    return {"count": len(rids), "refunded_usd": round(total, 4)}
+
+
 def release_orphans(project_id: str, scene_id) -> int:
     """Çekimin kapanmamış rezervasyonlarını iade eder: yalnızca o çekimin görevi yeniden teslim edildiğinde çağrılır
     (önceki deneme yarıda kesildi; çekim başına aynı anda tek görev çalışır)."""

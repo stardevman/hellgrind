@@ -439,6 +439,13 @@ def desired_config() -> dict:
     body = {"gpu": {"pools": [POOLS[g] for g in names]},
             "workers": {"min": 0, "idleTimeout": int(settings.runpod_idle_timeout_s)},
             "dataCenterIds": [settings.runpod_datacenter], "flashboot": "FLASHBOOT"}
+    if str(settings.runpod_workers_max) in ("1", "2", "3"):        # keep: uç noktadaki en çok worker değişmez
+        workers = int(settings.runpod_workers_max)
+        if int(settings.runpod_max_pending_jobs) < workers:
+            raise PaidCallBlocked(f"En çok worker ({workers}) projenin bekleyen iş sınırından "
+                                  f"({settings.runpod_max_pending_jobs}) büyük: fazladan worker hiç iş alamaz. "
+                                  "RUNPOD_MAX_PENDING_JOBS'u artırın ya da worker sayısını düşürün.")
+        body["workers"]["max"] = workers
     if settings.runpod_network_volume_id:
         body["networkVolumes"] = [settings.runpod_network_volume_id]
     return body
@@ -577,7 +584,8 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
         if refs:
             values[f"reference_{i}"] = refs[min(i, len(refs)) - 1]
     workflow = vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs))
-    workflow = vast_h3.fill(vast_h3.prune_unfilled(workflow, values), values)
+    workflow = vast_h3.prune_unfilled(workflow, values)
+    workflow = vast_h3.fill(workflow if job.audio else vast_h3.strip_audio(workflow), values)
     timeout_ms = int(float(settings.h3_timeout_s) * 1000)
     return {"input": {"workflow": workflow, "images": images,
                       "hellgrind": {"kind": "keyframe" if kind in vast_h3.IMAGE_KINDS else "video", "job": job.key(),
@@ -933,6 +941,20 @@ def retrieve_row(row: dict) -> str:
 
 # ---------- dakikalık görev: boşta bekleme bedeli, bakiye, ayar, yarım indirmeler ----------
 
+def gpu_billed(key: str) -> bool:
+    """RunPod şu an bir GPU worker'ı faturalıyor mu: hesabın harcama hızı (currentSpendPerHr) en ucuz GPU tipinin saat
+    ücretinin yarısından küçükse hayır (yalnızca Network Volume diski, ör. 0,019 $/sa; FlashBoot ile uyuyan worker
+    /health'te "idle" görünür ama ücret işlemez). Okunamazsa evet (iş bitişi penceresi yine sınırlar)."""
+    try:
+        rate = balance(key).get("spend_per_hr")
+    except Exception:                                                # noqa: BLE001
+        return True
+    if rate is None:
+        return True
+    cheapest = min(float(v) for v in (pricing.serverless() or {}).get("per_second", {"x": 0.0}).values()) * 3600
+    return float(rate) >= cheapest / 2
+
+
 def idle_overlap(last_tick: float, now: float, job_end: float | None) -> float:
     """Faturalanan boşta süre: bu tik aralığının [son işin bitişi, bitiş + boşta bekleme] penceresiyle kesişimi. Worker son
     işten sonra en çok RUNPOD_IDLE_TIMEOUT_S açık kalır; o pencere dışındaki süre (işin kendisi — işin bedelinde — ya da
@@ -962,6 +984,8 @@ def tick() -> str:
     end = r.get(vast_box._k("rp_job_end"))
     seconds = idle_overlap(last, now, float(end) if end else None)
     busy = vast_box.inflight(now) > 0          # iş sürerken worker'ın süresi işin bedelinde (soğuk başlatma dahil): çift sayım yok
+    if idle and seconds >= 1 and not busy and not gpu_billed(key):
+        seconds = 0.0                          # RunPod'un harcama hızı yalnızca disk: worker faturalanmıyor (FlashBoot uykusu)
     if idle and seconds >= 1 and not busy and (project := vast_box.last_project()):
         gpu = killswitch.r().get(vast_box._k("rp_last_gpu"))
         gpu = gpu.decode() if isinstance(gpu, bytes) else gpu

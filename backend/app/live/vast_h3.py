@@ -211,6 +211,7 @@ class Job:
     unmapped: tuple[str, ...] = ()                                 # pozitif kısıta çevrilemeyen negatifler
     negative: str = ""            # yalnızca Qwen-Image-Edit karesi (cfg 4 olumsuz istemi kullanır; H3 kullanmaz)
     last_frame: str | None = None  # FL2VA: son kare (data URI; sonraki çekimin ilk karesi)
+    audio: bool = True            # proje ayarı audio=off: ses VAE'si yüklenmez, ses çözülmez, video sessiz
     edit_mode: str = "full"       # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20, cfg 4) | lightning (4, cfg 1)
 
     @property
@@ -221,7 +222,8 @@ class Job:
         return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references,
                             *([self.negative, self.edit_mode] if self.task == "edit_keyframe" else []),
-                            *([self.last_frame] if self.last_frame else [])])
+                            *([self.last_frame] if self.last_frame else []),
+                            *(["no-audio"] if not self.audio else [])])
 
 
 def reference_prompt(prompt: str, names: list[str]) -> str:
@@ -250,7 +252,8 @@ def build_job(req: GenRequest, server: str | None = None) -> Job:
     prompt, constraints = constrained_prompt(req.prompt, req.negative)
     width, height = size_for(req.resolution)
     common = dict(seed=req.seed, seconds=seconds_for(req.duration_s), width=width, height=height,
-                  steps=int(settings.h3_steps), keyframe=req.image_url, unmapped=constraints.unmapped)
+                  steps=int(settings.h3_steps), keyframe=req.image_url, unmapped=constraints.unmapped,
+                  audio=req.extra.get("audio", True) is not False)
     if mode == "ref2va":
         refs = [r for r in req.extra.get("reference_set") or req.extra.get("stills") or [] if r.get("key")][:MAX_REFERENCES]
         if not refs:
@@ -420,6 +423,34 @@ def fill(value, values: dict):
 REF_SLOT = re.compile(r"^\{\{\s*reference_(\d+)\s*\}\}$")
 
 
+AUDIO_DECODERS = ("VAEDecodeAudio",)
+
+
+def strip_audio(workflow: dict) -> dict:
+    """Proje ayarı audio=off: H3'ün ürettiği ses çözülmez. VAEDecodeAudio düğümleri ve onlara bağlanan girdiler (ör.
+    CreateVideo.audio) çıkarılır; artık kullanılmayan VAE yükleyicisi (ses VAE'si) de yüklenmez. Ortak ses+video gürültü
+    giderme (örnekleyici) aynen kalır: yalnızca çıktıdaki ses çözme adımı atlanır."""
+    removed = {nid for nid, node in workflow.items() if node.get("class_type") in AUDIO_DECODERS}
+    if not removed:
+        return workflow
+    feeds = set()
+    for nid in removed:
+        for value in (workflow[nid].get("inputs") or {}).values():
+            if isinstance(value, list) and len(value) == 2 and isinstance(value[0], str):
+                feeds.add(value[0])
+        workflow.pop(nid)
+    for node in workflow.values():
+        inputs = node.get("inputs") or {}
+        for key in [k for k, v in inputs.items() if isinstance(v, list) and len(v) == 2 and v[0] in removed]:
+            inputs.pop(key)
+    used = {v[0] for node in workflow.values() for v in (node.get("inputs") or {}).values()
+            if isinstance(v, list) and len(v) == 2 and isinstance(v[0], str)}
+    for nid in feeds:
+        if nid in workflow and nid not in used and workflow[nid].get("class_type") == "VAELoader":
+            workflow.pop(nid)
+    return workflow
+
+
 def prune_unfilled(workflow: dict, values: dict) -> dict:
     """Değeri gönderilmeyen isteğe bağlı görseli (ör. `{{last_frame}}`) yükleyen LoadImage düğümünü ve ona bağlanan
     isteğe bağlı girdiyi çıkarır (zorunlu girdiye bağlıysa dokunmaz)."""
@@ -512,8 +543,8 @@ class Comfy:
     def submit(self, job: Job, kind: str | None = None) -> str:
         kind = kind or comfy_kind(job)
         values = self.values(job, kind)
-        workflow = fill(prune_unfilled(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), values),
-                        values)
+        workflow = prune_unfilled(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), values)
+        workflow = fill(workflow if job.audio else strip_audio(workflow), values)
         r = self.c.post("/prompt", json={"prompt": workflow, "client_id": COMFY_CLIENT_ID})
         if r.status_code == 400:
             body = r.json() if r.content else {}
