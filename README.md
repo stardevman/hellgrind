@@ -482,6 +482,16 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     tek göz yanık 0,6-0,8‰, iki göz yanık 4,5-4,8‰; eşik 0,3‰), yoksa OpenCLIP metin sondalarıyla. Tutmazsa kare yeniden
     çizilir; son denemede "inceleme önerilir: durum (eyes dark) tutmadı". OpenCLIP sondası her durumda kaydedilir; Kıvılcım
     karelerinde yanık ve karanlık gözleri güvenilir ayıramadığı için karar parlama ölçüsündedir.
+  - **Durum değişen kare:** "off" çekimde karakterin görsel yuvasında yalnızca durum görseli vardır (normal durağan
+    görsel hiçbir yuvada olmaz; iş girdisi yuva → anahtar olarak servis geçmişine ve günlüğe yazılır). image 1'de zaten olan
+    karakter "unchanged" denmeden aynı yer ve pozda tutulur, tasarımı referansa göre düzeltilir ve durumu açıkça değiştirilir
+    ("replace Bolt's eyes with dark unlit glass as in image 3"). "off" durumda tarif ve değişmezlerde ışık sözcüğü geçmez
+    ("round glass eyes (dark and unlit)"); negatife "one glowing eye, mismatched eyes, glowing eye" eklenir. Durumu değiştiren
+    olay ("eyes flicker and light up") ilk kareyi olaydan önceki durumda (gözler karanlık), son kareyi sonraki durumda çizer.
+    Zincirde kritik durum (sonraki olay buna dayanıyor) son denemede de tutmazsa kare "Kare inceleme gerekiyor"da kalır ve
+    video başlamaz; kritik değilse "inceleme önerilir" ile geçer.
+  - **Sayılan parçalar:** "exactly one bent antenna with a small bulb" gibi değişmezler negatife "two bulbs, double bulb"
+    olarak girer; nesne parçaları otomatik sayılamadığı için kare "… sayılamıyor, gözle kontrol edin" notunu alır.
   - **Eski kuralla üretilmiş klip:** kazanan klibin son karesi bugünkü dikiş kuralının beklediğiyle aynı değilse (geçiş
     sınıfı değişti, son kare eklendi ya da değişti) klip "eski kareden" işaretlenir ve plan (şerit onayı dahil) görüntüyü
     yeniden üretir.

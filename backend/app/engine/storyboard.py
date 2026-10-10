@@ -20,6 +20,7 @@ Seedance çekimi de aynı kareyi image-to-video başlangıcı olarak kullanır.
 Yönetmenin yüklediği ilk kare storyboard karesinin yerine geçer (çizim yok, ücret yok).
 """
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -135,22 +136,42 @@ SHOT_EN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "poi
            "over_shoulder": "over-the-shoulder shot", "close_up": "close-up", "extreme_close_up": "extreme close-up"}
 
 
+def state_clause(r: dict, i: int) -> str:
+    """Durumdaki karakter için açık değişiklik: "replace Bolt's eyes with dark unlit glass as in image 3"."""
+    if not r.get("state"):
+        return ""
+    name, as_in = r["name"], f" as in image {i}" if r.get("state_image") else ""
+    parts = [p for p in r.get("state_parts") or ["eyes"]]
+    out = []
+    for part in parts:
+        if r["state"] == "off":
+            out.append(f"replace {name}'s eyes with dark unlit glass{as_in}" if part == "eyes"
+                       else f"make {name}'s {part} dark and unlit{as_in}")
+        else:
+            out.append(f"make {name}'s {part} light up{as_in}")
+    return ", ".join(out)
+
+
 def looks_text(refs: list[dict], kept=()) -> list[str]:
     """Karakterin durağan görseli her edit isteminde referanstır, değişmezleriyle (tasarım zincir boyunca kaymasın; ör. K5'te
-    beliren ikinci anten K6'ya geçmesin). kept: image 1'de zaten olan karakterler: onları "eklemez", korur ("keep the
-    single Mila already in image 1 unchanged"); görseli yalnızca kimlik referansıdır. Kıvılcım SH05: zincirden gelen
-    Mila "must look exactly like image 3" ile istenince karede iki Mila oluşmuştu."""
+    beliren ikinci anten K6'ya geçmesin). kept: image 1'de zaten olan karakterler: onları "eklemez", aynı yer ve pozda
+    tutar; tasarımı referansa göre düzeltir (image 1'deki fazla parça, ör. ikinci ampul, taşınmaz) ve durumdaysa durumu
+    açıkça değiştirir. "Unchanged" demez: Kıvılcım'da image 1'deki yanık göz "unchanged" ile korunuyordu.
+    Kıvılcım SH05: zincirden gelen Mila "must look exactly like image 3" ile istenince karede iki Mila oluşmuştu."""
     out = []
     for i, r in enumerate(refs, start=1):
         if r["kind"] != "character":
             continue
         inv = f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}" if r.get("invariants") else ""
-        state = f" (image {i} shows {r['name']} in this shot's state)" if r.get("state") else ""
+        state = f" (image {i} shows {r['name']} in this shot's state)" if r.get("state_image") else ""
+        change = state_clause(r, i)
         if r["name"] in kept:
-            out.append(f"keep the single {r['name']} already in image 1 unchanged — image {i} is only {r['name']}'s "
-                       f"identity reference{state}{inv}; do not add another {r['name']}")
+            out.append(f"keep the single {r['name']} already in image 1 in the same place and pose — image {i} is "
+                       f"{r['name']}'s identity reference{state}{inv}; {r['name']}'s design must match image {i} exactly, "
+                       f"with no parts that image {i} does not have" + (f"; {change}" if change else "") +
+                       f"; do not add another {r['name']}")
         else:
-            out.append(f"{r['name']} must look exactly like image {i}{state}{inv}")
+            out.append(f"{r['name']} must look exactly like image {i}{state}{inv}" + (f"; {change}" if change else ""))
     return out
 
 
@@ -190,10 +211,58 @@ def state_plan(s, scene, composed, chars, assets, cfg: dict, style) -> tuple[dic
     return refs, probes
 
 
-def with_state_refs(refs: list[dict], state_refs: dict, key: str | None) -> list[dict]:
-    """Durumdaki karakterin kimlik referansı durum referansıyla değişir (gözleri yanık stil görseli durumu ezmesin)."""
-    return [{**r, "key": state_refs[r["name"]], "state": key} if r["kind"] == "character" and r["name"] in state_refs
-            else r for r in refs]
+def with_state_refs(refs: list[dict], state_refs: dict, key: str | None, targets=(), parts=()) -> list[dict]:
+    """Durumdaki karakter: kimlik referansı durum referansıyla değişir (gözleri yanık stil görseli durumu ezmesin; normal
+    durağan görsel hiçbir görsel yuvasında kalmaz), değişmezleri durumla yazılır ("round glass eyes (dark and unlit)") ve
+    istemde durumu açıkça değiştirilir."""
+    from app.core.states import state_text
+    out = []
+    for r in refs:
+        if r["kind"] == "character" and key and (r["name"] in targets or r["name"] in state_refs):
+            r = {**r, "key": state_refs.get(r["name"], r["key"]), "state": key, "state_image": r["name"] in state_refs,
+                 "state_parts": list(parts) or ["eyes"],
+                 "invariants": [state_text(x, key, parts) for x in r.get("invariants") or []]}
+        out.append(r)
+    return out
+
+
+def state_critical(s, scene, key: str | None, frame: str, style) -> bool:
+    """Durum zincirde kritik mi: bu çekimin ya da durumu süren sonraki çekimlerin olayı bu duruma dayanıyor (SH05 "eyes
+    flicker on" kapalı gözlere dayanır: SH03, SH04 ve SH05'in ilk karesi kritik). Kritik durum tutmazsa kare otomatik
+    geçmez, video başlamaz."""
+    from app.core import states as st
+    from app.engine.iteration import compose_for_scene
+    if key is None:
+        return False
+    flip = st.opposite(key)
+    if frame == "start" and any(kind == flip for _, kind in compose_for_scene(
+            scene, load_characters(s, scene.id), load_assets(s, scene.id), style).events):
+        return True
+    q = select(Scene).where(Scene.project_id == scene.project_id, Scene.seq_order > scene.seq_order)
+    if scene.sequence_id is not None:
+        q = q.where(Scene.sequence_id == scene.sequence_id)
+    for nxt in s.scalars(q.order_by(Scene.seq_order)):
+        composed = compose_for_scene(nxt, load_characters(s, nxt.id), load_assets(s, nxt.id), style)
+        if any(kind == flip for _, kind in composed.events):
+            return True
+        if st.state_key(composed.states) != key:
+            return False
+    return False
+
+
+COUNTED = re.compile(r"^\s*(?:exactly\s+one|only\s+one|a\s+single|single|one)\b", re.IGNORECASE)
+
+
+def count_notes(chars, assets) -> list[str]:
+    """Parça sayısı içeren değişmezler ("exactly one bent antenna with a small bulb"): örnek sayma kapısı nesne
+    parçalarını sayamaz (Kıvılcım: antende iki ampul), bu yüzden kare "inceleme önerilir" notuyla gözle kontrole bırakılır."""
+    by_id = {a.id: a for a in assets or ()}
+    out = []
+    for ch in chars:
+        for inv in getattr(by_id.get(ch.asset_id), "invariants", None) or []:
+            if COUNTED.match(str(inv)):
+                out.append(f"{ch.name}: “{str(inv).strip()}” sayılamıyor, gözle kontrol edin")
+    return out
 
 
 STATE_MISS = "hg:state_miss:{}"           # sondadan geçemeyen aday kare (yeniden ölçülmesin)
@@ -220,7 +289,7 @@ def auto_state_reference(s, scene, ch, key: str, probe: dict, cfg: dict, style) 
         cassets = load_assets(s, cand.id)
         if cand.board_hash != visual_fingerprint(cand, cchars, cassets, version):
             continue
-        if st.state_key(compose_for_scene(cand, cchars, cassets, style).states) != key:
+        if st.state_key(compose_for_scene(cand, cchars, cassets, style, frame="start").states) != key:
             continue
         slug = re.sub(r"[^a-z0-9]+", "-", ch.name.lower()).strip("-") or "c"
         out = f"state_refs/{cand.id}/{slug}_{key}_{(parent_token(cand) or 'x')[:12]}.jpg"
@@ -286,10 +355,15 @@ def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | No
     parts = ["Image 1 is the previous shot of this scene", *looks_text(refs, plan.get("kept") or ())]
     parts += [f"the location is shown in image {i}" for i, r in enumerate(refs, start=1) if r["kind"] == "location"]
     focus = [n for n in plan.get("cast") or [] if n not in (plan.get("carried") or [])]   # kadraj yazılı kadroya göre
+    changing = any(r.get("state") for r in refs)    # durum değişiyor: image 1'deki durum (yanık göz) korunmasın
     if transition != "cut":
-        keep = "Keep the same room, layout, props, lighting and characters' designs as image 1."
+        keep = ("Keep the same room, layout, props and lighting as image 1; the characters' designs and state follow "
+                "their reference images and the state change below." if changing else
+                "Keep the same room, layout, props, lighting and characters' designs as image 1.")
     else:
         keep = " ".join(x for x in (framing_text(camera, focus),
+                                    "Keep the same location, props and lighting as in image 1; the characters' designs "
+                                    "and state follow their reference images and the state change below." if changing else
                                     "Keep the same location, props, lighting, the characters' designs and the "
                                     "characters' state as in image 1.") if x)
     extra = removal_text(plan.get("removed") or [])
@@ -306,9 +380,10 @@ def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None) -> str
     framing = f" ({shot}{', ' + str(camera['lens_mm']) + ' mm lens' if camera.get('lens_mm') else ''})" if shot else ""
     kept = [r["name"] for r in refs if r["kind"] == "character"]          # Kn'de hepsi zaten var: korunur, eklenmez
     parts = ["Image 1 is the first frame of this shot", *looks_text(refs, kept)]
+    designs = ("props, lighting" if any(r.get("state") for r in refs) else "props, lighting and character designs")
     return (f"{'; '.join(parts)}. Show the last frame of the same shot, when its own action is completed (if the shot "
             f"describes a still moment, the moment stays still): {prompt} Keep the same camera position and "
-            f"framing{framing}, location, props, lighting and character designs as image 1; change only what the action "
+            f"framing{framing}, location, {designs} as image 1; change only what the action "
             f"changes. Keep this shot's own state; do not anticipate the next shot. {ONCE} A single cinematic film "
             "frame, 16:9, no text, no captions.").strip()
 
@@ -435,6 +510,8 @@ def framing_note(detail: dict) -> str:
 def identity_text(drawn: Drawn) -> str:
     """Kimlik kapısının sonucu, yönetmen için: "Elif 0,47 < 0,60" ya da "yüz görünmedi"."""
     for a in drawn.anomalies or ():
+        if a.get("type") == "state_mismatch":
+            return ", ".join(f"durum ({label}) tutmadı" for label in a.get("labels") or []) or "durum tutmadı"
         if a.get("type") == "duplicate_character":
             return ", ".join(f"{name} karede birden fazla" for name in a.get("characters") or [])
         if a.get("type") == "no_face":
@@ -493,12 +570,17 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 state_off = bool((score.detail or {}).get("state_mismatch"))
                 soft_off = framing_off or state_off           # yeniden deneme sebebi, eleme değil
                 detail = dict(score.detail or {})
-                if soft_off and score.passed and attempt + 1 == attempts:       # son deneme: geçer, yönetmen bakar
+                anomalies, passed = list(score.anomalies), score.passed
+                if state_off and passed and attempt + 1 == attempts and extra.get("state_critical"):
+                    # zincirde kritik durum (sonraki olay buna dayanıyor): kare geçmez, video başlamaz
+                    anomalies.append({"type": "state_mismatch", "labels": list(detail.get("state_mismatch") or [])})
+                    passed = False
+                elif soft_off and passed and attempt + 1 == attempts:           # son deneme: geçer, yönetmen bakar
                     detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
                                         *(f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or [])]
-                drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), detail)
+                drawn = Drawn(source, score.composite, passed, attempt + 1, anomalies, detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
-                                 of=attempts, score=score.composite, passed=score.passed,
+                                 of=attempts, score=score.composite, passed=passed,
                                  identity=(score.detail or {}).get("identity"), look=(score.detail or {}).get("look"),
                                  look_dino=(score.detail or {}).get("look_dino"),
                                  faces_seen=(score.detail or {}).get("faces_seen"),
@@ -507,7 +589,7 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                  framing=(score.detail or {}).get("framing"), state=(score.detail or {}).get("state"),
                                  review=detail.get("review"), end=bool(extra.get("end")),
                                  chain=chain["code"] if chain else None,
-                                 reasons=[a.get("type") for a in score.anomalies])
+                                 reasons=[a.get("type") for a in anomalies])
                 history.annotate_last(scene_id, "h3:storyboard", {"gate": {     # kalibrasyon için kalıcı kayıt
                     "attempt": attempt + 1, "passed": score.passed, "composite": score.composite,
                     "reasons": [a.get("type") for a in score.anomalies],
@@ -516,6 +598,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                        if (score.detail or {}).get(k) is not None}}})
                 if score.passed and not (soft_off and attempt + 1 < attempts):   # kadraj ya da durum tutmadı: yeniden
                     break
+        if drawn.passed and source in PAID_SOURCES and extra.get("count_notes"):   # sayılan parça ölçülemiyor: göz
+            drawn.detail = {**(drawn.detail or {}), "review": [*(drawn.detail or {}).get("review", []),
+                                                               *extra["count_notes"]]}
         storage.put_file(clean, clean_key(key), "image/jpeg")
         drawn.sha = sha_of(clean)
         board = board_from(clean, lines, os.path.join(tmp, "board.jpg"))
@@ -648,7 +733,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     import time
     from app.core.chain import plan_of, stale, transition_of
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
-    from app.core.states import state_key
+    from app.core.states import parts_of, state_key, targets as state_targets
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
@@ -656,15 +741,19 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         chars, assets, style = load_characters(s, scene_id), load_assets(s, scene_id), bible.active(s, project_id)
         version = style.version if style else None
         fp = visual_fingerprint(scene, chars, assets, version)
-        composed = compose_for_scene(scene, chars, assets, style)
+        composed = compose_for_scene(scene, chars, assets, style, frame="start")     # ilk karenin durumu
         prompt, extra = composed.prompt, loras_of(chars)
         cfg = project_settings(project.settings)
         strict = strict_refs(cfg)
         model = keyframe_model(scene, chars, assets, strict)
         refs = edit_references(scene, chars, assets, strict)
         state_refs, probes = state_plan(s, scene, composed, chars, assets, cfg, style)
-        refs = with_state_refs(refs, state_refs, state_key(composed.states))
+        skey = state_key(composed.states)
+        targets = state_targets(composed.states, chars) if skey else []
+        refs = with_state_refs(refs, state_refs, skey, targets, parts_of(composed.states, [c.name for c in chars]))
         extra["state_probes"] = probes
+        extra["state_critical"] = bool(probes) and state_critical(s, scene, skey, "start", style)
+        extra["count_notes"] = count_notes(chars, assets)
         parent, usable = _chain_parent(s, scene, lambda sc: visual_fingerprint(
             sc, load_characters(s, sc.id), load_assets(s, sc.id), version)) if chain_enabled() else (None, False)
         chain_stale = stale(scene, parent if usable else None)
@@ -712,7 +801,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
             fields.update(board_source=drawn.source, board_score=drawn.score, board_sha=drawn.sha,
                           board_parent=(extra.get("chain") or {}).get("sha"))
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
-            if drawn.source == "qwen_edit":
+            if drawn.source == "qwen_edit" or any(x.get("type") == "state_mismatch" for x in drawn.anomalies or ()):
                 note = f"{REVIEW}: {identity_text(drawn)} ({drawn.attempts} deneme)"
             else:
                 shown = f"{drawn.score:.2f}" if drawn.score is not None else "kusurlu kare"
@@ -725,8 +814,8 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
                           board_note="İnceleme önerilir: " + "; ".join(drawn.detail["review"]))
         elif drawn is not None:                         # yeni deneme temiz geçti: eski denemenin notu kalmasın
             fields["board_note"] = None
-            if changed or info["board_status"] == "changes_requested":
-                fields["board_status"] = "pending"
+            if changed or info["board_status"] == "changes_requested" or drawn.sha != info.get("board_sha"):
+                fields["board_status"] = "pending"      # yeni görsel yeni onay ister (eski onay başka bir kareyi onaylamıştı)
         elif changed or info["board_status"] == "changes_requested":
             fields["board_status"] = "pending"          # yeni kare yeni onay ister
         advance_scene(project_id, scene_id, **fields)
@@ -810,11 +899,15 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
             and scene.board_status != "changes_requested" and storage.exists(clean_key(scene.board_key))
         if not board_ok or (end_fresh(scene, fp) and not redraw):
             return scene.end_board_key if board_ok else None
-        composed = compose_for_scene(scene, chars, assets, style)
-        from app.core.states import state_key
+        composed = compose_for_scene(scene, chars, assets, style, frame="end")       # son karenin durumu
+        from app.core.states import parts_of, state_key, targets as state_targets
         state_refs, probes = state_plan(s, scene, composed, chars, assets, cfg, style)
-        refs = [r for r in with_state_refs(edit_references(scene, chars, assets, strict_refs(cfg)), state_refs,
-                                           state_key(composed.states)) if r["kind"] == "character"][:2]
+        skey = state_key(composed.states)
+        refs = [r for r in with_state_refs(edit_references(scene, chars, assets, strict_refs(cfg)), state_refs, skey,
+                                           state_targets(composed.states, chars) if skey else [],
+                                           parts_of(composed.states, [c.name for c in chars]))
+                if r["kind"] == "character"][:2]
+        critical = bool(probes) and state_critical(s, scene, skey, "end", style)
         source = "local" if settings.dry_run else board_source("fl2va", False, "qwen_edit")
         if source != "qwen_edit" and not settings.dry_run:
             return None                                   # Qwen-Image-Edit yok: son kare çizilmez, video son karesiz
@@ -828,7 +921,8 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         extra = {"end": True, "chain": {"key": kn, "transition": "continuous", "code": scene.scene_code},
                  "edit_references": [{"name": scene.scene_code, "key": kn, "kind": "frame"}, *refs],
                  "negative": composed.negative, "edit_mode": END_MODE, "camera": dict(scene.camera or {}),
-                 "label": "h3:storyboard:end", "state_probes": probes,
+                 "label": "h3:storyboard:end", "state_probes": probes, "state_critical": critical,
+                 "count_notes": count_notes(chars, assets),
                  "estimate": pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=END_MODE)}
         lines = [f"{scene.scene_code} · son kare · {camera_text(scene.camera)}"]
         code = scene.scene_code
@@ -841,8 +935,13 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         note = "İnceleme önerilir: " + "; ".join(drawn.detail["review"])
     else:
         note = None
-    advance_scene(project_id, scene_id, end_board_key=key, end_board_sha=drawn.sha, end_board_parent=parent_sha,
-                  end_board_score=drawn.score, end_board_note=note)
+    fields = dict(end_board_key=key, end_board_sha=drawn.sha, end_board_parent=parent_sha, end_board_score=drawn.score,
+                  end_board_note=note)
+    if not drawn.passed and any(x.get("type") == "state_mismatch" for x in drawn.anomalies or ()):
+        # kritik durum son karede tutmadı: video son karesiz de başlamasın, yönetmen baksın
+        fields.update(board_status="changes_requested",
+                      board_note=f"{REVIEW}: son kare {identity_text(drawn)} ({drawn.attempts} deneme)")
+    advance_scene(project_id, scene_id, **fields)
     killswitch.event(project_id, "end_board_ready", scene_id=scene_id, code=code, passed=drawn.passed, note=note)
     if old_sha and drawn.sha != old_sha:                  # videonun son karesi değişti: eski klipler kullanılmaz
         invalidate_dependents(project_id, scene_id, f"{code} son karesi değişti", scope="self")

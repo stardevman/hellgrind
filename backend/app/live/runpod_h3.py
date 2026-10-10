@@ -902,10 +902,13 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
                       width=width, height=height, steps=int(settings.h3_steps),
                       references=[(r["name"], vast_h3.reference_uri(r["key"])) for r in references[:3]],
                       negative=negative or "", edit_mode=mode if mode in EDIT_STEPS else settings.qwen_edit_mode)
-    return _image(job, project_id)
+    slots = [{"image": i, "name": r["name"], "key": r["key"]} for i, r in enumerate(references[:3], start=1)]
+    log.info("Qwen-Image-Edit iş girdisi: %s", json.dumps({"images": slots, "prompt": prompt, "negative": negative},
+                                                          ensure_ascii=False))
+    return _image(job, project_id, {"reference_keys": slots})
 
 
-def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
+def _image(job: vast_h3.Job, project_id: str | None, noted: dict | None = None) -> GenResult:
     key = guard(KEY)
     preflight(key)
     kind, jkey = job.task, job.key()
@@ -915,7 +918,8 @@ def _image(job: vast_h3.Job, project_id: str | None) -> GenResult:
             history.step(f"{IMAGE_MODEL[kind]} (ComfyUI {kind}.json, RunPod)", job_id, seed=job.seed, reused=reused,
                          resolution=f"{job.width}x{job.height}",
                          prompt=job.prompt[:vast_h3.NOTED_PROMPT_CHARS],
-                         **({"references": job.names, "edit_mode": job.edit_mode} if kind == "edit_keyframe" else {}))
+                         **({"references": job.names, "edit_mode": job.edit_mode} if kind == "edit_keyframe" else {}),
+                         **(noted or {}))
             if not reused:
                 _register(job, job_id, "keyframe", project_id)
             vast_box.track(jkey, project_id)

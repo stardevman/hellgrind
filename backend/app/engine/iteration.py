@@ -146,14 +146,17 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
         return v
 
 
-def compose_for_scene(scene, chars, assets, style) -> Composed:
+def compose_for_scene(scene, chars, assets, style, frame: str | None = None) -> Composed:
     """Sağlayıcıya giden prompt: yalnızca bestecinin çıktısı (kılavuzun ışık ve hareket dili, çekim tarifi, varlıklar ve
     "yalnızca listelenen karakterler" kısıtı). Görüntü, storyboard karesi, previs aktarımı ve ilk kare düzeltmesi aynı
-    fonksiyonu kullanır."""
+    fonksiyonu kullanır. frame: "start" (ilk kare) | "end" (son kare) | None (video): karenin durumu
+    (core/states.frame_states; SH05 "eyes flicker and light up": ilk karede gözler karanlık, son karede yanık)."""
+    from app.core.h3mode import is_human
     spec = scene.prompt_spec or {}
     return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""), "lang": spec.get("lang"),
                            "camera": scene.camera or {}, "characters": [ch.name for ch in chars],
-                           "note": getattr(scene, "director_note", None)}, assets, style)
+                           "note": getattr(scene, "director_note", None), "frame": frame,
+                           "nonhuman": [ch.name for ch in chars if not is_human(ch)]}, assets, style)
 
 
 def still_of(ch) -> str | None:

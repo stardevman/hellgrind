@@ -564,7 +564,7 @@ def test_state_words_go_into_the_prompt_and_their_opposites_into_the_negative():
     c = compose_prompt({"prompt": "Bolt sits lifeless on the workbench with its eyes dark.", "lang": "en",
                         "characters": ["Bolt"]}, [], None)
     assert c.prompt.endswith("Exception for this shot, overriding the reference images and the invariants: the eyes are "
-                             "dark — unlit, no glow.")
+                             "dark and unlit, emitting no light.")
     assert "glowing eyes" in c.negative and "lit eyes" in c.negative
     turkish = compose_prompt({"prompt": "Boş yol.", "lang": "tr", "characters": []}, [], None)
     assert "Exception" not in turkish.prompt                   # Türkçe (çevrilmemiş) metinde uydurma yok
@@ -612,7 +612,7 @@ def test_characters_already_in_the_previous_frame_are_kept_not_added():
     plans = chain_rules.classify_shots(KIVILCIM_DB)
     assert plans[4]["kept"] == ["Bolt", "Mila"] and plans[2]["kept"] == []            # SH05: ikisi de K4'te var
     text = sb.chain_prompt("Bolt's eyes light up.", MILA_REFS, "cut", plans[4], MEDIUM)
-    assert "keep the single Mila already in image 1 unchanged — image 3 is only Mila's identity reference" in text
+    assert "keep the single Mila already in image 1 in the same place and pose — image 3 is Mila's identity reference" in text
     assert "do not add another Mila" in text and "Mila must look exactly like image" not in text
     assert "Reframe the camera for this shot: a medium shot of Bolt, 35 mm lens." in text    # kadraj yazılı kadroya göre
     assert sb.ONCE in text
@@ -622,7 +622,8 @@ def test_characters_already_in_the_previous_frame_are_kept_not_added():
 
 def test_the_end_frame_keeps_every_character_of_its_first_frame():
     text = sb.end_prompt("Bolt sits lifeless.", MILA_REFS, MEDIUM)
-    assert "keep the single Bolt already in image 1 unchanged" in text and "keep the single Mila" in text
+    assert "keep the single Bolt already in image 1 in the same place and pose" in text and "keep the single Mila" in text
+    assert "unchanged" not in text                              # image 1'deki yanık göz ya da fazla parça korunmasın
     assert "must look exactly like" not in text and sb.ONCE in text
 
 
@@ -691,7 +692,8 @@ def test_the_state_comes_last_and_overrides_the_reference_and_the_invariant():
     c = compose_prompt({"prompt": "Bolt is still switched off, eyes dark and unlit.", "lang": "en",
                         "characters": ["Bolt"]}, [bolt], None)
     assert c.prompt.index("Exception for this shot") > c.prompt.index("Bolt must always have")
-    assert "Bolt is switched off — dark, no glow" in c.prompt and "the eyes are dark — unlit, no glow" in c.prompt
+    assert "Bolt is switched off — dark, emitting no light" in c.prompt and \
+        "the eyes are dark and unlit, emitting no light" in c.prompt
     assert {"glowing eyes", "lit eyes", "blue glow"} <= {x.strip() for x in c.negative.split(",")}
     text = sb.chain_prompt(c.prompt, MILA_REFS[:2], "cut", {"cast": ["Bolt"], "kept": ["Bolt"]}, MEDIUM)
     assert text.index("Exception for this shot") > text.index("keep the single Bolt")
@@ -704,7 +706,7 @@ def test_the_director_note_is_a_state_source_too():
     c = compose_prompt({"prompt": "Bolt sits on the workbench.", "lang": "en", "characters": ["Bolt"],
                         "note": "Bolt's eyes stay dark, no glow."}, [], None)
     assert "Director note: Bolt's eyes stay dark, no glow." in c.prompt
-    assert c.prompt.endswith("the eyes are dark — unlit, no glow.") and "glowing eyes" in c.negative
+    assert c.prompt.endswith("the eyes are dark and unlit, emitting no light.") and "glowing eyes" in c.negative
 
 
 # ---------- (3) "Değişiklik iste" yeniden çizer ----------
@@ -898,7 +900,8 @@ def test_a_state_reference_replaces_the_still_while_the_shot_is_in_that_state(ap
     assert probe["wanted"] == "a photo of small round copper robot with dark, unlit eyes"
     assert probe["opposite"] == "a photo of small round copper robot with glowing blue eyes"
     out = sb.with_state_refs([{"name": "Bolt", "key": "still", "kind": "character"}], refs, "off")
-    assert out == [{"name": "Bolt", "key": "assets/b/state_off/off.png", "kind": "character", "state": "off"}]
+    assert out == [{"name": "Bolt", "key": "assets/b/state_off/off.png", "kind": "character", "state": "off",
+                    "state_image": True, "state_parts": ["eyes"], "invariants": []}]
     text = sb.chain_prompt("p", [{"name": "K", "key": "k", "kind": "frame"}, *out], "cut", {"cast": ["Bolt"], "kept": []},
                            MEDIUM)
     assert "Bolt must look exactly like image 2 (image 2 shows Bolt in this shot's state)" in text
@@ -1090,3 +1093,178 @@ def test_the_winning_clips_arrival_is_shown_on_the_shot(api, mk_project):
                         status="refined", refined_rank=1, params={"score_detail": {"arrival": arrival}}))
     shots = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}
     assert shots["S001_SH03"]["arrival"] == arrival and shots["S001_SH02"]["arrival"] is None
+
+
+# =====================================================================================================================
+# Kıvılcım göz durumu testi (658e9de sonrası): yarım yanık göz (image 1'deki yanık gözü "unchanged" koruyordu), "glow"
+# sözcükleri, ilk karenin durumu olaydan önce, kritik durumda video yok, antende iki ampul, eski onay.
+# =====================================================================================================================
+
+import base64  # noqa: E402
+import json as _json  # noqa: E402
+
+
+def test_state_events_and_frame_states():
+    assert state_rules.events("Bolt's eyes flicker and light up blue.") == [("eyes", "on")]
+    assert state_rules.events("Bolt is still switched off, eyes dark and unlit.") == []     # durum, olay değil
+    assert state_rules.frame_states([], [("eyes", "on")], "start") == [("eyes", "dark")]   # SH05 ilk karesi karanlık
+    assert state_rules.frame_states([], [("eyes", "on")], "end") == [("eyes", "lit")]
+    assert state_rules.frame_states([("eyes", "dark")], [], "end") == [("eyes", "dark")]
+
+
+def test_off_text_drops_the_glow_words():
+    assert state_rules.state_text("round glass eyes (glow blue only when switched on)", "off", ["eyes"]) == \
+        "round glass eyes (dark and unlit)"
+    assert state_rules.state_text("big round glass eyes that glow soft blue when on", "off", ["eyes"]) == \
+        "big round glass eyes (dark and unlit)"
+    assert state_rules.state_text("glowing blue eyes", "off", ["eyes"]) == "eyes (dark and unlit)"
+    assert state_rules.state_text("round glass eyes (glow blue only when switched on)", "on", ["eyes"]).endswith("on)")
+
+
+def test_an_off_frame_prompt_has_no_glow_words_and_says_how_to_change_image_1(api, mk_project):
+    from app.models import Asset, Character
+    pid, codes = _kivilcim(api, mk_project, state_off="assets/b/state_off/off.png")
+    with session_scope() as s:
+        bolt = s.scalars(select(Character).where(Character.project_id == pid, Character.name == "Bolt")).one()
+        s.get(Asset, bolt.asset_id).description = "small round copper robot, big round glass eyes that glow soft blue when on"
+    with session_scope() as s:
+        sc, chars, assets, composed = (lambda x: (x[0], x[1], x[2], __import__("app.engine.iteration", fromlist=["x"])
+                                                  .compose_for_scene(x[0], x[1], x[2], None, frame="start")))(
+            _shot(s, codes["S001_SH03"]))
+        refs, _ = sb.state_plan(s, sc, composed, chars, assets, CFG, None)
+    body = composed.prompt[:composed.prompt.index("Exception for this shot")]
+    assert "glow" not in body.lower() and "round glass eyes (dark and unlit)" in body
+    assert {"one glowing eye", "mismatched eyes", "glowing eye"} <= {x.strip() for x in composed.negative.split(",")}
+    out = sb.with_state_refs([{"name": "K3", "key": "k", "kind": "frame"},
+                              {"name": "Bolt", "key": "still", "kind": "character",
+                               "invariants": ["round glass eyes (glow blue only when switched on)"]}], refs, "off",
+                             ["Bolt"], ["eyes"])
+    text = sb.chain_prompt(composed.prompt, out, "cut", {"cast": ["Bolt"], "kept": ["Bolt"]}, MEDIUM)
+    assert "replace Bolt's eyes with dark unlit glass as in image 2" in text and "unchanged" not in text
+    assert "always with round glass eyes (dark and unlit)" in text and "glow blue" not in text
+
+
+def test_the_first_frame_of_a_switch_on_shot_is_still_dark_and_its_end_frame_lit(api, mk_project):
+    from app.engine.iteration import compose_for_scene
+    pid, codes = _kivilcim(api, mk_project, state_off="assets/b/state_off/off.png")
+    with session_scope() as s:
+        sc, chars, assets, _ = _shot(s, codes["S001_SH05"])                 # "eyes flicker and light up blue"
+        start = compose_for_scene(sc, chars, assets, None, frame="start")
+        end = compose_for_scene(sc, chars, assets, None, frame="end")
+        refs, probes = sb.state_plan(s, sc, start, chars, assets, CFG, None)
+        assert sb.state_critical(s, sc, "off", "start", None) is True       # kendi olayı bu duruma dayanıyor
+    assert state_rules.state_key(start.states) == "off" and state_rules.state_key(end.states) == "on"
+    assert "The moment just before this happens:" in start.prompt and "still dark and unlit" in start.prompt
+    assert refs == {"Bolt": "assets/b/state_off/off.png"} and probes[0]["key"] == "off"
+
+
+def test_a_state_is_critical_when_a_later_event_depends_on_it(api, mk_project):
+    pid, codes = _kivilcim(api, mk_project)
+    with session_scope() as s:
+        s.get(Scene, codes["S001_SH04"]).director_note = "Bolt's eyes stay dark"
+    with session_scope() as s:
+        crit = {c: sb.state_critical(s, s.get(Scene, codes[c]), "off", "start", None)
+                for c in ("S001_SH03", "S001_SH04", "S001_SH06")}
+    assert crit == {"S001_SH03": True, "S001_SH04": True, "S001_SH06": False}
+
+
+def test_a_critical_state_that_never_holds_blocks_the_video(chained, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    probe = {"name": "Bolt", "label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
+    monkeypatch.setattr(sb, "state_plan", lambda *a, **k: ({}, [probe]))
+    monkeypatch.setattr(sb, "state_critical", lambda *a, **k: True)
+    monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {"score": 0.0, "glow": 4.5,
+                                                                                         "clip": 0.2}})
+    sb.make_board(pid, codes["S001_SH01"])
+    with session_scope() as s:
+        k1 = s.get(Scene, codes["S001_SH01"])
+        assert k1.board_status == "changes_requested" and k1.board_note.startswith(sb.REVIEW), k1.board_note
+        assert "durum (eyes dark) tutmadı" in k1.board_note
+        assert sb.keyframe_problem(k1, k1.board_hash) is not None           # video bu kareden başlamaz
+
+
+def test_an_off_shot_sends_only_the_state_reference_for_the_character(edit, api, mk_project, tmp_path, monkeypatch):
+    from PIL import Image as Img
+    from app import storage
+    from app.models import Asset, Character
+    pid, codes = _kivilcim(api, mk_project)
+    files = {}
+    with session_scope() as s:
+        for i, ch in enumerate(s.scalars(select(Character).where(Character.project_id == pid))):
+            path = tmp_path / f"{ch.name}.png"
+            Img.new("RGB", (64, 64), (200, 120 + 40 * i, 60)).save(path)
+            storage.put_file(str(path), ch.reference_images[0], "image/png")
+            files[ch.name] = path.read_bytes()
+            if ch.name == "Bolt":
+                off = tmp_path / "off.png"
+                Img.new("RGB", (64, 64), (12, 12, 14)).save(off)
+                key = f"assets/{ch.asset_id}/state_off/off.png"
+                storage.put_file(str(off), key, "image/png")
+                files["off"] = off.read_bytes()
+                a = s.get(Asset, ch.asset_id)
+                a.references = {**(a.references or {}), "state_off": {"key": key}}
+    monkeypatch.setattr(gate, "scorer_mode", lambda: "real")
+    monkeypatch.setattr(gate, "detect_frame_anomalies", lambda path: [])
+    monkeypatch.setattr(scorer, "score_image", lambda path, target: scorer.Result(
+        clip=0.95, face=None, composite=0.95, detail={"faces_seen": 0, "identity": {}}))
+    sb.make_board(pid, codes["S001_SH03"])                                  # K1, K2, K3 (+ son kareler)
+    import io
+
+    def colours(run) -> list[tuple]:                            # gönderilen görseller JPEG'e çevrilir: rengine bak
+        out = []
+        for img in run["input"]["images"]:
+            with Img.open(io.BytesIO(base64.b64decode(img["image"]))) as im:
+                out.append(tuple(round(v) for v in im.convert("RGB").resize((1, 1)).getpixel((0, 0))))
+        return out
+
+    def near(c, ref, tol=12):
+        return all(abs(a - b) <= tol for a, b in zip(c, ref))
+
+    with Img.open(io.BytesIO(files["Bolt"])) as im:
+        still = im.convert("RGB").getpixel((0, 0))
+    off_runs = [r for r in fake_runs(edit) if "replace Bolt's eyes with dark unlit glass" in
+                r["input"]["workflow"]["170:151"]["inputs"]["prompt"]]
+    assert len(off_runs) >= 2                                               # SH03 ilk karesi ve son karesi
+    for r in off_runs:
+        sent = colours(r)
+        assert any(near(c, (12, 12, 14)) for c in sent) and not any(near(c, still) for c in sent)   # yalnızca durum görseli
+        prompt = r["input"]["workflow"]["170:151"]["inputs"]["prompt"]
+        assert "glow blue" not in prompt and "unchanged" not in prompt and "characters' state as in image 1" not in prompt
+    with session_scope() as s:                                              # iş girdisi kayıtlı: yuva -> anahtar
+        steps = s.execute(__import__("sqlalchemy").text(
+            "SELECT details->'steps' FROM service_calls WHERE scene_id = :s AND label LIKE 'h3:storyboard%' "
+            "ORDER BY started_at DESC LIMIT 1"), {"s": codes["S001_SH03"]}).scalar()
+    slots = steps[0]["reference_keys"]
+    assert any(x["key"].endswith("/state_off/off.png") for x in slots) and not any("/still/" in x["key"] and
+                                                                                  x["name"] == "Bolt" for x in slots)
+
+
+def fake_runs(fake):
+    return [r for r in fake.runs if "170:151" in r["input"]["workflow"]]
+
+
+def test_counted_parts_are_flagged_for_a_human_look(api, mk_project):
+    from app.core.state import load_assets, load_characters
+    from app.models import Asset, Character
+    pid, codes = _kivilcim(api, mk_project)
+    with session_scope() as s:
+        bolt = s.scalars(select(Character).where(Character.project_id == pid, Character.name == "Bolt")).one()
+        a = s.get(Asset, bolt.asset_id)
+        a.invariants = [*a.invariants, "exactly one bent antenna with a small bulb"]
+    with session_scope() as s:
+        notes = sb.count_notes(load_characters(s, codes["S001_SH03"]), load_assets(s, codes["S001_SH03"]))
+    assert notes == ["Bolt: “exactly one bent antenna with a small bulb” sayılamıyor, gözle kontrol edin"]
+    from app.style.composer import invariant_negatives
+    assert {"two bulbs", "double bulb"} <= set(invariant_negatives(["exactly one bent antenna with a small bulb"]))
+
+
+def test_a_redrawn_frame_needs_approval_again(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH03"])
+    with session_scope() as s:
+        s.get(Scene, codes["S001_SH03"]).board_status = "approved"
+    fake.image = png((70, 200, 120))
+    sb.make_board(pid, codes["S001_SH02"], standalone=True, explicit=True)  # K2 değişti: K3 eskir
+    sb.make_board(pid, codes["S001_SH03"])                                  # K3 zincirle yeniden çizilir
+    with session_scope() as s:
+        assert s.get(Scene, codes["S001_SH03"]).board_status == "pending"   # eski onay başka bir kareyi onaylamıştı
