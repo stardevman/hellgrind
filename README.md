@@ -473,6 +473,18 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     istemin en sonuna, referans ve değişmezlerden sonra yazılır: "Exception for this shot, overriding the reference images
     and the invariants: …"; negatife zıtları ("glowing eyes, lit eyes", değişmezdeki renkle "blue glow"). Değişmezi
     durumdan bağımsız yazın: "round glass eyes (glow blue only when switched on)". Son kare çekimin kendi durumunu korur.
+  - **Durum referansı ve durum kapısı:** Qwen-Image-Edit referans görselini metinden çok izler (gözleri yanık Bolt stili
+    "eyes dark" istemini yendi). Çekim bir durumdaysa (kapalı / açık) karakterin kimlik referansı o durumun görseli olur:
+    Varlıklar sayfasında **Durum: kapalı** (`state_off`) ya da **Durum: açık** (`state_on`) yüklenir (sürüm artmaz, kilitli
+    varlığa da eklenir); yüklenmemişse sekansta aynı durumda olan ve durum kapısından geçen önceki karenin karakter kırpımı
+    otomatik referans olur (`state_refs/…`). Durum kapısı karakter kırpımında ölçer: ışık rengi değişmezde yazıyorsa
+    ("round glass eyes (glow blue only when switched on)") parlama çekirdeğinin payıyla (Kıvılcım: iki göz karanlık 0,13‰,
+    tek göz yanık 0,6-0,8‰, iki göz yanık 4,5-4,8‰; eşik 0,3‰), yoksa OpenCLIP metin sondalarıyla. Tutmazsa kare yeniden
+    çizilir; son denemede "inceleme önerilir: durum (eyes dark) tutmadı". OpenCLIP sondası her durumda kaydedilir; Kıvılcım
+    karelerinde yanık ve karanlık gözleri güvenilir ayıramadığı için karar parlama ölçüsündedir.
+  - **Eski kuralla üretilmiş klip:** kazanan klibin son karesi bugünkü dikiş kuralının beklediğiyle aynı değilse (geçiş
+    sınıfı değişti, son kare eklendi ya da değişti) klip "eski kareden" işaretlenir ve plan (şerit onayı dahil) görüntüyü
+    yeniden üretir.
   - **Değişiklik iste:** not, çekimin istemlerine "Director note: …" olarak girer (görsel özete girmez: notlu kare
     yeniden çizdirmeden de onaylanabilir). **Kareleri hazırla**
     önce etkisini gösterir (yeniden çizilecek kareler, eskiyecek klipler, tahmini maliyet), sonra değişiklik istenen kareyi

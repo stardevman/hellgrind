@@ -43,6 +43,7 @@ class Composed:
     prompt: str
     negative: str
     prefix: str          # 1 + 2: aynı stil sürümündeki her çekimde birebir aynı
+    states: tuple = ()   # çekimin durumları [(isim, durum)]: durum referansı ve durum kapısı (core/states.py)
 
 
 def sentence(text: str | None) -> str:
@@ -204,8 +205,10 @@ COLORS = ("blue", "red", "green", "yellow", "orange", "purple", "pink", "white",
 
 
 def glow_colors(invariants) -> list[str]:
-    """Değişmezlerde geçen renkler: "round glass eyes (glow blue only when switched on)" -> ["blue"]."""
-    text = " ".join(str(x).lower() for x in invariants or ())
+    """Işık yayan değişmezlerdeki renkler: "round glass eyes (glow blue only when switched on)" -> ["blue"]. Işıktan söz
+    etmeyen değişmezin rengi ("red button on its back") sayılmaz."""
+    text = " ".join(str(x).lower() for x in invariants or () if re.search(r"\b(glow\w*|lit|light\w*|shin\w*)\b",
+                                                                          str(x).lower()))
     return [c for c in COLORS if re.search(rf"\b{c}\b", text)]
 
 
@@ -245,4 +248,5 @@ def compose_prompt(shot: dict, assets, bible) -> Composed:
     negative = _join_negative(translate.to_english(bible.negative or "") if bible else "",
                               translate.to_english(shot.get("negative", "") or "", names, lang), lint.CAST_NEGATIVE,
                               ", ".join(opposite), ", ".join(designs))
-    return Composed(prompt=" ".join(x for x in body if x), negative=negative, prefix=prefix)
+    return Composed(prompt=" ".join(x for x in body if x), negative=negative, prefix=prefix,
+                    states=tuple(state_list(state_source)) if english else ())

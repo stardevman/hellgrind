@@ -508,6 +508,87 @@ def framing(path: str, target: Target) -> float | None:
     return round(max(areas), 3) if areas else None
 
 
+def character_crop(image: Image.Image, keys) -> Image.Image:
+    """Karakterin kırpımı: referansa (DINOv2; yoksa OpenCLIP) en çok benzeyen yarım boy kırpım. Referans yoksa kare."""
+    m = models()
+    pieces = crops(image)
+    refs = [r for r in (m.reference_dino(k) for k in list(keys)[:LOOK_REFS]) if r is not None]
+    vectors = m.encode_dino(pieces) if refs else None
+    if vectors is None:
+        refs = [m.reference_look(k) for k in list(keys)[:LOOK_REFS]]
+        if not refs:
+            return image
+        vectors = m.encode_images(pieces)
+    sims = [max(float(v @ r) for r in refs) for v in vectors]
+    return pieces[int(np.argmax(sims))]
+
+
+GLOW_REF = 0.6                  # parlama çekirdeği (‰, karakter kırpımında): bunun yarısının altı "kapalı" sayılır
+GLOW_HUES = {"red": ((0, 15), (345, 360)), "orange": ((15, 40),), "amber": ((30, 45),), "yellow": ((45, 65),),
+             "golden": ((40, 55),), "green": ((90, 150),), "cyan": ((170, 200),), "purple": ((260, 300),),
+             "pink": ((300, 345),)}
+
+
+def glow_fraction(image: Image.Image, color: str) -> float:
+    """Karakter kırpımında ışık yayan renk çekirdeğinin payı (binde). Mavi: camgöbeği-beyaz çekirdek (G ≥ 215, B ≥ 235,
+    R ≤ 200, B-R ≥ 50; yağmurlu pencerenin koyu mavisi sayılmaz). Diğer renkler: tonu tutan, doygun (S ≥ 0,35) ve çok
+    parlak (V ≥ 0,92) pikseller; beyaz: doygunluğu düşük, V ≥ 0,97.
+    Kıvılcım kalibrasyonu (Bolt kırpımı): iki göz karanlık 0,13; tek göz yanık 0,6-0,8; iki göz yanık 4,5-4,8; durağan
+    görsel 5,9."""
+    if color == "blue":
+        a = np.asarray(image.convert("RGB")).astype(int)
+        r, g, b = a[..., 0], a[..., 1], a[..., 2]
+        mask = (g >= 215) & (b >= 235) & (r <= 200) & (b - r >= 50)
+    else:
+        hsv = np.asarray(image.convert("HSV")).astype(float)
+        h, s, v = hsv[..., 0] * 360 / 255, hsv[..., 1] / 255, hsv[..., 2] / 255
+        if color == "white":
+            mask = (s < 0.15) & (v >= 0.97)
+        else:
+            hue = np.zeros(h.shape, bool)
+            for lo, hi in GLOW_HUES.get(color, ()):
+                hue |= (h >= lo) & (h <= hi)
+            mask = hue & (s >= 0.35) & (v >= 0.92)
+    return round(float(mask.mean()) * 1000, 3)
+
+
+def state_probe(image: Image.Image, probes: list[dict]) -> dict[str, dict]:
+    """Durum sondası (core/states.py): {etiket: {"score": 0-1, "glow": binde | None, "clip": 0-1}}; score 0,5 altı =
+    istenen durum tutmadı.
+    - Işık rengi biliniyorsa (değişmezde "glow blue"): karar karakter kırpımındaki parlama çekirdeğiyle verilir
+      (kapalı: 1 - glow / GLOW_REF; açık: glow / GLOW_REF). Kıvılcım kalibrasyonunda OpenCLIP sıfır-örnek sondaları yanık ve
+      karanlık gözleri ayıramadı (karanlık 0,32; tek göz yanık 0,10-0,14; iki göz yanık 0,17-0,28).
+    - Bilinmiyorsa OpenCLIP: kırpımda istenen metnin karşıtına göre olasılığı (iki sınıflı softmax). Her iki değer de
+      kaydedilir."""
+    m = models()
+    out = {}
+    for probe in probes:
+        crop = character_crop(image, probe.get("keys") or ())
+        iv = m.encode_images([crop])[0]
+        tv = m.encode_texts([probe["wanted"], probe["opposite"]])
+        logits = np.array([float(iv @ tv[0]), float(iv @ tv[1])]) * float(m.scale)
+        logits -= logits.max()
+        clip = float((np.exp(logits) / np.exp(logits).sum())[0])
+        glow = glow_fraction(crop, probe["color"]) if probe.get("color") else None
+        if glow is None:
+            score = clip
+        elif probe.get("key") == "on":
+            score = min(1.0, glow / GLOW_REF)
+        else:
+            score = max(0.0, 1.0 - glow / GLOW_REF)
+        out[probe["label"]] = {"score": round(score, 4), "glow": glow, "clip": round(clip, 4)}
+    return out
+
+
+def state_probe_path(path: str, probes: list[dict]) -> dict[str, float]:
+    try:
+        with Image.open(path) as im:
+            image = im.convert("RGB")
+    except Exception:                                   # noqa: BLE001 — bozuk kare: anomali tespiti eler
+        return {}
+    return state_probe(image, probes)
+
+
 def score_images(images: list[Image.Image], target: Target) -> Result:
     """identity: insan karakter başına 0-1 kimlik skoru (SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde lojistik
     eğrisi; kapı bununla identity_threshold'u karşılaştırır), identity_cosine: ham kosinüs. Yalnızca kısa kenarı

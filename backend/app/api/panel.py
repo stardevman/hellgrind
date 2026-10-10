@@ -241,6 +241,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "keyframe_model": keyframe_model(sc, refs[sc.id], shot_assets(sc.id), strict),
         **chain[sc.id],
         "transition_reason": sc.transition_reason, "transition_hint": sc.transition_hint,
+        "arrival": next((((v.params or {}).get("score_detail") or {}).get("arrival") for v in variations[sc.id]
+                         if v.refined_rank == 1), None),                  # kazanan klibin varış skoru
         "chain_cast": carried[sc.id],
         "end_board_url": _media(sc.end_board_key, sc.end_board_sha), "end_board_note": sc.end_board_note,
         "end_board_score": sc.end_board_score,

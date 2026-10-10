@@ -120,6 +120,8 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     Onay zorunluyken kare onaylı değilse görüntü üretilmez: gerekirse yalnızca kare çizilir ve AwaitingBoard fırlatılır."""
     pid = str(sc.project_id)
     ensure_not_frozen(pid)
+    from app.engine.iteration import mark_seam_outdated
+    mark_seam_outdated(s, sc)                # eski dikiş kuralıyla üretilmiş klip: görüntü yeniden planlanır
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
     project = s.get(Project, sc.project_id)
     stages, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),

@@ -24,12 +24,13 @@ export const ASTATUS_ORDER = ["draft", "still_approved", "motion_tested", "locke
 
 export const REF_TR: Record<string, string> = {
   still: "Durağan görsel", turnaround: "Dönüş videosu (360°)", expressions: "İfade sayfası", voice_sample: "Ses örneği",
+  state_off: "Durum: kapalı (ör. gözler karanlık)", state_on: "Durum: açık (ör. gözler yanık)",
 };
 export const REF_KINDS: Record<string, string[]> = {
-  character: ["turnaround", "still", "expressions", "voice_sample"], location: ["still", "turnaround"], prop: ["still", "turnaround"],
+  character: ["turnaround", "still", "expressions", "voice_sample", "state_off", "state_on"], location: ["still", "turnaround"], prop: ["still", "turnaround"],
 };
 export const REF_ACCEPT: Record<string, string> = {
-  still: "image/*", expressions: "image/*", turnaround: "video/*", voice_sample: "audio/*",
+  still: "image/*", expressions: "image/*", turnaround: "video/*", voice_sample: "audio/*", state_off: "image/*", state_on: "image/*",
 };
 
 export const TEST_TR: Record<string, string> = {

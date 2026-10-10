@@ -51,6 +51,8 @@ const attemptText = (x: Record<string, unknown>) => {
   if (x.faces_seen && x.faces_measured === 0) parts.push("yüz küçük, kimlik ölçülemedi");
   const dino = scores(x.look_dino);
   if (dino) parts.push(`DINOv2 ${dino}`);
+  const state = scores(x.state);
+  if (state) parts.push(`durum ${state}`);
   if ((x.review as string[] | undefined)?.length) parts.push(`inceleme önerilir`);
   if (reasons.includes("low_clip")) parts.push("istem uyumu düşük");
   if (reasons.includes("continuity_jump")) parts.push(`süreklilik ${num2(Number(x.continuity ?? 0))}: önceki kareyle mekân farklı`);
@@ -182,6 +184,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
         codes.length ? `${codes.join(", ")} eski kareden; yeniden üretilecek` : "", x.clips ? `${x.clips} klip eski` : ""].filter(Boolean);
       return { t: `${x.reason}: ${parts.join("; ") || "bağlı çekim yok"}`, c: "bad" };
     }
+    case "state_reference": return { t: `${x.code}: ${x.character} için durum referansı (${x.state === "off" ? "kapalı" : "açık"}) ${x.source} karesinden alındı (sonda ${Number(x.probe).toFixed(2)})`, c: "good" };
+    case "seam_outdated": return { t: `${x.code}: ${x.reason}; eski klip yeniden üretilecek`, c: "bad" };
     case "runpod_idle_changed": return { t: `RunPod boşta bekleme ${x.seconds} sn (storyboard şeridi incelemesi${Number(x.seconds) <= 120 ? " bitti" : ": art arda yeniden çizimler sıcak worker'a düşer"})` };
     case "runpod_idle_change_failed": return { t: `RunPod boşta bekleme süresi yazılamadı: ${x.error}`, c: "bad" };
     case "chain_stale_stop": return { t: `${where}üretim durdu: ${x.reason}; video eski kareden üretilmez`, c: "bad" };

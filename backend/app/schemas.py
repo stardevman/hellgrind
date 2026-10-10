@@ -34,6 +34,7 @@ SETTING_RULES = {
     "cut_continuity_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "transition_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "arrival_review_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
+    "state_threshold": (_num(0, 1), "0 ile 1 arasında bir sayı"),
     "chain_end_frame": (lambda v: type(v) is bool, "true ya da false"),
     "seam_mode": (lambda v: v in ("keyframe", "exact"), "keyframe ya da exact"),
     "seam_crossfade_frames": (_int(0, 6), "0 ile 6 arasında tam sayı"),

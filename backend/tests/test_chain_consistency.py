@@ -844,3 +844,249 @@ def test_frame_jobs_keep_the_worker_warm_during_strip_review(runpod, monkeypatch
     killswitch.r().delete(vast_box._k("rp_idle_applied"))
     runpod_h3.review_started()
     assert applied == [300, 60]
+
+
+# =====================================================================================================================
+# Kıvılcım tam koşusu (12bf435 sonrası): göz durumu (durum referansı, otomatik durum referansı, durum kapısı), eski
+# dikiş kuralıyla üretilmiş klip, eski kare notu, kazanan klibin varış skoru.
+# =====================================================================================================================
+
+from app.core import states as state_rules  # noqa: E402
+
+
+def _kivilcim(api, mk_project, state_off: str | None = None):
+    """Kıvılcım: Bolt insan değil, durağan görseli ve ışık rengi değişmezi var; isteğe bağlı elle durum referansı."""
+    from app.hermes.ingest import ingest
+    from app.models import Asset, Character
+    pid = mk_project(5.0)
+    ingest(pid, KIVILCIM, auto_music=False)
+    with session_scope() as s:
+        for ch in s.scalars(select(Character).where(Character.project_id == pid)):
+            ch.reference_images = [f"assets/{ch.id}/still/s.png"]
+            if ch.name == "Bolt":
+                ch.kind = "non_human"
+                a = s.get(Asset, ch.asset_id)
+                a.description = "small round copper robot, riveted body"
+                a.invariants = ["round glass eyes (glow blue only when switched on)", "red button on its back"]
+                if state_off:
+                    a.references = {**(a.references or {}), "state_off": {"key": state_off}}
+        codes = {sc.scene_code: str(sc.id) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
+    return pid, codes
+
+
+def _shot(s, sid):
+    from app.core.state import load_assets, load_characters
+    from app.engine.iteration import compose_for_scene
+    sc = s.get(Scene, sid)
+    chars, assets = load_characters(s, sid), load_assets(s, sid)
+    return sc, chars, assets, compose_for_scene(sc, chars, assets, None)
+
+
+# ---------- (1a) durum referansı ----------
+
+def test_a_state_reference_replaces_the_still_while_the_shot_is_in_that_state(api, mk_project):
+    pid, codes = _kivilcim(api, mk_project, state_off="assets/b/state_off/off.png")
+    with session_scope() as s:
+        sc, chars, assets, composed = _shot(s, codes["S001_SH03"])                 # "with its eyes dark"
+        assert state_rules.state_key(composed.states) == "off"
+        refs, probes = sb.state_plan(s, sc, composed, chars, assets, CFG, None)
+        lit = _shot(s, codes["S001_SH02"])                                         # durum yok: referans değişmez
+        assert sb.state_plan(s, lit[0], lit[3], lit[1], lit[2], CFG, None) == ({}, [])
+    assert refs == {"Bolt": "assets/b/state_off/off.png"}
+    probe = probes[0]
+    assert (probe["name"], probe["key"], probe["color"], probe["label"]) == ("Bolt", "off", "blue", "eyes dark")
+    assert probe["wanted"] == "a photo of small round copper robot with dark, unlit eyes"
+    assert probe["opposite"] == "a photo of small round copper robot with glowing blue eyes"
+    out = sb.with_state_refs([{"name": "Bolt", "key": "still", "kind": "character"}], refs, "off")
+    assert out == [{"name": "Bolt", "key": "assets/b/state_off/off.png", "kind": "character", "state": "off"}]
+    text = sb.chain_prompt("p", [{"name": "K", "key": "k", "kind": "frame"}, *out], "cut", {"cast": ["Bolt"], "kept": []},
+                           MEDIUM)
+    assert "Bolt must look exactly like image 2 (image 2 shows Bolt in this shot's state)" in text
+
+
+def test_a_state_reference_can_be_added_to_a_locked_character(api, mk_project):
+    from app.models import Asset, Character
+    pid, codes = _kivilcim(api, mk_project)
+    with session_scope() as s:
+        aid = str(s.scalars(select(Character).where(Character.project_id == pid, Character.name == "Bolt")).one().asset_id)
+        s.get(Asset, aid).status = "locked"
+        version = s.get(Asset, aid).version
+    r = api.post(f"/api/assets/{aid}/references?kind=state_off&filename=off.png", content=png((10, 10, 12)),
+                 headers={"content-type": "image/png"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["status"] == "locked" and body["version"] == version and body["references"]["state_off"]["key"]
+
+
+# ---------- (1b) otomatik durum referansı ----------
+
+def test_a_verified_earlier_frame_in_the_same_state_becomes_the_state_reference(api, mk_project, monkeypatch, tmp_path):
+    from PIL import Image as Img
+    from app import storage
+    from app.core.hashing import visual_fingerprint
+    from app.core.state import load_assets, load_characters
+    pid, codes = _kivilcim(api, mk_project)
+    with session_scope() as s:                                  # SH03'ün karesi (gözler karanlık) çizilmiş ve güncel
+        sh03 = s.get(Scene, codes["S001_SH03"])
+        sh03.board_key = f"storyboard/{sh03.id}/k.jpg"
+        sh03.board_hash = visual_fingerprint(sh03, load_characters(s, sh03.id), load_assets(s, sh03.id), None)
+        sh03.board_sha, sh03.board_status = "a" * 64, "approved"
+        s.get(Scene, codes["S001_SH04"]).director_note = "Bolt's eyes stay dark"         # SH04 de kapalı
+        clean = sb.clean_key(sh03.board_key)
+    Img.new("RGB", (64, 36), (20, 20, 20)).save(tmp_path / "k.jpg")
+    storage.put_file(str(tmp_path / "k.jpg"), clean, "image/jpeg")
+    monkeypatch.setattr(gate, "scorer_mode", lambda: "real")
+    probed = []
+    monkeypatch.setattr(scorer, "state_probe", lambda image, probes: probed.append(probes) or
+                        {probes[0]["label"]: {"score": 0.9, "glow": 0.1, "clip": 0.4}})
+    monkeypatch.setattr(scorer, "character_crop", lambda image, keys: image.crop((0, 0, 32, 32)))
+    with session_scope() as s:
+        sc, chars, assets, composed = _shot(s, codes["S001_SH04"])
+        refs, probes = sb.state_plan(s, sc, composed, chars, assets, CFG, None)
+        again, _ = sb.state_plan(s, sc, composed, chars, assets, CFG, None)        # içerik-adresli: yeniden ölçülmez
+    key = refs["Bolt"]
+    assert key.startswith(f"state_refs/{codes['S001_SH03']}/bolt_off_") and storage.exists(key) and again == refs
+    assert len(probed) == 1
+    with session_scope() as s:                                  # sonda tutmazsa referans yok, aday yeniden ölçülmez
+        storage.purge(key)
+        killswitch.r().delete(sb.STATE_MISS.format(key))
+        monkeypatch.setattr(scorer, "state_probe", lambda image, probes: probed.append(probes) or
+                            {probes[0]["label"]: {"score": 0.1, "glow": 4.5, "clip": 0.2}})
+        sc, chars, assets, composed = _shot(s, codes["S001_SH04"])
+        assert sb.state_plan(s, sc, composed, chars, assets, CFG, None)[0] == {}
+        sb.state_plan(s, sc, composed, chars, assets, CFG, None)
+    assert len(probed) == 2 and killswitch.r().get(sb.STATE_MISS.format(key))
+
+
+# ---------- (1c) durum kapısı ----------
+
+def test_the_glow_measure_tells_dark_eyes_from_lit_ones():
+    from PIL import Image as Img, ImageDraw
+    def robot(eye):
+        im = Img.new("RGB", (320, 180), (90, 55, 30))
+        d = ImageDraw.Draw(im)
+        for x in (120, 200):
+            d.ellipse([x - 18, 70, x + 18, 106], fill=eye)
+        return im
+    dark, lit = robot((8, 8, 10)), robot((130, 248, 255))
+    assert scorer.glow_fraction(dark, "blue") == 0 and scorer.glow_fraction(lit, "blue") > 10 * scorer.GLOW_REF
+    red = robot((255, 40, 30))
+    assert scorer.glow_fraction(red, "red") > scorer.GLOW_REF and scorer.glow_fraction(red, "blue") == 0
+
+
+def test_the_state_probe_decides_by_the_glow_when_the_colour_is_known(monkeypatch):
+    import threading
+    import numpy as np
+    from PIL import Image as Img, ImageDraw
+
+    class FakeModels:
+        scale, lock = 100.0, threading.Lock()
+
+        def encode_images(self, images):
+            return np.array([[1.0, 0.0]] * len(images))
+
+        def encode_texts(self, texts):
+            return np.array([[0.2, 0.98], [0.9, 0.44]])             # metin sondası yanlış yöne bakıyor
+
+        def reference_dino(self, key):
+            return None
+
+    monkeypatch.undo()                                          # gerçek sonda (otomatik taklit kaldırılır), sahte modeller
+    monkeypatch.setattr(scorer, "models", lambda: FakeModels())
+    dark = Img.new("RGB", (160, 90), (40, 30, 20))
+    lit = dark.copy()
+    ImageDraw.Draw(lit).ellipse([60, 30, 90, 60], fill=(130, 248, 255))
+    off = {"label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
+    assert scorer.state_probe(dark, [off])["eyes dark"]["score"] == 1.0
+    assert scorer.state_probe(lit, [off])["eyes dark"]["score"] == 0.0
+    assert scorer.state_probe(lit, [{**off, "key": "on"}])["eyes dark"]["score"] == 1.0
+    text_only = scorer.state_probe(dark, [{**off, "color": None}])["eyes dark"]
+    assert text_only["glow"] is None and text_only["score"] == text_only["clip"] < 0.5   # renk yoksa OpenCLIP
+
+
+def test_a_frame_whose_state_does_not_hold_is_redrawn_and_finally_flagged(chained, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    probe = {"name": "Bolt", "label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
+    monkeypatch.setattr(sb, "state_plan", lambda *a, **k: ({}, [probe]))
+    scores = [0.0, 0.0, 0.0]
+    monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {
+        "score": scores.pop(0) if scores else 0.0, "glow": 4.5, "clip": 0.2}})
+    sb.make_board(pid, codes["S001_SH02"])
+    assert len([p for p in _prompts(fake) if "Reframe the camera" in p]) == 3                   # üç deneme
+    with session_scope() as s:
+        k2 = s.get(Scene, codes["S001_SH02"])
+        assert k2.board_status == "pending" and "durum (eyes dark) tutmadı" in k2.board_note
+
+
+def test_a_frame_whose_state_holds_on_retry_needs_no_review(chained, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    probe = {"name": "Bolt", "label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
+    monkeypatch.setattr(sb, "state_plan", lambda *a, **k: ({}, [probe]))
+    scores = [0.9, 0.0, 0.8]                                    # K1 (önce çizilir), K2 1. deneme, K2 2. deneme
+    monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {
+        "score": scores.pop(0) if scores else 0.8, "glow": 0.1, "clip": 0.4}})
+    sb.make_board(pid, codes["S001_SH02"])
+    assert len([p for p in _prompts(fake) if "Reframe the camera" in p]) == 2
+    with session_scope() as s:
+        assert not (s.get(Scene, codes["S001_SH02"]).board_note or "")
+
+
+# ---------- (2) eski dikiş kuralıyla üretilmiş klip ----------
+
+def test_a_clip_made_under_the_old_seam_rule_is_marked_and_replanned(ended, api, monkeypatch):
+    from app.engine import iteration
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH01"])                       # SH02 kesme: SH01'in son karesi Kn_end
+    with session_scope() as s:
+        sc = s.get(Scene, codes["S001_SH01"])
+        end = sb.clean_key(sc.end_board_key)
+        v = Variation(scene_id=sc.id, tier="full", wave_no=0, engine="h3", seed=1, prompt_revision=0, status="refined",
+                      refined_rank=1, video_key="variations/x.mp4",
+                      params={"keyframe_key": sb.clean_key(sc.board_key), "last_frame_key": "storyboard/k2_clean.jpg",
+                              "last_frame_kind": "next"})
+        s.add(v)
+        sc.status, sc.board_status = "done", "approved"
+        s.flush()
+        vid = v.id
+    with session_scope() as s:
+        assert iteration.seam_outdated(s, s.get(Scene, codes["S001_SH01"])) == \
+            "son kare kuralı değişti (sonraki çekimin karesi → çekimin son karesi)"
+    queued = []
+    monkeypatch.setattr("app.api.plan.build_chain", lambda pid, sid, stages, **kw: type(
+        "C", (), {"apply_async": lambda self: queued.append(stages)})())
+    r = api.post(f"/api/scenes/{codes['S001_SH01']}/render").json()
+    assert "VISUAL" in r["stages"] and queued
+    with session_scope() as s:
+        assert s.get(Variation, vid).params["stale_keyframe"].startswith("son kare kuralı değişti")
+        v = s.get(Variation, vid)                               # kurala uyan klip eskimez
+        v.params = {**v.params, "stale_keyframe": None, "last_frame_key": end, "last_frame_kind": "end"}
+        s.flush()
+        assert iteration.seam_outdated(s, s.get(Scene, codes["S001_SH01"])) is None
+        v.params = {k: x for k, x in v.params.items() if k != "keyframe_key"}       # ücretsiz modun yerel klibi
+        s.flush()
+        assert iteration.seam_outdated(s, s.get(Scene, codes["S001_SH01"])) is None
+
+
+# ---------- (3) eski kare notu ----------
+
+def test_a_clean_redraw_clears_the_previous_attempts_note(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH01"])
+    with session_scope() as s:
+        s.get(Scene, codes["S001_SH01"]).board_note = "İnceleme önerilir: Bolt benzerliği sınırda (DINOv2 0,81, eşik 0,78)"
+    fake.image = png((90, 140, 200))
+    sb.make_board(pid, codes["S001_SH01"], standalone=True, explicit=True)
+    with session_scope() as s:
+        assert s.get(Scene, codes["S001_SH01"]).board_note is None
+
+
+# ---------- (4) kazanan klibin varış skoru ----------
+
+def test_the_winning_clips_arrival_is_shown_on_the_shot(api, mk_project):
+    pid, codes = _kivilcim(api, mk_project)
+    arrival = {"score": 0.9467, "dino": 0.9753, "identity": 0.88, "target": "end"}
+    with session_scope() as s:
+        s.add(Variation(scene_id=codes["S001_SH03"], tier="full", wave_no=0, engine="h3", seed=1, prompt_revision=0,
+                        status="refined", refined_rank=1, params={"score_detail": {"arrival": arrival}}))
+    shots = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}
+    assert shots["S001_SH03"]["arrival"] == arrival and shots["S001_SH02"]["arrival"] is None

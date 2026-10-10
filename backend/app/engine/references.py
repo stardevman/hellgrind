@@ -30,7 +30,12 @@ REFERENCE_KINDS = {
     "turnaround": ("video", "Dönüş videosu (360°)", False),
     "expressions": ("image", "İfade sayfası", True),
     "voice_sample": ("audio", "Ses örneği", True),
+    # Durum referansı (core/states.py): çekim o durumdaysa kimlik referansı olarak bu görsel verilir (ör. Bolt kapalı,
+    # gözler karanlık). Görüntü kimliğini değiştirmez: sürüm artmaz, varlık taslağa dönmez, kilitliyken de yüklenir.
+    "state_off": ("image", "Durum referansı: kapalı (ör. gözler karanlık)", True),
+    "state_on": ("image", "Durum referansı: açık (ör. gözler yanık)", True),
 }
+STATE_REF_KINDS = ("state_off", "state_on")
 VISUAL_KINDS = ("still", "turnaround", "expressions")
 SAMPLE_FRAMES = 8
 FRAME_WIDTH = 384

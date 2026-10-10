@@ -176,6 +176,10 @@ function H3({ sc }: { sc: Scene }) {
       {sc.transition_reason && !sc.transition_explicit && (
         <p className="faint small">Otomatik sınıflama: {sc.transition_reason}.</p>
       )}
+      {sc.arrival && (
+        <p className="small">Varış (kazanan klip): <span className="mono">{sc.arrival.score.toFixed(2)}</span>
+          <span className="faint"> · son kare {sc.arrival.target === "end" ? "çekimin son karesine" : "sonraki çekimin karesine"} (DINOv2 {sc.arrival.dino.toFixed(2)}{sc.arrival.identity != null ? `, kimlik ${sc.arrival.identity.toFixed(2)}` : ""})</span></p>
+      )}
       {sc.chain_parent && (
         <p className={sc.chain_stale ? "warn small" : "faint small"}>
           {sc.chain_stale ? `Kare eski: zincirdeki önceki kare (${sc.chain_parent}) değişti; videodan önce yeniden çizilecek.`

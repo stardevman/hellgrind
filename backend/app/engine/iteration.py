@@ -476,6 +476,46 @@ def last_frame_of(s, scene, style_version, cfg: dict | None = None) -> tuple[str
     return (key, "next") if storage.exists(key) else (None, None)
 
 
+def seam_outdated(s, scene) -> str | None:
+    """Kazanan klip bugünkü dikiş kuralına göre mi üretildi: son karesi (FL2VA last_frame) şimdi beklenenle aynı değilse
+    (geçiş sınıfı değişti, çekim sonu karesi Kn_end eklendi ya da değişti) gerekçe; değilse None. Yalnızca ilk karesi
+    sağlayıcıya yüklenmiş (ücretli H3 FL2VA) kliplerde; ücretsiz modun yerel klipleri ve kesintisiz dikiş hariç.
+    Kıvılcım SH01: video kesme kuralından önce last_frame = K2 ile üretilmişti, şerit onayında yeniden planlanmadı."""
+    if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate":
+        return None
+    winner = s.scalars(select(Variation).where(Variation.scene_id == scene.id, Variation.refined_rank == 1,
+                                               Variation.status == "refined")).first()
+    params = (winner.params or {}) if winner is not None else {}
+    if winner is None or params.get("stale_keyframe") or not params.get("keyframe_key") \
+            or str(params["keyframe_key"]).startswith("seam/") or params.get("h3_mode") == "ref2va":
+        return None
+    project = s.get(Project, scene.project_id)
+    expected, kind = last_frame_of(s, scene, bible.active_version(s, scene.project_id),
+                                   project_settings(project.settings))
+    if (params.get("last_frame_key") or None) == (expected or None):
+        return None
+    was = {"next": "sonraki çekimin karesi", "end": "çekimin son karesi"}.get(params.get("last_frame_kind"),
+                                                                            "sonraki çekimin karesi" if params.get("last_frame_key") else "serbest")
+    now = {"next": "sonraki çekimin karesi", "end": "çekimin son karesi"}.get(kind, "serbest")
+    return f"son kare kuralı değişti ({was} → {now})"
+
+
+def mark_seam_outdated(s, scene) -> bool:
+    """seam_outdated ise çekimin klipleri "eski kareden" işaretlenir (silinmez, yeniden kullanılmaz) ve görsel özet
+    sıfırlanır: plan VISUAL der. Olay yazılır."""
+    reason = seam_outdated(s, scene)
+    if reason is None:
+        return False
+    for v in s.scalars(select(Variation).where(Variation.scene_id == scene.id,
+                                               Variation.status.in_(("passed", "refined", "generated")))):
+        if not (v.params or {}).get("stale_keyframe"):
+            v.params = {**(v.params or {}), "stale_keyframe": reason}
+    scene.visual_hash = None
+    s.flush()
+    killswitch.event(str(scene.project_id), "seam_outdated", scene_id=str(scene.id), code=scene.scene_code, reason=reason)
+    return True
+
+
 SEAM_WAIT_S = 6 * 3600         # kesintisiz dikiş: önceki çekimin kazanan klibini en çok bu kadar bekle
 SEAM_POLL_S = 10.0
 SEAM_WAITING = ("pending", "parsed", "storyboard", "probing", "generating", "correcting")

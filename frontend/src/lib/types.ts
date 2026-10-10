@@ -98,6 +98,8 @@ export interface Scene {
   chain_parent?: string | null; chain_stale?: boolean; chain_redraw?: string[];
   /** Otomatik sınıflamanın gerekçesi ("kadro aynı: Mila+Bolt"), senaryonun zorladığı geçiş (cut | continuous). */
   transition_reason?: string | null; transition_hint?: string | null;
+  /** Kazanan klibin varış skoru (son kare -> sonraki çekimin karesi ya da çekimin son karesi). */
+  arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
   /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */
   chain_cast?: string[];
   /** Çekim sonu karesi (Kn_end): sonraki çekim kesmeyle geliyorsa video bu karede biter. */

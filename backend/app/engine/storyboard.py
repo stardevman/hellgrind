@@ -145,15 +145,104 @@ def looks_text(refs: list[dict], kept=()) -> list[str]:
         if r["kind"] != "character":
             continue
         inv = f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}" if r.get("invariants") else ""
+        state = f" (image {i} shows {r['name']} in this shot's state)" if r.get("state") else ""
         if r["name"] in kept:
             out.append(f"keep the single {r['name']} already in image 1 unchanged — image {i} is only {r['name']}'s "
-                       f"identity reference{inv}; do not add another {r['name']}")
+                       f"identity reference{state}{inv}; do not add another {r['name']}")
         else:
-            out.append(f"{r['name']} must look exactly like image {i}{inv}")
+            out.append(f"{r['name']} must look exactly like image {i}{state}{inv}")
     return out
 
 
 ONCE = "Each character appears exactly once in the frame."
+
+
+# ---------- karakter durumu (core/states.py) ----------
+
+def state_plan(s, scene, composed, chars, assets, cfg: dict, style) -> tuple[dict, list]:
+    """(karakter adı -> durum referansı anahtarı, durum sondaları). Elle yüklenen durum referansı (varlık references
+    state_off / state_on) önce; yoksa sekansta aynı durumda doğrulanmış önceki karenin karakter kırpımı."""
+    from app.core import states as st
+    from app.quality.scorer import ref_order
+    from app.style.composer import glow_colors
+    key = st.state_key(composed.states)
+    if key is None:
+        return {}, []
+    names = st.targets(composed.states, chars)
+    nouns = [n.lower() for n in names]
+    label = st.probe_label(composed.states)
+    by_asset = {a.id: a for a in assets or ()}
+    refs, probes = {}, []
+    for ch in chars:
+        if ch.name not in names:
+            continue
+        asset = by_asset.get(ch.asset_id)
+        wanted, opposite = st.probe_texts(composed.states, key, st.subject_of(asset, ch),
+                                          glow_colors(getattr(asset, "invariants", None) or []), nouns)
+        colors = glow_colors(getattr(asset, "invariants", None) or [])
+        probe = {"name": ch.name, "keys": list(ref_order(ch.reference_images)), "wanted": wanted, "opposite": opposite,
+                 "label": label if len(names) == 1 else f"{ch.name} {label}", "key": key,
+                 "color": colors[0] if colors else None}
+        probes.append(probe)
+        manual = ((getattr(asset, "references", None) or {}).get(f"state_{key}") or {}).get("key")
+        if manual or (found := auto_state_reference(s, scene, ch, key, probe, cfg, style)):
+            refs[ch.name] = manual or found
+    return refs, probes
+
+
+def with_state_refs(refs: list[dict], state_refs: dict, key: str | None) -> list[dict]:
+    """Durumdaki karakterin kimlik referansı durum referansıyla değişir (gözleri yanık stil görseli durumu ezmesin)."""
+    return [{**r, "key": state_refs[r["name"]], "state": key} if r["kind"] == "character" and r["name"] in state_refs
+            else r for r in refs]
+
+
+STATE_MISS = "hg:state_miss:{}"           # sondadan geçemeyen aday kare (yeniden ölçülmesin)
+
+
+def auto_state_reference(s, scene, ch, key: str, probe: dict, cfg: dict, style) -> str | None:
+    """Sekansta bu çekimden önce, aynı durumda olan, karesi güncel ve incelemede olmayan en yakın çekimin karesinde
+    karakter durum sondasıyla doğrulanırsa (ör. SH03 başlangıç karesi: gözler karanlık) karakterin kırpımı
+    state_refs/{çekim}/{karakter}_{durum}_{kare}.jpg olarak saklanır ve durum referansı olur. Gerçek skorlayıcı gerekir."""
+    import re
+    from app.core import states as st
+    from app.engine.iteration import compose_for_scene
+    from app.quality import gate, scorer
+    if gate.scorer_mode() != "real":
+        return None
+    q = select(Scene).where(Scene.project_id == scene.project_id, Scene.seq_order < scene.seq_order)
+    if scene.sequence_id is not None:
+        q = q.where(Scene.sequence_id == scene.sequence_id)
+    version = style.version if style else None
+    for cand in s.scalars(q.order_by(Scene.seq_order.desc())):
+        cchars = load_characters(s, cand.id)
+        if ch.name not in {c.name for c in cchars} or not cand.board_key or cand.board_status == "changes_requested":
+            continue
+        cassets = load_assets(s, cand.id)
+        if cand.board_hash != visual_fingerprint(cand, cchars, cassets, version):
+            continue
+        if st.state_key(compose_for_scene(cand, cchars, cassets, style).states) != key:
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", ch.name.lower()).strip("-") or "c"
+        out = f"state_refs/{cand.id}/{slug}_{key}_{(parent_token(cand) or 'x')[:12]}.jpg"
+        if storage.exists(out):
+            return out
+        if killswitch.r().get(STATE_MISS.format(out)) or not storage.exists(clean_key(cand.board_key)):
+            continue
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            with Image.open(storage.download(clean_key(cand.board_key), os.path.join(tmp, "c.jpg"))) as im:
+                image = im.convert("RGB")
+            value = (scorer.state_probe(image, [probe]).get(probe["label"]) or {}).get("score", 0.0)
+            if value < float(cfg.get("state_threshold", 0.5)):
+                killswitch.r().set(STATE_MISS.format(out), value, ex=7 * 24 * 3600)
+                continue
+            path = os.path.join(tmp, "crop.jpg")
+            scorer.character_crop(image, probe["keys"]).convert("RGB").save(path, "JPEG", quality=92)
+            storage.put_file(path, out, "image/jpeg")
+        killswitch.event(str(scene.project_id), "state_reference", scene_id=str(scene.id), code=scene.scene_code,
+                         character=ch.name, source=cand.scene_code, state=key, probe=value)
+        return out
+    return None
 
 
 def framing_text(camera: dict | None, cast: list[str]) -> str:
@@ -398,11 +487,15 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=previous,
                                          transition=chain["transition"] if chain else None,
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
-                                         chain["transition"] == "cut" and not extra.get("end") else None)
+                                         chain["transition"] == "cut" and not extra.get("end") else None,
+                                         states=extra.get("state_probes") or None)
                 framing_off = bool((score.detail or {}).get("framing_mismatch"))
+                state_off = bool((score.detail or {}).get("state_mismatch"))
+                soft_off = framing_off or state_off           # yeniden deneme sebebi, eleme değil
                 detail = dict(score.detail or {})
-                if framing_off and score.passed and attempt + 1 == attempts:    # son deneme: geçer, yönetmen bakar
-                    detail["review"] = [*detail.get("review", []), framing_note(detail)]
+                if soft_off and score.passed and attempt + 1 == attempts:       # son deneme: geçer, yönetmen bakar
+                    detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
+                                        *(f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or [])]
                 drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=score.passed,
@@ -411,7 +504,7 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                  faces_seen=(score.detail or {}).get("faces_seen"),
                                  faces_measured=(score.detail or {}).get("faces_measured"),
                                  continuity=(score.detail or {}).get("continuity"),
-                                 framing=(score.detail or {}).get("framing"),
+                                 framing=(score.detail or {}).get("framing"), state=(score.detail or {}).get("state"),
                                  review=detail.get("review"), end=bool(extra.get("end")),
                                  chain=chain["code"] if chain else None,
                                  reasons=[a.get("type") for a in score.anomalies])
@@ -419,9 +512,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                     "attempt": attempt + 1, "passed": score.passed, "composite": score.composite,
                     "reasons": [a.get("type") for a in score.anomalies],
                     **{k: (score.detail or {}).get(k) for k in ("look", "look_dino", "identity", "continuity", "review",
-                                                                 "framing")
+                                                                 "framing", "state")
                        if (score.detail or {}).get(k) is not None}}})
-                if score.passed and not (framing_off and attempt + 1 < attempts):   # kadraj tutmadı: yeniden dene
+                if score.passed and not (soft_off and attempt + 1 < attempts):   # kadraj ya da durum tutmadı: yeniden
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
         drawn.sha = sha_of(clean)
@@ -555,6 +648,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     import time
     from app.core.chain import plan_of, stale, transition_of
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
+    from app.core.states import state_key
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
     with session_scope() as s:
@@ -568,6 +662,9 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         strict = strict_refs(cfg)
         model = keyframe_model(scene, chars, assets, strict)
         refs = edit_references(scene, chars, assets, strict)
+        state_refs, probes = state_plan(s, scene, composed, chars, assets, cfg, style)
+        refs = with_state_refs(refs, state_refs, state_key(composed.states))
+        extra["state_probes"] = probes
         parent, usable = _chain_parent(s, scene, lambda sc: visual_fingerprint(
             sc, load_characters(s, sc.id), load_assets(s, sc.id), version)) if chain_enabled() else (None, False)
         chain_stale = stale(scene, parent if usable else None)
@@ -626,8 +723,10 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         elif drawn is not None and (drawn.detail or {}).get("review"):      # sınırda: geçti, yönetmen bakmalı
             fields.update(board_status="pending",
                           board_note="İnceleme önerilir: " + "; ".join(drawn.detail["review"]))
-        elif drawn is not None and drawn.source in PAID_SOURCES and info["board_status"] == "changes_requested":
-            fields.update(board_status="pending", board_note=None)    # yeniden çizilen kare geçti
+        elif drawn is not None:                         # yeni deneme temiz geçti: eski denemenin notu kalmasın
+            fields["board_note"] = None
+            if changed or info["board_status"] == "changes_requested":
+                fields["board_status"] = "pending"
         elif changed or info["board_status"] == "changes_requested":
             fields["board_status"] = "pending"          # yeni kare yeni onay ister
         advance_scene(project_id, scene_id, **fields)
@@ -712,7 +811,10 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         if not board_ok or (end_fresh(scene, fp) and not redraw):
             return scene.end_board_key if board_ok else None
         composed = compose_for_scene(scene, chars, assets, style)
-        refs = [r for r in edit_references(scene, chars, assets, strict_refs(cfg)) if r["kind"] == "character"][:2]
+        from app.core.states import state_key
+        state_refs, probes = state_plan(s, scene, composed, chars, assets, cfg, style)
+        refs = [r for r in with_state_refs(edit_references(scene, chars, assets, strict_refs(cfg)), state_refs,
+                                           state_key(composed.states)) if r["kind"] == "character"][:2]
         source = "local" if settings.dry_run else board_source("fl2va", False, "qwen_edit")
         if source != "qwen_edit" and not settings.dry_run:
             return None                                   # Qwen-Image-Edit yok: son kare çizilmez, video son karesiz
@@ -726,7 +828,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         extra = {"end": True, "chain": {"key": kn, "transition": "continuous", "code": scene.scene_code},
                  "edit_references": [{"name": scene.scene_code, "key": kn, "kind": "frame"}, *refs],
                  "negative": composed.negative, "edit_mode": END_MODE, "camera": dict(scene.camera or {}),
-                 "label": "h3:storyboard:end",
+                 "label": "h3:storyboard:end", "state_probes": probes,
                  "estimate": pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=END_MODE)}
         lines = [f"{scene.scene_code} · son kare · {camera_text(scene.camera)}"]
         code = scene.scene_code

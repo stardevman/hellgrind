@@ -210,7 +210,7 @@ def framing_check(area: float | None, scale: str | None) -> dict | None:
 
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
-                transition: str | None = None, scale: str | None = None) -> Score:
+                transition: str | None = None, scale: str | None = None, states: list | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
@@ -230,6 +230,16 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
                 if value < threshold:
                     anomalies.append({"type": "continuity_jump", "score": value, "threshold": threshold,
                                       "transition": transition or "continuous"})
+        if measured is not None and states:             # durum kapısı: karakter kırpımında OpenCLIP sondaları
+            probed = scorer.state_probe_path(path, states)
+            values = {label: v["score"] for label, v in probed.items()}
+            if values:
+                measured.detail["state"] = values
+                measured.detail["state_detail"] = probed
+                threshold = float(cfg.get("state_threshold", 0.5))
+                missed = [label for label, value in values.items() if value < threshold]
+                if missed:
+                    measured.detail["state_mismatch"] = missed
         if measured is not None and scale:
             framing = framing_check(scorer.framing(path, target or scorer.Target()), scale)
             if framing is not None:

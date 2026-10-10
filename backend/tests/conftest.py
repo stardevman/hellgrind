@@ -368,8 +368,11 @@ def refined(sample_scene):
 
 @pytest.fixture(autouse=True)
 def _no_real_seam_models(monkeypatch):
-    """Kadraj ölçeği ve varış skoru gerçek modelleri (OpenCLIP + DINOv2, ~3,6 GB) yükler: skorlayıcıyı "real" moda alan
+    """Kadraj ölçeği, varış skoru ve durum sondası gerçek modelleri (OpenCLIP + DINOv2, ~3,6 GB) yükler: skorlayıcıyı "real" moda alan
     testlerde de varsayılan olarak ölçülmez (None). Bunları sınayan test kendi değerini monkeypatch ile verir."""
     from app.quality import scorer
     monkeypatch.setattr(scorer, "framing", lambda path, target: None)
     monkeypatch.setattr(scorer, "arrival", lambda path, key, target: None)
+    monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {})      # durum sondası (OpenCLIP + kırpım)
+    monkeypatch.setattr(scorer, "state_probe", lambda image, probes: {})
+    monkeypatch.setattr(scorer, "continuity", lambda path, previous: None)       # zincir karesi mekân benzerliği

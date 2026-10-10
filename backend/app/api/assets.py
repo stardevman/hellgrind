@@ -208,7 +208,8 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
 def _precheck(asset_id: str, kind: str) -> None:
     with session_scope() as s:
         a = asset_or_404(s, asset_id)
-        ensure_editable(a)
+        if kind not in references.STATE_REF_KINDS:      # durum referansı kilitli varlığa da eklenir
+            ensure_editable(a)
         if references.REFERENCE_KINDS[kind][2] and a.type != "character":
             raise HTTPException(422, f"{references.REFERENCE_KINDS[kind][1]} yalnızca karakterler içindir")
 
@@ -224,7 +225,8 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
         raise HTTPException(422, str(e))
     with session_scope() as s:
         a = asset_or_404(s, asset_id, lock=True)
-        ensure_editable(a)
+        if kind not in references.STATE_REF_KINDS:
+            ensure_editable(a)
         refs = dict(a.references or {})
         same = (refs.get(kind) or {}).get("sha") == entry["sha"]
         if not same:

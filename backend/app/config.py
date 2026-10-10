@@ -120,6 +120,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "look_threshold": 0.70,        # insan olmayan karakter: OpenCLIP görüntü benzerliği (kare/klip ile referans), alt sınır
     "look_dino_threshold": 0.78,   # insan olmayan karakter: DINOv2 (kırpımlar), alt sınır (zincir koşusu: doğru Bolt 0,80-0,91)
     "look_review_margin": 0.05,    # eşiğin bu kadar üstüne kadar: geçer ama "inceleme önerilir"
+    "state_threshold": 0.5,        # durum sondası (OpenCLIP, karakter kırpımı): istenen durumun olasılığı bunun altındaysa yeniden dene
     "continuity_threshold": 0.70,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
     "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
     "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
