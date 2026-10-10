@@ -1,7 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import storage
 from app.api import budget, projects, scenes
@@ -18,6 +21,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi (Kademe 1)", lifespan=lifespan)
 for module in (projects, scenes, budget):
     app.include_router(module.router, prefix="/api")
+
+# Stüdyo paneli: aynı /api uç noktalarını kullanan, derleme gerektirmeyen basit arayüz.
+UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+app.mount("/ui", StaticFiles(directory=UI_DIR, html=True), name="ui")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse("/ui/")
 
 
 @app.get("/healthz")

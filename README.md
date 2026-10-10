@@ -63,12 +63,17 @@ TÜM KONTROLLER GEÇTİ ✅
 
 | Adres | Ne |
 | --- | --- |
+| http://localhost:8000/ui | **Stüdyo paneli**: adım adım proje, sahne, ses, render, sonuç ve bütçe (ilk açılışta rehber turu) |
 | http://localhost:8000/docs | API (tarayıcıdan tüm uç noktaları deneyebilirsin) |
 | http://localhost:5555 | Flower: Celery kuyrukları ve görevler |
 | http://localhost:9001 | MinIO konsolu (kullanıcı `minio`, şifre `minio12345`): üretilen videolar |
 | `docker compose logs -f worker` | Üretim günlüğü (test turu, dalgalar, Kill-Switch) |
 
-## 4. Elle deneme (API /docs üzerinden)
+## 4. Stüdyo paneliyle deneme
+
+http://localhost:8000/ui adresini aç. İlk açılışta kısa bir rehber turu başlar (sonra sağ üstteki **❓ Rehber** ile tekrar açılır). En hızlı yol **✨ Örnek proje oluştur**: sahne ve diyalogu hazır bir proje kurar, render'ı başlatır ve sonucu 4. adımda gösterir. Panel aşağıdaki API ile aynı uç noktaları kullanır; gelişmiş ayarlar kapalı bölümlerde durur.
+
+## 5. Elle deneme (API /docs üzerinden)
 
 1. `POST /api/projects` → `{"title": "Deneme", "budget_limit_usd": 10}`
 2. `POST /api/projects/{id}/scenes` → `{"scene_code": "S001_SH01", "seq_order": 1}`

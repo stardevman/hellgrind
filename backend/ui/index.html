@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hell Grind Stüdyo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">🔥 Hell Grind <span class="muted">Stüdyo</span></div>
+  <div class="topbar-right">
+    <span id="health" class="pill">bağlanıyor…</span>
+    <select id="project-picker" aria-label="Proje seç"></select>
+    <button id="btn-tour" class="ghost">❓ Rehber</button>
+  </div>
+</header>
+
+<div id="frozen-banner" class="banner hidden">
+  🧊 Bu proje Kill-Switch ile <b>donduruldu</b>. Yeni render başlatılamaz.
+  <button id="btn-banner-resume">Devam ettir</button>
+</div>
+
+<nav class="stepper" id="stepper">
+  <button data-step="1"><b>1</b> Proje</button>
+  <button data-step="2"><b>2</b> Sahneler</button>
+  <button data-step="3"><b>3</b> Ses ve Render</button>
+  <button data-step="4"><b>4</b> Sonuç ve Bütçe</button>
+</nav>
+
+<main>
+  <!-- ADIM 1: PROJE -->
+  <section class="step" data-step="1">
+    <div id="project-empty">
+      <div class="card">
+        <h2>Yeni proje</h2>
+        <p class="muted">Bir ad ve bütçe sınırı yeter. Bütçe aşılırsa Kill-Switch üretimi otomatik durdurur.</p>
+        <form id="form-project" class="grid2">
+          <label>Proje adı<input name="title" required placeholder="Örn. Köprü Sahnesi"></label>
+          <label>Bütçe sınırı (USD)<input name="budget_limit_usd" type="number" min="0.01" step="0.01" value="10" required></label>
+          <details class="span2" id="advanced-settings">
+            <summary>Gelişmiş üretim ayarları</summary>
+            <p class="muted small">Boş bırakılanlar varsayılan değeri kullanır.</p>
+            <div id="settings-fields" class="grid3"></div>
+          </details>
+          <div class="span2 actions">
+            <button type="submit" class="primary">Projeyi oluştur</button>
+          </div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>Hızlı başlangıç</h2>
+        <p class="muted">Örnek bir sahne ve diyalogla hazır bir proje oluşturur ve render'ı başlatır.</p>
+        <button id="btn-demo" class="primary">✨ Örnek proje oluştur</button>
+        <details>
+          <summary>Var olan projeyi ID ile aç</summary>
+          <form id="form-open" class="inline">
+            <input name="id" placeholder="Proje ID (UUID)" required>
+            <button type="submit">Aç</button>
+          </form>
+        </details>
+      </div>
+    </div>
+
+    <div id="project-view" class="hidden">
+      <div class="card">
+        <div class="row-between">
+          <h2 id="pv-title"></h2>
+          <span id="pv-status"></span>
+        </div>
+        <div class="budget-bar" id="pv-budget"></div>
+        <p class="muted small">ID: <code id="pv-id"></code></p>
+        <div class="actions">
+          <button class="primary" data-goto="2">Sahnelere geç →</button>
+          <button id="btn-new-project" class="ghost">+ Başka proje</button>
+        </div>
+      </div>
+      <div class="card">
+        <details id="characters-box">
+          <summary>Karakterler <span class="muted small">(isteğe bağlı)</span></summary>
+          <ul id="character-list" class="list"></ul>
+          <form id="form-character" class="grid2">
+            <label>Ad<input name="name" required placeholder="Kerem"></label>
+            <label>Açıklama<input name="description" placeholder="30'larında, yorgun"></label>
+            <label>LoRA URL<input name="lora_url"></label>
+            <label>LoRA tetik kelimesi<input name="lora_trigger"></label>
+            <label>LoRA ölçeği<input name="lora_scale" type="number" step="0.05" value="1"></label>
+            <label>Ses ID<input name="voice_id"></label>
+            <div class="span2 actions"><button type="submit">Karakter ekle</button></div>
+          </form>
+        </details>
+      </div>
+      <div class="card">
+        <details>
+          <summary>Proje ayarları</summary>
+          <div id="pv-settings" class="kv"></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADIM 2: SAHNELER -->
+  <section class="step" data-step="2">
+    <div class="card">
+      <h2>Sahneler</h2>
+      <div id="scene-list" class="scene-list"></div>
+    </div>
+    <div class="card" id="scene-create">
+      <h2>Sahne ekle</h2>
+      <form id="form-scene" class="grid2">
+        <label>Sahne kodu<input name="scene_code" required pattern="S\d{3}_SH\d{2}" placeholder="S001_SH01"></label>
+        <label>Duygu<select name="emotion" class="emotion-select"></select></label>
+        <label class="span2">Ne oluyor?<textarea name="description" rows="2" placeholder="Kerem çöken köprünün kenarında dengesini kaybeder."></textarea></label>
+        <label class="span2">Görsel prompt<input name="prompt" placeholder="[CHAR:Kerem] stumbling on a collapsing bridge"></label>
+        <details class="span2">
+          <summary>Gelişmiş: kamera, süre, karakterler</summary>
+          <div class="grid3">
+            <label>Sıra<input name="seq_order" type="number"></label>
+            <label>Süre (sn)<input name="duration_s" type="number" min="2" max="10" step="0.5" value="5"></label>
+            <label>Aksiyon yoğunluğu<input name="action_complexity" type="number" min="0" max="1" step="0.1" value="0"></label>
+            <label>Çekim<select name="shot"><option>medium</option><option>close</option><option>wide</option><option>extreme_close</option></select></label>
+            <label>Hareket<select name="movement"><option>static</option><option>pan</option><option>tilt</option><option>dolly</option><option>handheld</option></select></label>
+            <label>Açı<select name="angle"><option>eye</option><option>low</option><option>high</option><option>overhead</option></select></label>
+            <label>Lens (mm)<input name="lens_mm" type="number" value="35"></label>
+            <label class="span2">Negatif prompt<input name="negative"></label>
+            <label class="span3">Senaryo metni<textarea name="script_text" rows="2"></textarea></label>
+          </div>
+          <div class="char-checks" id="scene-chars"></div>
+        </details>
+        <div class="span2 actions"><button type="submit" class="primary">Sahneyi ekle</button></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ADIM 3: SES VE RENDER -->
+  <section class="step" data-step="3">
+    <div class="card">
+      <div class="row-between">
+        <label class="grow">Sahne<select id="s3-scene" class="scene-select"></select></label>
+        <span id="s3-status"></span>
+      </div>
+      <p id="s3-plan" class="muted small"></p>
+    </div>
+    <div class="card" id="audio-box">
+      <h2>Ses ekle veya değiştir</h2>
+      <p class="muted small">Sadece ses değişince video yeniden üretilmez; yalnızca gereken aşamalar çalışır.</p>
+      <form id="form-audio" class="grid2">
+        <label>Tür<select name="kind">
+          <option value="dialogue">Diyalog</option><option value="music">Müzik</option>
+          <option value="sfx">Efekt</option><option value="ambience">Ortam sesi</option></select></label>
+        <label>Duygu<select name="emotion" class="emotion-select"><option value="">(yok)</option></select></label>
+        <label class="span2 dialogue-only">Replik<input name="text" placeholder="Dayan! Bırakma elimi!"></label>
+        <details class="span2">
+          <summary>Gelişmiş ses ayarları</summary>
+          <div class="grid3">
+            <label>Kaynak<select name="source"><option>dry_run</option><option>sample</option><option>upload</option><option>elevenlabs</option></select></label>
+            <label>Başlangıç (sn)<input name="start_offset_s" type="number" step="0.1" value="0"></label>
+            <label>Kazanç (dB)<input name="gain_db" type="number" step="1" value="0"></label>
+            <label>Karakter<select name="character_id" class="character-select"><option value="">(yok)</option></select></label>
+            <label class="span2">Dosya anahtarı<input name="file_key" placeholder="upload için"></label>
+          </div>
+        </details>
+        <div class="span2 actions"><button type="submit" class="primary">Sesi uygula ve render et</button></div>
+      </form>
+    </div>
+    <div class="card" id="render-box">
+      <h2>Render</h2>
+      <p class="muted small">Değişiklik yoksa hiçbir aşama çalışmaz ve para harcanmaz.</p>
+      <div class="actions">
+        <button id="btn-render" class="primary">▶ Render</button>
+        <label class="check"><input type="checkbox" id="force-visual"> Görüntüyü zorla yeniden üret</label>
+      </div>
+      <details id="scene-edit">
+        <summary>Sahneyi düzenle</summary>
+        <form id="form-patch" class="grid3">
+          <label class="span3">Açıklama<textarea name="description" rows="2"></textarea></label>
+          <label>Duygu<select name="emotion" class="emotion-select"></select></label>
+          <label>Süre (sn)<input name="duration_s" type="number" min="2" max="10" step="0.5"></label>
+          <label>Aksiyon yoğunluğu<input name="action_complexity" type="number" min="0" max="1" step="0.1"></label>
+          <label class="span3">Görsel prompt<input name="prompt"></label>
+          <label class="span3">Negatif prompt<input name="negative"></label>
+          <label class="span3">Kamera (JSON)<input name="camera"></label>
+          <div class="span3 actions"><button type="submit">Kaydet</button>
+            <span class="muted small">Kaydettikten sonra Render'a bas.</span></div>
+        </form>
+      </details>
+    </div>
+  </section>
+
+  <!-- ADIM 4: SONUÇ VE BÜTÇE -->
+  <section class="step" data-step="4">
+    <div class="card" id="result-box">
+      <div class="row-between">
+        <label class="grow">Sahne<select id="s4-scene" class="scene-select"></select></label>
+        <span id="s4-status"></span>
+      </div>
+      <div id="final-video" class="video-wrap"></div>
+      <details>
+        <summary>Varyasyonlar ve Quality Gate</summary>
+        <div id="variations"></div>
+      </details>
+    </div>
+    <div class="card" id="budget-box">
+      <div class="row-between">
+        <h2>Bütçe</h2>
+        <button id="btn-killswitch" class="danger">🧊 Kill-Switch: Dondur</button>
+      </div>
+      <div class="budget-bar" id="b-bar"></div>
+      <details>
+        <summary>Harcama defteri ve olaylar</summary>
+        <div id="b-ledger"></div>
+        <div id="b-events"></div>
+      </details>
+    </div>
+    <div class="card muted small">
+      Teknik araçlar: <a href="/docs" target="_blank">API</a> ·
+      <a href="http://localhost:5555" target="_blank">Flower</a> ·
+      <a href="http://localhost:9001" target="_blank">MinIO</a>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Tutorial katmanı -->
+<div id="tour" class="hidden">
+  <div id="tour-spot"></div>
+  <div id="tour-card" role="dialog" aria-live="polite">
+    <div class="muted small" id="tour-count"></div>
+    <h3 id="tour-title"></h3>
+    <p id="tour-text"></p>
+    <div class="actions">
+      <button id="tour-skip" class="ghost">Atla</button>
+      <span class="grow"></span>
+      <button id="tour-prev">Geri</button>
+      <button id="tour-next" class="primary">İleri</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
