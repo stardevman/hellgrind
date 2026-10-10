@@ -67,7 +67,9 @@ ACTION_STEMS = [
     r"fled\b", r"sprint", r"dodg", r"tumbl", r"smash", r"shak(?:e|es|ing)\b", r"shook\b",
 ]
 
-TRANSITION_WORDS = ("kesme", "geçiş", "kararma", "açılış", "cut to", "fade", "dissolve")
+TRANSITION_WORDS = ("kesme", "geçiş", "kararma", "açılış", "cut to", "fade", "dissolve", "continuous", "devam",
+                    "kesintisiz")
+CONTINUE_WORDS = ("continuous", "devam", "kesintisiz")     # geçiş satırı devamı zorlar; diğerleri kesmeyi
 SLUG_TR = ("iç/dış.", "iç.", "dış.")
 SLUG_EN = ("int/ext.", "int.", "ext.")
 PAREN = re.compile(r"\([^)]*\)")
@@ -144,7 +146,8 @@ def _has_lowercase(s: str) -> bool:
 
 def is_transition(line: str) -> bool:
     s = line.strip()
-    return bool(s) and not _has_lowercase(s) and (s.endswith(":") or tr_lower(s).startswith(TRANSITION_WORDS))
+    return bool(s) and not _has_lowercase(s) and (s.endswith(":") or tr_lower(s).startswith(TRANSITION_WORDS)
+                                                  or s.lower().startswith(TRANSITION_WORDS))     # CONTINUOUS: I -> i
 
 
 def is_cue(line: str) -> bool:
@@ -322,7 +325,7 @@ def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
     uygulanır). `sequence`: (sıra, başlık); sahne, başlığı okunduğu anda geçerli olan sekansa aittir."""
     scenes: list[dict] = []
     sequence = (0, None)
-    cut = False                                            # "CUT TO:" okundu: sıradaki çekimin geçişi kesme
+    hint = None                                            # "CUT TO:" / "CONTINUOUS:" okundu: sıradaki çekimin geçişi
 
     def scene():
         if not scenes:
@@ -335,14 +338,14 @@ def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
             continue
         if block["type"] == "slug":
             scenes.append({"heading": block["heading"], "sequence": sequence, "props": [], "characters": [], "shots": []})
-            cut = False                                    # yeni başlık zaten new_scene
+            hint = None                                    # yeni başlık zaten new_scene
             continue
         if block["type"] == "transition":
-            cut = True
+            low = (tr_lower(block["text"]), block["text"].lower())          # "CONTINUOUS" Türkçe küçültmede "contınuous"
+            hint = "continuous" if any(x.strip(" :.").startswith(CONTINUE_WORDS) for x in low) else "cut"
             continue
         sc = scene()
         shots = sc["shots"]
-        transition = "new_scene" if not shots else "cut" if cut else "continuous"
         previous_emotion = shots[-1]["emotion"] if shots else "neutral"
         text, props, marked = take_marks(block["text"])
 
@@ -355,8 +358,8 @@ def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
             present = marked + [c for c in mentions(text, cast) if c not in marked]
             shots.append({"description": text, "characters": present, "dialogue": [],
                           "emotion": emotion_of(text, default=previous_emotion, names=cast), "kind": kind,
-                          "props": props, "transition": transition})
-            cut = False
+                          "props": props, "hint": hint})
+            hint = None
             continue
 
         if not text:
@@ -375,8 +378,8 @@ def _build_scenes(blocks: list[dict], cast: list[str]) -> list[dict]:
             else:
                 shots.append({"description": f"{name} konuşuyor: {part[:80]}", "characters": [name],
                               "dialogue": [line], "emotion": emotion, "kind": "dialogue", "props": list(props),
-                              "transition": "new_scene" if not shots else "cut" if cut else "continuous"})
-                cut = False
+                              "hint": hint})
+                hint = None
     return [sc for sc in scenes if sc["shots"]]
 
 
@@ -492,9 +495,28 @@ def _parse(text: str, known) -> dict:
                 "dialogue": shot["dialogue"],
                 "duration_s": shot_duration(shot["description"], shot["dialogue"], shot["kind"] != "dialogue"),
                 "action_complexity": complexity,
-                "transition": shot.get("transition") or ("new_scene" if shot_no == 1 else "continuous"),
+                "transition_hint": shot.get("hint"),
+                "new_scene": shot_no == 1,
             })
+    classify(shots)
     return {"cast": cast, "sequences": sequences, "shots": shots}
+
+
+def classify(shots: list[dict]) -> list[dict]:
+    """Geçişler (core/chain.classify_shots; ingest ve panel aynı kuralı kullanır): her çekime transition, gerekçesi,
+    zincirden gelen ve kareden çıkan karakterler yazılır. Sekans başına ayrı."""
+    from app.core.chain import classify_shots
+    groups: dict = {}
+    for shot in shots:
+        groups.setdefault(shot.get("sequence"), []).append(shot)
+    for group in groups.values():
+        inputs = [{"new_scene": sh.get("new_scene", False), "location": sh.get("location"), "cast": sh["characters"],
+                   "camera": sh.get("camera"), "hint": sh.get("transition_hint"), "description": sh.get("description")}
+                  for sh in group]
+        for sh, plan in zip(group, classify_shots(inputs)):
+            sh.update(transition=plan["transition"], transition_reason=plan["reason"], carried=plan["carried"],
+                      removed=plan["removed"])
+    return shots
 
 
 SAMPLE_SCRIPT = """# SEKANS: Dökümhane

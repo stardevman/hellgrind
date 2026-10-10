@@ -53,6 +53,9 @@ FIELDS: tuple[Field, ...] = (
           "Veri merkezi (volume'un merkezi; EUR-* yalnızca Kuzey izni açıkken)",
           ("CA-MTL-1", "CA-MTL-2", "CA-MTL-3", "EUR-NO-1", "EUR-IS-1", "EUR-IS-2", "EUR-IS-3")),
     Field("RUNPOD_GPU_TYPES", "runpod_gpu_types", "text", "runpod", "GPU tipleri (virgülle; RTX 5090, RTX PRO 6000)"),
+    Field("RUNPOD_GPU_POOLS", "runpod_gpu_pools", "choice", "runpod",
+          "Uç noktaya yazılan GPU havuzları (auto: GPU tiplerinden; ADA_32_PRO = RTX 5090, BLACKWELL_96 = RTX PRO 6000)",
+          ("auto", "ADA_32_PRO", "BLACKWELL_96", "ADA_32_PRO,BLACKWELL_96")),
     Field("RUNPOD_WORKERS_MAX", "runpod_workers_max", "choice", "runpod",
           "En çok worker (aynı anda çalışan GPU): keep uç noktadaki değeri değiştirmez; 1-3 'Ayarları uç noktaya uygula' ile "
           "yazılır (projenin bekleyen iş sınırı RUNPOD_MAX_PENDING_JOBS bundan küçük olmamalı)", ("keep", "1", "2", "3")),

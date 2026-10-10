@@ -458,13 +458,25 @@ def region_problem(cfg: dict | None) -> str | None:
     return None
 
 
-def desired_config() -> dict:
-    """Ayarlar'daki uç nokta ayarı (REST v2 PATCH gövdesi)."""
+def gpu_pools() -> list[str]:
+    """Uç noktaya yazılacak GPU havuzları: Ayarlar'daki RUNPOD_GPU_POOLS (ör. yalnızca ADA_32_PRO: RTX PRO 6000 havuzu
+    eklenmeden 2-3 worker), auto ise GPU tiplerinden."""
+    chosen = [g.strip() for g in (settings.runpod_gpu_pools or "auto").split(",") if g.strip()]
+    if chosen and chosen != ["auto"]:
+        unknown = [g for g in chosen if g not in POOLS.values()]
+        if unknown:
+            raise PaidCallBlocked(f"Bilinmeyen GPU havuzu: {', '.join(unknown)} (geçerli: {', '.join(POOLS.values())}).")
+        return chosen
     names = [g.strip() for g in (settings.runpod_gpu_types or "").split(",") if g.strip()]
     unknown = [g for g in names if g not in POOLS]
     if unknown or not names:
         raise PaidCallBlocked(f"Bilinmeyen GPU tipi: {', '.join(unknown) or 'boş'} (geçerli: {', '.join(POOLS)}).")
-    body = {"gpu": {"pools": [POOLS[g] for g in names]},
+    return [POOLS[g] for g in names]
+
+
+def desired_config() -> dict:
+    """Ayarlar'daki uç nokta ayarı (REST v2 PATCH gövdesi)."""
+    body = {"gpu": {"pools": gpu_pools()},
             "workers": {"min": 0, "idleTimeout": int(settings.runpod_idle_timeout_s)},
             "dataCenterIds": [settings.runpod_datacenter], "flashboot": "FLASHBOOT"}
     if str(settings.runpod_workers_max) in ("1", "2", "3"):        # keep: uç noktadaki en çok worker değişmez

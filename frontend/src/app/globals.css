@@ -347,6 +347,16 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .board .frame .open:hover { background: var(--accent); }
 .board .frame .code { position: absolute; left: 6px; top: 6px; padding: 1px 6px; border-radius: 3px; background: rgba(0, 0, 0, .7); font-family: var(--mono); font-size: 11px; }
 .board textarea { min-height: 44px; font-size: 12px; }
+.strip { display: flex; gap: 4px; align-items: center; overflow-x: auto; padding: 6px 10px 10px; }
+.strip-shot { display: flex; gap: 3px; align-items: center; flex: none; }
+.strip-seam { width: 18px; text-align: center; color: var(--text-3); font-family: var(--mono); font-size: 13px; cursor: help; }
+.strip-frame { position: relative; width: 132px; padding: 0; border: 1px solid var(--line); border-radius: 2px; background: #0b0b0c; cursor: pointer; }
+.strip-frame.end { width: 104px; border-style: dashed; }
+.strip-frame.approved { border-color: rgba(61, 204, 145, .6); }
+.strip-frame.changes_requested { border-color: rgba(255, 92, 85, .7); }
+.strip-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.strip-frame img, .strip-frame .ph { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; color: var(--text-3); font-size: 11px; }
+.strip-frame .code { position: absolute; left: 3px; top: 3px; padding: 0 4px; border-radius: 2px; background: rgba(0, 0, 0, .7); font-family: var(--mono); font-size: 10px; color: #e7e9ee; }
 .board-seq { padding: 10px 10px 0; font-size: 12px; font-weight: 600; color: var(--text-2); }
 
 /* renk */

@@ -35,6 +35,7 @@ ACTIONS_TR = {
     "killswitch_freeze": "Üretim durduruldu", "killswitch_resume": "Üretime devam edildi",
     "refund_idle": "Boşta bekleme kayıtları iade edildi", "budget_change": "Bütçe değiştirildi",
     "chain_reset": "Temiz başlangıç (klipler eski, zincir kareleri yeniden çizilecek)",
+    "board_approve_all": "Storyboard şeridi onaylandı (videolar başlar)", "end_board_redraw": "Son kare yeniden çizildi",
     "asset_create": "Varlık eklendi", "asset_edit": "Varlık düzenlendi", "asset_reference": "Referans yüklendi",
     "asset_approve_still": "Durağan referans onayı", "motion_test": "Hareket testi istendi",
     "asset_approve_motion": "Hareket testi onayı", "asset_link": "Sahneye varlık bağlandı", "asset_unlink": "Varlık bağı kaldırıldı",

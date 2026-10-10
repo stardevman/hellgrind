@@ -178,13 +178,18 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
               if k in ("description", "render_style", "invariants") and v != getattr(a, k)
               and not (k == "invariants" and v is None)}
     if visual:
-        ensure_editable(a)
+        # Değişmezler tasarımı değiştirmez, korur (her istemde aynen; negatife zıtları): kilitli varlıkta da yazılır,
+        # hareket testi geçerli kalır; sürüm artar (çekimler yeniden üretilince uygulanır).
+        guard_only = set(visual) == {"invariants"}
+        if not guard_only:
+            ensure_editable(a)
         for key, value in visual.items():
             setattr(a, key, value)
         a.version += 1
-        a.motion_test_variation_id = None
-        if a.status == "motion_tested":
-            a.status = "still_approved"
+        if not guard_only:
+            a.motion_test_variation_id = None
+            if a.status == "motion_tested":
+                a.status = "still_approved"
     if "voice_id" in changes:
         ch = s.scalar(select(Character).where(Character.asset_id == a.id))
         if ch is None:

@@ -432,16 +432,41 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
   çizim ve ücret yoktur). İlk kare kaynağı yoksa (ne `keyframe.json` ne fal.ai anahtarı) FL2VA çekimi üretilmez ve neden
   denetçide yazar.
 - **Sahneler arası süreklilik (anahtar kare zinciri):** bir sekansta çekimlerin ilk kareleri sırayla çizilir (K1, K2 …).
-  Aynı sahne başlığı altında art arda gelen çekim *devam* (continuous) sayılır: Kn, Qwen-Image-Edit ile image 1 = K(n-1)
-  ve karakterlerin durağan referanslarıyla çizilir ("aynı oda, yerleşim, nesneler, ışık ve karakter tasarımları; yalnızca
-  çekimin anlattığı değişir"). Senaryoda `CUT TO:` (ya da `KESME:`) satırından sonraki çekim *kesme*dir: kamera açısı
-  değişebilir, mekân ve karakterlerin durumu korunur. Yeni sahne başlığı zinciri kırar (kare referanslardan). Geçiş
-  denetçiden çekim bazında değiştirilir. Kn çizilmeden K(n+1) çizilmez; kare kalite kapısı Kn ile K(n-1) arasında
-  karakter bölgesi dışındaki mekân benzerliğini (DINOv2) ölçer (`continuity_threshold` 0,80; kesmede
-  `cut_continuity_threshold` 0,60); kalan kare yeniden çizilir. Bir kare yeniden çizilince sonraki zincir kareleri "eski"
-  olur; denetçide **Sonraki N kareyi yeniden çiz** çıkar. Video (FL2VA) sonraki çekimin geçişi devam ise iki kare arasında
-  üretilir: ilk kare Kn, son kare (`last_frame`) K(n+1); klibin son karesi K(n+1)'e benzemezse aday elenir
-  (`transition_threshold` 0,80). Birleştirilmiş filmde geçişler kesme olarak kalır.
+  Kn, Qwen-Image-Edit ile image 1 = K(n-1) ve karakterlerin durağan referanslarıyla çizilir (dünya tutarlılığı: oda,
+  nesneler, ışık); yeni sahne başlığı zinciri kırar (kare referanslardan). Kn çizilmeden K(n+1) çizilmez; kare kalite
+  kapısı Kn ile K(n-1) arasında karakter bölgesi dışındaki mekân benzerliğini (DINOv2) ölçer (`continuity_threshold` 0,70;
+  kesmede `cut_continuity_threshold` 0,60). Bir kare yeniden çizilince ona bağlı kareler ve klipler "eski" olur; denetçide
+  **Sonraki N kareyi yeniden çiz** çıkar ve etkisi (kare, klip, tahmini maliyet) önce gösterilir.
+  - **Geçiş otomatik sınıflanır:** aynı mekân + aynı kadro + aynı kamera ölçeği → *devam* (continuous); kadro ya da kadraj
+    değişirse → *kesme* (cut). Senaryoda `CUT TO:` / `KESME:` kesmeyi, `CONTINUOUS:` / `DEVAM:` devamı zorlar; yönetmen
+    denetçiden çekim bazında da seçer. Gerekçe denetçide yazar ("kadro aynı: Bolt+Mila", "kadraj değişti: geniş → orta").
+  - **Zincirden gelen karakterler:** önceki çekimin karesinde olan, bu çekimde adı geçmeyen ve senaryoda çıktığı yazılmayan
+    karakter (bu çekimin yazılı kadrosu öncekinin alt kümesiyse) kadroya otomatik eklenir: referansı, değişmezleri ve kimlik
+    kapısıyla; panelde "zincirden gelen" etiketiyle. Kadro başka birine geçiyorsa ya da senaryo karakterin çıktığını
+    söylüyorsa (`Mila leaves the attic.`) edit istemi karakterin kareden çıkarılmasını açıkça ister.
+  - **Kesme karesi kadrajı açıkça ister** ("Reframe the camera for this shot: a medium shot of Bolt, 35 mm lens"); kapı
+    karakter alanının istenen ölçeğe kabaca uyduğunu da denetler, tutmazsa yeniden çizer (son denemede "inceleme önerilir").
+  - **Video nerede biter:** sonraki çekim *devam* ise FL2VA iki kare arasında üretilir (ilk kare Kn, `last_frame` K(n+1)).
+    Değilse (kesme, yeni sahne, sekans sonu) video sonraki kareye "yolculuk" yapmaz: **çekim sonu karesi** Kn_end, Kn'den
+    Qwen-Image-Edit Lightning ile çekimin kendi eylemi tamamlanmış hâli olarak çizilir (~0,007 $; kimlik, değişmez ve süreklilik
+    kapılarından geçer; geçemezse video son karesiz üretilir) ve `last_frame` odur. Proje ayarı `chain_end_frame` ile kapatılır.
+  - **Varış skoru:** klibin son karesi hedefe (K(n+1) ya da Kn_end) ne kadar vardı: DINOv2 tam kare benzerliği × 0,7 + son
+    karedeki kimlik × 0,3. Kaydedilir ve rafine havuz sıralamasına girer (birleşik skor × 0,7 + varış × 0,3);
+    `arrival_review_threshold` (0,85, gerçek veriyle kalibre edilecek) altı "inceleme önerilir". Devam eden çekimde DINOv2
+    `transition_threshold` (0,80) altıysa aday elenir.
+  - **Dikiş modu** (`seam_mode`): `keyframe` (varsayılan; çekimler paralel, dikiş anahtar karelerle) ya da `exact` (devam
+    eden çekimin ilk karesi önceki çekimin kazanan klibinin gerçek son karesi; sıralı üretim, önceki çekim bitene kadar
+    beklenir). `seam_crossfade_frames` (0-6) devam dikişlerinde filmde kısa geçiş yapar. Süreklilik denetimi devam
+    dikişlerinde içerik benzerliğini de ölçer ("içerik sıçraması").
+  - **Storyboard önce:** ücretli modda zincirli projede kare onayı varsayılan olarak zorunludur. Storyboard sayfasında
+    zincir şeridi bütün ilk kareleri ve son kareleri geçişleriyle gösterir; **Şeridi onayla ve videoları başlat** tek tıkla
+    onaylar (inceleme bekleyen kare onaylanmaz). Sorunlu kare yeniden çizilince sonraki kareler de (etki onayından sonra)
+    yeniden çizilir.
+  - **Tasarım kayması:** her edit isteminde "<karakter> must look exactly like image N" + değişmezler; değişmezlerden
+    otomatik negatifler ("exactly one bent antenna" → second antenna, extra antenna, extra bulb). Senaryodaki durum
+    sözcükleri (dark, off, broken, closed…) olumlu isteme "State: eyes dark." olarak, zıtları negatife yazılır.
+  - **Süre:** H3 kare sayısını 17n+5'e yukarı yuvarlar (4 sn → 4,46 sn); montajda hedef süreye kesilir. Devam eden çekim
+    baştan kesilir, varış ucu korunur.
 - **Karakter referanslarıyla (Ref2VA, elle seçilir):** çekim bazında denetçiden seçilir; kare çizilmez. Çekimdeki karakterlerin
   referans seti (durağan görsel, ifade sayfası ve dönüş videosundan önden, yandan, arkadan üç kare; karakterler arasında
   paylaşılan en çok 9 görsel) ve varsa ilk kare gider; istemde `<Picture 1>, <Picture 2> show Kerem` gibi eşlenir. Ref2VA
@@ -710,6 +735,7 @@ Bilinmesi gerekenler:
 | `RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, `RUNPOD_NETWORK_VOLUME_ID` | boş | RunPod anahtarı, Serverless uç nokta ve modellerin volume'u |
 | `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
 | `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
+| `RUNPOD_GPU_POOLS` | `auto` | **Ayarları uç noktaya uygula**'nın yazdığı GPU havuzları: `auto` (GPU tiplerinden) ya da ör. yalnızca `ADA_32_PRO` (RTX 5090; RTX PRO 6000 havuzu eklenmeden `RUNPOD_WORKERS_MAX` 2-3 worker) |
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |

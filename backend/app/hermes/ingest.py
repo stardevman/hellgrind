@@ -17,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
+from app.core.chain import sync_seams
 from app.core.hashing import stable_hash
 from app.db import session_scope
 from app.engine.providers import route_engine
@@ -100,6 +101,19 @@ def transition_guess(shots: list[dict], i: int) -> str:
     return "new_scene" if i == 0 or shots[i].get("heading") != shots[i - 1].get("heading") else "continuous"
 
 
+def _board_approval_default(s, project) -> None:
+    """Zincirli projede (ücretli modda kare zinciri Qwen-Image-Edit ile çiziliyorsa) storyboard önce: yönetmen ayarı
+    seçmediyse kare onayı zorunlu olur; videolar şerit onaylanınca başlar. Ücretsiz mod (yerel kareler) değişmez."""
+    from app.engine.storyboard import chain_enabled
+    raw = dict(project.settings or {})
+    if "require_board_approval" in raw or settings.dry_run or not chain_enabled():
+        return
+    chained = s.scalar(select(Scene.id).where(Scene.project_id == project.id,
+                                              Scene.transition_auto.in_(("continuous", "cut"))).limit(1))
+    if chained is not None:
+        project.settings = {**raw, "require_board_approval": True}
+
+
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     with session_scope() as s:
         known = list(s.scalars(select(Character.name).where(Character.project_id == project_id)))
@@ -125,7 +139,8 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                           script_text=script_text(shot), description=shot["description"],
                           emotion=shot["emotion"], camera=shot["camera"], duration_s=shot["duration_s"],
                           action_complexity=shot["action_complexity"],
-                          transition_auto=shot.get("transition") or transition_guess(parsed["shots"], order - 1))
+                          transition_auto=shot.get("transition") or transition_guess(parsed["shots"], order - 1),
+                          transition_hint=shot.get("transition_hint"))
             prompt = {"prompt": shot["visual_prompt"], "lang": lang}
             if sc is None:
                 sc = Scene(project_id=project_id, scene_code=shot["scene_id"], prompt_spec=prompt, **fields)
@@ -143,6 +158,8 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             _write_assets(s, sc, shot, book)
             _write_tracks(s, sc, shot, chars)
         music = _write_sequence_music(s, project_id, seqs, parsed["shots"]) if auto_music else []
+        sync_seams(s, project_id)                          # geçişler ve zincirden gelen karakterler (core/chain.py)
+        _board_approval_default(s, project)
 
     orphaned = sorted(set(existing) - {shot["scene_id"] for shot in parsed["shots"]})
     if orphaned:

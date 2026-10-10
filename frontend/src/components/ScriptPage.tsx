@@ -210,7 +210,7 @@ function Intensity() {
   const { ov, busy, act, note } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam"; min?: number; max?: number; step?: string }[] = [
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
     { key: "full_n", label: "Tam tur en çok aday", kind: "int", min: 1, max: 1000 },
@@ -221,6 +221,10 @@ function Intensity() {
     { key: "look_threshold", label: "Benzerlik eşiği (robot, hayvan: görsel)", kind: "num", min: 0, max: 1, step: "0.01" },
     { key: "qwen_edit_mode", label: "Karakterli ilk kare kalitesi (Qwen-Image-Edit)", kind: "edit" },
     { key: "audio", label: "H3 sesi (ortak ses + video üretimi)", kind: "audio" },
+    { key: "chain_end_frame", label: "Kesme öncesi çekim kendi son karesinde biter (Kn_end)", kind: "bool" },
+    { key: "seam_mode", label: "Devam eden çekimlerin dikişi", kind: "seam" },
+    { key: "seam_crossfade_frames", label: "Dikişte geçiş (kare; 0 kapalı)", kind: "int", min: 0, max: 6 },
+    { key: "arrival_review_threshold", label: "Varış eşiği (altı: inceleme önerilir)", kind: "num", min: 0, max: 1, step: "0.01" },
   ];
   const value = (k: string) => draft[k] ?? String(cfg[k] ?? "");
   const budgetNow = String(ov?.project.budget_limit_usd ?? "");
@@ -228,8 +232,8 @@ function Intensity() {
   const budgetDirty = draft.__budget != null && draft.__budget !== budgetNow;
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
-    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" ? value(f.key)
-      : f.kind === "edit" ? (value(f.key) || null) : Number(value(f.key))]));
+    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" || f.kind === "seam" ? value(f.key)
+      : f.kind === "bool" ? value(f.key) === "true" : f.kind === "edit" ? (value(f.key) || null) : Number(value(f.key))]));
     await api.patch(`/projects/${ov!.project.id}`, { settings, ...(budgetDirty ? { budget_limit_usd: Number(budget) } : {}) });
     setDraft({});
     note("script", budgetDirty ? `Kaydedildi; bütçe $${Number(budget).toFixed(2)}.` : "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
@@ -250,7 +254,17 @@ function Intensity() {
               <tr key={f.key}>
                 <td style={{ width: "45%" }}>{f.label}<small className="mono">{f.key}</small></td>
                 <td>
-                  {f.kind === "audio" ? (
+                  {f.kind === "bool" ? (
+                    <select value={value(f.key) || "true"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="true">Açık: video kendi eylemiyle biter (~0,007 $ / çekim)</option>
+                      <option value="false">Kapalı: son kare serbest</option>
+                    </select>
+                  ) : f.kind === "seam" ? (
+                    <select value={value(f.key) || "keyframe"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="keyframe">Anahtar kare: çekimler paralel, son kare = sonraki çekimin karesi</option>
+                      <option value="exact">Birebir: sonraki çekim önceki klibin gerçek son karesinden başlar (sıralı)</option>
+                    </select>
+                  ) : f.kind === "audio" ? (
                     <select value={value(f.key) || "on"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                       <option value="on">Açık: H3 sesi üretilir (filmde kullanılmaz)</option>
                       <option value="off">Kapalı: ses VAE'si yüklenmez, video sessiz</option>
@@ -279,7 +293,8 @@ function Intensity() {
         </table>
         <p className="faint small">Kimlik eşiği: insan karakterde yüz kimliği (0-1) bunun altında kalan ya da yüzü hiç görünmeyen aday rafine
           havuza giremez; küçük yüzde kimlik ölçülmez, eleme olmaz. Benzerlik eşiği: robot, hayvan gibi karakterlerde kare ile
-          referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur.</p>
+          referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur. Varış: klibin son karesinin
+          hedefe (sonraki çekimin karesi ya da çekimin son karesi) benzerliği; sıralamaya girer, eşiğin altı inceleme önerilir.</p>
         <div className="row">
           <button className="btn primary" type="button" disabled={busy || !changes} onClick={save}>Kaydet{changes ? ` (${changes})` : ""}</button>
           {changes > 0 && <button className="btn ghost" type="button" onClick={() => setDraft({})}>Geri al</button>}
@@ -315,6 +330,7 @@ function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: s
               <dt>Toplam (tahmini)</dt><dd className="mono">${est.expected_usd.toFixed(2)}</dd>
               <dt>En çok</dt><dd className="mono">${est.max_usd.toFixed(2)}</dd>
               <dt>Model yükleme</dt><dd className="mono">{est.model_loads} × soğuk başlatma = ${est.cold_start_usd.toFixed(3)}</dd>
+              {(est.end_frames ?? 0) > 0 && <><dt>Son kareler</dt><dd className="mono">{est.end_frames} × Lightning = ${(est.end_frame_usd ?? 0).toFixed(3)}</dd></>}
             </dl>
             <table className="tbl">
               <thead><tr><th>Çekim</th><th>Kare</th><th>Klip</th><th>Tahmini</th><th>En çok</th></tr></thead>
@@ -322,7 +338,8 @@ function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: s
                 {est.shots.map((s) => (
                   <tr key={s.code}>
                     <td className="mono">{s.code}<small>{s.billed_seconds} sn · {s.mode === "ref2va" ? "Ref2VA" : s.engine === "h3" ? "FL2VA" : s.engine}</small></td>
-                    <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}{s.edit_mode ? ` · ${EDIT_TR[s.edit_mode] ?? s.edit_mode}` : ""}</small> : null}</td>
+                    <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}{s.edit_mode ? ` · ${EDIT_TR[s.edit_mode] ?? s.edit_mode}` : ""}</small> : null}
+                      {s.end_frame ? <small className="mono">+ son kare ${(s.end_frame_usd ?? 0).toFixed(3)}</small> : null}</td>
                     <td className="mono">{s.clips}</td>
                     <td className="mono">${s.expected_usd.toFixed(3)}</td>
                     <td className="mono">${s.max_usd.toFixed(3)}</td>

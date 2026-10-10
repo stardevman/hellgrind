@@ -18,6 +18,7 @@ celery.conf.update(
         "hg.generate_scene": {"queue": "gen"},
         "hg.motion_test": {"queue": "gen"},
         "hg.storyboard_scene": {"queue": "gen"},
+        "hg.end_board_scene": {"queue": "gen"},
         "hg.lipsync_scene": {"queue": "post"},
         "hg.grade_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},

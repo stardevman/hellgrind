@@ -40,6 +40,10 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         setattr(sc, key, value)
     if "action_complexity" in changes and "engine" not in changes:
         sc.engine = route_engine(sc)                              # motor, aksiyon karmaşıklığından yönlendirilir
+    if {"camera", "description"} & changes.keys() and sc.transition_auto is not None:
+        from app.core.chain import sync_seams                     # kadraj değişti: geçişler yeniden sınıflanır
+        s.flush()
+        sync_seams(s, sc.project_id)
     s.commit()
     return {"ok": True, "hint": "Değişikliği uygulamak için sahneyi yeniden üret."}
 

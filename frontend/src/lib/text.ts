@@ -1,6 +1,6 @@
 /* Panelde gösterilen metinleri üreten saf fonksiyonlar (DOM yok; tests/text.test.ts ile sınanır). */
 import { ANOMALY_TR, ALIGN_TR, ASTATUS_TR, BOARD_TR } from "./i18n";
-import type { Blocked, DispatchAll, Measure, PanelEvent, StageResult, StyleImpact, Variation } from "./types";
+import type { Blocked, DispatchAll, Measure, PanelEvent, StageResult, StripApproval, StyleImpact, Variation } from "./types";
 
 export const usd = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(2);
 /** Kuruşun altını da gösteren tutar (tek çağrılar 0,035 USD gibi küçüktür): en az 2, en çok 4 ondalık. */
@@ -186,7 +186,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "task_abandoned": return { t: `${where}görev defalarca yarıda kesildi; döngüyü önlemek için durduruldu`, c: "bad" };
     case "batched": return { t: `Toplu üretim: önce ${x.boards} storyboard karesi${x.edit_boards ? ` (${x.edit_boards} karakter referansından)` : ""}, sonra ${x.videos} çekimin videosu` };
     case "batch_videos": return { t: `${BATCH_GROUP_TR[String(x.group)] ?? "Sıradaki grup"}: ${x.videos} çekim kuyruğa alındı` };
-    case "board_attempt": return { t: `${where}ilk kare ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${attemptText(x)}`, c: x.passed ? "good" : "bad" };
+    case "board_attempt": return { t: `${where}${x.end ? "son kare" : "ilk kare"} ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${attemptText(x)}`, c: x.passed ? "good" : "bad" };
+    case "end_board_ready": return { t: `${x.code}: ${x.passed ? "hazır; video bu karede biter" : "kapıdan geçemedi; video son karesiz üretilir"}${x.note && x.passed ? ` (${x.note})` : ""}`, c: x.passed ? (x.note ? "" : "good") : "bad" };
+    case "board_strip_approved": return { t: `Storyboard şeridi onaylandı: ${(x.approved as string[]).length} kare${(x.review as string[]).length ? `; inceleme bekleyen: ${(x.review as string[]).join(", ")}` : ""}`, c: (x.review as string[]).length ? "bad" : "good" };
+    case "seam_waiting": return { t: `${where}kesintisiz dikiş: ${x.previous} bitmeden bu çekim üretilmez`, c: "bad" };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };
@@ -210,6 +213,16 @@ export function passText(r: DispatchAll, kind: string): string {
   if (r.blocked && Object.keys(r.blocked).length) parts.push(`Eksik referans: ${Object.keys(r.blocked).join(", ")}.`);
   if (r.capped?.length) parts.push(`Sekans tavanında: ${r.capped.join(", ")}.`);
   return parts.join(" ");
+}
+
+/** Şerit onayı: onaylanan kareler, inceleme bekleyen ve karesi olmayan çekimler, başlayan videolar. */
+export function stripText(r: StripApproval): { text: string; bad: boolean } {
+  const parts = [r.approved.length ? `Onaylanan: ${r.approved.join(", ")}.` : "Yeni onaylanan kare yok."];
+  if (r.review.length) parts.push(`İnceleme bekleyen (onaylanmadı): ${r.review.join(", ")}.`);
+  if (r.missing.length) parts.push(`Karesi olmayan: ${r.missing.join(", ")}.`);
+  if (r.frozen) parts.push("Proje donmuş: üretime devam edince videolar başlar.");
+  else if (r.planned) parts.push(passText({ busy: [], blocked: {}, capped: [], ...r, planned: r.planned } as DispatchAll, "Video başlayan"));
+  return { text: parts.join(" "), bad: r.review.length > 0 || r.missing.length > 0 };
 }
 
 /** "Engellenen çekimleri yeniden dene" ve stil etkinleştirmenin ortak sonucu. */

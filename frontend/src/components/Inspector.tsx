@@ -74,7 +74,10 @@ function Shot({ sc }: { sc: Scene }) {
             {engines.map((e) => <option key={e} value={e}>{ENGINE_TR[e] ?? e}</option>)}
           </select>
         </dd>
-        <dt>Karakterler</dt><dd>{sc.characters.join(", ") || "—"}</dd>
+        <dt>Karakterler</dt><dd>{sc.characters.filter((c) => !sc.chain_cast?.includes(c)).join(", ") || "—"}
+          {(sc.chain_cast?.length ?? 0) > 0 && <span className="tag info" style={{ marginLeft: 6 }}
+            title="Önceki çekimin karesinde kaldılar (senaryoda çıktıkları yazılmadı): referansları, değişmezleri ve kimlik kapısıyla çekime eklendi">
+            zincirden gelen: {sc.chain_cast!.join(", ")}</span>}</dd>
         {sc.characters.length > 0 && <>
           <dt>Yüz görünmeli</dt>
           <dd>
@@ -141,6 +144,10 @@ function H3({ sc }: { sc: Scene }) {
     await api.patch(`/scenes/${sc.id}`, { transition_in });
     note("inspector", `${sc.scene_code}: geçiş ${transition_in === "auto" ? "senaryodaki gibi" : TRANSITION_TR[transition_in]?.split(":")[0]}. Kare zinciri buna göre yeniden çizilir.`, "ok");
   }, "inspector");
+  const redrawEnd = () => act(async () => {
+    await api.post(`/scenes/${sc.id}/board/end/redraw`);
+    note("inspector", `${sc.scene_code}: son kare yeni seed'le yeniden çiziliyor.`, "ok");
+  }, "inspector");
   const redrawChain = () => act(async () => {
     const r = await api.post<{ codes: string[] }>(`/scenes/${sc.id}/board/redraw-chain`);
     note("inspector", r.codes.length ? `Sonraki ${r.codes.length} kare sırayla yeniden çiziliyor: ${r.codes.join(", ")}.` : "Yeniden çizilecek kare yok.", "ok");
@@ -164,6 +171,9 @@ function H3({ sc }: { sc: Scene }) {
           {Object.entries(TRANSITION_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </label>
+      {sc.transition_reason && !sc.transition_explicit && (
+        <p className="faint small">Otomatik sınıflama: {sc.transition_reason}.</p>
+      )}
       {sc.chain_parent && (
         <p className={sc.chain_stale ? "warn small" : "faint small"}>
           {sc.chain_stale ? `Kare eski: zincirdeki önceki kare (${sc.chain_parent}) değişti; videodan önce yeniden çizilecek.`
@@ -177,6 +187,20 @@ function H3({ sc }: { sc: Scene }) {
         </div>
       )}
       <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
+      {sc.end_board_url && (
+        <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
+          <img src={sc.end_board_url} alt="Çekimin son karesi" style={{ width: 120, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 2, opacity: sc.end_board_current ? 1 : 0.5 }} />
+          <div className="stack">
+            <span className="small">Son kare: video bu karede biter (sonraki çekim kesmeyle gelir; eylem tamamlanmış hâli).</span>
+            {!sc.end_board_current && <span className="warn small">Eski: ilk kare değişti, videodan önce yeniden çizilecek.</span>}
+            {sc.end_board_note && <span className={sc.end_board_note.startsWith("İnceleme") ? "warn small" : "bad small"}>{sc.end_board_note}</span>}
+            <div className="row">
+              <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : "Qwen-Image-Edit Lightning, yeni seed (~0,007 $); bu çekimin klipleri eski son kareden üretildiyse yeniden üretilir"}
+                onClick={redrawEnd}>Son kareyi yeniden çiz</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
         {sc.keyframe_url
           ? <img src={sc.keyframe_url} alt="İlk kare" style={{ width: 120, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 2 }} />
@@ -250,6 +274,7 @@ function Pool({ sc }: { sc: Scene }) {
               {v.thumb_url ? <img src={v.thumb_url} alt="" loading="lazy" style={{ width: 56, height: 32, objectFit: "cover", borderRadius: 2 }} /> : <span />}
               <span><b className="mono">#{v.rank}</b> <span className="dim mono">skor {v.score != null ? v.score.toFixed(3) : "—"}</span>
                 {v.stale && <small className="warn"> · eski kareden ({v.stale}); kurguda kullanılmaz</small>}
+                {v.arrival && <small className="dim mono" title={`Son kare ${v.arrival.target === "end" ? "çekimin son karesine" : "sonraki çekimin karesine"} ne kadar vardı (DINOv2 ${v.arrival.dino.toFixed(2)}${v.arrival.identity != null ? `, kimlik ${v.arrival.identity.toFixed(2)}` : ""})`}> · varış {v.arrival.score.toFixed(2)}</small>}
                 {!v.stale && v.review?.length ? <small className="warn"> · inceleme önerilir: {v.review.join("; ")}</small> : null}</span>
               {v.rank === 1 ? <span className="tag ok">Kullanımda</span>
                 : <button type="button" className="btn" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}

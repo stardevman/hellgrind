@@ -104,6 +104,15 @@ def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = Fa
             batch_done(batch, scene_id, ok)
 
 
+@celery.task(bind=True, name="hg.end_board_scene")
+def end_board_scene(self, project_id: str, scene_id: str):
+    """Çekim sonu karesini (Kn_end) yeni seed'lerle yeniden çizer (yönetmenin isteği); görüntü üretilmez."""
+    def work():
+        from app.engine.storyboard import make_end_board
+        return make_end_board(project_id, scene_id, redraw=True) or "skip (son kare gerekmiyor)"
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.generate_scene")
 def generate_scene(self, project_id: str, scene_id: str, mode: str = "full", batch: str | None = None):
     """batch: model gruplu toplu dağıtımın parçası; bitince (başarılı ya da değil) bariyere haber verir, grubun son işi

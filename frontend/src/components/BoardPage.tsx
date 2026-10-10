@@ -4,11 +4,43 @@
 import { api } from "@/lib/api";
 import { BOARD_TR, MOVE_TR, SHOT_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
-import { passText } from "@/lib/text";
-import type { DispatchAll, Scene } from "@/lib/types";
+import { passText, stripText } from "@/lib/text";
+import type { DispatchAll, Scene, StripApproval } from "@/lib/types";
 import { NoteBox, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
+const SEAM: Record<string, { mark: string; title: string }> = {
+  continuous: { mark: "→", title: "Devam: video sonraki çekimin karesinde biter" },
+  cut: { mark: "✂", title: "Kesme: video kendi son karesinde biter" },
+  new_scene: { mark: "‖", title: "Yeni sahne: zincir kırılır" },
+};
+
+/* Storyboard önce: zincirin bütün kareleri (ilk kareler ve son kareler) tek şeritte; geçişler arada. */
+function Strip({ scenes }: { scenes: Scene[] }) {
+  const { selectScene, setPage } = usePanel();
+  return (
+    <div className="strip" role="list" aria-label="Zincir şeridi">
+      {scenes.map((sc) => (
+        <div key={sc.id} className="strip-shot" role="listitem">
+          {sc.transition && <span className="strip-seam" title={`${SEAM[sc.transition]?.title ?? sc.transition}${sc.transition_reason ? ` (${sc.transition_reason})` : ""}`}>{SEAM[sc.transition]?.mark ?? "·"}</span>}
+          <button type="button" className={`strip-frame ${sc.board_status}`} onClick={() => { selectScene(sc.id); setPage("edit"); }}
+            title={`${sc.scene_code}: ilk kare · ${BOARD_TR[sc.board_status] || sc.board_status}${sc.board_note ? ` · ${sc.board_note}` : ""}`}>
+            {sc.board_url ? <img src={sc.board_url} alt={`${sc.scene_code} ilk kare`} loading="lazy" /> : <span className="ph">Kare yok</span>}
+            <span className="code">{sc.scene_code.replace(/^S\d+_/, "")}</span>
+          </button>
+          {sc.end_board_url && (
+            <button type="button" className={`strip-frame end ${sc.end_board_note && !sc.end_board_note.startsWith("İnceleme") ? "changes_requested" : ""}`}
+              onClick={() => { selectScene(sc.id); setPage("edit"); }}
+              title={`${sc.scene_code}: son kare${sc.end_board_note ? ` · ${sc.end_board_note}` : ""}`}>
+              <img src={sc.end_board_url} alt={`${sc.scene_code} son kare`} loading="lazy" style={{ opacity: sc.end_board_current ? 1 : 0.5 }} />
+              <span className="code">son</span>
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function BoardCard({ sc }: { sc: Scene }) {
   const { busy, act, note, selectScene, setPage } = usePanel();
@@ -31,6 +63,12 @@ function BoardCard({ sc }: { sc: Scene }) {
         <span className={`st ${TONE[sc.board_status] ?? ""}`}>{BOARD_TR[sc.board_status] || sc.board_status}</span>
       </div>
       <p className="small">{sc.description}</p>
+      {(sc.transition_reason || (sc.chain_cast?.length ?? 0) > 0) && (
+        <p className="faint small">
+          {sc.transition_reason && <span>{SEAM[sc.transition ?? ""]?.mark} {sc.transition_reason}</span>}
+          {(sc.chain_cast?.length ?? 0) > 0 && <span className="tag info" style={{ marginLeft: 6 }}>zincirden gelen: {sc.chain_cast!.join(", ")}</span>}
+        </p>
+      )}
       <p className="dim small">
         {lines.length ? lines.map((t, i) => <span key={t.id}>{i > 0 && <br />}<b>{t.character || "Anlatıcı"}:</b> {t.text}</span>) : "Diyalog yok."}
       </p>
@@ -78,7 +116,14 @@ export function BoardPage() {
             }} /> Görüntü üretimi için kare onayı zorunlu
           </label>
           <span className="vsep" />
-          <button className="btn primary" type="button" disabled={busy || frozen} onClick={() => act(async () => {
+          <button className="btn primary" type="button" disabled={busy || !scenes.some((x) => x.board_url)}
+            title="Şeritteki bütün kareleri (ilk ve son kareler) onaylar, sonra videoları başlatır. İnceleme bekleyen kare onaylanmaz."
+            onClick={() => act(async () => {
+              const r = await api.post<StripApproval>(`/projects/${projectId}/boards/approve`);
+              const t = stripText(r);
+              note("board", t.text, t.bad ? "err" : "ok");
+            }, "board")}>Şeridi onayla ve videoları başlat</button>
+          <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {
             const r = await api.post<DispatchAll>(`/projects/${projectId}/draft-pass`);
             note("board", passText(r, "Taslak geçiş") + " Son çekim bitince kaba kurgu kendiliğinden birleşir.", "ok");
           }, "board")}>Taslak geçişi başlat</button>
@@ -95,6 +140,12 @@ export function BoardPage() {
             </p>
             <NoteBox id="board" />
           </div>
+          {groups.filter((g) => g.scenes.length).map((g) => (
+            <section key={`strip-${g.id}`} aria-label={`${g.title} zincir şeridi`}>
+              <h3 className="board-seq">{g.title} · zincir şeridi</h3>
+              <Strip scenes={g.scenes} />
+            </section>
+          ))}
           {groups.filter((g) => g.scenes.length).map((g) => (
             <section key={g.id}>
               <h3 className="board-seq">{g.title}</h3>

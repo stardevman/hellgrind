@@ -59,7 +59,10 @@ def edit_references(scene, chars=(), assets=(), strict: bool = True) -> list[dic
     """Qwen-Image-Edit karesinin görselleri, sırayla (image 1, 2, 3): onaylı referanslı karakterlerin durağan görselleri
     (ilki ana karakter), yer kalırsa onaylı mekânın durağan görseli. [{"name", "key", "kind": character|location}]."""
     by_id = {a.id: a for a in assets or ()}
-    out = [{"name": ch.name, "key": key, "kind": "character"} for ch in _mentioned_first(scene, list(chars or ()))
+    out = [{"name": ch.name, "key": key, "kind": "character",
+            "invariants": [str(x).strip() for x in (getattr(by_id.get(ch.asset_id), "invariants", None) or [])
+                           if str(x).strip()]}
+           for ch in _mentioned_first(scene, list(chars or ()))
            if _approved(ch, by_id, strict) and (key := still_key(ch))][:MAX_EDIT_IMAGES]
     if out and len(out) < MAX_EDIT_IMAGES:
         for a in assets or ():

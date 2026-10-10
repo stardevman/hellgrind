@@ -364,3 +364,12 @@ def refined(sample_scene):
     sid = codes["S002_SH01"]
     assert run_tiered_generation(pid, sid) == "refined"
     return pid, sid
+
+
+@pytest.fixture(autouse=True)
+def _no_real_seam_models(monkeypatch):
+    """Kadraj ölçeği ve varış skoru gerçek modelleri (OpenCLIP + DINOv2, ~3,6 GB) yükler: skorlayıcıyı "real" moda alan
+    testlerde de varsayılan olarak ölçülmez (None). Bunları sınayan test kendi değerini monkeypatch ile verir."""
+    from app.quality import scorer
+    monkeypatch.setattr(scorer, "framing", lambda path, target: None)
+    monkeypatch.setattr(scorer, "arrival", lambda path, key, target: None)

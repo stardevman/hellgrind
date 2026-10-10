@@ -76,6 +76,35 @@ def concat(paths: list[str], out: str) -> str:
     return out
 
 
+def crossfade_join(paths: list[str], durations: list[float], seams: list[bool], frames: int, out: str) -> list[float]:
+    """Klipleri birleştirir; seams[i] (i. klip ile öncesi arasında continuous dikiş) için `frames` karelik geçiş
+    (görüntüde xfade, seste acrossfade), diğer dikişler düz kesme. Yeniden kodlar. Her klibin filmdeki başlangıcı döner
+    (geçiş, klibi öncekinin son karelerinin üstüne bindirir)."""
+    d = frames / FPS
+    inputs, parts, starts = [], [], []
+    for p in paths:
+        inputs += ["-i", p]
+    v, a, t = "[0:v]", "[0:a]", durations[0]
+    starts.append(0.0)
+    for i in range(1, len(paths)):
+        nv, na = f"[v{i}]", f"[a{i}]"
+        if seams[i]:
+            parts.append(f"{v}[{i}:v]xfade=transition=fade:duration={d:.4f}:offset={max(0.0, t - d):.4f}{nv}")
+            parts.append(f"{a}[{i}:a]acrossfade=d={d:.4f}{na}")
+            starts.append(max(0.0, t - d))
+            t += durations[i] - d
+        else:
+            parts.append(f"{v}{a}[{i}:v][{i}:a]concat=n=2:v=1:a=1{nv}{na}")
+            starts.append(t)
+            t += durations[i]
+        v, a = nv, na
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *inputs, "-filter_complex", ";".join(parts),
+                    "-map", v, "-map", a, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-ar", str(SAMPLE_RATE), "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", out],
+                   check=True)
+    return starts
+
+
 def track_spec(t: TimelineTrack, sequence_code: str | None) -> list:
     """Kanalın filmi belirleyen her şeyi (anahtar özetine girer)."""
     return [sequence_code, t.kind, t.source, t.content_hash, round(t.start_s, 3),
@@ -136,22 +165,30 @@ def _clip_of(sc: Scene, kind: str) -> str | None:
 def assemble(project_id: str, kind: str = "final") -> dict:
     """Sahneleri seq_order sırasıyla filme çevirir ve film düzeyindeki kanalları ekler. kind="draft": kaba kurgu
     (projenin draft_timeline_key alanına yazılır). Filme girecek sahne yoksa {"error": ...} döner."""
+    from app.core.chain import transition_of
     with session_scope() as s:
-        scenes = [(sc, clip) for sc in s.scalars(select(Scene).where(Scene.project_id == project_id)
-                                                 .order_by(Scene.seq_order, Scene.scene_code))
-                  if (clip := _clip_of(sc, kind))]
+        ordered = list(s.scalars(select(Scene).where(Scene.project_id == project_id)
+                                 .order_by(Scene.seq_order, Scene.scene_code)))
+        scenes = [(sc, clip) for sc in ordered if (clip := _clip_of(sc, kind))]
+        index = {sc.id: i for i, sc in enumerate(ordered)}
+        # continuous dikiş: çekim bir öncekinin hemen ardından, aynı sekansta ve geçişi continuous
+        seams = [i > 0 and transition_of(sc) == "continuous" and index[sc.id] == index[scenes[i - 1][0].id] + 1
+                 and sc.sequence_id == scenes[i - 1][0].sequence_id for i, (sc, _) in enumerate(scenes)]
         sequences = {q.id: q for q in s.scalars(select(Sequence).where(Sequence.project_id == project_id))}
         items = [(sc.scene_code, clip, sc.description, sc.emotion,
                   sequences[sc.sequence_id].code if sc.sequence_id in sequences else None) for sc, clip in scenes]
         tiers = {sc.scene_code: ("draft" if clip == sc.draft_video_key else sc.cut_tier or "final") for sc, clip in scenes}
         titles = {q.code: q.title for q in sequences.values()}
         tracks = active_tracks(s, project_id, sequences)
-        loudness = project_settings(s.get(Project, project_id).settings)["loudness_lufs"]
+        cfg = project_settings(s.get(Project, project_id).settings)
+        loudness = cfg["loudness_lufs"]
+        fade = int(cfg.get("seam_crossfade_frames") or 0) if any(seams) else 0
     if not items:
         return {"error": "Henüz tamamlanmış sahne yok"}
 
     # Kesme listesinin içeriği anahtarla her zaman tutarlı. Kanal yoksa (Faz 11 öncesi) yalnızca sahneler özetlenir.
-    basis = [[WIDTH, HEIGHT, FPS], items, titles] + ([kind] if kind != "final" else [])
+    basis = [[WIDTH, HEIGHT, FPS], items, titles] + ([kind] if kind != "final" else []) + \
+        ([{"crossfade": fade, "seams": seams}] if fade else [])
     if tracks:
         basis.append(sorted(t["spec"] for t in tracks) + [loudness])
     digest = stable_hash(basis)
@@ -159,20 +196,25 @@ def assemble(project_id: str, kind: str = "final") -> dict:
     if not (storage.exists(key) and storage.exists(cutlist_key)):          # yarım kalmış yüklemeyi de tamamlar
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as work:
-            clips, normalized, t = [], [], 0.0
-            spans: dict[str, list[float]] = {}
+            normalized, durations = [], []
             for i, (code, video_key, description, emotion, seq) in enumerate(items):
                 src = storage.download(video_key, os.path.join(work, f"src{i}.mp4"))
-                path = normalize(src, os.path.join(work, f"n{i:04d}.mp4"))
-                duration = probe_duration(path)
-                clips.append({"scene_code": code, "sequence": seq, "in_s": round(t, 3), "out_s": round(t + duration, 3),
-                              "description": description, "emotion": emotion, "source": video_key,
-                              "tier": tiers[code]})
+                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4")))
+                durations.append(probe_duration(normalized[-1]))
+            if fade:                                                    # continuous dikişlerde kısa geçiş
+                starts = crossfade_join(normalized, durations, seams, fade, os.path.join(work, "cut.mp4"))
+                film = os.path.join(work, "cut.mp4")
+            else:
+                starts = [sum(durations[:i]) for i in range(len(durations))]
+                film = concat(normalized, os.path.join(work, "cut.mp4"))  # yalnızca sahnelerin kendi sesleri
+            clips, spans = [], {}
+            for (code, video_key, description, emotion, seq), start, duration, seam in zip(items, starts, durations, seams):
+                clips.append({"scene_code": code, "sequence": seq, "in_s": round(start, 3),
+                              "out_s": round(start + duration, 3), "description": description, "emotion": emotion,
+                              "source": video_key, "tier": tiers[code], **({"crossfade": fade} if fade and seam else {})})
                 if seq:
-                    spans.setdefault(seq, [t, t + duration])[1] = t + duration
-                normalized.append(path)
-                t += duration
-            film = concat(normalized, os.path.join(work, "cut.mp4"))     # yalnızca sahnelerin kendi sesleri
+                    spans.setdefault(seq, [start, start + duration])[1] = start + duration
+            t = starts[-1] + durations[-1]
             placed = place_tracks(tracks, {k: tuple(v) for k, v in spans.items()}, t)
             if placed:                                                  # sekans müziği: diyalog altında kısılır
                 beds = [AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"],

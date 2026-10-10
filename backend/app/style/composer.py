@@ -6,12 +6,16 @@ compose_prompt(shot, assets, bible) deterministiktir ve her zaman aynı sırayı
   3. çekim tarifi ve kamera          sahnenin kendi istemi
   4. varlıklar                       her biri kendi render stili kuralıyla (kılavuzun tür kuralı ya da varlığın istisnası)
   5. "yalnızca listelenen karakterler" kısıtı
-  6. negatifler                      kılavuz + çekim + kadro negatifi
+  6. negatifler                      kılavuz + çekim + kadro negatifi + durum sözcüklerinin zıtları ("eyes dark" ->
+                                     glowing eyes) + karakter değişmezlerinin zıtları ("exactly one antenna" -> second
+                                     antenna, extra antenna)
+Senaryodaki durum sözcükleri (dark, off, broken, closed…) olumlu isteme "State: eyes dark." olarak açıkça yazılır.
 Stil çekim bazında elle yazılmaz: ışık ve hareket dili yalnızca kılavuzdan gelir.
 
 Ücretli modda Türkçe metinler (çekim tarifi, mekân ve nesne adları ve tarifleri, Türkçe yazılmış kılavuz alanları)
 yerel modelle İngilizceye çevrilir (hermes/translate.py); karakter adları korunur. Ücretsiz modda metin olduğu gibidir.
 """
+import re
 from dataclasses import dataclass
 
 from app.hermes import lint, translate
@@ -84,6 +88,75 @@ def invariant_text(asset, names=(), lang: str | None = None) -> str:
     return sentence(f"{asset.name} must always have: {'; '.join(items)}") if items else ""
 
 
+QUANTITY = re.compile(r"^(?:exactly\s+)?(?:one|a\s+single|single|a|an)\s+", re.IGNORECASE)
+SPLIT = re.compile(r"\s+(?:with|in|over|under|on|and)\s+|,\s*", re.IGNORECASE)
+ARTICLE = re.compile(r"^(?:a|an|the|one|two|its|his|her|their)\s+", re.IGNORECASE)
+
+
+def _head(phrase: str) -> str:
+    """İsim öbeğinin baş ismi (son kelime): "small bulb" -> "bulb", "white t-shirt" -> "t-shirt"."""
+    words = [w for w in re.split(r"\s+", ARTICLE.sub("", phrase.strip(" .;:"))) if w]
+    return words[-1].lower() if words else ""
+
+
+def invariant_negatives(invariants) -> list[str]:
+    """Değişmezlerden otomatik zıtlar (negatif istem): tasarım zincir boyunca kaymasın.
+    "exactly one bent antenna with a small bulb" -> second antenna, extra antenna, missing antenna, extra bulb, missing bulb;
+    "round yellow glasses (always worn)" -> missing glasses; tekil isim için "extra X, missing X", çoğul için "missing X"."""
+    out: list[str] = []
+    for item in invariants or ():
+        text = re.sub(r"\([^)]*\)", " ", str(item)).strip()
+        if not text:
+            continue
+        single = bool(QUANTITY.match(text))
+        for i, part in enumerate(p for p in SPLIT.split(QUANTITY.sub("", text)) if p.strip()):
+            noun = _head(part)
+            if len(noun) < 3:
+                continue
+            plural = noun.endswith("s") and not noun.endswith("ss")
+            if single and i == 0:
+                out += [f"second {noun}", f"extra {noun}", f"two {noun}s", f"missing {noun}"]
+            elif plural:
+                out += [f"missing {noun}"]
+            else:
+                out += [f"extra {noun}", f"missing {noun}"]
+    return list(dict.fromkeys(out))
+
+
+# Senaryodaki durum sözcükleri (ör. SH03 "eyes dark"): olumlu isteme açıkça, zıtları negatife
+STATES = {
+    "dark": ("glowing", "lit", "bright"), "unlit": ("glowing", "lit"), "off": ("glowing", "lit", "switched on"),
+    "dim": ("bright", "glowing"), "lifeless": ("glowing", "animated"), "broken": ("intact", "repaired"),
+    "closed": ("open",), "shut": ("open",), "open": ("closed", "shut"), "empty": ("full",), "lit": ("dark", "unlit"),
+    "glowing": ("dark", "unlit"), "cracked": ("intact",), "wet": ("dry",),
+}
+STATE_WORDS = "|".join(sorted(STATES, key=len, reverse=True))
+# "with its eyes dark", "the lamp is off": belirteçli isim + (is/are/...) + durum; "a broken lamp": durum + isim
+STATE_AFTER = re.compile(rf"\b(?:its|his|her|their|the|a|an)\s+([a-z-]{{3,}})\s+(?:(?:is|are|stay|stays|remain|"
+                         rf"remains|still|now|all)\s+)*({STATE_WORDS})\b", re.IGNORECASE)
+STATE_BEFORE = re.compile(rf"\b({STATE_WORDS})\s+([a-z-]{{3,}})\b", re.IGNORECASE)
+STOP = {"with", "and", "the", "its", "his", "her", "while", "into", "from", "that", "this", "light", "shot"}
+
+
+def state_terms(text: str | None) -> tuple[list[str], list[str]]:
+    """(olumlu, negatif), İngilizce metinden (ücretli modda istem İngilizceye çevrilmiştir):
+    "with its eyes dark" -> (["eyes dark"], ["glowing eyes", "lit eyes", "bright eyes"])."""
+    pos, neg = [], []
+    text = text or ""
+    found = [(m.group(1), m.group(2)) for m in STATE_AFTER.finditer(text)]
+    found += [(m.group(2), m.group(1)) for m in STATE_BEFORE.finditer(text)]
+    for noun, state in found:
+        noun_l, state_l = noun.lower(), state.lower()
+        if noun_l in STOP or noun_l in STATES or state_l not in STATES:
+            continue
+        phrase = f"{noun_l} {state_l}"
+        if phrase in pos:
+            continue
+        pos.append(phrase)
+        neg += [f"{opposite} {noun_l}" for opposite in STATES[state_l]]
+    return pos, list(dict.fromkeys(neg))
+
+
 def _join_negative(*parts: str) -> str:
     seen, out = set(), []
     for part in parts:
@@ -103,8 +176,16 @@ def compose_prompt(shot: dict, assets, bible) -> Composed:
     cast = list(shot.get("characters") or [])
     names = cast + [a.name for a in assets if a.type == "character"]
     ordered = sorted(assets, key=lambda a: (TYPE_ORDER.index(a.type), a.name))
-    body = [prefix, sentence(translate.to_english(shot.get("prompt") or "", names, lang)), camera_text(shot.get("camera")),
-            *(asset_text(a, bible, names, lang) for a in ordered), lint.cast_constraint(cast)]
+    described = translate.to_english(shot.get("prompt") or "", names, lang)
+    english = lang == "en" or described != (shot.get("prompt") or "") or not translate.looks_turkish(described)
+    states, opposite = state_terms(described) if english else ([], [])
+    body = [prefix, sentence(described), sentence("State: " + ", ".join(states)) if states else "",
+            camera_text(shot.get("camera")), *(asset_text(a, bible, names, lang) for a in ordered),
+            lint.cast_constraint(cast)]
+    designs = [x for a in ordered if a.type == "character"
+               for x in invariant_negatives(translate.to_english(" ".join(str(i).split()), names, lang)
+                                            for i in (getattr(a, "invariants", None) or []))]
     negative = _join_negative(translate.to_english(bible.negative or "") if bible else "",
-                              translate.to_english(shot.get("negative", "") or "", names, lang), lint.CAST_NEGATIVE)
+                              translate.to_english(shot.get("negative", "") or "", names, lang), lint.CAST_NEGATIVE,
+                              ", ".join(opposite), ", ".join(designs))
     return Composed(prompt=" ".join(x for x in body if x), negative=negative, prefix=prefix)

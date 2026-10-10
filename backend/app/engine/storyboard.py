@@ -131,29 +131,85 @@ def board_source(h3_mode: str = "fl2va", explicit: bool = False, model: str = "q
     return "flux" if paid.available("fal_key") else "local"
 
 
+SHOT_EN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "point-of-view shot", "medium": "medium shot",
+           "over_shoulder": "over-the-shoulder shot", "close_up": "close-up", "extreme_close_up": "extreme close-up"}
+
+
+def looks_text(refs: list[dict]) -> list[str]:
+    """Karakterin durağan görseli her edit isteminde referanstır: "<ad> must look exactly like image N" + değişmezleri
+    (tasarım zincir boyunca kaymasın; ör. K5'te beliren ikinci anten K6'ya geçmesin)."""
+    out = []
+    for i, r in enumerate(refs, start=1):
+        if r["kind"] != "character":
+            continue
+        line = f"{r['name']} must look exactly like image {i}"
+        if r.get("invariants"):
+            line += f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}"
+        out.append(line)
+    return out
+
+
+def framing_text(camera: dict | None, cast: list[str]) -> str:
+    """Kesme karesinde kadraj açıkça istenir (Qwen-Image-Edit image 1'in kompozisyonunu korur): "medium shot of Bolt,
+    35 mm lens"."""
+    camera = camera or {}
+    shot = SHOT_EN.get(camera.get("shot"))
+    if not shot:
+        return ""
+    who = f" of {' and '.join(cast)}" if cast else ""
+    lens = f", {camera['lens_mm']} mm lens" if camera.get("lens_mm") else ""
+    return f"Reframe the camera for this shot: a {shot}{who}{lens}."
+
+
+def removal_text(removed: list[str]) -> str:
+    if not removed:
+        return ""
+    names = " and ".join(removed)
+    return (f"{names} {'is' if len(removed) == 1 else 'are'} not in this shot: remove {'them' if len(removed) > 1 else names}"
+            " from the frame completely.")
+
+
 def edit_prompt(prompt: str, refs: list[dict]) -> str:
     """Qwen-Image-Edit istemi: önce görsellere "image n" diye başvuru, ardından bestecinin çekim tarifi (kamera ve proje
     stili dahil). Şablonun örnek metni her zaman ezilir."""
-    parts = []
-    for i, r in enumerate(refs, start=1):
-        parts.append(f"{r['name']} is the person in image {i}" if r["kind"] == "character"
-                     else f"the setting is the location in image {i} ({r['name']})")
+    parts = looks_text(refs)
+    parts += [f"the setting is the location in image {i} ({r['name']})" for i, r in enumerate(refs, start=1)
+              if r["kind"] == "location"]
     keep = "Keep each character's face, hair, proportions and outfit exactly as in their image."
     return (f"{'; '.join(parts)}. {keep} {prompt} A single cinematic film frame, 16:9, no text, no captions.").strip()
 
 
-def chain_prompt(prompt: str, refs: list[dict], transition: str) -> str:
+def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | None = None,
+                 camera: dict | None = None) -> str:
     """Zincir karesi (Kn, n>1): image 1 önceki çekimin ilk karesi (K(n-1)); image 2/3 karakterlerin durağan referansları.
     continuous: aynı oda, yerleşim, nesneler, ışık ve karakter tasarımları korunur; yalnızca çekimin anlattığı değişir.
-    cut: kamera açısı ve kadraj değişebilir, mekân, nesneler ve karakterlerin durumu korunur."""
-    parts = ["Image 1 is the previous shot of this scene"]
-    parts += [f"{r['name']} is the person in image {i}" if r["kind"] == "character"
-              else f"the location is shown in image {i}" for i, r in enumerate(refs, start=1) if r["kind"] != "frame"]
-    keep = ("Keep the same room, layout, props, lighting and characters' designs as image 1." if transition != "cut" else
-            "The camera angle and framing may change for this shot, but keep the same location, props, lighting, the "
-            "characters' designs and the characters' state as in image 1.")
-    return (f"{'; '.join(parts)}. {keep} Change only what this shot describes: {prompt} "
-            "A single cinematic film frame, 16:9, no text, no captions.").strip()
+    cut: kadraj çekimin ölçeği ve merceğiyle açıkça istenir; mekân, nesneler ve karakterlerin durumu korunur.
+    plan (core/chain.classify_shots): önceki karede olup bu çekimde olmayan karakterler açıkça çıkarılır."""
+    plan = plan or {}
+    parts = ["Image 1 is the previous shot of this scene", *looks_text(refs)]
+    parts += [f"the location is shown in image {i}" for i, r in enumerate(refs, start=1) if r["kind"] == "location"]
+    if transition != "cut":
+        keep = "Keep the same room, layout, props, lighting and characters' designs as image 1."
+    else:
+        keep = " ".join(x for x in (framing_text(camera, plan.get("cast") or []),
+                                    "Keep the same location, props, lighting, the characters' designs and the "
+                                    "characters' state as in image 1.") if x)
+    extra = removal_text(plan.get("removed") or [])
+    return " ".join(x for x in (f"{'; '.join(parts)}.", keep, extra, f"Change only what this shot describes: {prompt}",
+                                "A single cinematic film frame, 16:9, no text, no captions.") if x).strip()
+
+
+def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None) -> str:
+    """Çekim sonu karesi (Kn_end): image 1 çekimin ilk karesi (Kn). Aynı çekimin son anı: eylem tamamlanmış (ör. SH05:
+    Bolt'un gözleri yanmış), kamera, kadraj, mekân ve tasarımlar aynı."""
+    camera = camera or {}
+    shot = SHOT_EN.get(camera.get("shot"))
+    framing = f" ({shot}{', ' + str(camera['lens_mm']) + ' mm lens' if camera.get('lens_mm') else ''})" if shot else ""
+    parts = ["Image 1 is the first frame of this shot", *looks_text(refs)]
+    return (f"{'; '.join(parts)}. Show the last frame of the same shot, after its action is completed: {prompt} "
+            f"Keep the same camera position and framing{framing}, location, props, lighting and character designs as "
+            "image 1; change only what the action changes. A single cinematic film frame, 16:9, no text, no captions."
+            ).strip()
 
 
 def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
@@ -165,8 +221,13 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
         from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
         refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
         chain = extra.get("chain")
-        text = chain_prompt(prompt, refs, chain["transition"]) if chain else edit_prompt(prompt, refs)
-        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), SOURCE_LABEL[source],
+        if extra.get("end"):                        # çekim sonu karesi (Kn_end): Kn'den, eylem tamamlanmış
+            text = end_prompt(prompt, refs, extra.get("camera"))
+        elif chain:
+            text = chain_prompt(prompt, refs, chain["transition"], chain.get("plan"), extra.get("camera"))
+        else:
+            text = edit_prompt(prompt, refs)
+        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), extra.get("label") or SOURCE_LABEL[source],
                          "runpod_api_key",
                          lambda: runpod_h3.edit_keyframe_image(text, seed, refs, extra.get("negative", ""), project_id,
                                                                mode),
@@ -263,6 +324,13 @@ class Drawn:
     sha: str | None = None           # yazısız karenin SHA-256'sı (zincirde sonraki karenin `board_parent`'ı)
 
 
+def framing_note(detail: dict) -> str:
+    """Kadraj kontrolü (kesme karesi): istenen ölçek ile karedeki karakter alanı oranı."""
+    f = detail.get("framing") or {}
+    want = SHOT_TR.get(f.get("scale"), f.get("scale"))
+    return f"kadraj istenen ölçekte değil ({want} plan beklendi, karakter alanı %{round(100 * (f.get('area') or 0))})"
+
+
 def identity_text(drawn: Drawn) -> str:
     """Kimlik kapısının sonucu, yönetmen için: "Elif 0,47 < 0,60" ya da "yüz görünmedi"."""
     for a in drawn.anomalies or ():
@@ -298,8 +366,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
         if source == "upload":                                  # yönetmenin ilk karesi: çizim yok, ücret yok
             storage.download(info["keyframe_key"], clean)
         elif settings.dry_run:
-            estimate = board_estimate(extra.get("reference"))   # ücretsiz modda da gerçek fiyatla (sanal)
-            with killswitch.spend(project_id, estimate, board_label(extra.get("reference")), scene_id=scene_id) as charge:
+            estimate = extra.get("estimate") or board_estimate(extra.get("reference"))   # ücretsiz modda da gerçek fiyatla
+            label = extra.get("label") or board_label(extra.get("reference"))
+            with killswitch.spend(project_id, estimate, label, scene_id=scene_id) as charge:
                 render_frame(clean, seed0, info["render"])
                 charge.actual = estimate
             drawn.passed = not detect_frame_anomalies(clean)
@@ -313,8 +382,14 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 paid_frame(clean, source, project_id, scene_id, seed, prompt, extra,
                            details={"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed})
                 score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=previous,
-                                         transition=chain["transition"] if chain else None)
-                drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), score.detail)
+                                         transition=chain["transition"] if chain else None,
+                                         scale=(extra.get("camera") or {}).get("shot") if chain and
+                                         chain["transition"] == "cut" and not extra.get("end") else None)
+                framing_off = bool((score.detail or {}).get("framing_mismatch"))
+                detail = dict(score.detail or {})
+                if framing_off and score.passed and attempt + 1 == attempts:    # son deneme: geçer, yönetmen bakar
+                    detail["review"] = [*detail.get("review", []), framing_note(detail)]
+                drawn = Drawn(source, score.composite, score.passed, attempt + 1, list(score.anomalies), detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=score.passed,
                                  identity=(score.detail or {}).get("identity"), look=(score.detail or {}).get("look"),
@@ -322,15 +397,17 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                  faces_seen=(score.detail or {}).get("faces_seen"),
                                  faces_measured=(score.detail or {}).get("faces_measured"),
                                  continuity=(score.detail or {}).get("continuity"),
-                                 review=(score.detail or {}).get("review"),
+                                 framing=(score.detail or {}).get("framing"),
+                                 review=detail.get("review"), end=bool(extra.get("end")),
                                  chain=chain["code"] if chain else None,
                                  reasons=[a.get("type") for a in score.anomalies])
                 history.annotate_last(scene_id, "h3:storyboard", {"gate": {     # kalibrasyon için kalıcı kayıt
                     "attempt": attempt + 1, "passed": score.passed, "composite": score.composite,
                     "reasons": [a.get("type") for a in score.anomalies],
-                    **{k: (score.detail or {}).get(k) for k in ("look", "look_dino", "identity", "continuity", "review")
+                    **{k: (score.detail or {}).get(k) for k in ("look", "look_dino", "identity", "continuity", "review",
+                                                                 "framing")
                        if (score.detail or {}).get(k) is not None}}})
-                if score.passed:
+                if score.passed and not (framing_off and attempt + 1 < attempts):   # kadraj tutmadı: yeniden dene
                     break
         storage.put_file(clean, clean_key(key), "image/jpeg")
         drawn.sha = sha_of(clean)
@@ -389,16 +466,18 @@ FINISHED = ("done", "refined", "audio", "lipsync", "grading", "muxing", "needs_r
 RUNNING = ("pending", "probing", "generating", "correcting")
 
 
-def dependents(s, scene) -> list:
+def dependents(s, scene, scope: str = "chain") -> list:
     """Bir karenin değişmesinden etkilenen çekimler: önceki çekim (videosu bu karede bitiyorsa: FL2VA last_frame), çekimin
-    kendisi ve zincirde ondan türeyen sonraki çekimler."""
+    kendisi ve zincirde ondan türeyen sonraki çekimler. scope="self": yalnızca çekimin kendisi (son karesi değişti)."""
     from app.core.chain import neighbours, successors, transition_of
+    if scope == "self":
+        return [scene]
     previous, _ = neighbours(s, scene)
     out = [previous] if previous is not None and transition_of(scene) == "continuous" else []
     return [*out, scene, *(successors(s, scene) if chain_enabled() else [])]
 
 
-def invalidate_dependents(project_id: str, scene_id: str, reason: str) -> dict:
+def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: str = "chain") -> dict:
     """Zincirin ortasında bir kare değişti: ona bağlı çekimlerin klipleri "eski kareden" işaretlenir (silinmez; yeniden
     kullanılmaz, kurguda kullanılmaz: çekim needs_review olur ve görüntüsü yeniden üretilir), süren üretimleri durur ve
     RunPod'daki bekleyen işleri iptal edilir. Karesi değişen çekimin kendi akışına (onu çizen görev) dokunulmaz."""
@@ -407,7 +486,7 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str) -> dict:
     stopped, clips, codes = [], 0, []
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
-        for sc in dependents(s, scene):
+        for sc in dependents(s, scene, scope):
             marked = 0
             for v in s.scalars(select(Variation).where(Variation.scene_id == sc.id,
                                                        Variation.status.in_(("passed", "refined", "generated")))):
@@ -417,7 +496,7 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str) -> dict:
             clips += marked
             if marked or sc.id != scene.id:
                 sc.visual_hash = None                     # görüntü yeniden üretilecek (plan VISUAL der)
-            if sc.id == scene.id:
+            if sc.id == scene.id and scope != "self":
                 continue
             if sc.status in FINISHED and marked:
                 sc.status = "needs_review"
@@ -455,7 +534,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     """Tek bir çekimin karesi. keep_status: zincirin önceki karesi olarak çizildi; çekimin durumuna dokunulmaz (kendi
     görevi ya da yönetmen yönetir)."""
     import time
-    from app.core.chain import stale, transition_of
+    from app.core.chain import plan_of, stale, transition_of
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
     from app.engine.iteration import compose_for_scene, loras_of
     from app.quality import scorer
@@ -476,11 +555,12 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         extra["base_references"] = refs
         if parent is not None and usable:             # Kn: image 1 = K(n-1), sonra karakterlerin durağan görselleri
             extra["chain"] = {"key": clean_key(parent.board_key), "transition": transition_of(scene),
-                              "code": parent.scene_code, "sha": parent.board_sha}
+                              "code": parent.scene_code, "sha": parent.board_sha, "plan": plan_of(s, scene)}
             refs = [{"name": parent.scene_code, "key": clean_key(parent.board_key), "kind": "frame"},
                     *[r for r in refs if r["kind"] == "character"][:2]]
             model = "qwen_edit"
-        extra.update(edit_references=refs, negative=composed.negative, edit_mode=edit_mode(cfg))
+        extra.update(edit_references=refs, negative=composed.negative, edit_mode=edit_mode(cfg),
+                     camera=dict(scene.camera or {}))
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
@@ -537,12 +617,103 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         killswitch.event(project_id, "board_ready", scene_id=scene_id, code=info["code"],
                          **({"chain": extra["chain"]["code"]} if extra.get("chain") else {}))
         info["board_status"] = fields.get("board_status", info["board_status"])
+    make_end_board(project_id, scene_id)
     if keep_status:
         return key
     if standalone or (cfg["require_board_approval"] and info["board_status"] != "approved"):
         advance_scene(project_id, scene_id, status="board_review")
     return key
 
+
+# ---------- çekim sonu karesi (Kn_end) ----------
+
+END_FAIL = "Son kare kapıdan geçemedi"
+END_MODE = "lightning"                 # Qwen-Image-Edit Lightning (~15 GPU-sn, ~0,007 $): kare Kn'den küçük bir değişiklik
+
+
+def end_key(scene_id, fp: str, parent_sha: str | None) -> str:
+    return f"storyboard/{scene_id}/{fp}_end_{(parent_sha or 'none')[:12]}.jpg"
+
+
+def end_wanted(s, scene, cfg: dict, chars=(), assets=()) -> bool:
+    """Çekim sonu karesi gerekli mi: proje ayarı chain_end_frame açık, zincir çizilebilir, H3 FL2VA üretimi ve sonraki
+    çekim continuous değil (kesme, yeni sahne ya da sekansın sonu): video sonraki çekime "yolculuk" yapmasın, kendi
+    eylemiyle bitsin."""
+    from app.core.chain import next_continuous
+    from app.core.h3mode import effective_mode
+    if not cfg.get("chain_end_frame", True) or not chain_enabled():
+        return False
+    if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" \
+            or effective_mode(scene, chars, assets) != "fl2va":
+        return False
+    return next_continuous(s, scene) is None
+
+
+def end_fresh(scene, fp: str) -> bool:
+    """Son kare bu görsel özetin ve bu Kn'nin karesinden çizilmiş mi."""
+    return bool(scene.end_board_key and scene.board_sha and scene.end_board_key == end_key(scene.id, fp, scene.board_sha)
+                and scene.end_board_parent == scene.board_sha and storage.exists(clean_key(scene.end_board_key)))
+
+
+def end_usable(scene, fp: str) -> bool:
+    """FL2VA last_frame olarak kullanılabilir mi: güncel ve kapıdan geçmiş."""
+    return end_fresh(scene, fp) and not (scene.end_board_note or "").startswith(END_FAIL)
+
+
+def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str | None:
+    """Kn_end: Kn'den Qwen-Image-Edit Lightning ile, çekimin kendi eylemi tamamlanmış hâli (ör. SH05: Bolt'un gözleri
+    yanmış). Kimlik ve değişmez kapılarından (benzerlik) ve Kn ile süreklilikten geçer; geçemezse video son karesiz
+    üretilir (not düşülür). Ücretsiz modda yerel kare, Lightning fiyatıyla sanal. Değişirse çekimin klipleri "eski kareden"
+    işaretlenir."""
+    import time
+    from app.core.h3mode import edit_references, strict_refs
+    from app.engine.iteration import compose_for_scene
+    from app.quality import scorer
+    with session_scope() as s:
+        scene, project = s.get(Scene, scene_id), s.get(Project, project_id)
+        chars, assets, style = load_characters(s, scene_id), load_assets(s, scene_id), bible.active(s, project_id)
+        cfg = project_settings(project.settings)
+        fp = visual_fingerprint(scene, chars, assets, style.version if style else None)
+        if not end_wanted(s, scene, cfg, chars, assets):
+            return None
+        board_ok = scene.board_key and scene.board_hash == fp and scene.board_sha \
+            and scene.board_status != "changes_requested" and storage.exists(clean_key(scene.board_key))
+        if not board_ok or (end_fresh(scene, fp) and not redraw):
+            return scene.end_board_key if board_ok else None
+        composed = compose_for_scene(scene, chars, assets, style)
+        refs = [r for r in edit_references(scene, chars, assets, strict_refs(cfg)) if r["kind"] == "character"][:2]
+        source = "local" if settings.dry_run else board_source("fl2va", False, "qwen_edit")
+        if source != "qwen_edit" and not settings.dry_run:
+            return None                                   # Qwen-Image-Edit yok: son kare çizilmez, video son karesiz
+        parent_sha, old_sha = scene.board_sha, scene.end_board_sha
+        target = scorer.target_for(scene, chars, style)
+        kn = clean_key(scene.board_key)
+        info = dict(code=f"{scene.scene_code} son kare", keyframe_key=None,
+                    render={"emotion": scene.emotion, "camera": dict(scene.camera or {}),
+                            "characters": [c.name for c in chars], "action": scene.action_complexity,
+                            "lighting": style.lighting_prefix if style else ""})
+        extra = {"end": True, "chain": {"key": kn, "transition": "continuous", "code": scene.scene_code},
+                 "edit_references": [{"name": scene.scene_code, "key": kn, "kind": "frame"}, *refs],
+                 "negative": composed.negative, "edit_mode": END_MODE, "camera": dict(scene.camera or {}),
+                 "label": "h3:storyboard:end",
+                 "estimate": pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=END_MODE)}
+        lines = [f"{scene.scene_code} · son kare · {camera_text(scene.camera)}"]
+        code = scene.scene_code
+    key = end_key(scene_id, fp, parent_sha)
+    drawn = draw(project_id, scene_id, fp, key, "qwen_edit" if source == "qwen_edit" else "local", composed.prompt,
+                 extra, info, lines, cfg, target, salt=f"end{time.time_ns() if redraw else ''}")
+    if not drawn.passed:
+        note = f"{END_FAIL}: {identity_text(drawn)} ({drawn.attempts} deneme); video son karesiz üretilir"
+    elif (drawn.detail or {}).get("review"):
+        note = "İnceleme önerilir: " + "; ".join(drawn.detail["review"])
+    else:
+        note = None
+    advance_scene(project_id, scene_id, end_board_key=key, end_board_sha=drawn.sha, end_board_parent=parent_sha,
+                  end_board_score=drawn.score, end_board_note=note)
+    killswitch.event(project_id, "end_board_ready", scene_id=scene_id, code=code, passed=drawn.passed, note=note)
+    if old_sha and drawn.sha != old_sha:                  # videonun son karesi değişti: eski klipler kullanılmaz
+        invalidate_dependents(project_id, scene_id, f"{code} son karesi değişti", scope="self")
+    return key
 
 
 def board_ready(scene, fp_visual: str) -> bool:

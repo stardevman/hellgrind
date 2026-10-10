@@ -46,7 +46,8 @@ def runpod_rate(gpu: str | None = None, prices: dict | None = None) -> float:
         if gpu and _squash(name) in _squash(gpu):
             return float(rate)
     if gpu is None:
-        primary = (settings.runpod_gpu_types or "").split(",")[0].strip()
+        chosen = (settings.runpod_gpu_pools or "auto").split(",")[0].strip()
+        primary = chosen if chosen and chosen != "auto" else (settings.runpod_gpu_types or "").split(",")[0].strip()
         if primary and primary != gpu:
             for name, rate in rates.items():
                 if _squash(name) == _squash(pools.get(primary, primary)):

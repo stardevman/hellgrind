@@ -92,7 +92,7 @@ function Detail({ a }: { a: Asset }) {
         <div className="pad stack">
           <Pipeline a={a} />
           {a.description && <p>{a.description}</p>}
-          {a.type !== "location" && !locked && (
+          {a.type !== "location" && (
             <label className="field">Değişmez özellikler (her satır bir özellik; her kare ve video istemine eklenir)
               <textarea rows={3} value={inv} disabled={busy} aria-label="Değişmez özellikler" onChange={(e) => setInv(e.target.value)}
                 placeholder="ör. exactly one bent antenna with a small bulb" />

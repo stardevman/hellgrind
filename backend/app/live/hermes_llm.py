@@ -223,12 +223,11 @@ def assemble(state: State) -> dict:
             continue
         shots = []
         location = rules.location_name(heading)
-        # Geçişler ("CUT TO:") kodla: kural tabanlı ayrıştırıcı aynı sayıda çekim bulduysa onunkiler, yoksa ilk çekim
-        # new_scene, diğerleri continuous (LLM geçiş satırlarını çekimlere bağlamaz).
-        ruled = [s.get("transition") for s in rules.parse(chunk)["shots"]]
-        transitions = ruled if len(ruled) == len(draft.shots) else \
-            ["new_scene" if i == 0 else "continuous" for i in range(len(draft.shots))]
-        for shot, transition in zip(draft.shots, transitions):
+        # Geçiş ipuçları ("CUT TO:", "CONTINUOUS:") kodla: kural tabanlı ayrıştırıcı aynı sayıda çekim bulduysa onunkiler
+        # (LLM geçiş satırlarını çekimlere bağlamaz); geçişin kendisi aşağıda aynı kuralla sınıflanır (rules.classify).
+        ruled = [s.get("transition_hint") for s in rules.parse(chunk)["shots"]]
+        hints = ruled if len(ruled) == len(draft.shots) else [None] * len(draft.shots)
+        for n, (shot, hint) in enumerate(zip(draft.shots, hints)):
             dialogue = [{"character": l.character, "line": l.line.strip(), "emotion": l.emotion or shot.emotion} for l in shot.dialogue]
             speakers = [l["character"] for l in dialogue]
             characters = list(dict.fromkeys([*shot.characters, *speakers]))
@@ -240,7 +239,7 @@ def assemble(state: State) -> dict:
                 "visual_prompt": shot.visual_prompt.strip() or rules.visual_prompt_for(heading, draft_shot),
                 "camera": camera, "emotion": shot.emotion, "characters": characters, "dialogue": dialogue,
                 "duration_s": rules.shot_duration(draft_shot["description"], dialogue, shot.kind != "dialogue"),
-                "action_complexity": complexity, "transition": transition,
+                "action_complexity": complexity, "transition_hint": hint, "new_scene": n == 0,
             })
         # Senaryodaki [NESNE: ...] işaretleri kod tarafından okunur: LLM'in hiçbir çekime koymadığı nesne, kural tabanlı
         # ayrıştırıcıdaki gibi sahnenin tüm çekimlerine bağlanır (eksik referans sessizce kaybolmasın).
@@ -258,6 +257,7 @@ def assemble(state: State) -> dict:
         for shot_no, shot in enumerate(shots, start=1):
             shots_out.append({"scene_id": f"S{scene_no:03d}_SH{shot_no:02d}", "sequence": code,
                               **{k: v for k, v in shot.items() if k not in ("scene_id", "sequence")}})
+    rules.classify(shots_out)                  # geçiş, gerekçe, zincirden gelen ve kareden çıkan karakterler
     return {"cast": state["cast"], "sequences": sequences, "shots": shots_out}
 
 

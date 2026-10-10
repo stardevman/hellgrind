@@ -89,7 +89,8 @@ export const BOARD_SOURCE_TR: Record<string, string> = {
 };
 /** Çekime geçiş (core/chain.py). */
 export const TRANSITION_TR: Record<string, string> = {
-  continuous: "Devam (aynı sahne): kare önceki çekimin karesinden", cut: "Kesme: açı değişir, mekân ve durum korunur",
+  continuous: "Devam: aynı kadro ve kadraj; video sonraki çekimin karesinde biter",
+  cut: "Kesme: kadraj çekimin ölçeğiyle yeniden kurulur, mekân ve durum korunur; video kendi son karesinde biter",
   new_scene: "Yeni sahne: zincir kırılır, kare referanslardan",
 };
 /** Çekimin ilk kare modeli (core/h3mode.keyframe_model). */

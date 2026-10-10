@@ -76,7 +76,8 @@ class Target:
     faces: tuple = ()
     face_expected: bool = True        # yüz görünmeli mi (kimlik kapısı; core/h3mode.face_expected)
     looks: tuple = ()
-    next_frame: str | None = None     # sonraki çekimin ilk karesi (FL2VA last_frame): klibin son karesi ona benzemeli
+    next_frame: str | None = None     # FL2VA last_frame hedefi: klibin son karesi ona benzemeli (varış skoru)
+    arrival_kind: str | None = None   # next: sonraki çekimin ilk karesi K(n+1); end: çekimin son karesi Kn_end
 
 
 def target_for(scene, chars, style) -> Target:
@@ -403,6 +404,71 @@ def transition(path: str, next_key: str) -> float | None:
     if vectors is None:
         vectors = m.encode_images([end, nxt])
     return round(float(vectors[0] @ vectors[1]), 4)
+
+
+ARRIVAL_DINO_WEIGHT = 0.7       # varış skoru: tam kare DINOv2 × 0,7 + son karedeki kimlik/benzerlik × 0,3
+
+
+def arrival(path: str, target_key: str, target: Target) -> dict | None:
+    """Klibin son karesi hedefe (K(n+1) ya da Kn_end) ne kadar vardı: {"score", "dino", "identity"}. dino: tam kare
+    DINOv2 benzerliği (yoksa OpenCLIP); identity: son karedeki karakterlerin kimlik (insan) ya da benzerlik (insan olmayan)
+    skorlarının ortalaması, karakter ya da ölçülebilir yüz yoksa None (skor = dino)."""
+    from app import storage
+    m = models()
+    end = last_frame(path)
+    if end is None:
+        return None
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        with Image.open(storage.download(target_key, os.path.join(tmp, "target.jpg"))) as im:
+            goal = im.convert("RGB")
+    vectors = m.encode_dino([end, goal])
+    if vectors is None:
+        vectors = m.encode_images([end, goal])
+    dino = round(float(vectors[0] @ vectors[1]), 4)
+    ident = None
+    if target.faces or target.looks:
+        detail = score_images([end], target).detail
+        values = [*(detail.get("identity") or {}).values(), *(detail.get("look") or {}).values()]
+        ident = round(float(np.mean(values)), 4) if values else None
+    score = dino if ident is None else ARRIVAL_DINO_WEIGHT * dino + (1 - ARRIVAL_DINO_WEIGHT) * ident
+    return {"score": round(score, 4), "dino": dino, "identity": ident}
+
+
+FRAMING_SCALES = (1.0, 0.6, 0.35)   # insan olmayan karakter: referansa en çok benzeyen kırpımın boyu -> alan ≈ boy²
+
+
+def framing(path: str, target: Target) -> float | None:
+    """Kabaca karakter alanı / kare alanı (kadraj ölçeği kontrolü). İnsan: en büyük yüzden tahmin edilen gövde kutusu
+    (genişlik 3 yüz, yükseklik 7,5 yüz, kare sınırında kesilir). İnsan olmayan: referansa (DINOv2) en çok benzeyen kırpım
+    ölçeği. Karakter yoksa None."""
+    m = models()
+    with Image.open(path) as im:
+        image = im.convert("RGB")
+    w, h = image.size
+    areas = []
+    if target.faces:
+        for x, y, fw, fh in face_boxes(m, image):
+            bw = min(w, 3 * fw)
+            bh = min(h - max(0.0, y - 0.5 * fh), 7.5 * fh)
+            areas.append(max(0.0, bw * bh) / (w * h))
+    for _, keys in target.looks:
+        refs = [r for r in (m.reference_dino(k) for k in keys[:LOOK_REFS]) if r is not None]
+        if not refs:
+            continue
+        best = None
+        for side in FRAMING_SCALES:
+            cw, ch = int(w * side), int(h * side)
+            steps = [0.0, 0.5, 1.0] if side < 1.0 else [0.0]
+            boxes = [(int((w - cw) * a), int((h - ch) * b)) for a in steps for b in steps]
+            vectors = m.encode_dino([image.crop((x, y, x + cw, y + ch)) for x, y in boxes])
+            if vectors is None:
+                break
+            value = max(float(v @ r) for v in vectors for r in refs)
+            if best is None or value > best[0]:
+                best = (value, side * side)
+        if best is not None:
+            areas.append(best[1])
+    return round(max(areas), 3) if areas else None
 
 
 def score_images(images: list[Image.Image], target: Target) -> Result:

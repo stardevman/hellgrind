@@ -48,17 +48,21 @@ def png(color) -> bytes:
 # ---------- geçiş türü ----------
 
 def test_transitions_come_from_the_script():
+    """Otomatik sınıflama: SH01 geniş -> SH02 orta (kadraj değişti) kesme; SH02 -> SH03 aynı kadro ve kadraj: devam;
+    "CUT TO:" kesmeyi zorlar; yeni başlık new_scene."""
     shots = rules.parse(ATTIC)["shots"]
     assert [(s["scene_id"], s["transition"]) for s in shots] == [
-        ("S001_SH01", "new_scene"), ("S001_SH02", "continuous"), ("S001_SH03", "continuous"), ("S001_SH04", "cut"),
+        ("S001_SH01", "new_scene"), ("S001_SH02", "cut"), ("S001_SH03", "continuous"), ("S001_SH04", "cut"),
         ("S002_SH01", "new_scene")]
+    assert shots[1]["transition_reason"] == "kadraj değişti: geniş → orta"
+    assert shots[3]["transition_hint"] == "cut" and shots[3]["transition_reason"] == "senaryoda CUT TO"
 
 
 def test_the_transition_is_stored_and_can_be_changed_per_shot(api, mk_project):
     pid = mk_project(5.0)
     ingest(pid, ATTIC, auto_music=False)
     shots = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}
-    assert shots["S001_SH02"]["transition"] == "continuous" and shots["S001_SH02"]["chain_parent"] == "S001_SH01"
+    assert shots["S001_SH03"]["transition"] == "continuous" and shots["S001_SH02"]["chain_parent"] == "S001_SH01"
     assert shots["S001_SH04"]["transition"] == "cut" and shots["S002_SH01"]["chain_parent"] is None
     sid = shots["S001_SH02"]["id"]
     api.patch(f"/api/scenes/{sid}", json={"transition_in": "new_scene"})
@@ -82,7 +86,7 @@ def chained(edit, monkeypatch, mk_project):  # noqa: F811
     monkeypatch.setattr(gate, "detect_frame_anomalies", lambda path: [])
     monkeypatch.setattr(scorer, "score_image", score)
     monkeypatch.setattr(scorer, "continuity", lambda path, previous: state["continuity"].pop(0))
-    pid = mk_project(5.0)
+    pid = mk_project(5.0, chain_end_frame=False)          # çekim sonu kareleri ayrı sınanır (test_chain_consistency)
     ingest(pid, ATTIC, auto_music=False)
     with session_scope() as s:
         codes = {sc.scene_code: str(sc.id) for sc in s.scalars(select(Scene).where(Scene.project_id == pid))}
@@ -96,8 +100,9 @@ def test_frames_are_drawn_in_chain_order_from_the_previous_frame(chained):
     kinds = ["edit" if "170:151" in r["input"]["workflow"] else "qwen" for r in fake.runs]
     assert kinds == ["qwen", "edit", "edit"]
     prompts = [r["input"]["workflow"]["170:151"]["inputs"]["prompt"] for r in edit_runs(fake)]
-    assert all(p.startswith("Image 1 is the previous shot of this scene") and "Keep the same room, layout, props" in p
-               for p in prompts)
+    assert all(p.startswith("Image 1 is the previous shot of this scene") for p in prompts)
+    assert "Reframe the camera for this shot: a medium shot, 35 mm lens." in prompts[0]        # K2: kesme
+    assert "Keep the same room, layout, props" in prompts[1]                                    # K3: devam
     assert all(len(r["input"]["images"]) == 1 for r in edit_runs(fake))          # karakter yok: yalnızca önceki kare
     with session_scope() as s:
         k1, k2, k3 = (s.get(Scene, codes[c]) for c in ("S001_SH01", "S001_SH02", "S001_SH03"))
@@ -110,7 +115,7 @@ def test_a_cut_keeps_the_place_but_frees_the_camera(chained):
     fake, pid, codes, _ = chained
     storyboard.make_board(pid, codes["S001_SH04"])
     cut = edit_runs(fake)[-1]["input"]["workflow"]["170:151"]["inputs"]["prompt"]
-    assert "camera angle and framing may change" in cut and "characters' state" in cut
+    assert "Reframe the camera for this shot: a medium shot" in cut and "characters' state" in cut
     storyboard.make_board(pid, codes["S002_SH01"])                # yeni sahne: zincir kırılır, referanslardan
     assert "170:151" not in fake.runs[-1]["input"]["workflow"]
 
@@ -135,11 +140,11 @@ def test_a_redrawn_frame_makes_the_next_frames_stale(chained, api):
 def test_a_frame_that_breaks_continuity_is_redrawn_and_the_chain_waits(chained):
     from app.engine import storyboard
     fake, pid, codes, state = chained
-    state["continuity"] = [0.62, 0.65, 0.66]                       # K2 üç denemede de önceki kareden farklı oda
+    state["continuity"] = [0.52, 0.55, 0.56]                       # K2 (kesme) üç denemede de önceki kareden farklı oda
     storyboard.make_board(pid, codes["S001_SH03"])
     with session_scope() as s:
         k2, k3 = s.get(Scene, codes["S001_SH02"]), s.get(Scene, codes["S001_SH03"])
-        assert k2.board_status == "changes_requested" and "süreklilik 0,66 < 0,70" in k2.board_note
+        assert k2.board_status == "changes_requested" and "süreklilik 0,56 < 0,60" in k2.board_note
         assert k3.board_key is None                                # K3, kabul edilmemiş K2'den çizilmez
     assert len(edit_runs(fake)) == 3
 
@@ -172,13 +177,13 @@ def test_last_frame_is_in_the_workflow_and_the_request(chained):
     flows = pathlib.Path(settings.h3_comfy_workflow_dir)
     (flows / "i2v.json").write_text((FLOWS / "i2v.json").read_text())        # gerçek FL2VA şablonu (last_frame düğümü)
     storyboard.make_board(pid, codes["S001_SH03"])
-    with session_scope() as s:                                    # sahte RunPod her kareye aynı görseli verir: K2 farklı olsun
-        k2 = s.get(Scene, codes["S001_SH02"]).board_key
-    path = pathlib.Path(settings.work_dir) / "k2.png"
+    with session_scope() as s:                                    # sahte RunPod her kareye aynı görseli verir: K3 farklı olsun
+        k3 = s.get(Scene, codes["S001_SH03"]).board_key
+    path = pathlib.Path(settings.work_dir) / "k3.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png((200, 40, 40)))
-    storage.put_file(str(path), storyboard.clean_key(k2), "image/jpeg")
-    ctx = _prepare(pid, codes["S001_SH01"], "run")
+    storage.put_file(str(path), storyboard.clean_key(k3), "image/jpeg")
+    ctx = _prepare(pid, codes["S001_SH02"], "run")               # SH03 devam ediyor: son kare = K3
     assert ctx.keyframe and ctx.last_frame and ctx.target.next_frame.endswith("_clean.jpg")
     runpod_h3.get_live_provider().generate(GenRequest(
         prompt="p", seed=1, resolution="480p", duration_s=4.0, image_url=ctx.keyframe,
@@ -202,7 +207,7 @@ def test_a_clip_that_does_not_end_on_the_next_frame_is_rejected(monkeypatch, tmp
     monkeypatch.setattr(gate, "scorer_mode", lambda: "real")
     monkeypatch.setattr(scorer, "score_video", lambda path, target: scorer.Result(
         clip=0.95, face=None, composite=0.95, detail={"faces_seen": 0, "identity": {}}))
-    monkeypatch.setattr(scorer, "transition", lambda path, key: 0.55)
+    monkeypatch.setattr(scorer, "arrival", lambda path, key, target: {"score": 0.55, "dino": 0.55, "identity": None})
     clip = make_video(tmp_path / "c.mp4", seconds=4.0, size="320x180", fps=24)
     score = gate.score_video(str(clip), 1, {"clip_threshold": 0.85, "transition_threshold": 0.8},
                              scorer.Target(next_frame="storyboard/x/k_clean.jpg"))

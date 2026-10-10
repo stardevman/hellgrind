@@ -140,6 +140,8 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
             return None
         if v.status != "purged" and not (v.video_key and storage.exists(v.video_key)):
             return None
+        if c.render.get("seam") and (v.params or {}).get("keyframe_key") != c.render.get("keyframe_key"):
+            return None                                   # kesintisiz dikiş: başka bir son kareden üretilmiş
         s.expunge(v)
         return v
 
@@ -222,8 +224,9 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
                       params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
                               "negative": req.negative, "run": c.run_id,
                               **({"keyframe_key": c.render["keyframe_key"], "h3_mode": c.render["h3_mode"]}
-                                 if c.keyframe and c.render.get("keyframe_key") else {}),
-                              **({"last_frame_key": c.render["last_frame_key"]} if c.last_frame else {})})
+                                 if (c.keyframe or c.render.get("seam")) and c.render.get("keyframe_key") else {}),
+                              **({"last_frame_key": c.render["last_frame_key"],
+                                  "last_frame_kind": c.render.get("last_frame_kind")} if c.last_frame else {})})
         s.add(v)
         s.flush()
         vid = v.id
@@ -358,7 +361,7 @@ def summarize(results: list[VarResult]) -> dict:
 
 # ---------- sahne ----------
 
-def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
+def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None = None) -> Ctx:
     killswitch.r().delete(CHAIN_STALE.format(scene_id))   # yeni çalıştırma güncel karelerle başlar
     with session_scope() as s:
         project, scene = s.get(Project, project_id), s.get(Scene, scene_id)
@@ -393,9 +396,11 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                     "audio": cfg.get("audio", "on") != "off",
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
-        keyframe_key = keyframe_of(scene, visual_hash)
-        last_key = next_keyframe_of(s, scene, style.version if style else None) \
-            if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else None
+        keyframe_key = seam_key or keyframe_of(scene, visual_hash)
+        last_key, last_kind = last_frame_of(s, scene, style.version if style else None, cfg) \
+            if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
+        if seam_key:
+            ctx.render["seam"] = True                     # kesintisiz dikiş: ilk kare önceki klibin gerçek son karesi
     if keyframe_key and hasattr(ctx.provider, "upload"):
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:   # bir kez yüklenir, bütün varyasyonlar kullanır
@@ -404,8 +409,8 @@ def _prepare(project_id: str, scene_id: str, run_id: str) -> Ctx:
                 ctx.last_frame = ctx.provider.upload(storage.download(last_key, os.path.join(tmp, "last.jpg")))
     ctx.render["keyframe_key"] = keyframe_key
     if ctx.last_frame:
-        ctx.render["last_frame_key"] = last_key
-        ctx.target = replace(ctx.target, next_frame=last_key)
+        ctx.render["last_frame_key"], ctx.render["last_frame_kind"] = last_key, last_kind
+        ctx.target = replace(ctx.target, next_frame=last_key, arrival_kind=last_kind)
     return ctx
 
 
@@ -449,18 +454,119 @@ def keyframe_of(scene, fp: str) -> str | None:
     return None
 
 
-def next_keyframe_of(s, scene, style_version) -> str | None:
-    """FL2VA last_frame: sonraki çekimin geçişi continuous ve ilk karesi (bu görsel özet için, incelemede değil) hazırsa
-    onun yazısız hâli (anahtar kare zinciri; core/chain.py)."""
+def last_frame_of(s, scene, style_version, cfg: dict | None = None) -> tuple[str | None, str | None]:
+    """FL2VA last_frame (anahtar kare zinciri; core/chain.py): (anahtar, tür).
+    - Sonraki çekimin geçişi continuous: onun ilk karesi K(n+1) (bu görsel özet için, incelemede değil): "next".
+    - Değilse (kesme, yeni sahne, sekansın sonu): çekimin kendi son karesi Kn_end (güncel ve kapıdan geçmişse): "end".
+      Video sonraki kareye "yolculuk" yapmaz; Kn_end yoksa son kare serbest (None)."""
     from app.core.chain import next_continuous
-    from app.engine.storyboard import clean_key
+    from app.engine.storyboard import clean_key, end_usable
     nxt = next_continuous(s, scene)
-    if nxt is None or not nxt.board_key or nxt.board_status == "changes_requested":
-        return None
+    if nxt is None:
+        if not (cfg or {}).get("chain_end_frame", True):
+            return None, None
+        fp = visual_fingerprint(scene, load_characters(s, scene.id), load_assets(s, scene.id), style_version)
+        return (clean_key(scene.end_board_key), "end") if end_usable(scene, fp) else (None, None)
+    if not nxt.board_key or nxt.board_status == "changes_requested":
+        return None, None
     if nxt.board_hash != visual_fingerprint(nxt, load_characters(s, nxt.id), load_assets(s, nxt.id), style_version):
-        return None
+        return None, None
     key = clean_key(nxt.board_key)
-    return key if storage.exists(key) else None
+    return (key, "next") if storage.exists(key) else (None, None)
+
+
+SEAM_WAIT_S = 6 * 3600         # kesintisiz dikiş: önceki çekimin kazanan klibini en çok bu kadar bekle
+SEAM_POLL_S = 10.0
+SEAM_WAITING = ("pending", "parsed", "storyboard", "probing", "generating", "correcting")
+
+
+def exact_seam(s, scene, cfg: dict) -> tuple[str, object, object]:
+    """Kesintisiz dikiş (proje ayarı seam_mode=exact): continuous çekimin ilk karesi = önceki çekimin kazanan klibinin
+    gerçek son karesi (sıralı üretim). (durum, önceki çekim, kazanan): "off" (uygulanmaz), "ready", "wait" (önceki çekim
+    hâlâ üretiliyor), "stop" (önceki çekimin kazananı yok ve üretilmiyor)."""
+    from app.core.chain import neighbours, transition_of
+    if cfg.get("seam_mode", "keyframe") != "exact" or transition_of(scene) != "continuous" \
+            or (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate":
+        return "off", None, None
+    previous, _ = neighbours(s, scene)
+    if previous is None:
+        return "off", None, None
+    winner = s.scalars(select(Variation).where(Variation.scene_id == previous.id, Variation.refined_rank == 1,
+                                               Variation.status == "refined")).first()
+    if winner is not None and winner.video_key and not (winner.params or {}).get("stale_keyframe") \
+            and previous.status not in SEAM_WAITING:
+        return "ready", previous, winner
+    return ("wait" if previous.status in SEAM_WAITING else "stop"), previous, winner
+
+
+def seam_frame(winner) -> str:
+    """Kazanan klibin gerçek son karesi, depoda (içerik-adresli: varyasyon kimliği): seam/{varyasyon}.jpg."""
+    key = f"seam/{winner.id}.jpg"
+    if storage.exists(key):
+        return key
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        video = storage.download(winner.video_key, os.path.join(tmp, "clip.mp4"))
+        out = os.path.join(tmp, "last.jpg")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.1", "-i", video, "-frames:v", "1", "-q:v", "2", out],
+                       check=True, capture_output=True)
+        storage.put_file(out, key, "image/jpeg")
+    return key
+
+
+def wait_for_seam(project_id: str, scene_id: str) -> tuple[str, str | None]:
+    """Kesintisiz dikişte önceki çekimin kazanan klibini bekler. ("off" | "ready" | "stop", ilk kare anahtarı)."""
+    import time
+    deadline = time.monotonic() + SEAM_WAIT_S
+    while True:
+        with session_scope() as s:
+            scene = s.get(Scene, scene_id)
+            state, previous, winner = exact_seam(s, scene, project_settings(s.get(Project, project_id).settings))
+            code = previous.scene_code if previous is not None else ""
+            if state == "ready":
+                s.expunge(winner)
+        if state == "off":
+            return "off", None
+        if state == "ready":
+            return "ready", seam_frame(winner)
+        if state == "stop" or time.monotonic() > deadline:
+            advance_scene(project_id, scene_id, status="board_review",
+                          last_error=f"Kesintisiz dikiş: bu çekimin ilk karesi önceki çekimin ({code}) kazanan klibinin "
+                                     f"son karesidir; {code} henüz bitmedi ya da havuzu boş. Önce {code}'i üretin.")
+            killswitch.event(project_id, "seam_waiting", scene_id=scene_id, previous=code, stopped=True)
+            return "stop", None
+        if killswitch.is_frozen(project_id):
+            raise killswitch.ProjectFrozen(project_id)
+        time.sleep(SEAM_POLL_S)
+
+
+def invalidate_next_seam(project_id: str, scene_id: str) -> None:
+    """Kesintisiz dikişte çekimin kazananı değişti: sonraki (continuous) çekimin önceki son kareden üretilmiş klipleri
+    eski sayılır ve çekim yeniden üretilmek üzere işaretlenir."""
+    from app.core.chain import next_continuous
+    from app.engine.storyboard import FINISHED
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        if project_settings(s.get(Project, project_id).settings).get("seam_mode", "keyframe") != "exact":
+            return
+        nxt = next_continuous(s, scene)
+        winner = s.scalars(select(Variation).where(Variation.scene_id == scene_id, Variation.refined_rank == 1)).first()
+        if nxt is None or winner is None:
+            return
+        current, marked = f"seam/{winner.id}.jpg", 0
+        for v in s.scalars(select(Variation).where(Variation.scene_id == nxt.id,
+                                                   Variation.status.in_(("passed", "refined", "generated")))):
+            key = (v.params or {}).get("keyframe_key") or ""
+            if key.startswith("seam/") and key != current and not (v.params or {}).get("stale_keyframe"):
+                v.params = {**(v.params or {}), "stale_keyframe": f"{scene.scene_code} kazananı değişti"}
+                marked += 1
+        if marked:
+            nxt.visual_hash = None
+            if nxt.status in FINISHED:
+                nxt.status = "needs_review"
+                nxt.last_error = f"Klip eski dikişten üretildi ({scene.scene_code} kazananı değişti); yeniden üretin."
+            killswitch.event(project_id, "chain_invalidated", scene_id=str(nxt.id), reason="seam", codes=[nxt.scene_code],
+                             clips=marked)
 
 
 def keyframe_blocks(project_id: str, scene_id: str) -> bool:
@@ -470,8 +576,8 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
     çizilebiliyorsa çizilir; kalite kapısından kalırsa video üretilmez, yoksa her varyasyon kendi Flux karesini üretir."""
     from app.core.chain import parent_of, stale
     from app.core.h3mode import keyframe_model, strict_refs
-    from app.engine.storyboard import (SHARED_SOURCES, board_source, chain_enabled, keyframe_problem, make_board,
-                                       outdated)
+    from app.engine.storyboard import (SHARED_SOURCES, board_source, chain_enabled, end_fresh, end_wanted,
+                                       keyframe_problem, make_board, outdated)
     if settings.dry_run:
         return False
     with session_scope() as s:
@@ -490,9 +596,12 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         current = bool(scene.board_key and scene.board_hash == fp)
         missing = not scene.keyframe_key and (not current or outdated(scene.board_source, source)
                                               or (parent is not None and stale(scene, parent)))
+        # çekim sonu karesi (Kn_end) eksik ya da eski: make_board Kn güncelse yalnızca onu çizer
+        end_missing = not scene.keyframe_key and current and end_wanted(
+            s, scene, project_settings(s.get(Project, project_id).settings), chars, assets) and not end_fresh(scene, fp)
     if engine == "seedance" and source not in SHARED_SOURCES and not scene.keyframe_key:
         return False                                      # Seedance kendi ilk karesini üretir (fal.ai Flux)
-    if missing:
+    if missing or end_missing:
         make_board(project_id, scene_id)
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
@@ -562,9 +671,12 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
         from app.engine.methods import run_guide
         return run_guide(project_id, scene_id, visual_hash, style)
     gate.ensure_scorer()                                  # para harcanmadan önce (rehber ve dış çekim skor kullanmaz)
-    if keyframe_blocks(project_id, scene_id):             # ilk kare çizilecekse skorlayıcı hazır olduktan sonra
+    seam, seam_key = wait_for_seam(project_id, scene_id)  # kesintisiz dikiş: önceki çekimin gerçek son karesi
+    if seam == "stop":
         return "board_review"
-    ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
+    if seam_key is None and keyframe_blocks(project_id, scene_id):   # ilk kare çizilecekse skorlayıcı hazır olduktan sonra
+        return "board_review"
+    ctx = _prepare(project_id, scene_id, uuid.uuid4().hex, seam_key)
     try:
         return _tiered(ctx, project_id, scene_id, mode)
     except ChainStale as e:                               # zincirdeki kare değişti: eski kareden video üretilmez
@@ -621,4 +733,5 @@ def _tiered(ctx: Ctx, project_id: str, scene_id: str, mode: str) -> str:
                       last_error=review_reason(gate.run_results(scene_id, ctx.run_id), cfg, "tam tur"))
         return "needs_review"
     killswitch.event(project_id, "refined", scene_id=scene_id, pool=len(winners))
+    invalidate_next_seam(project_id, scene_id)
     return "refined"

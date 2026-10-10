@@ -158,15 +158,19 @@ def chain_impact(scene_id: SceneId, s: Session = Depends(get_session)):
     from app.models import Project, Variation
     sc = scene_or_404(s, scene_id)
     cfg = project_settings(s.get(Project, sc.project_id).settings)
+    from app.core.chain import next_continuous
     shots = dependents(s, sc)
     frames = [x for x in shots if x.id == sc.id or x.seq_order > sc.seq_order]
+    ends = [x for x in frames if cfg.get("chain_end_frame", True) and next_continuous(s, x) is None]
     clipped = [x for x in shots if s.scalar(select(Variation.id).where(
         Variation.scene_id == x.id, Variation.status.in_(("passed", "refined"))).limit(1)) is not None]
     from app.budget import pricing
-    frame_usd = pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=edit_mode(cfg)) * len(frames)
+    frame_usd = pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=edit_mode(cfg)) * len(frames) \
+        + pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode="lightning") * len(ends)
     shot_costs = [costs.shot(cfg, x.scene_code, float(x.duration_s or 4.0), x.engine or "h3") for x in clipped]
     clip_usd = sum(c["expected_usd"] - c["frame_usd"] for c in shot_costs)          # kare ayrıca sayıldı
-    return {"frames": len(frames), "clips": len(clipped), "estimate_usd": round(frame_usd + clip_usd, 4),
+    return {"frames": len(frames), "end_frames": len(ends), "clips": len(clipped),
+            "estimate_usd": round(frame_usd + clip_usd, 4),
             "frame_codes": [x.scene_code for x in frames], "clip_codes": [x.scene_code for x in clipped]}
 
 
@@ -214,6 +218,54 @@ def redraw_chain(scene_id: SceneId, s: Session = Depends(get_session)):
     from app.worker import tasks
     tasks.storyboard_scene.si(project_id=str(sc.project_id), scene_id=str(last.id), standalone=True).apply_async()
     return {"queued": [last.scene_code], "codes": codes}
+
+
+@router.post("/projects/{project_id}/boards/approve")
+@curated("board_approve_all")
+def approve_strip(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Storyboard önce: şeritteki bütün kareler (ilk kareler ve son kareler) tek tıkla onaylanır, ardından videolar
+    başlar. İnceleme bekleyen (değişiklik istenen) ya da karesi olmayan çekim onaylanmaz ve listelenir; yönetmen önce o
+    kareyi düzeltir (yeniden çizim zincirde sonraki kareleri de yeniden çizer)."""
+    project_or_404(s, project_id)
+    approved, review, missing = [], [], []
+    for sc in _scenes(s, project_id):
+        if not sc.board_key:
+            missing.append(sc.scene_code)
+        elif sc.board_status == "changes_requested":
+            review.append(sc.scene_code)
+        else:
+            if sc.board_status != "approved":
+                sc.board_status = "approved"
+                approved.append(sc.scene_code)
+            if sc.status == "board_review":
+                sc.status, sc.last_error = "parsed", None
+    s.commit()
+    killswitch.event(project_id, "board_strip_approved", approved=approved, review=review, missing=missing)
+    if killswitch.is_frozen(project_id):
+        return {"approved": approved, "review": review, "missing": missing, "frozen": True, "planned": {}}
+    return {"approved": approved, "review": review, "missing": missing, **dispatch_all(s, project_id)}
+
+
+@router.post("/scenes/{scene_id}/board/end/redraw")
+@curated("end_board_redraw")
+def redraw_end_board(scene_id: SceneId, s: Session = Depends(get_session)):
+    """Çekim sonu karesini (Kn_end) yeni seed'lerle yeniden çizer. Çekimin klipleri eski son kareden üretildiyse "eski"
+    işaretlenir. Gerekmiyorsa (sonraki çekim continuous ya da ayar kapalı) 409."""
+    from app.config import project_settings
+    from app.engine.storyboard import end_wanted
+    from app.models import Project
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    ensure_idle(sc)
+    cfg = project_settings(s.get(Project, sc.project_id).settings)
+    if not end_wanted(s, sc, cfg, load_characters(s, sc.id), load_assets(s, sc.id)):
+        raise HTTPException(409, f"{sc.scene_code}: son kare gerekmiyor (sonraki çekim kesintisiz devam ediyor, çekim "
+                                 "FL2VA değil ya da proje ayarı kapalı).")
+    if not sc.board_key:
+        raise HTTPException(409, f"{sc.scene_code}: önce çekimin ilk karesi çizilmeli.")
+    from app.worker import tasks
+    tasks.end_board_scene.si(project_id=str(sc.project_id), scene_id=scene_id).apply_async()
+    return {"queued": [sc.scene_code]}
 
 
 @router.post("/scenes/{scene_id}/upgrade")

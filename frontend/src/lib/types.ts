@@ -57,6 +57,9 @@ export interface Variation {
   id: string; tier: "probe" | "full"; wave_no: number; status: string; seed: number;
   score: number | null; rank: number | null; cost_usd: number; anomalies: string[];
   reason: string | null; stage: string | null; measure: Measure | null; stale?: string | null; review?: string[] | null;
+  /** FL2VA last_frame: klibin son karesi hedefe (next: sonraki çekimin karesi, end: çekimin son karesi) ne kadar vardı. */
+  arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
+  last_frame_kind?: "next" | "end" | null;
   thumb_url: string | null; video_url: string | null;
   source: string; revisions: number; revision: number | null;
 }
@@ -93,6 +96,12 @@ export interface Scene {
   keyframe_model?: "qwen_edit" | "qwen";
   transition?: "continuous" | "cut" | "new_scene"; transition_explicit?: string | null;
   chain_parent?: string | null; chain_stale?: boolean; chain_redraw?: string[];
+  /** Otomatik sınıflamanın gerekçesi ("kadro aynı: Mila+Bolt"), senaryonun zorladığı geçiş (cut | continuous). */
+  transition_reason?: string | null; transition_hint?: string | null;
+  /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */
+  chain_cast?: string[];
+  /** Çekim sonu karesi (Kn_end): sonraki çekim kesmeyle geliyorsa video bu karede biter. */
+  end_board_url?: string | null; end_board_note?: string | null; end_board_score?: number | null; end_board_current?: boolean;
   edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
 }
 
@@ -185,6 +194,11 @@ export interface StageResult { stages: string[]; blocked?: Blocked | null; hint?
 export interface DispatchAll {
   planned: Record<string, string[]>; busy: string[]; blocked: Record<string, unknown>;
   capped: string[]; awaiting_board?: string[]; frozen: boolean;
+}
+
+/** Storyboard önce: şeridin tek tıkla onayı (POST /projects/{id}/boards/approve). */
+export interface StripApproval extends Partial<DispatchAll> {
+  approved: string[]; review: string[]; missing: string[]; frozen: boolean;
 }
 
 /* ---------- ayarlar (ücretli servisler) ---------- */
@@ -339,9 +353,12 @@ export interface CallSummary {
 export interface CostEstimateShot {
   code: string; duration_s: number; billed_seconds: number; engine: string; mode: string; frame: string | null;
   frame_usd: number; edit_mode?: string | null; probe_clip_usd: number; full_clip_usd: number; clips: number; expected_usd: number; max_usd: number;
+  /** Çekim sonu karesi (Kn_end, Qwen-Image-Edit Lightning): sonraki çekim kesmeyle geliyorsa. */
+  end_frame?: boolean; end_frame_usd?: number;
 }
 export interface CostEstimate {
   shots: CostEstimateShot[]; model_loads: number; cold_start_usd: number; expected_usd: number; max_usd: number;
+  end_frames?: number; end_frame_usd?: number;
   settings: { probe_n: number; probe_resolution: string; full_n: number; full_resolution: string; max_correction_rounds: number };
   platform: string; dry_run: boolean;
 }

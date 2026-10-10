@@ -11,6 +11,7 @@
 import logging
 import math
 import os
+import subprocess
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -195,10 +196,12 @@ def voice_and_lipsync(scene_id: str) -> str:
         # Ücretli modda senkronsuz kopya ayrı anahtardadır: ücretli ses sonradan açılınca senkron gerçekten yapılır.
         sync = paid_lipsync(snap.cfg)
         unsynced = "" if settings.dry_run or sync else "_unsynced"
-        out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}{unsynced}.mp4"
+        keep_end = _continues(scene)
+        trim = f"_d{float(scene.duration_s or 0):g}{'e' if keep_end else 's'}"
+        out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}{trim}{unsynced}.mp4"
         if not storage.exists(out_key):
             advance_scene(project_id, scene_id, status="lipsync")
-            _lipsync(scene, video_key, out_key, tmp, sync=sync)
+            _lipsync(scene, video_key, out_key, tmp, sync=sync, keep_end=keep_end)
     fields = dict(lipsync_video_key=out_key, dialogue_hash=snap.fp.dialogue)
     if scene.lipsync_video_key != out_key:     # kaynak video değişti: eski renk ve montaj geçersiz, plan yeniden yapsın
         fields.update(final_video_key=None, graded_video_key=None, grade_hash=None)
@@ -206,18 +209,52 @@ def voice_and_lipsync(scene_id: str) -> str:
     return out_key
 
 
-def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True) -> None:
+TRIM_TOLERANCE_S = 1.5 / 24      # bundan kısa fazlalık kesilmez
+
+
+def _continues(scene: Scene) -> bool:
+    """Sonraki çekim continuous mu (klibin son karesi sonraki çekimin ilk karesine varır: kesme baştan yapılır)."""
+    from app.core.chain import next_continuous
+    with session_scope() as s:
+        return next_continuous(s, s.get(Scene, scene.id)) is not None
+
+
+def trim_window(duration: float, target: float, keep_end: bool) -> tuple[float, float] | None:
+    """MiniMax H3 kare sayısını 17n+5'e yukarı yuvarlar (4 sn -> 107 kare, 4,46 sn): montajda hedef süreye kesilir.
+    (başlangıç, uzunluk) ya da None (kesme gerekmez). keep_end: continuous çekimde varış ucu korunur, baştan kesilir."""
+    if not target or duration <= target + TRIM_TOLERANCE_S:
+        return None
+    return (round(duration - target, 3) if keep_end else 0.0), round(target, 3)
+
+
+def trimmed(video: str, target: float, keep_end: bool, out: str) -> str:
+    """Hedef süreye kesilmiş kopya (yeniden kodlanır; kare hassas). Kesme gerekmezse kaynak döner."""
+    window = trim_window(probe_duration(video), target, keep_end)
+    if window is None:
+        return video
+    start, length = window
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", video, "-t", f"{length:.3f}",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                    "-movflags", "+faststart", out], check=True, capture_output=True)
+    return out
+
+
+def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True, keep_end: bool = False) -> None:
     """Ücretsiz modda, projede ücretli ses kapalıyken ya da senkronlanacak konuşma yoksa rafine video olduğu gibi
-    kopyalanır; aksi halde fal'a gider."""
+    kopyalanır; aksi halde fal'a gider. Klip hedef süreden uzunsa önce kesilir (trim_window)."""
     with session_scope() as s:                     # ses dosyaları az önce bağlandı: anlık görüntü bayat, yeniden oku
         dialogue = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene.id, AudioTrack.is_active,
                                                            AudioTrack.kind == "dialogue").order_by(AudioTrack.start_offset_s)))
         s.expunge_all()
+    source = storage.download(video_key, os.path.join(tmp, "video.mp4"))
+    video = trimmed(source, float(scene.duration_s or 0), keep_end, os.path.join(tmp, "trimmed.mp4"))
     if settings.dry_run or not sync or not dialogue:
-        storage.copy(video_key, out_key)
+        if video == source:
+            storage.copy(video_key, out_key)
+        else:
+            storage.put_file(video, out_key)
         return
     from app.live.fal_video import lipsync
-    video = storage.download(video_key, os.path.join(tmp, "video.mp4"))
     duration = probe_duration(video)
     voices = [AudioInput(storage.download(t.file_key, os.path.join(tmp, f"{t.id}{os.path.splitext(t.file_key)[1]}")),
                          t.start_offset_s, t.gain_db) for t in dialogue]

@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     runpod_network_volume_id: str = ""
     runpod_datacenter: str = "CA-MTL-1"   # Network Volume'un veri merkezi; uç nokta yalnızca bu merkezde çalışır
     runpod_gpu_types: str = "RTX 5090,RTX PRO 6000"
+    runpod_gpu_pools: str = "auto"        # uç noktaya yazılan GPU havuzları: auto (GPU tiplerinden) ya da havuz kimlikleri
     runpod_idle_timeout_s: int = 60    # worker son işten sonra bu kadar bekler (faturalanır), sonra kapanır
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     runpod_max_pending_jobs: int = 6       # bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer bekler
@@ -121,6 +122,11 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "continuity_threshold": 0.70,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
     "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
     "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
+    "arrival_review_threshold": 0.85,   # varış skoru (son kare -> K(n+1) ya da Kn_end) bunun altındaysa "inceleme önerilir"
+    "chain_end_frame": True,       # kesme öncesi çekimde video kendi son karesine (Kn_end) gider; kapalıysa son kare serbest
+    "seam_mode": "keyframe",       # keyframe: continuous çekimler anahtar karelerle dikilir; exact: N+1'in ilk karesi N'nin
+                                   # kazanan klibinin gerçek son karesi (sıralı üretim)
+    "seam_crossfade_frames": 0,    # continuous dikişlerde filmde kaç karelik geçiş (0 kapalı; 3-4 önerilir)
     "audio": "on",                 # off: H3 sesi üretilmez (ses VAE'si yüklenmez, video sessiz); film sesi Hell Grind'den
     "qwen_edit_mode": None,        # karakterli ilk kare: None = Ayarlar'daki QWEN_EDIT_MODE; full | medium | lightning    # kimlik kapısı: yüz beklenen çekimde karakter benzerliği bunun altındaysa havuza giremez
     "excellent_threshold": 0.92,   # tam turda erken durma için "mükemmel" eşiği

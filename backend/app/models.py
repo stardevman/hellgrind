@@ -143,6 +143,13 @@ class Scene(Base):
     transition_in: Mapped[str | None] = mapped_column(Text)                # yönetmenin seçimi; None: otomatik
     board_sha: Mapped[str | None] = mapped_column(Text)                    # ilk karenin (yazısız) SHA-256'sı
     board_parent: Mapped[str | None] = mapped_column(Text)                 # zincirle çizildiyse önceki karenin board_sha'sı
+    transition_hint: Mapped[str | None] = mapped_column(Text)              # senaryodan zorlanan geçiş: cut | continuous
+    transition_reason: Mapped[str | None] = mapped_column(Text)            # otomatik sınıflamanın gerekçesi
+    end_board_key: Mapped[str | None] = mapped_column(Text)                # çekim sonu karesi (Kn_end, yazısız)
+    end_board_sha: Mapped[str | None] = mapped_column(Text)
+    end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı
+    end_board_score: Mapped[float | None] = mapped_column(Float)
+    end_board_note: Mapped[str | None] = mapped_column(Text)
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)

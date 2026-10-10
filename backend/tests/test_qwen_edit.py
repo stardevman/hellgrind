@@ -95,7 +95,7 @@ def test_a_character_shot_gets_its_first_frame_from_qwen_edit_on_the_h3_canvas(e
     assert (wf["172"]["inputs"]["width"], wf["172"]["inputs"]["height"]) == (1280, 704)
     assert wf["170:168"]["inputs"]["value"] is False                 # Lightning varsayılan kapalı (40 adım, cfg 4)
     prompt = wf["170:151"]["inputs"]["prompt"]
-    assert "is the person in image 1" in prompt and "is the person in image 2" in prompt and "image 3" not in prompt
+    assert "must look exactly like image 1" in prompt and "must look exactly like image 2" in prompt and "image 3" not in prompt
     assert len(images) == 2 and "171" not in wf and "image3" not in wf["170:149"]["inputs"]   # iki karakter, mekân yok
     assert wf["41"]["inputs"]["image"] == images[0]["name"] and wf["83"]["inputs"]["image"] == images[1]["name"]
     with session_scope() as s:
@@ -154,10 +154,12 @@ def test_a_retry_that_passes_frees_the_shot(edit, sample_scene, identity, tmp_pa
 def test_a_characterless_shot_uses_plain_qwen_and_the_warning_only_follows_a_text_frame(edit, sample_scene, identity,
                                                                                        tmp_path, monkeypatch, api):
     from app.engine import storyboard
-    identity([0.9, 0.9])
+    identity([0.9] * 6)                                             # kareler + son kareler
     pid, codes = sample_scene()
     storyboard.make_board(pid, codes["S001_SH01"])                  # örnek senaryoda referanssız karakter: metinden
-    assert len(qwen_runs(edit)) == 1 and edit_runs(edit) == []
+    assert len(qwen_runs(edit)) == 1                                 # Qwen-Image-Edit yalnızca çekim sonu karesi (Kn_end)
+    assert all(r["input"]["workflow"]["170:151"]["inputs"]["prompt"].startswith("Image 1 is the first frame of this shot")
+               for r in edit_runs(edit))
     sid = character_shot(pid, "S002_SH01", tmp_path)
     monkeypatch.setattr(settings, "keyframe_character_provider", "qwen")    # Ayarlar: karakterli kare de metinden
     storyboard.make_board(pid, sid)
@@ -273,8 +275,10 @@ def test_the_economy_preset_and_the_estimate_per_shot_and_total(api):
     full = pricing.estimate_video("h3", "720p", 4, mode="fl2va")
     frame = pricing.estimate_keyframe("h3", model="qwen_edit")
     assert (shot["billed_seconds"], shot["frame"], shot["clips"]) == (4, "qwen_edit", 6)
-    assert shot["expected_usd"] == pytest.approx(frame + 3 * probe + 3 * full, abs=1e-4)
-    assert shot["max_usd"] == pytest.approx(3 * frame + 6 * probe + 3 * full, abs=1e-4)
+    end = pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode="lightning") if shot["end_frame"] else 0.0
+    assert shot["end_frame_usd"] == pytest.approx(end, abs=1e-4)                  # çekim sonu karesi (Kn_end)
+    assert shot["expected_usd"] == pytest.approx(frame + end + 3 * probe + 3 * full, abs=1e-4)
+    assert shot["max_usd"] == pytest.approx(3 * frame + 3 * end + 6 * probe + 3 * full, abs=1e-4)
     loads = r["model_loads"] * pricing.estimate_runpod(pricing.serverless()["cold_start_seconds"])
     assert r["model_loads"] == 2 and r["cold_start_usd"] == pytest.approx(loads, abs=1e-4)   # Qwen-Image-Edit + FL2VA
     assert r["expected_usd"] == pytest.approx(sum(s["expected_usd"] for s in r["shots"]) + loads, abs=1e-3)

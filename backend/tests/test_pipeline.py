@@ -84,7 +84,9 @@ def test_lipsync_stage_voices_the_dialogue_and_copies_the_rank_one_video_in_free
 
     best = rank_one(sid)
     sc = scene_row(sid)
-    assert key == f"lipsync/{sid}/{best.id}_{sc.dialogue_hash}.mp4" == sc.lipsync_video_key
+    # anahtar hedef süreyi ve kesme yönünü taşır (d<süre><e: varış ucu korunur | s: sondan kesilir>)
+    assert key in (f"lipsync/{sid}/{best.id}_{sc.dialogue_hash}_d{sc.duration_s:g}{x}.mp4" for x in "es")
+    assert key == sc.lipsync_video_key
     assert storage.read_bytes(key) == storage.read_bytes(best.video_key)               # ücretsiz mod: video olduğu gibi
     dialogue, = [t for t in tracks(sid) if t.kind == "dialogue"]
     assert dialogue.file_key == f"audio/espeak/{dialogue.content_hash}.wav" and storage.exists(dialogue.file_key)

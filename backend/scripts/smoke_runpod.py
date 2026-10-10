@@ -200,8 +200,9 @@ The robot tilts its head and looks at the window.
 
 
 def run_chain(c, check, new_project) -> None:
-    """Anahtar kare zinciri: 4 çekimlik continuous sekansta kareler sırayla (K1 referanslardan, K2..K4 önceki kareden
-    Qwen-Image-Edit ile) çizilir; video isteklerinde last_frame (sonraki çekimin karesi) vardır, sonuncuda yoktur."""
+    """Anahtar kare zinciri: 4 çekimlik sekansta kareler sırayla (K1 referanslardan, K2..K4 önceki kareden Qwen-Image-Edit
+    ile) çizilir. SH01 geniş -> SH02 orta: kesme; SH01 ve sekansın son çekimi SH04 kendi son karesini (Kn_end) alır.
+    Video isteklerinde last_frame: SH01 kendi son karesi, SH02/SH03 sonraki çekimin karesi, SH04 kendi son karesi."""
     from app.config import settings
     from app.db import session_scope
     from app.engine import storyboard
@@ -214,7 +215,7 @@ def run_chain(c, check, new_project) -> None:
     from tests.media_utils import make_video
     from tests.runpod_fake import FakeRunpod
 
-    print("Z) Anahtar kare zinciri (sahte RunPod, 4 çekim, continuous)")
+    print("Z) Anahtar kare zinciri (sahte RunPod, 4 çekim, kesme + devam, son kareler)")
     pid = new_project("duman-testi-zincir", 5.0, lint_strictness="off")
     c.post(f"/projects/{pid}/script", json={"text": CHAIN_SCRIPT, "auto_render": False}).raise_for_status()
     saved = {k: getattr(settings, k) for k in (*FAKE_SETTINGS, "h3_comfy_workflow_dir", "work_dir")}
@@ -241,13 +242,23 @@ def run_chain(c, check, new_project) -> None:
                 shots = [(sc.scene_code, str(sc.id)) for sc in s.scalars(
                     select(Scene).where(Scene.project_id == pid).order_by(Scene.seq_order))]
             storyboard.make_board(pid, shots[-1][1])          # son kare istenir: zincir baştan sırayla çizilir
-            kinds = [r["input"]["workflow"]["_hg"]["inputs"]["kind"] for r in fake.runs]
+            def is_end(r):
+                return r["input"]["workflow"].get("6", {}).get("inputs", {}).get("text", "").startswith(
+                    "Image 1 is the first frame of this shot")
+            kinds = [r["input"]["workflow"]["_hg"]["inputs"]["kind"] for r in fake.runs if not is_end(r)]
+            ends = [r for r in fake.runs if is_end(r)]
             with session_scope() as s:
                 rows = [s.get(Scene, sid) for _, sid in shots]
                 linked = [rows[i].board_parent == rows[i - 1].board_sha and rows[i].board_parent for i in range(1, 4)]
+                transitions = [sc.transition_auto for sc in rows]
+                end_frames = [bool(sc.end_board_key) for sc in rows]
             check(kinds == ["keyframe", "edit_keyframe", "edit_keyframe", "edit_keyframe"] and all(linked),
                   f"kareler sırayla çizildi ({kinds}); K2..K4 bir önceki kareden (image 1)")
-            prompts = [r["input"]["workflow"]["6"]["inputs"]["text"] for r in fake.runs[1:]]
+            check(transitions == ["new_scene", "cut", "continuous", "continuous"],
+                  f"geçişler otomatik sınıflandı ({transitions}: geniş -> orta kesme, aynı kadro ve kadraj devam)")
+            check(len(ends) == 2 and end_frames == [True, False, False, True],
+                  f"son kareler (Kn_end) yalnızca kesme öncesi ve sekans sonunda: {end_frames}")
+            prompts = [r["input"]["workflow"]["6"]["inputs"]["text"] for r in fake.runs[1:] if not is_end(r)]
             check(all("previous shot" in p for p in prompts), "zincir istemi önceki kareyi korumasını söylüyor")
             sent = []
             for code, sid in shots:
@@ -256,9 +267,9 @@ def run_chain(c, check, new_project) -> None:
                     prompt="shot", seed=1, resolution="480p", duration_s=4.0, image_url=ctx.keyframe,
                     extra={**ctx.render, **({"last_frame": ctx.last_frame} if ctx.last_frame else {})}))
                 wf = fake.runs[-1]["input"]["workflow"]
-                sent.append((code, "116" in wf and "last_frame" in wf["6"]["inputs"]))
-            check([x for _, x in sent] == [True, True, True, False],
-                  f"video isteklerinde last_frame: {sent} (son çekimde sonraki kare yok)")
+                sent.append((code, "116" in wf and "last_frame" in wf["6"]["inputs"], ctx.render.get("last_frame_kind")))
+            check([(x, k) for _, x, k in sent] == [(True, "end"), (True, "next"), (True, "next"), (True, "end")],
+                  f"video isteklerinde last_frame: {sent} (kesme öncesi ve sonda çekimin kendi son karesi)")
         finally:
             for k, v in saved.items():
                 setattr(settings, k, v)

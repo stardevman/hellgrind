@@ -132,28 +132,75 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, c
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 
+ARRIVAL_WEIGHT = 0.3        # aday sıralaması: birleşik skor × 0,7 + varış skoru × 0,3 (varış ölçüldüyse)
+
+
+def arrival_review(arrival: dict | None, cfg: dict) -> list[str]:
+    """Varış skoru eşiğin altında: klip geçer ama "inceleme önerilir" (öneri 0,85; gerçek veriyle kalibre edilecek)."""
+    if not arrival or arrival.get("score") is None:
+        return []
+    threshold = float(cfg.get("arrival_review_threshold", 0.85))
+    if arrival["score"] >= threshold:
+        return []
+    what = "sonraki çekimin karesine" if arrival.get("target") == "next" else "çekimin son karesine"
+    return [f"son kare {what} tam varmıyor (varış {arrival['score']:.2f}, eşik {threshold:.2f})".replace(".", ",")]
+
+
+def rank_score(composite: float | None, arrival: dict | None) -> float:
+    """Rafine Havuz sıralaması: varış skoru (FL2VA last_frame) ölçüldüyse birleşik skora karışır."""
+    base = float(composite or 0.0)
+    if not arrival or arrival.get("score") is None:
+        return round(base, 4)
+    return round(base * (1 - ARRIVAL_WEIGHT) + float(arrival["score"]) * ARRIVAL_WEIGHT, 4)
+
+
 def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
-    """target: scorer.Target (stil metni, çekim tarifi, karakter referansları); yalnızca gerçek skorda kullanılır."""
+    """target: scorer.Target (stil metni, çekim tarifi, karakter referansları); yalnızca gerçek skorda kullanılır.
+    FL2VA last_frame (target.next_frame): klibin son karesi hedefe (K(n+1) ya da Kn_end) ne kadar vardı: varış skoru =
+    DINOv2 tam kare benzerliği + son karedeki kimlik/benzerlik. Kaydedilir, sıralamaya girer; sonraki çekime devam eden
+    (continuous) klipte transition_threshold'un altı elenir, varış eşiğinin altı "inceleme önerilir"."""
     anomalies = detect_anomalies(path)
     measured = None
     if scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_video(path, target or scorer.Target())
-        if measured is not None and getattr(target, "next_frame", None):   # FL2VA last_frame: son kare = K(n+1)
-            value = scorer.transition(path, target.next_frame)
-            if value is not None:
-                measured.detail["transition"] = value
+        if measured is not None and getattr(target, "next_frame", None):
+            arrival = scorer.arrival(path, target.next_frame, target)
+            if arrival is not None:
+                arrival["target"] = getattr(target, "arrival_kind", None) or "next"
+                measured.detail["arrival"] = arrival
+                measured.detail["transition"] = arrival["dino"]
                 threshold = float(cfg.get("transition_threshold", 0.8))
-                if value < threshold:
-                    anomalies.append({"type": "transition_jump", "score": value, "threshold": threshold})
-    return _judge(measured, seed, anomalies, cfg, target, check_identity=True)
+                if arrival["target"] == "next" and arrival["dino"] < threshold:
+                    anomalies.append({"type": "transition_jump", "score": arrival["dino"], "threshold": threshold})
+    score = _judge(measured, seed, anomalies, cfg, target, check_identity=True)
+    if score.passed and (notes := arrival_review(score.detail.get("arrival"), cfg)):
+        score = Score(score.clip, score.face, score.composite, score.anomalies, score.passed,
+                      {**score.detail, "review": [*score.detail.get("review", []), *notes]})
+    return score
+
+
+SCALE_AREA = {                 # kadraj kontrolü: istenen ölçek için karakter alanı / kare alanı (kabaca)
+    "extreme_wide": (0.0, 0.08), "wide": (0.0, 0.30), "medium": (0.08, 0.70), "over_shoulder": (0.05, 1.0),
+    "close_up": (0.25, 1.0), "extreme_close_up": (0.45, 1.0),
+}
+
+
+def framing_check(area: float | None, scale: str | None) -> dict | None:
+    """{scale, area, ok}: karakter alanı istenen ölçeğin aralığında mı. Ölçülemediyse (karakter yok) None."""
+    if area is None or scale not in SCALE_AREA:
+        return None
+    lo, hi = SCALE_AREA[scale]
+    return {"scale": scale, "area": round(area, 3), "ok": lo <= area <= hi}
 
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
-                transition: str | None = None) -> Score:
+                transition: str | None = None, scale: str | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
-    SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz)."""
+    SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
+    scale: kesme karesinde istenen kamera ölçeği; karakter alanı tutmazsa detail.framing_mismatch (yeniden deneme sebebi,
+    eleme değil: son denemede "inceleme önerilir")."""
     anomalies = detect_frame_anomalies(path)
     measured = None
     if scorer_mode() == "real":
@@ -164,10 +211,16 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
             if value is not None:
                 measured.detail["continuity"] = value
                 threshold = float(cfg.get("cut_continuity_threshold" if transition == "cut" else "continuity_threshold",
-                                          0.6 if transition == "cut" else 0.8))
+                                          0.6 if transition == "cut" else 0.7))
                 if value < threshold:
                     anomalies.append({"type": "continuity_jump", "score": value, "threshold": threshold,
                                       "transition": transition or "continuous"})
+        if measured is not None and scale:
+            framing = framing_check(scorer.framing(path, target or scorer.Target()), scale)
+            if framing is not None:
+                measured.detail["framing"] = framing
+                if not framing["ok"]:
+                    measured.detail["framing_mismatch"] = True
     return _judge(measured, seed, anomalies, cfg, target, check_identity=check_identity)
 
 
@@ -200,6 +253,9 @@ def finalize_refined_pool(scene_id, run_id: str, k: int, scene_update: dict) -> 
         mine = s.scalars(select(Variation).where(
             Variation.scene_id == scene_id, Variation.tier == "full", Variation.status == "passed",
             Variation.params["run"].astext == run_id).order_by(Variation.composite_score.desc(), Variation.seed)).all()
+        # varış skoru (FL2VA last_frame) ölçüldüyse sıralamaya girer
+        mine = sorted(mine, key=lambda v: (-rank_score(v.composite_score, ((v.params or {}).get("score_detail") or {})
+                                                       .get("arrival")), v.seed))
         winners = mine[:k]
         if not winners:
             return []

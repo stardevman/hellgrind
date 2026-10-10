@@ -60,7 +60,8 @@ EXT. ROOFTOP - SUNSET
 Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
-                  "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/")
+                  "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
+                  "seam/")
 EVENT_LIMIT = 30
 
 
@@ -181,6 +182,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     variations, tracks, cast, items = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
     refs = defaultdict(list)                          # sahne -> karakterlerin referans görselleri (Ref2VA seti)
     places = defaultdict(list)                        # sahne -> mekân varlıkları
+    carried = defaultdict(list)                       # sahne -> zincirden gelen karakterler
     revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
@@ -194,12 +196,15 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         for t in s.scalars(select(AudioTrack).where(AudioTrack.scene_id.in_(ids), AudioTrack.is_active)
                            .order_by(AudioTrack.start_offset_s, AudioTrack.kind)):
             tracks[t.scene_id].append(t)
-        for scene_id, name, aid, status, images in s.execute(
-                select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status, Character.reference_images)
+        for scene_id, name, aid, status, images, role in s.execute(
+                select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status, Character.reference_images,
+                       SceneCharacter.role)
                 .join(Character, Character.id == SceneCharacter.character_id)
                 .outerjoin(Asset, Asset.id == Character.asset_id)
                 .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
             cast[scene_id].append(name)
+            if role == "chain":                        # zincirden gelen: önceki çekimin karesinde kaldı
+                carried[scene_id].append(name)
             refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or [], asset_id=aid,
                                                   asset=SimpleNamespace(id=aid, status=status) if aid else None))
             items[scene_id].append((str(aid) if aid else None, "character", name, status))
@@ -230,6 +235,11 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "h3_mode_warning": fl2va_identity_warning(sc, refs[sc.id], shot_assets(sc.id), strict),
         "keyframe_model": keyframe_model(sc, refs[sc.id], shot_assets(sc.id), strict),
         **chain[sc.id],
+        "transition_reason": sc.transition_reason, "transition_hint": sc.transition_hint,
+        "chain_cast": carried[sc.id],
+        "end_board_url": _media(sc.end_board_key), "end_board_note": sc.end_board_note,
+        "end_board_score": sc.end_board_score,
+        "end_board_current": bool(sc.end_board_key and sc.end_board_parent and sc.end_board_parent == sc.board_sha),
         "edit_refs": [{"name": r["name"], "kind": r["kind"], "url": _media(r["key"])}
                       for r in edit_references(sc, refs[sc.id], shot_assets(sc.id), strict)],
         "face_expected": face_expected(sc, cast[sc.id]), "face_expected_explicit": sc.face_expected,
@@ -257,6 +267,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
             "stale": (v.params or {}).get("stale_keyframe"),                       # eski kareden üretildi
             "review": ((v.params or {}).get("score_detail") or {}).get("review"),   # sınırda: inceleme önerilir
+            "arrival": ((v.params or {}).get("score_detail") or {}).get("arrival"),  # son kare hedefe ne kadar vardı
+            "last_frame_kind": (v.params or {}).get("last_frame_kind"),
             "measure": measure_of(v.params),
             "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
