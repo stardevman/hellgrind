@@ -544,7 +544,7 @@ def test_a_cut_frame_with_the_wrong_framing_is_redrawn(chained, monkeypatch):  #
     assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
     with session_scope() as s:
         k2 = s.get(Scene, codes["S001_SH02"])
-        assert k2.board_status == "pending" and not (k2.board_note or "").startswith("İnceleme")
+        assert k2.board_status == "pending" and "kadraj" not in (k2.board_note or "")
 
 
 def test_a_cut_frame_that_never_matches_the_framing_passes_with_a_review_note(chained, monkeypatch):  # noqa: F811
@@ -1031,7 +1031,7 @@ def test_a_frame_whose_state_holds_on_retry_needs_no_review(chained, monkeypatch
     sb.make_board(pid, codes["S001_SH02"])
     assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
     with session_scope() as s:
-        assert not (s.get(Scene, codes["S001_SH02"]).board_note or "")
+        assert "durum" not in (s.get(Scene, codes["S001_SH02"]).board_note or "")
 
 
 # ---------- (2) eski dikiş kuralıyla üretilmiş klip ----------
@@ -1321,8 +1321,8 @@ def test_the_kivilcim_cuts_get_distinct_cameras(api, mk_project):
 def test_a_cut_frame_starts_from_the_wide_anchor_and_moves_the_camera(chained):  # noqa: F811
     fake, pid, codes, _ = chained
     sb.make_board(pid, codes["S001_SH03"])
-    k2 = _prompts(fake)[0]                                                       # K2: SH01 geniş -> SH02 orta (kesme)
-    assert k2.startswith("Image 1 shows this location in an earlier shot (S001_SH01)")
+    k2 = _prompts(fake)[0]                                                       # K2: SH01 geniş -> SH02 orta (yaklaşır)
+    assert k2.startswith("Image 1 is the previous shot (S001_SH01); this shot cuts to a new camera position")
     assert "Move the camera closer" in k2 and "must clearly differ from image 1" in k2
     text = sb.camera_move_text({"shot": "wide", "side": 0}, {"shot": "close_up", "side": -35, "angle": "low",
                                                               "lens_mm": 50}, ["Bolt"])
@@ -1341,8 +1341,11 @@ def test_a_location_still_is_the_cut_anchor_when_there_is_one(chained, tmp_path)
         loc = s.scalars(select(Asset).where(Asset.project_id == pid, Asset.type == "location")).first()
         loc.references = {"still": {"key": "assets/loc/still/loc.png"}}
         sc = s.get(Scene, codes["S001_SH02"])
-        anchor = sb.cut_anchor(s, sc, s.get(Scene, codes["S001_SH01"]), [loc], None)
+        prev = s.get(Scene, codes["S001_SH01"])
+        prev.camera_plan = {"shot": "close_up", "side": 0}                      # SH02 ondan geniş: kamera uzaklaşır
+        anchor = sb.cut_anchor(s, sc, prev, [loc], None)
     assert anchor["key"] == "assets/loc/still/loc.png" and anchor["cast"] == [] and anchor["camera"]["shot"] == "wide"
+    assert "must not repeat the previous shot's viewpoint (S001_SH01)" in anchor["avoid"]
 
 
 # ---------- (1c) jump cut kapısı ----------
@@ -1354,7 +1357,7 @@ def test_a_cut_frame_with_the_same_camera_is_redrawn(chained, monkeypatch):  # n
     sb.make_board(pid, codes["S001_SH02"])
     assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
     with session_scope() as s:
-        assert not (s.get(Scene, codes["S001_SH02"]).board_note or "")
+        assert "jump cut" not in (s.get(Scene, codes["S001_SH02"]).board_note or "")
 
 
 def test_a_cut_frame_that_keeps_the_camera_is_flagged_as_a_jump_cut(chained, monkeypatch):  # noqa: F811
@@ -1480,3 +1483,178 @@ def test_auto_match_grades_the_off_shot_and_can_be_undone(api, produced, monkeyp
         row = s.get(Scene, sc.id)
         assert row.grade_auto["disabled"] is True and row.grade == (sc.grade_auto.get("previous") or {})
     assert consistency.auto_match(pid) == [] or str(sc.id) not in consistency.auto_match(pid)    # geri alınan dokunulmaz
+
+
+# =====================================================================================================================
+# Kıvılcım kamera ve renk testi (c64fd79 sonrası): SH03 kamerası, jump cut, durum kapısının yanlış negatifi, zincir durması,
+# eski onay, elle kabulün şerit akışı.
+# =====================================================================================================================
+
+import pathlib as _pathlib  # noqa: E402
+
+KIVILCIM_FRAMES = _pathlib.Path(__file__).parent / "data" / "kivilcim"
+
+
+def _frame(name):
+    from PIL import Image as Img
+    with Img.open(KIVILCIM_FRAMES / name) as im:
+        return im.convert("RGB")
+
+
+def _centre(im):                                       # karakter kırpımının yaklaşığı: ortadaki yarım boy
+    w, h = im.size
+    return im.crop((w // 4, h // 4, w // 4 + w // 2, h // 4 + h // 2))
+
+
+# ---------- kalibrasyon örnekleri (gerçek kareler) ----------
+
+def test_the_sh02_to_sh03_cut_is_a_jump_cut_on_the_real_frames():
+    pytest.importorskip("cv2")
+    from app.quality import camera
+    held = camera.same_camera(_frame("sh02_end.jpg"), _frame("sh03_dark_new_angle.jpg"))
+    assert held["same"] is True and held["ratio"] > 0.8                          # başarısız örnek: kamera değişmedi
+
+
+def test_dark_eyes_on_a_new_angle_pass_and_lit_eyes_fail_on_the_real_frames():
+    pytest.importorskip("cv2")
+    dark = scorer.glow_fraction(_centre(_frame("sh03_dark_new_angle.jpg")), "blue")
+    lit = scorer.glow_fraction(_centre(_frame("sh04_lit.jpg")), "blue")
+    one = scorer.glow_fraction(_centre(_frame("sh03_one_lit.jpg")), "blue")
+    assert dark < scorer.GLOW_REF / 2 < scorer.GLOW_REF < lit                   # doğru pozitif ve doğru negatif
+    assert one > scorer.GLOW_REF / 2                                             # tek göz yanık: "kapalı" değil
+
+
+def test_small_reflections_are_not_counted_as_a_lit_eye():
+    pytest.importorskip("cv2")
+    import numpy as np
+    mask = np.zeros((352, 640), bool)
+    for x, y in ((100, 80), (300, 120), (500, 60)):                              # cam gözde küçük yansıma parıltıları
+        mask[y:y + 5, x:x + 5] = True
+    mask[150:290, 200:203] = True                                                # yağmur çizgisi
+    assert scorer.lit_blobs(mask) == 0
+    mask[200:226, 400:426] = True                                                # yanan göz (676 px)
+    assert scorer.lit_blobs(mask) > scorer.BLOB_MIN
+
+
+def test_the_character_area_follows_the_dino_patch_map(monkeypatch):
+    import numpy as np
+    from PIL import Image as Img
+    fg = np.eye(4)[[0]]
+    bg = np.eye(4)[[1]]
+    frame = np.tile(np.eye(4)[1], (10, 10, 1)).astype(float)                    # arka plan
+    frame[6:10, 4:7] = np.eye(4)[0]                                              # karakter: 12 yama / 100
+    monkeypatch.setattr(scorer, "reference_patches", lambda m, key: (fg, bg))
+    monkeypatch.setattr(scorer, "dino_patches", lambda m, image, short=224: frame)
+    assert scorer.patch_coverage(object(), Img.new("RGB", (64, 36)), "k") == 0.12
+    assert gate.framing_check(0.12, "close_up")["ok"] is False                   # SH03: küçük Bolt yakın plan değil
+    assert gate.framing_check(0.4, "close_up")["ok"] is True
+
+
+# ---------- kesme kaynağı: önceki çekime göre ----------
+
+def test_a_closer_cut_starts_from_the_previous_shot_and_a_wider_one_avoids_it(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH02"])
+    with session_scope() as s:
+        sc, prev = s.get(Scene, codes["S001_SH02"]), s.get(Scene, codes["S001_SH01"])
+        sc.camera_plan = {"shot": "close_up", "side": -35, "angle": "low", "lens_mm": 50}
+        closer = sb.cut_anchor(s, sc, prev, [], None)
+        sc.camera_plan, prev.camera_plan = {"shot": "medium", "side": 40}, {"shot": "close_up", "side": -35}
+        wider = sb.cut_anchor(s, sc, prev, [], None)
+    assert closer["name"] == "S001_SH01" and closer["text"].startswith("Image 1 is the previous shot (S001_SH01)")
+    assert wider["avoid"] == "" or "must not repeat the previous shot's viewpoint" in wider["avoid"]
+    text = sb.camera_move_text({"shot": "medium", "side": 0}, {"shot": "close_up", "side": -35, "angle": "low",
+                                                               "lens_mm": 50}, ["Bolt"])
+    assert text.startswith("Move the camera closer and 35° to the left, slightly low angle: a close-up of Bolt")
+
+
+# ---------- kapı notları kaybolmasın ----------
+
+def test_a_critical_failure_keeps_the_jump_cut_and_framing_findings(chained, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    probe = {"name": "Bolt", "label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
+    monkeypatch.setattr(sb, "state_plan", lambda *a, **k: ({}, [probe]))
+    monkeypatch.setattr(sb, "state_critical", lambda *a, **k: True)
+    monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {"score": 0.0, "glow": 4.5,
+                                                                                         "clip": 0.2}})
+    monkeypatch.setattr(scorer, "camera_change", lambda previous, path: {"same": True, "ratio": 0.9, "scale": 1.0,
+                                                                         "shift": 0.0})
+    monkeypatch.setattr(scorer, "framing", lambda path, target: 0.02)            # orta plan için çok küçük
+    monkeypatch.setattr(sb, "state_critical", lambda s, scene, key, frame, style: scene.scene_code == "S001_SH02")
+    sb.make_board(pid, codes["S001_SH02"])
+    with session_scope() as s:
+        note = s.get(Scene, codes["S001_SH02"]).board_note
+    assert note.startswith(sb.REVIEW) and "durum (eyes dark) tutmadı" in note
+    assert "jump cut riski" in note and "kadraj istenen ölçekte değil" in note
+
+
+def test_colour_matching_runs_before_the_gates(chained, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    order = []
+    real_match, real_score = sb.match_colour, gate.score_frame
+    monkeypatch.setattr(sb, "match_colour", lambda *a: order.append("colour") or real_match(*a))
+    monkeypatch.setattr(gate, "score_frame", lambda *a, **k: order.append("gate") or real_score(*a, **k))
+    sb.make_board(pid, codes["S001_SH02"])
+    first_edit = order.index("colour")
+    assert order[first_edit + 1] == "gate"                                       # kapı aktarılmış kareyi ölçer
+
+
+# ---------- zincir durunca hiçbir sonraki halka çizilmez ----------
+
+def test_no_later_link_is_drawn_while_the_chain_waits(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH04"])                                       # K1..K4
+    with session_scope() as s:
+        k2 = s.get(Scene, codes["S001_SH02"])
+        k2.board_status, k2.board_note = "changes_requested", "Kare inceleme gerekiyor: x"
+        s.get(Scene, codes["S001_SH03"]).board_parent = "eski"                   # K3 eski (K2'den çizilecek)
+    before = len(fake.runs)
+    sb.make_board(pid, codes["S001_SH04"])
+    assert len(fake.runs) == before                                              # K3 de K4 de çizilmedi
+
+
+def test_a_link_whose_previous_frame_is_stale_is_not_drawn_without_the_chain(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH03"])
+    with session_scope() as s:
+        s.get(Scene, codes["S001_SH03"]).board_hash = "eski"                     # K3 bu görsel özet için değil
+        s.get(Scene, codes["S001_SH04"]).board_key = None
+    before = len(fake.runs)
+    sb._make_board(pid, codes["S001_SH04"])                                      # tek kare çizimi de beklemeli
+    assert len(fake.runs) == before
+    with session_scope() as s:
+        assert s.get(Scene, codes["S001_SH04"]).board_key is None
+
+
+# ---------- önceki halka değişince sonrakiler onay bekler ----------
+
+def test_later_links_go_back_to_pending_when_an_earlier_frame_changes(chained):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH04"])
+    with session_scope() as s:
+        for c in ("S001_SH03", "S001_SH04"):
+            sc = s.get(Scene, codes[c])
+            sc.board_status, sc.board_note = "approved", "İnceleme önerilir: eski deneme"
+    fake.image = png((20, 120, 200))
+    sb.make_board(pid, codes["S001_SH02"], standalone=True, explicit=True)
+    with session_scope() as s:
+        for c in ("S001_SH03", "S001_SH04"):
+            sc = s.get(Scene, codes[c])
+            assert (sc.board_status, sc.board_note) == ("pending", None), c
+
+
+# ---------- elle kabul: şerit akışında zincir sürer, video başlamaz ----------
+
+def test_a_manual_accept_in_the_strip_flow_continues_the_chain_not_the_video(chained, api, monkeypatch):  # noqa: F811
+    fake, pid, codes, _ = chained
+    sb.make_board(pid, codes["S001_SH02"])
+    with session_scope() as s:
+        k2 = s.get(Scene, codes["S001_SH02"])
+        k2.board_status, k2.board_note = "changes_requested", "Kare inceleme gerekiyor: durum (eyes dark) tutmadı"
+    queued = []
+    monkeypatch.setattr("app.worker.tasks.storyboard_scene.si",
+                        lambda **kw: type("C", (), {"apply_async": lambda self: queued.append(kw)})())
+    monkeypatch.setattr("app.api.storyboard.dispatch_result", lambda *a, **k: pytest.fail("video başlatılmamalı"))
+    r = api.post(f"/api/scenes/{codes['S001_SH02']}/board/accept").json()
+    assert r["board_status"] == "approved" and r["stages"] == []
+    assert r["chain_continues"] == ["S001_SH03", "S001_SH04"] and queued[0]["scene_id"] == codes["S001_SH04"]

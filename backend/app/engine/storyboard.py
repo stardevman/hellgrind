@@ -385,7 +385,7 @@ def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | No
                 "Keep the same room, layout, props, lighting and characters' designs as image 1.")
     else:
         keep = " ".join(x for x in (camera_move_text(plan["anchor_camera"], camera, focus) if plan.get("anchor_camera")
-                                    else framing_text(camera, focus),
+                                    else framing_text(camera, focus), plan.get("avoid", ""),
                                     "Keep the same location, props and lighting as in image 1; the characters' designs "
                                     "and state follow their reference images and the state change below." if changing else
                                     "Keep the same location, props, lighting, the characters' designs and the "
@@ -541,6 +541,10 @@ def match_colour(clean: str, ref_key: str, tmp: str) -> dict:
     return {"before": {"L": before["L"], "E": before["E"]}, "after": {"L": after["L"], "E": after["E"]}}
 
 
+NEW_VIEW_NOTE = ("yeni bakış açısı: mekânın görüntüsünde olmayan büyük nesne (ör. ikinci masa lambası) var mı, gözle "
+                 "kontrol edin")
+
+
 def jump_note(detail: dict) -> str:
     """Jump cut kapısı: kesmede kamera önceki çekimin son karesiyle aynı kaldı."""
     h = detail.get("camera_change") or {}
@@ -611,6 +615,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", *([salt] if salt else []), attempt)
                 paid_frame(clean, source, project_id, scene_id, seed, prompt, extra,
                            details={"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed})
+                # kaynakta renk eşleştirme kapılardan ÖNCE: kapılar saklanacak kareyi ölçer (Kıvılcım SH03: aktarımdan
+                # önceki karede cam gözdeki pencere yansıması "parlama" sayılmıştı)
+                colour = match_colour(clean, extra["color_ref"], tmp) if extra.get("color_ref") else None
                 score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=previous,
                                          transition=chain["transition"] if chain else None,
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
@@ -620,16 +627,18 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 state_off = bool((score.detail or {}).get("state_mismatch"))
                 jump_off = bool((score.detail or {}).get("jump_cut"))
                 soft_off = framing_off or state_off or jump_off   # yeniden deneme sebebi, eleme değil
-                detail = dict(score.detail or {})
+                detail = dict(score.detail or {}, **({"color": colour} if colour else {}))
                 anomalies, passed = list(score.anomalies), score.passed
-                if state_off and passed and attempt + 1 == attempts and extra.get("state_critical"):
+                last = attempt + 1 == attempts
+                if soft_off and last:                     # son deneme: bulgular nota (kare geçse de kalsa da)
+                    state_notes = [] if extra.get("state_critical") else \
+                        [f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or []]
+                    detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
+                                        *([jump_note(detail)] if jump_off else []), *state_notes]
+                if state_off and passed and last and extra.get("state_critical"):
                     # zincirde kritik durum (sonraki olay buna dayanıyor): kare geçmez, video başlamaz
                     anomalies.append({"type": "state_mismatch", "labels": list(detail.get("state_mismatch") or [])})
                     passed = False
-                elif soft_off and passed and attempt + 1 == attempts:           # son deneme: geçer, yönetmen bakar
-                    detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
-                                        *([jump_note(detail)] if jump_off else []),
-                                        *(f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or [])]
                 drawn = Drawn(source, score.composite, passed, attempt + 1, anomalies, detail)
                 killswitch.event(project_id, "board_attempt", scene_id=scene_id, code=info["code"], attempt=attempt + 1,
                                  of=attempts, score=score.composite, passed=passed,
@@ -651,8 +660,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                        if (score.detail or {}).get(k) is not None}}})
                 if score.passed and not (soft_off and attempt + 1 < attempts):   # kadraj ya da durum tutmadı: yeniden
                     break
-        if source in PAID_SOURCES and extra.get("color_ref"):    # kaynakta renk eşleştirme (önceki kareye)
-            drawn.detail = {**(drawn.detail or {}), "color": match_colour(clean, extra["color_ref"], tmp)}
+        if drawn.passed and source in PAID_SOURCES and chain and chain.get("transition") == "cut" \
+                and not extra.get("end"):                 # yeni bakış açısı: mekânda olmayan büyük nesne eklenmiş olabilir
+            drawn.detail = {**(drawn.detail or {}), "review": [*(drawn.detail or {}).get("review", []), NEW_VIEW_NOTE]}
         if drawn.passed and source in PAID_SOURCES and extra.get("count_notes"):   # sayılan parça ölçülemiyor: göz
             drawn.detail = {**(drawn.detail or {}), "review": [*(drawn.detail or {}).get("review", []),
                                                                *extra["count_notes"]]}
@@ -694,18 +704,23 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
                 shot = s.get(Scene, target)
                 parent = parent_of(s, shot) if chain else None
                 if parent is not None and parent.board_status == "changes_requested" and not shot.keyframe_key:
+                    # zincir incelemedeki karede durur: ondan sonraki HİÇBİR halka (devam çekimi dahil) çizilmez
                     killswitch.event(project_id, "chain_waiting", scene_id=scene_id, code=shot.scene_code,
                                      parent=parent.scene_code)
-                    if target != scene_id:
-                        break                         # zincir incelemedeki karede durur: sonrakiler ondan çizilecek
-                    return shot.board_key or ""
+                    current = s.get(Scene, scene_id)
+                    return current.board_key or ""
             if target != scene_id:
                 _make_board(project_id, str(target), keep_status=True)
         with session_scope() as s:
             current = s.get(Scene, scene_id)
-            parent = parent_of(s, current) if chain else None
-            if parent is not None and parent.board_status == "changes_requested" and not current.keyframe_key:
-                return current.board_key or ""
+            if chain and not current.keyframe_key:     # önceki kare bu görsel özet için güncel değilse çizilmez
+                style = bible.active_version(s, project_id)
+                parent, usable = _chain_parent(s, current, lambda sc: visual_fingerprint(
+                    sc, load_characters(s, sc.id), load_assets(s, sc.id), style))
+                if parent is not None and not usable:
+                    killswitch.event(project_id, "chain_waiting", scene_id=scene_id, code=current.scene_code,
+                                     parent=parent.scene_code, stale=True)
+                    return current.board_key or ""
         return _make_board(project_id, scene_id, standalone, explicit)
 
 
@@ -736,7 +751,11 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: st
         scene = s.get(Scene, scene_id)
         # Kn, K(n-1)'den düzenleniyorsa (devam ya da kesme) eskir: bütün sonraki halkalar, durumlarından bağımsız
         if scope == "chain" and chain_enabled():
-            frames = [x.scene_code for x in successors(s, scene)]
+            later = successors(s, scene)
+            frames = [x.scene_code for x in later]
+            for x in later:                   # eski kare onaylı görünmesin: onay beklemeye döner, eski not silinir
+                if x.board_key and x.board_status != "changes_requested":
+                    x.board_status, x.board_note = "pending", None
         for sc in dependents(s, scene, scope):
             marked = 0
             for v in s.scalars(select(Variation).where(Variation.scene_id == sc.id,
@@ -770,23 +789,34 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: st
 
 
 def cut_anchor(s, scene, parent, assets, version) -> dict:
-    """Kesme karesinin image 1'i: mekânın durağan görseli (varsa), yoksa zincirin başındaki geniş planın karesi (sahnenin
-    ilk çekimi), o da kullanılamıyorsa önceki kare. {"name", "key", "cast", "camera", "text"}."""
-    from app.core.chain import ancestors, plan_of
+    """Kesme karesinin image 1'i ve kameranın ona göre tarifi. {"name", "key", "cast", "camera", "text"}.
+    - Kamera yaklaşıyor ya da aynı ölçekte dönüyorsa (SH02 orta -> SH03 yakın): önceki çekimin son karesi; kamera ona göre
+      göreli tarif edilir. Kıvılcım: SH02 ve SH03 aynı geniş plandan çizilince model aynı yeni açıya gitmişti (jump cut).
+    - Kamera uzaklaşıyorsa (yakın -> iki kişilik orta): mekânın durağan görseli, yoksa sahnenin ilk geniş planı; istem
+      önceki çekimin bakış açısını tekrarlamamasını söyler."""
+    from app.core.chain import SCALE_STEP, ancestors, plan_of
+    current, previous = camera_of(scene), camera_of(parent)
+    fp_of = lambda sc: visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), version)  # noqa: E731
+    if SCALE_STEP.get(current.get("shot"), 2) >= SCALE_STEP.get(previous.get("shot"), 2) and parent.board_key \
+            and parent.board_status != "changes_requested":
+        return {"name": parent.scene_code, "key": last_frame_key(parent, fp_of), "cast": plan_of(s, parent)["cast"],
+                "camera": previous,
+                "text": f"Image 1 is the previous shot ({parent.scene_code}); this shot cuts to a new camera position"}
+    avoid = f" It must not repeat the previous shot's viewpoint ({parent.scene_code})."
     for a in assets or ():
         key = ((getattr(a, "references", None) or {}).get("still") or {}).get("key")
         if getattr(a, "type", None) == "location" and key and storage.exists(key):
             return {"name": a.name, "key": key, "cast": [], "camera": {"shot": "wide", "side": 0, "angle": "eye"},
-                    "text": f"Image 1 shows the location ({a.name}) of this scene"}
+                    "text": f"Image 1 shows the location ({a.name}) of this scene", "avoid": avoid}
     chain = ancestors(s, scene)
     head = chain[0] if chain else parent
     for cand in (head, parent):
         if cand.board_key and cand.board_status != "changes_requested" and storage.exists(clean_key(cand.board_key)):
             return {"name": cand.scene_code, "key": clean_key(cand.board_key), "cast": plan_of(s, cand)["cast"],
-                    "camera": camera_of(cand),
+                    "camera": camera_of(cand), "avoid": avoid if cand.id != parent.id else "",
                     "text": f"Image 1 shows this location in an earlier shot ({cand.scene_code})"}
     return {"name": parent.scene_code, "key": clean_key(parent.board_key), "cast": plan_of(s, parent)["cast"],
-            "camera": camera_of(parent), "text": "Image 1 is the previous shot of this scene"}
+            "camera": previous, "text": "Image 1 is the previous shot of this scene"}
 
 
 def last_frame_key(scene, fp_of) -> str:
@@ -839,6 +869,12 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         extra["count_notes"] = count_notes(chars, assets)
         parent, usable = _chain_parent(s, scene, lambda sc: visual_fingerprint(
             sc, load_characters(s, sc.id), load_assets(s, sc.id), version)) if chain_enabled() else (None, False)
+        if parent is not None and not usable and not scene.keyframe_key:
+            # zincirdeki önceki kare güncel değil (eski, eksik ya da incelemede): bu kare referanslardan "bağımsız" çizilmez
+            # (Kıvılcım SH06 eski K5 yüzünden zincirsiz çizilmişti); önce önceki kare çizilir
+            killswitch.event(project_id, "chain_waiting", scene_id=scene_id, code=scene.scene_code,
+                             parent=parent.scene_code, stale=True)
+            return scene.board_key or ""
         chain_stale = stale(scene, parent if usable else None)
         extra["base_references"] = refs
         if parent is not None and usable:             # Kn: image 1 = K(n-1), sonra karakterlerin durağan görselleri
@@ -851,7 +887,8 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
                 image1 = {"name": anchor["name"], "key": anchor["key"], "kind": "frame"}
                 plan = {**plan, "kept": [c for c in plan["cast"] if c in anchor["cast"]],
                         "removed": [c for c in anchor["cast"] if c not in plan["cast"]],
-                        "anchor_camera": anchor["camera"], "anchor_text": anchor["text"]}
+                        "anchor_camera": anchor["camera"], "anchor_text": anchor["text"],
+                        "avoid": anchor.get("avoid", "")}
                 extra["jump_ref"] = last_frame_key(parent, lambda sc: visual_fingerprint(
                     sc, load_characters(s, sc.id), load_assets(s, sc.id), version))
             entering = plan.get("entering") if scene.entry_mode == "walk_in" else []
@@ -897,7 +934,9 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
                           board_parent=(extra.get("chain") or {}).get("sha"))
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
             if drawn.source == "qwen_edit" or any(x.get("type") == "state_mismatch" for x in drawn.anomalies or ()):
-                note = f"{REVIEW}: {identity_text(drawn)} ({drawn.attempts} deneme)"
+                extra_notes = "; ".join((drawn.detail or {}).get("review") or [])
+                note = f"{REVIEW}: {identity_text(drawn)} ({drawn.attempts} deneme)" + \
+                    (f"; {extra_notes}" if extra_notes else "")
             else:
                 shown = f"{drawn.score:.2f}" if drawn.score is not None else "kusurlu kare"
                 note = f"Kalite kapısı: storyboard karesi geçemedi ({shown}, {drawn.attempts} deneme)"

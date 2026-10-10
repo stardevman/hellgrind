@@ -3,9 +3,10 @@ hareketi (pan, tilt, dolly) var mı.
 
 Aynı kamera: karakter dışı bölgede (üst, sol, sağ şeritler; post/color.background_mask) ORB anahtar noktaları eşlenir,
 RANSAC homografisi bulunur. Eşleşmelerin çoğu tek homografiye oturuyor, ölçek ~1 ve kayma küçükse kamera değişmemiştir.
-Kıvılcım kalibrasyonu (önceki çekimin son karesi -> kesmenin ilk karesi; üçü de jump cut): iç oran 0,82-0,90, ölçek
-0,97-1,00, kayma <= %1,1. Sentetik kamera değişimi: %80 yakınlaşma ölçek 1,24; %60 yakınlaşma iç oran 0,03; ayna (ters
-açı) iç oran 0,04. DINOv2 arka plan benzerliği aynayı ayıramadı (0,88), karar homografide.
+Kıvılcım kalibrasyonu (önceki çekimin son karesi -> kesmenin ilk karesi; hepsi jump cut): iç oran 0,82-0,90, ölçek
+0,97-1,00, kayma <= %1,1; ikinci tur SH02 son kare -> SH03 (aynı geniş plandan aynı yeni açıya gitmişti) iç oran 0,92,
+ölçek 0,98. Kamerası gerçekten değişen SH01 -> SH02 iç oran 0,03. Sentetik kamera değişimi: %80 yakınlaşma ölçek
+1,24; %60 yakınlaşma iç oran 0,03; ayna (ters açı) iç oran 0,04. DINOv2 arka plan benzerliği aynayı ayıramadı (0,88), karar homografide.
 """
 import numpy as np
 

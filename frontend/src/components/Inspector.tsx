@@ -155,8 +155,9 @@ function H3({ sc }: { sc: Scene }) {
   }, "inspector");
   const accept = () => act(async () => {
     if (!(await impactOk("Kare onaylanıp zincir devam ederse"))) return;
-    const r = await api.post<{ stages: string[]; frozen: boolean }>(`/scenes/${sc.id}/board/accept`);
+    const r = await api.post<{ stages: string[]; frozen: boolean; chain_continues?: string[] }>(`/scenes/${sc.id}/board/accept`);
     note("inspector", r.frozen ? `${sc.scene_code}: kare elle onaylandı. Proje donmuş: üretime devam edince video üretilecek.`
+      : r.chain_continues ? `${sc.scene_code}: kare elle onaylandı; zincir sürüyor${r.chain_continues.length ? ` (${r.chain_continues.join(", ")} çiziliyor)` : ""}. Videolar şerit onayıyla başlar.`
       : `${sc.scene_code}: kare elle onaylandı; ${r.stages.length ? "video aşamasına geçildi." : "üretilecek aşama yok."}`, "ok");
   }, "inspector");
   const setTransition = (transition_in: string) => act(async () => {

@@ -222,6 +222,20 @@ def accept_board(scene_id: SceneId, s: Session = Depends(get_session)):
     redraw = chain_redraw(s, sc)
     if killswitch.is_frozen(pid):
         return {"scene_id": scene_id, "board_status": "approved", "stages": [], "frozen": True, "chain_redraw": redraw}
+    from app.config import project_settings
+    from app.core.chain import successors
+    from app.engine.storyboard import chain_enabled
+    from app.models import Project
+    if project_settings(s.get(Project, sc.project_id).settings)["require_board_approval"]:
+        # şerit akışı: elle kabul zinciri sürdürür (sonraki halkalar çizilir), video şerit onayıyla başlar
+        later = successors(s, sc) if chain_enabled() else []
+        if later:
+            sc.status = "board_review"
+            s.commit()
+            from app.worker import tasks
+            tasks.storyboard_scene.si(project_id=pid, scene_id=str(later[-1].id), standalone=True).apply_async()
+        return {"scene_id": scene_id, "board_status": "approved", "frozen": False, "stages": [],
+                "chain_continues": [x.scene_code for x in later], "chain_redraw": redraw}
     return {"scene_id": scene_id, "board_status": "approved", "frozen": False, "chain_redraw": redraw,
             **dispatch_result(s, sc)}
 

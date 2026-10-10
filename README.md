@@ -482,6 +482,17 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     karesi önceki çekimin son karesiyle aynı kamerayla çizilmişse (karakter dışı bölgede ORB + homografi: iç oran ≥ 0,5,
     ölçek ~1, kayma < %5; Kıvılcım'daki üç kesme 0,82-0,90 / 0,97-1,00 / ≤ %1,1 ile yakalanır) kare yeniden çizilir, son
     denemede "jump cut riski" notu düşer. Kesme karesinin mekân benzerliği eşiği 0,35'tir (yeni bakış açısı).
+  - **Kesme karesinin kaynağı:** kamera yaklaşıyor ya da aynı ölçekte dönüyorsa image 1 önceki çekimin son karesidir ve
+    kamera ona göre tarif edilir (Kıvılcım: SH02 ve SH03 aynı geniş plandan çizilince aynı yeni açıya gitmişti); kamera
+    uzaklaşıyorsa mekânın geniş görüntüsünden çizilir ve istem önceki çekimin bakış açısını tekrarlamamasını söyler.
+    Kesme karesi her zaman "yeni bakış açısı: mekânda olmayan büyük nesne var mı" inceleme notunu alır. Yakın plan kadraj
+    kapısı karakter alanını DINOv2 yama haritasıyla ölçer (SH03'teki küçük Bolt 0,09: yakın plan değil, yeniden çizilir).
+  - **Durum kapısı, göz bölgesi:** parlama yalnızca yanan göz olabilecek toplu ve yeterince büyük lekelerden ölçülür;
+    cam gözdeki pencere yansıması, yağmur çizgisi ve parıltı sayılmaz. Renk aktarımı kapılardan önce yapılır, kapılar
+    saklanan kareyi ölçer. Kritik durumda **Kareyi elle onayla** şerit akışında zinciri sürdürür (sonraki halkalar çizilir),
+    video şerit onayıyla başlar.
+  - **Zincir durduğunda:** incelemedeki ya da güncel olmayan bir halkadan sonra hiçbir halka (devam çekimi dahil) çizilmez;
+    önceki halka değişince sonraki halkalar onay beklemeye döner ve eski notları silinir.
   - **Karakter girişi:** aynı mekânda önceki çekimde olmayan karakter beliriyorsa denetçide seçilir: kesme (varsayılan,
     kamera belirgin değişir) ya da devam + giriş eylemi (ilk karede görünmez, videoda sağdan girer).
   - **Kamera hareketi:** pan, dolly, tilt gibi hareketler istemde ayrı bir cümleyle açıkça yazılır ("Camera movement: the

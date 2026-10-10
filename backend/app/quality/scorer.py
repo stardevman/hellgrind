@@ -474,6 +474,63 @@ def arrival(path: str, target_key: str, target: Target) -> dict | None:
     return {"score": round(score, 4), "dino": dino, "identity": ident}
 
 
+PATCH_MATCH = 0.55             # karakter yaması: referansın karakter yamalarına benzerliği bunun üstü ve arka plan yamalarından yüksek
+
+
+def dino_patches(m, image: Image.Image, short: int = 224) -> np.ndarray | None:
+    """DINOv2 yama gömmeleri (satır, sütun, boyut), kırpmasız (kısa kenar `short`)."""
+    dino = m._dino()
+    if dino is None:
+        return None
+    processor, model = dino
+    inputs = processor(images=[image.convert("RGB")], do_center_crop=False, size={"shortest_edge": short},
+                       return_tensors="pt")
+    with m.lock, m.torch.no_grad():
+        out = model(**inputs).last_hidden_state[0, 1:].float().numpy()
+    h, w = inputs["pixel_values"].shape[2] // 14, inputs["pixel_values"].shape[3] // 14
+    out = out[: h * w] / np.linalg.norm(out[: h * w], axis=1, keepdims=True)
+    return out.reshape(h, w, -1)
+
+
+def reference_patches(m, key: str):
+    """Referansın (karakter ortada, tam boy) karakter yamaları (orta kutu) ve arka plan yamaları (sol ve üst şerit)."""
+    cache_key = "patches:" + key
+    with m.lock:
+        if cache_key in m.refs:
+            return m.refs[cache_key]
+    from app import storage
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        with Image.open(storage.download(key, os.path.join(tmp, "ref" + os.path.splitext(key)[1]))) as im:
+            p = dino_patches(m, im)
+    value = None
+    if p is not None:
+        h, w, d = p.shape
+        fg = p[int(h * .25):int(h * .9), int(w * .3):int(w * .75)].reshape(-1, d)
+        bg = np.concatenate([p[:, : max(1, int(w * .2))].reshape(-1, d), p[: max(1, int(h * .2))].reshape(-1, d)])
+        value = (fg, bg)
+    with m.lock:
+        m.refs[cache_key] = value
+    return value
+
+
+def patch_coverage(m, image: Image.Image, key: str) -> float | None:
+    """Karakterin kare alanına oranı (0-1): karakter yamalarına PATCH_MATCH'ten çok ve arka plan yamalarından daha çok
+    benzeyen yamaların payı. Kıvılcım: SH03'teki küçük Bolt 0,09 (eski kırpım ölçeği 0,36 diyordu), iki kişilik orta plan
+    0,10-0,16, Bolt'suz SH02 0,01."""
+    try:
+        ref = reference_patches(m, key)
+        frame = dino_patches(m, image)
+    except Exception as e:                               # noqa: BLE001
+        log.warning("yama haritası çıkarılamadı: %s", e)
+        return None
+    if ref is None or frame is None:
+        return None
+    fg, bg = ref
+    f = frame.reshape(-1, frame.shape[-1])
+    s_fg, s_bg = (f @ fg.T).max(axis=1), (f @ bg.T).max(axis=1)
+    return round(float(((s_fg >= PATCH_MATCH) & (s_fg > s_bg)).mean()), 3)
+
+
 FRAMING_SCALES = (1.0, 0.6, 0.35)   # insan olmayan karakter: referansa en çok benzeyen kırpımın boyu -> alan ≈ boy²
 
 
@@ -492,6 +549,10 @@ def framing(path: str, target: Target) -> float | None:
             bh = min(h - max(0.0, y - 0.5 * fh), 7.5 * fh)
             areas.append(max(0.0, bw * bh) / (w * h))
     for _, keys in target.looks:
+        patch_area = patch_coverage(m, image, keys[0]) if keys else None
+        if patch_area is not None:                       # DINOv2 yama haritası (Kıvılcım: küçük Bolt 0,09; iki kişilik 0,10-0,16)
+            areas.append(patch_area)
+            continue
         refs = [r for r in (m.reference_dino(k) for k in keys[:LOOK_REFS]) if r is not None]
         if not refs:
             continue
@@ -542,6 +603,7 @@ def glow_fraction(image: Image.Image, color: str) -> float:
         a = np.asarray(image.convert("RGB")).astype(int)
         r, g, b = a[..., 0], a[..., 1], a[..., 2]
         mask = (g >= 215) & (b >= 235) & (r <= 200) & (b - r >= 50)
+        return round(float(lit_blobs(mask)) * 1000, 3)
     else:
         hsv = np.asarray(image.convert("HSV")).astype(float)
         h, s, v = hsv[..., 0] * 360 / 255, hsv[..., 1] / 255, hsv[..., 2] / 255
@@ -552,7 +614,27 @@ def glow_fraction(image: Image.Image, color: str) -> float:
             for lo, hi in GLOW_HUES.get(color, ()):
                 hue |= (h >= lo) & (h <= hi)
             mask = hue & (s >= 0.35) & (v >= 0.92)
-    return round(float(mask.mean()) * 1000, 3)
+    return round(float(lit_blobs(mask)) * 1000, 3)
+
+
+BLOB_MIN = 0.0003              # bir ışık lekesinin kırpıma oranı en az bu kadar (binde 0,3): yanan göz yüzlerce piksel,
+                               # karanlık camdaki pencere yansıması ve parıltı birkaç düzine
+
+
+def lit_blobs(mask: np.ndarray) -> float:
+    """Yalnızca ışık yayan parça olabilecek lekelerin payı: yeterince büyük (BLOB_MIN) ve toplu (en-boy 0,4-2,5, kutusunu
+    en az %35 dolduran). Yağmur çizgileri ve yansıma parıltıları sayılmaz. Kıvılcım SH03 (yeni açı, iki göz karanlık):
+    eski ölçü cam gözdeki yansımayı parlama saymıştı."""
+    try:
+        import cv2
+    except ImportError:                                  # OpenCV yoksa eski ölçü (tüm çekirdek pikseller)
+        return float(mask.mean())
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
+    total, keep = mask.size, 0
+    for x, y, w, h, area in stats[1:n]:
+        if area >= BLOB_MIN * total and 0.4 <= w / max(1, h) <= 2.5 and area / max(1, w * h) >= 0.35:
+            keep += int(area)
+    return keep / total
 
 
 def state_probe(image: Image.Image, probes: list[dict]) -> dict[str, dict]:

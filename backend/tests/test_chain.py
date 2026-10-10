@@ -100,7 +100,7 @@ def test_frames_are_drawn_in_chain_order_from_the_previous_frame(chained):
     kinds = ["edit" if "170:151" in r["input"]["workflow"] else "qwen" for r in fake.runs]
     assert kinds == ["qwen", "edit", "edit"]
     prompts = [r["input"]["workflow"]["170:151"]["inputs"]["prompt"] for r in edit_runs(fake)]
-    assert prompts[0].startswith("Image 1 shows this location in an earlier shot (S001_SH01)")   # K2: kesme, geniş plandan
+    assert prompts[0].startswith("Image 1 is the previous shot (S001_SH01); this shot cuts to a new camera position")
     assert "Move the camera closer" in prompts[0] and "must clearly differ from image 1" in prompts[0]
     assert prompts[1].startswith("Image 1 is the previous shot of this scene")                  # K3: devam
     assert "Keep the same room, layout, props" in prompts[1]                                    # K3: devam
