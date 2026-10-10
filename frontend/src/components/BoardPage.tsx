@@ -45,7 +45,7 @@ function Strip({ scenes }: { scenes: Scene[] }) {
 function BoardCard({ sc }: { sc: Scene }) {
   const { busy, act, note, selectScene, setPage } = usePanel();
   const [text, setText] = useSynced(sc.board_note || "", `${sc.id}:${sc.board_note ?? ""}`);   // yazılan not yoklamayla ezilmez
-  const cam = sc.camera || {};
+  const cam = sc.camera_effective || sc.camera || {};
   const lines = sc.tracks.filter((t) => t.kind === "dialogue");
   const decide = (status: string) => act(async () => {
     const r = await api.post<{ board_status: string; board_note: string | null }>(`/scenes/${sc.id}/board`, { status, note: text });

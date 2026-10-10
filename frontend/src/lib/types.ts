@@ -81,7 +81,7 @@ export interface Scene {
   method: string; method_hint: boolean; external_url: string | null; guide_url: string | null;
   grade: Grade; graded: boolean; lipsync_ready: boolean;
   heading: string; description: string | null; emotion: string;
-  camera: { shot?: string; movement?: string; angle?: string; lens_mm?: number } | null;
+  camera: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
   duration_s: number; action_complexity: number; spent_usd: number; last_error: string | null;
   correction_count: number; characters: string[]; final_url: string | null;
   assets: SceneAssetRef[]; missing: SceneAssetRef[]; tracks: Track[]; variations: Variation[];
@@ -98,6 +98,12 @@ export interface Scene {
   chain_parent?: string | null; chain_stale?: boolean; chain_redraw?: string[];
   /** Otomatik sınıflamanın gerekçesi ("kadro aynı: Mila+Bolt"), senaryonun zorladığı geçiş (cut | continuous). */
   transition_reason?: string | null; transition_hint?: string | null;
+  /** Otomatik renk eşleştirmesi (referans çekime göre çözülen renk ayarı; geri alınabilir). */
+  grade_auto?: { applied?: boolean; disabled?: boolean; reference?: string; delta_e_before?: number; delta_e_after?: number } | null;
+  /** Kesme kamerası (30° kuralı) ve karakter girişi seçeneği. */
+  camera_plan?: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
+  camera_effective?: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
+  entry_mode?: string | null; entry_options?: string[] | null; entering?: string[] | null;
   /** Kazanan klibin varış skoru (son kare -> sonraki çekimin karesi ya da çekimin son karesi). */
   arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
   /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */

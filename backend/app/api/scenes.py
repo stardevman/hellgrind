@@ -34,13 +34,19 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         changes["face_expected"] = {"auto": None, "true": True, "false": False}[changes["face_expected"]]
     if changes.get("transition_in") == "auto":                    # senaryodan gelen geçişe dön
         changes["transition_in"] = None
+    if "camera" in changes:                                       # yönetmenin kamerası: kesme kamerası atanmaz
+        changes["camera"] = {**changes["camera"], "manual": True}
+    if changes.get("entry_mode") == "walk_in":                    # devam çekimi + açık giriş eylemi
+        changes["transition_in"] = "continuous"
+    elif changes.get("entry_mode") == "cut":                      # varsayılan: belirgin kamera değişikliğiyle kesme
+        changes["transition_in"] = None
     if "prompt_spec" in changes:                                  # düzeltme turlarının eklediği anahtarlar kalır
         changes["prompt_spec"] = {**(sc.prompt_spec or {}), **changes["prompt_spec"]}
     for key, value in changes.items():
         setattr(sc, key, value)
     if "action_complexity" in changes and "engine" not in changes:
         sc.engine = route_engine(sc)                              # motor, aksiyon karmaşıklığından yönlendirilir
-    if {"camera", "description"} & changes.keys() and sc.transition_auto is not None:
+    if {"camera", "description", "entry_mode", "transition_in"} & changes.keys() and sc.transition_auto is not None:
         from app.core.chain import sync_seams                     # kadraj değişti: geçişler yeniden sınıflanır
         s.flush()
         sync_seams(s, sc.project_id)

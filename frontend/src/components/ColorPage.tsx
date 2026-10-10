@@ -74,6 +74,11 @@ export function ColorPage() {
           <h2 className="mono">{sc.scene_code}</h2><span className="meta">{sc.heading}</span>
           <span className="grow" />
           {sc.graded && <span className="tag warn">renk uygulanmış</span>}
+          {sc.grade_auto?.applied && <span className="tag info" title={`Referans ${sc.grade_auto.reference}; ΔE ${sc.grade_auto.delta_e_before?.toFixed(1)} → ${sc.grade_auto.delta_e_after?.toFixed(1)}`}>otomatik eşleştirildi ({sc.grade_auto.reference})</span>}
+          {sc.grade_auto?.applied && <button className="btn ghost" type="button" disabled={busy || frozen} onClick={() => act(async () => {
+            const r = await api.post<StageResult>(`/scenes/${sc.id}/grade/auto-undo`);
+            note("color", "Otomatik eşleştirme geri alındı; bu çekim bir daha otomatik eşleştirilmez. " + resultText(r), "ok");
+          }, "color")}>Geri al</button>}
         </header>
         {sc.lipsync_ready ? (
           <div className="split">
@@ -105,6 +110,10 @@ export function ColorPage() {
             <button className="btn" type="button" disabled={busy || frozen}
               onClick={() => act(async () => { await api.post(`/projects/${projectId}/continuity`); note("color", "Süreklilik denetimi kuyruğa alındı.", "ok"); }, "color")}>
               Sürekliliği denetle
+            </button>
+            <button className="btn" type="button" disabled={busy || frozen} title="Sekansta medyana en yakın çekim referans alınır; elle ayarlanmamış çekimlerin rengi karakter dışı bölgenin LAB ölçüsüne göre eşleştirilir (GRADE + MUX)"
+              onClick={() => act(async () => { await api.post(`/projects/${projectId}/color/auto-match`); note("color", "Otomatik çekim eşleştirme kuyruğa alındı.", "ok"); }, "color")}>
+              Çekimleri otomatik eşleştir
             </button>
           </div>
           {!report ? <p className="faint small">Süreklilik henüz denetlenmedi; film birleşince kendiliğinden denetlenir.</p>

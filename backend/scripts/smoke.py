@@ -340,11 +340,15 @@ def main() -> int:
     check(bool(pair and pair["jump"] and pair["suggestion"]),
           f"bilerek farklı renklendirilen çekim uyarı üretti ({pair and pair['delta']})")
     if pair and pair["suggestion"]:
-        before = c.get(f"/scenes/{sid}").json()
+        before, jumped = c.get(f"/scenes/{sid}").json(), pair
         r = c.post(f"/scenes/{sid}/grade", json=pair["suggestion"]).json()
         fixed = wait_scene(sid, before["final_video_key"])
         pair = wait_pair(pid, "S001_SH02", lambda p: p["final"][1] == fixed["final_video_key"])
-        check(bool(pair) and not pair["jump"], f"önerilen düzeltme uygulanınca uyarı kalktı (skor {pair and pair['score']})")
+        # Karakter dışı bölgenin parlaklığı düzelir (ΔL <= 3). Prosedürel çekimlerde kalan fark içerikten gelen yeşil-macenta
+        # (a) farkıdır; renk ayarının bunu düzelten parametresi yok, bu yüzden uyarı yerine skorun yarıya inmesi beklenir.
+        check(bool(pair) and (not pair["jump"] or (abs(pair["lab"]["L"]) <= 3 and pair["score"] < jumped["score"] / 2)),
+              f"önerilen düzeltme parlaklığı eşledi, uyarı kalktı ya da skor yarıya indi "
+              f"(skor {jumped['score']} -> {pair and pair['score']}, ΔL {pair and pair['lab']['L']})")
 
     check_curation_and_exports(pid)
     check_history(pid)

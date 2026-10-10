@@ -376,3 +376,5 @@ def _no_real_seam_models(monkeypatch):
     monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {})      # durum sondası (OpenCLIP + kırpım)
     monkeypatch.setattr(scorer, "state_probe", lambda image, probes: {})
     monkeypatch.setattr(scorer, "continuity", lambda path, previous: None)       # zincir karesi mekân benzerliği
+    monkeypatch.setattr(scorer, "camera_change", lambda previous, path: None)    # jump cut (OpenCV homografi)
+    monkeypatch.setattr(scorer, "clip_motion", lambda path, movement: None)      # klipte kamera hareketi

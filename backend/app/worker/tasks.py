@@ -179,10 +179,43 @@ def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:
 @celery.task(name="hg.continuity")
 def continuity(project_id: str, scene_id: str | None = None):
     """Süreklilik kontrolü (renk sıçramaları). scene_id verilirse yalnızca o çekimin komşu geçişleri yenilenir."""
-    from app.quality.consistency import check_project
+    from app.quality.consistency import auto_match, check_project
     report = check_project(project_id, only_scene=scene_id)
     killswitch.event(project_id, "continuity", jumps=sum(p["jump"] for p in report["pairs"]), pairs=len(report["pairs"]))
-    return {"jumps": sum(p["jump"] for p in report["pairs"])}
+    matched = []
+    from app.config import settings
+    # tam denetim: otomatik çekim eşleştirme (ücretli modda kendiliğinden; ücretsiz modun prosedürel çekimleri kasıtlı
+    # olarak farklı palette, orada Renk sayfasındaki düğmeyle)
+    if scene_id is None and not settings.dry_run and not killswitch.is_frozen(project_id):
+        matched = apply_auto_match(project_id, auto_match(project_id))
+    return {"jumps": sum(p["jump"] for p in report["pairs"]), "matched": matched}
+
+
+@celery.task(name="hg.auto_match")
+def auto_match_task(project_id: str):
+    """Elle istenen otomatik çekim eşleştirmesi."""
+    from app.quality.consistency import auto_match
+    return {"matched": apply_auto_match(project_id, auto_match(project_id))}
+
+
+def apply_auto_match(project_id: str, scene_ids: list[str]) -> list[str]:
+    """Otomatik eşleştirilen çekimlerde yalnızca GRADE + MUX çalışır; montaj bitince süreklilik yeniden ölçülür."""
+    if not scene_ids:
+        return []
+    from app.api.plan import dispatch_result
+    from app.core.rerender import Stage
+    from app.db import session_scope
+    codes = []
+    with session_scope() as s:
+        for sid in scene_ids:
+            sc = s.get(Scene, sid)
+            try:
+                dispatch_result(s, sc, allowed=Stage.GRADE | Stage.MUX)
+                codes.append(sc.scene_code)
+            except Exception as e:                      # noqa: BLE001 — meşgul ya da donmuş: ayar yazıldı, sonra uygulanır
+                killswitch.event(project_id, "color_auto_failed", scene_id=sid, error=str(e)[:200])
+    killswitch.event(project_id, "color_auto_matched", codes=codes)
+    return codes
 
 
 def maybe_assemble_draft(project_id: str, scene_id: str) -> None:

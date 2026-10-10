@@ -59,13 +59,30 @@ def style_text(style: str) -> str:
     return STYLE_TEXT.get(style, style)
 
 
+MOTION_TEXT = {   # video isteminde kamera hareketi açıkça (Kıvılcım SH01: "pan" yalnızca kamera listesinde kaldı, videoda yoktu)
+    "pan": "the camera slowly pans horizontally across the scene from left to right",
+    "tilt": "the camera slowly tilts upward", "dolly_in": "the camera slowly pushes in toward the subject",
+    "dolly_out": "the camera slowly pulls back from the subject", "crane": "the camera rises smoothly on a crane",
+    "orbit": "the camera slowly orbits around the subject", "tracking": "the camera tracks alongside the movement",
+    "handheld": "a slightly shaky handheld camera follows the action",
+}
+
+
+def side_text(side) -> str:
+    side = int(side or 0)
+    return f"{abs(side)}° to the {'right' if side > 0 else 'left'} of the scene's main axis" if abs(side) >= 10 else ""
+
+
 def camera_text(camera: dict | None) -> str:
     camera = camera or {}
-    parts = [SHOT_TEXT.get(camera.get("shot")), MOVE_TEXT.get(camera.get("movement")), ANGLE_TEXT.get(camera.get("angle"))]
+    parts = [SHOT_TEXT.get(camera.get("shot")), MOVE_TEXT.get(camera.get("movement")), ANGLE_TEXT.get(camera.get("angle")),
+             side_text(camera.get("side"))]
     if camera.get("lens_mm"):
         parts.append(f"{camera['lens_mm']} mm lens")
     parts = [p for p in parts if p]
-    return sentence("Camera: " + ", ".join(parts)) if parts else ""
+    text = sentence("Camera: " + ", ".join(parts)) if parts else ""
+    motion = MOTION_TEXT.get(camera.get("movement"))
+    return " ".join(x for x in (text, sentence(f"Camera movement: {motion}") if motion else "") if x)
 
 
 def style_prefix(bible) -> str:
@@ -278,8 +295,18 @@ def compose_prompt(shot: dict, assets, bible) -> Composed:
     exception = state_exception_from(states, (state_source + " " + " ".join(targets)), before=before)
     # Sıra: tarif, kamera, varlıklar (referans ve değişmezler), kadro kısıtı, yönetmen notu, durum istisnası (en son,
     # açık öncelikle: değişmezi ve referansı ezer)
+    # karakter girişi (entry_mode walk_in): ilk karede henüz görünmez, videoda sağdan girer
+    entering = list(shot.get("entering") or [])
+    verb = "is" if len(entering) == 1 else "are"
+    entry = ""
+    if entering and frame == "start":
+        entry = sentence(f"{' and '.join(entering)} {verb} not yet in view in this first frame; they walk in from the "
+                         "right later in the shot")
+    elif entering and frame is None:
+        entry = sentence(f"{' and '.join(entering)} {'walks' if len(entering) == 1 else 'walk'} into the frame from the "
+                         "right")
     # ilk kare olaydan önceki an: tarif "hemen öncesi" olarak verilir (SH05: gözler henüz yanmadı)
-    body = [prefix, sentence(("The moment just before this happens: " if before else "") + described),
+    body = [prefix, sentence(("The moment just before this happens: " if before else "") + described), entry,
             camera_text(shot.get("camera")),
             *(asset_text(a, bible, names, lang, (key, parts) if a.name in targets else (None, ())) for a in ordered),
             lint.cast_constraint(cast), sentence("Director note: " + note) if note else "", exception]

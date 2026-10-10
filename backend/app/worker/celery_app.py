@@ -23,6 +23,7 @@ celery.conf.update(
         "hg.grade_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},
         "hg.continuity": {"queue": "post"},
+        "hg.auto_match": {"queue": "post"},
         "hg.assemble_timeline": {"queue": "post"},
         "hg.*": {"queue": "control"},
     },

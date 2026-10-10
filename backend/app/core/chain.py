@@ -56,6 +56,54 @@ def _cast_text(names: list[str]) -> str:
     return "+".join(names) if names else "karaktersiz"
 
 
+# ---------- kesme kamerası (30° kuralı) ----------
+
+SCALE_STEP = {"extreme_wide": 0, "wide": 1, "medium": 2, "over_shoulder": 2, "pov": 2, "close_up": 3,
+              "extreme_close_up": 4}
+LENS = {"extreme_wide": 18, "wide": 24, "medium": 35, "over_shoulder": 40, "pov": 28, "close_up": 50,
+        "extreme_close_up": 85}
+MIN_SIDE = 30                    # derece: kesmede ölçek değişmiyorsa en az bu kadar açı değişimi
+# kadroya göre aday kameralar (ölçek, yan açı derecesi: + sağ, - sol, dikey açı)
+CUT_CANDIDATES = {
+    0: (("wide", 0, "eye"), ("medium", 35, "eye"), ("medium", -35, "eye")),
+    1: (("close_up", 35, "eye"), ("close_up", -35, "low"), ("medium", 40, "eye"), ("medium", -40, "low")),
+    2: (("medium", -40, "eye"), ("medium", 40, "eye"), ("wide", 0, "eye"), ("medium", 0, "high")),
+}
+
+
+def camera_of(scene) -> dict:
+    """Çekimin etkin kamerası: kesme için atanan kamera (camera_plan), yoksa senaryodaki."""
+    return dict(getattr(scene, "camera_plan", None) or getattr(scene, "camera", None) or {})
+
+
+def cut_differs(prev: dict | None, cam: dict | None) -> bool:
+    """Kesme kuralı: en az bir plan ölçeği adımı ya da >= 30° yan açı farkı."""
+    prev, cam = prev or {}, cam or {}
+    steps = abs(SCALE_STEP.get(cam.get("shot"), 2) - SCALE_STEP.get(prev.get("shot"), 2))
+    return steps >= 1 or abs(int(cam.get("side") or 0) - int(prev.get("side") or 0)) >= MIN_SIDE
+
+
+def plan_cut_camera(prev: dict | None, cam: dict | None, cast_count: int) -> dict | None:
+    """Kesmede kamera önceki çekiminkiyle aynıysa (jump cut: yalnızca karakter değişir) kurala uyan, öncekinden en çok
+    ayrışan aday kamera; senaryo kamerası zaten uyuyorsa ya da yönetmen kamerayı elle seçtiyse None.
+    Kıvılcım: SH01 geniş -> SH02 Mila'ya yakın, sağdan -> SH03 Bolt'a yakın, soldan alçak -> SH04 iki kişilik orta, ters."""
+    cam = dict(cam or {})
+    if cam.get("manual") or cut_differs(prev, cam):
+        return None
+    prev = prev or {}
+
+    def gain(c) -> float:
+        shot, side, angle = c
+        return (abs(SCALE_STEP[shot] - SCALE_STEP.get(prev.get("shot"), 2))
+                + abs(side - int(prev.get("side") or 0)) / MIN_SIDE + (0.5 if angle != prev.get("angle", "eye") else 0))
+    options = [c for c in CUT_CANDIDATES[min(cast_count, 2)]
+               if cut_differs(prev, {"shot": c[0], "side": c[1]})]
+    if not options:
+        return None
+    shot, side, angle = max(options, key=gain)
+    return {**cam, "shot": shot, "side": side, "angle": angle, "lens_mm": LENS[shot], "auto": True}
+
+
 def classify_shots(shots: list[dict]) -> list[dict]:
     """Bir sekansın çekimleri (sırayla) -> her çekim için {transition, cast, carried, removed, reason}.
     Girdi: {"new_scene": bool, "location", "cast": [yazılı kadro], "camera": {...}, "hint": cut|continuous|None,
@@ -67,7 +115,7 @@ def classify_shots(shots: list[dict]) -> list[dict]:
         stated = list(dict.fromkeys(sh.get("cast") or []))
         if prev is None or sh.get("new_scene"):
             out.append({"transition": "new_scene", "cast": stated, "carried": [], "removed": [], "kept": [],
-                        "reason": "yeni sahne"})
+                        "entering": [], "reason": "yeni sahne"})
             prev, prev_cast = sh, stated
             continue
         gone = [n for n in prev_cast if leaves(prev.get("description"), n)]
@@ -93,7 +141,10 @@ def classify_shots(shots: list[dict]) -> list[dict]:
         else:
             transition, reason = "continuous", f"kadro aynı: {_cast_text(cast)}"
         out.append({"transition": transition, "cast": cast, "carried": carried, "removed": removed,
-                    "kept": [n for n in cast if n in prev_cast], "reason": reason})
+                    "kept": [n for n in cast if n in prev_cast], "reason": reason,
+                    # aynı mekânda önceki çekimde olmayan karakter: kesme (kamera değişir) ya da devam + giriş eylemi
+                    "entering": [n for n in stated if n not in prev_cast]
+                    if (sh.get("location") or None) == (prev.get("location") or None) else []})
         prev, prev_cast = sh, cast
     return out
 
@@ -211,8 +262,21 @@ def plan_of(s, scene) -> dict:
     shots = sequence_shots(s, scene.project_id).get(scene.sequence_id or scene.project_id, [])
     ids = [sc.id for sc in shots]
     if scene.id not in ids:
-        return {"transition": "new_scene", "cast": [], "carried": [], "removed": [], "kept": [], "reason": ""}
+        return {"transition": "new_scene", "cast": [], "carried": [], "removed": [], "kept": [], "entering": [],
+                "reason": ""}
     return classify_shots(shot_inputs(s, shots))[ids.index(scene.id)]
+
+
+def plans_for(s, project_id) -> dict:
+    """{çekim kimliği: sınıflama} bütün proje için (panel: sekans başına bir sorgu)."""
+    groups = list(sequence_shots(s, project_id).values())
+    flat = [sc for shots in groups for sc in shots]
+    inputs = dict(zip([sc.id for sc in flat], shot_inputs(s, flat))) if flat else {}   # proje başına sabit sorgu
+    out = {}
+    for shots in groups:
+        for sc, plan in zip(shots, classify_shots([inputs[sc.id] for sc in shots])):
+            out[sc.id] = plan
+    return out
 
 
 def sync_seams(s, project_id) -> list[str]:
@@ -223,7 +287,15 @@ def sync_seams(s, project_id) -> list[str]:
     by_name = {c.name: c.id for c in s.scalars(select(Character).where(Character.project_id == project_id))}
     changed = []
     for shots in sequence_shots(s, project_id).values():
+        prev_cam = None
         for sc, plan in zip(shots, classify_shots(shot_inputs(s, shots))):
+            transition = sc.transition_in if sc.transition_in in TRANSITIONS else plan["transition"]
+            camera_plan = plan_cut_camera(prev_cam, sc.camera, len(plan["cast"])) if transition == "cut" else None
+            if (sc.camera_plan or None) != camera_plan:
+                sc.camera_plan = camera_plan
+                if sc.scene_code not in changed:
+                    changed.append(sc.scene_code)
+            prev_cam = camera_plan or dict(sc.camera or {})
             current = set(s.scalars(select(Character.name).join(SceneCharacter, SceneCharacter.character_id == Character.id)
                                     .where(SceneCharacter.scene_id == sc.id, SceneCharacter.role == "chain")))
             if sc.transition_auto != plan["transition"] or sc.transition_reason != plan["reason"] \

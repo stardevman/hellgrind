@@ -32,7 +32,13 @@ const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
 
 function Shot({ sc }: { sc: Scene }) {
   const { busy, frozen, act, note, setVar } = usePanel();
-  const cam = sc.camera || {};
+  const cam = sc.camera_effective || sc.camera || {};
+  const pickEntry = (entry_mode: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { entry_mode });
+    note("inspector", entry_mode === "walk_in"
+      ? `${sc.scene_code}: devam çekimi; ${(sc.entering ?? []).join(", ")} sağdan girer (ilk karede görünmez).`
+      : `${sc.scene_code}: kesme; kamera belirgin biçimde değişir (30° kuralı).`, "ok");
+  }, "inspector");
   const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
   const regen = (thaw = false) => act(async () => {
     const r = thaw ? await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true&thaw=true`)
@@ -63,7 +69,20 @@ function Shot({ sc }: { sc: Scene }) {
       )}
       <dl className="kv">
         <dt>Duygu</dt><dd><span className="dot" style={{ background: EMOTION_COLOR[sc.emotion] || "#9ca0a9" }} />{EMOTION_TR[sc.emotion] || sc.emotion}</dd>
-        <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, <span className="mono">{cam.lens_mm ?? "—"} mm</span></dd>
+        <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, <span className="mono">{cam.lens_mm ?? "—"} mm</span>
+          {cam.side ? <span className="mono">, {Math.abs(cam.side)}° {cam.side > 0 ? "sağdan" : "soldan"}</span> : null}
+          {sc.camera_plan && <span className="tag info" style={{ marginLeft: 6 }} title="Kesmede kamera önceki çekimle aynıydı (jump cut): en az bir ölçek adımı ya da 30° açı değişimi otomatik atandı. Kamerayı elle seçerseniz atanmaz.">otomatik kesme kamerası</span>}</dd>
+        {sc.entry_options && <>
+          <dt>Giriş</dt>
+          <dd>
+            <select value={sc.entry_mode ?? "cut"} disabled={busy || frozen} aria-label="Karakter girişi"
+              title={`Önceki çekimde olmayan ${(sc.entering ?? []).join(", ")} bu çekimde aynı mekânda beliriyor`}
+              onChange={(e) => pickEntry(e.target.value)}>
+              <option value="cut">Kesme: kamera belirgin biçimde değişir</option>
+              <option value="walk_in">Devam: {(sc.entering ?? []).join(", ")} sağdan girer</option>
+            </select>
+          </dd>
+        </>}
         <dt>Süre</dt><dd className="mono">{Number(sc.duration_s).toFixed(1)} sn</dd>
         <dt>Aksiyon</dt><dd className="mono">{Number(sc.action_complexity).toFixed(2)}</dd>
         <dt>Motor</dt>

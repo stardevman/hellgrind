@@ -27,6 +27,7 @@ from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2
 from app.core.hashing import grade_settings
 from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
+from app.core.chain import camera_of
 from app.engine.storyboard import chain_enabled, clean_key, parent_token
 from app.hermes import lint
 from app.style import bible
@@ -225,6 +226,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
 
     strict = strict_refs(cfg)
     chain = chain_info(scenes, chain_enabled())
+    from app.core.chain import plans_for
+    seams = plans_for(s, project_id) if scenes else {}
 
     def shot_assets(sid) -> list:
         return [r.asset for r in refs[sid] if r.asset] + places[sid]
@@ -256,9 +259,13 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                                sc.keyframe_hash if sc.keyframe_key else (sc.board_sha or sc.board_hash)),
         "h3_refs": [{"name": r["name"], "url": _media(r["key"])} for r in reference_set(refs[sc.id])],
         "guide_url": _media(sc.guide_key), "grade": grade_settings(sc.grade), "graded": bool(sc.graded_video_key),
+        "grade_auto": sc.grade_auto,
         "lipsync_ready": bool(sc.lipsync_video_key),
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
-        "camera": sc.camera, "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
+        "camera": sc.camera, "camera_plan": sc.camera_plan, "camera_effective": camera_of(sc), "entry_mode": sc.entry_mode,
+        "entering": (seams.get(sc.id) or {}).get("entering") or [],
+        "entry_options": ["cut", "walk_in"] if (seams.get(sc.id) or {}).get("entering") else None,
+        "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
         "characters": cast[sc.id], "final_url": _media(sc.final_video_key),
         "assets": [{"id": aid, "type": type_, "name": name, "status": status} for aid, type_, name, status in items[sc.id]],

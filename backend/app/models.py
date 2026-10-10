@@ -146,6 +146,9 @@ class Scene(Base):
     transition_hint: Mapped[str | None] = mapped_column(Text)              # senaryodan zorlanan geçiş: cut | continuous
     transition_reason: Mapped[str | None] = mapped_column(Text)            # otomatik sınıflamanın gerekçesi
     director_note: Mapped[str | None] = mapped_column(Text)                # "Değişiklik iste" notu: istemlere girer
+    camera_plan: Mapped[dict | None] = mapped_column(JSONB)                # kesmede otomatik kamera (30° kuralı); boşsa camera
+    entry_mode: Mapped[str | None] = mapped_column(Text)                   # karakter girişi: cut (varsayılan) | walk_in
+    grade_auto: Mapped[dict | None] = mapped_column(JSONB)                 # otomatik renk eşleştirmesi (geri alınabilir)
     end_board_key: Mapped[str | None] = mapped_column(Text)                # çekim sonu karesi (Kn_end, yazısız)
     end_board_sha: Mapped[str | None] = mapped_column(Text)
     end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı

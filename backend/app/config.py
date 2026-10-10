@@ -122,7 +122,8 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "look_review_margin": 0.05,    # eşiğin bu kadar üstüne kadar: geçer ama "inceleme önerilir"
     "state_threshold": 0.5,        # durum sondası (OpenCLIP, karakter kırpımı): istenen durumun olasılığı bunun altındaysa yeniden dene
     "continuity_threshold": 0.70,  # zincir karesi (continuous): önceki kareyle mekân benzerliği (karakter bölgesi dışı, DINOv2)
-    "cut_continuity_threshold": 0.60,   # zincir karesi (cut): kamera açısı değişebilir, eşik daha düşük
+    "cut_continuity_threshold": 0.35,   # kesme karesi mekânın geniş görüntüsünden yeni kamerayla çizilir: arka plan
+                                        # benzerliği düşer (sentetik %60 yakınlaşma 0,42); yalnızca bambaşka mekânı eler
     "transition_threshold": 0.80,  # FL2VA last_frame: klibin son karesi ile sonraki çekimin ilk karesi
     "arrival_review_threshold": 0.85,   # varış skoru (son kare -> K(n+1) ya da Kn_end) bunun altındaysa "inceleme önerilir"
     "chain_end_frame": True,       # kesme öncesi çekimde video kendi son karesine (Kn_end) gider; kapalıysa son kare serbest

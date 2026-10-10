@@ -78,10 +78,12 @@ class Target:
     looks: tuple = ()
     next_frame: str | None = None     # FL2VA last_frame hedefi: klibin son karesi ona benzemeli (varış skoru)
     arrival_kind: str | None = None   # next: sonraki çekimin ilk karesi K(n+1); end: çekimin son karesi Kn_end
+    movement: str | None = None       # kamera hareketi (pan, dolly…): klipte görüldü mü kaydedilir
 
 
 def target_for(scene, chars, style) -> Target:
     """Çekimin ölçütü: kılavuzun ışık ve hareket dili, çekim tarifi ve referans görseli olan karakterler."""
+    from app.core.chain import camera_of
     from app.core.h3mode import face_expected, is_human
     return Target(style=" ".join(x for x in ((style.lighting_prefix or "") if style else "",
                                              (style.motion_style or "") if style else "") if x),
@@ -89,6 +91,7 @@ def target_for(scene, chars, style) -> Target:
                   faces=tuple((ch.name, ref_order(ch.reference_images)) for ch in chars
                               if ch.reference_images and is_human(ch)),
                   face_expected=face_expected(scene, chars),
+                  movement=camera_of(scene).get("movement"),
                   looks=tuple((ch.name, ref_order(ch.reference_images)) for ch in chars
                               if ch.reference_images and not is_human(ch)))
 
@@ -587,6 +590,30 @@ def state_probe_path(path: str, probes: list[dict]) -> dict[str, float]:
     except Exception:                                   # noqa: BLE001 — bozuk kare: anomali tespiti eler
         return {}
     return state_probe(image, probes)
+
+
+def camera_change(previous_path: str, path: str) -> dict | None:
+    """Jump cut ölçüsü (quality/camera.same_camera): iki kare aynı kamerayla mı."""
+    from app.quality import camera
+    try:
+        with Image.open(previous_path) as a, Image.open(path) as b:
+            return camera.same_camera(a.convert("RGB"), b.convert("RGB"))
+    except Exception as e:                               # noqa: BLE001 — ölçülemedi: kapı uygulanmaz
+        log.warning("kamera değişimi ölçülemedi: %s", e)
+        return None
+
+
+def clip_motion(path: str, movement: str) -> dict | None:
+    """Klipte kamera hareketi (quality/camera.camera_motion): ilk ve son kare."""
+    from app.quality import camera
+    frames = video_frames(path, 2)
+    if len(frames) < 2:
+        return None
+    try:
+        return camera.camera_motion(frames[0], frames[-1], movement)
+    except Exception as e:                               # noqa: BLE001
+        log.warning("kamera hareketi ölçülemedi: %s", e)
+        return None
 
 
 def score_images(images: list[Image.Image], target: Target) -> Result:

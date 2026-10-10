@@ -147,6 +147,7 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, c
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 
+MOVING = ("pan", "tilt", "dolly_in", "dolly_out", "crane", "orbit", "tracking")
 ARRIVAL_WEIGHT = 0.3        # aday sıralaması: birleşik skor × 0,7 + varış skoru × 0,3 (varış ölçüldüyse)
 
 
@@ -188,7 +189,17 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
                 threshold = float(cfg.get("transition_threshold", 0.8))
                 if arrival["target"] == "next" and arrival["dino"] < threshold:
                     anomalies.append({"type": "transition_jump", "score": arrival["dino"], "threshold": threshold})
+    if measured is not None and getattr(target, "movement", None) in MOVING:
+        from app.quality import scorer
+        motion = scorer.clip_motion(path, target.movement)       # kamera hareketi (pan, dolly…) kaydedilir
+        if motion is not None:
+            measured.detail["camera_motion"] = motion
     score = _judge(measured, seed, anomalies, cfg, target, check_identity=True)
+    motion = score.detail.get("camera_motion") or {}
+    if score.passed and motion.get("seen") is False:
+        score = Score(score.clip, score.face, score.composite, score.anomalies, score.passed,
+                      {**score.detail, "review": [*score.detail.get("review", []),
+                                                  f"kamera hareketi ({motion.get('expected')}) görülmedi"]})
     if score.passed and (notes := arrival_review(score.detail.get("arrival"), cfg)):
         score = Score(score.clip, score.face, score.composite, score.anomalies, score.passed,
                       {**score.detail, "review": [*score.detail.get("review", []), *notes]})
@@ -210,7 +221,8 @@ def framing_check(area: float | None, scale: str | None) -> dict | None:
 
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
-                transition: str | None = None, scale: str | None = None, states: list | None = None) -> Score:
+                transition: str | None = None, scale: str | None = None, states: list | None = None,
+                jump_ref: str | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
@@ -240,6 +252,12 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
                 missed = [label for label, value in values.items() if value < threshold]
                 if missed:
                     measured.detail["state_mismatch"] = missed
+        if measured is not None and jump_ref:           # kesme: kamera önceki çekimin son karesinden değişti mi
+            change = scorer.camera_change(jump_ref, path)
+            if change is not None:
+                measured.detail["camera_change"] = change
+                if change.get("same"):
+                    measured.detail["jump_cut"] = True
         if measured is not None and scale:
             framing = framing_check(scorer.framing(path, target or scorer.Target()), scale)
             if framing is not None:

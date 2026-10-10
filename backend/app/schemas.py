@@ -99,6 +99,7 @@ class CameraIn(BaseModel):
     movement: Movement = "static"
     angle: Angle = "eye"
     lens_mm: int = Field(35, ge=8, le=200)
+    side: int = Field(0, ge=-90, le=90)            # yan açı (derece; + sağ, - sol): kesmede 30° kuralı
 
 
 class PromptSpecIn(BaseModel):
@@ -141,6 +142,7 @@ class ScenePatch(BaseModel):
     h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
+    entry_mode: Literal["cut", "walk_in"] | None = None     # yeni karakter girişi: kesme (kamera değişir) | devam + giriş
 
 
 class AudioIn(BaseModel):

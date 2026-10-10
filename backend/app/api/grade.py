@@ -35,6 +35,7 @@ def set_grade(scene_id: SceneId, body: GradeIn, s: Session = Depends(get_session
     ensure_not_frozen(str(sc.project_id))
     ensure_idle(sc)
     sc.grade = grade.clamp(body.model_dump())
+    sc.grade_auto = None                     # yönetmenin ayarı: otomatik eşleştirme bu çekime dokunmaz
     s.commit()
     killswitch.event(str(sc.project_id), "grade_changed", scene_id=scene_id, code=sc.scene_code)
     return {"grade": grade_settings(sc.grade), **dispatch_result(s, sc)}
@@ -123,6 +124,34 @@ def remove_lut(project_id: ProjectId, s: Session = Depends(get_session)):
     s.commit()
     killswitch.event(project_id, "lut_changed", removed=True)
     return {"lut": None, **_regrade(project_id)}
+
+
+@router.post("/projects/{project_id}/color/auto-match")
+@curated("grade_auto")
+def run_auto_match(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Otomatik çekim eşleştirmeyi kuyruğa verir (para harcamaz): referans çekime göre renk ayarları çözülür, GRADE + MUX."""
+    project_or_404(s, project_id)
+    ensure_not_frozen(project_id)
+    from app.worker.tasks import auto_match_task
+    auto_match_task.delay(project_id)
+    return {"queued": True}
+
+
+@router.post("/scenes/{scene_id}/grade/auto-undo")
+@curated("grade_auto_undo")
+def undo_auto_match(scene_id: SceneId, s: Session = Depends(get_session)):
+    """Otomatik eşleştirmeyi geri alır: önceki renk ayarı geri gelir ve bu çekim bir daha otomatik eşleştirilmez."""
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    ensure_idle(sc)
+    auto = sc.grade_auto or {}
+    if not auto.get("applied"):
+        raise HTTPException(409, f"{sc.scene_code}: otomatik eşleştirilmiş bir renk ayarı yok.")
+    sc.grade = auto.get("previous") or {}
+    sc.grade_auto = {"disabled": True, "undone": auto}
+    s.commit()
+    killswitch.event(str(sc.project_id), "grade_changed", scene_id=scene_id, code=sc.scene_code, undo_auto=True)
+    return {"grade": grade_settings(sc.grade), **dispatch_result(s, sc)}
 
 
 @router.post("/projects/{project_id}/continuity")

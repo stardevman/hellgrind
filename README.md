@@ -473,6 +473,26 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     istemin en sonuna, referans ve değişmezlerden sonra yazılır: "Exception for this shot, overriding the reference images
     and the invariants: …"; negatife zıtları ("glowing eyes, lit eyes", değişmezdeki renkle "blue glow"). Değişmezi
     durumdan bağımsız yazın: "round glass eyes (glow blue only when switched on)". Son kare çekimin kendi durumunu korur.
+  - **Kesmede kamera (30° kuralı):** kesmede ardışık iki çekim arasında en az bir plan ölçeği adımı (geniş → orta → yakın)
+    ya da ≥ 30° yan açı farkı olur. Senaryo kamerası buna uymuyorsa (Kıvılcım: hepsi "orta, 35 mm") çekime kadroya göre bir
+    kesme kamerası atanır (`camera_plan`; ör. Bolt'a yakın ve soldan alçak açı, iki kişilik orta ve ters açı); denetçide
+    "otomatik kesme kamerası" etiketi görünür, kamerayı elle seçerseniz atanmaz. Kesme karesi önceki kareden değil mekânın
+    geniş görüntüsünden (mekân durağan görseli, yoksa sahnenin ilk geniş planı) çizilir ve istem kamerayı açıkça taşır
+    ("Move the camera closer and 35° to the left, slightly low angle: a close-up of Bolt"). **Jump cut kapısı:** kesmenin
+    karesi önceki çekimin son karesiyle aynı kamerayla çizilmişse (karakter dışı bölgede ORB + homografi: iç oran ≥ 0,5,
+    ölçek ~1, kayma < %5; Kıvılcım'daki üç kesme 0,82-0,90 / 0,97-1,00 / ≤ %1,1 ile yakalanır) kare yeniden çizilir, son
+    denemede "jump cut riski" notu düşer. Kesme karesinin mekân benzerliği eşiği 0,35'tir (yeni bakış açısı).
+  - **Karakter girişi:** aynı mekânda önceki çekimde olmayan karakter beliriyorsa denetçide seçilir: kesme (varsayılan,
+    kamera belirgin değişir) ya da devam + giriş eylemi (ilk karede görünmez, videoda sağdan girer).
+  - **Kamera hareketi:** pan, dolly, tilt gibi hareketler istemde ayrı bir cümleyle açıkça yazılır ("Camera movement: the
+    camera slowly pans …"); kapı klipteki arka plan kaymasını ölçüp kaydeder, görülmezse "inceleme önerilir".
+  - **Renk sürekliliği:** süreklilik denetimi karakter dışı bölgenin LAB ölçüsüyle karar verir (ΔL > 3 ya da ΔE > 4;
+    sıcaklık da aynı bölgeden). Kıvılcım: renklendirilmemiş SH01 → SH02 ΔL −5,9 (atlama), diğer ardışık çekimler ΔL ≤ 2,3.
+    Film birleşip denetim bitince **otomatik çekim eşleştirme** çalışır: sekansta karakter dışı ölçüsü medyana en yakın çekim
+    referans olur, elle ayarlanmamış diğer çekimlerin pozlama, kontrast, doygunluk ve sıcaklığı sınırlar içinde çözülür ve
+    GRADE + MUX çalışır (Renk sayfasında "otomatik eşleştirildi" ve **Geri al**; geri alınan çekim bir daha eşleştirilmez).
+    Kaynakta: her kare çizilince karakter dışı bölgesinin LAB ortalaması ve sapması zincirdeki önceki kareye taşınır
+    (sınırlı Reinhard aktarımı); H3 ilk karenin rengini taşıdığından fark baştan küçülür.
   - **Durum referansı ve durum kapısı:** Qwen-Image-Edit referans görselini metinden çok izler (gözleri yanık Bolt stili
     "eyes dark" istemini yendi). Çekim bir durumdaysa (kapalı / açık) karakterin kimlik referansı o durumun görseli olur:
     Varlıklar sayfasında **Durum: kapalı** (`state_off`) ya da **Durum: açık** (`state_on`) yüklenir (sürüm artmaz, kilitli

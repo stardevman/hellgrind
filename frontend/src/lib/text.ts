@@ -186,6 +186,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     }
     case "state_reference": return { t: `${x.code}: ${x.character} için durum referansı (${x.state === "off" ? "kapalı" : "açık"}) ${x.source} karesinden alındı (sonda ${Number(x.probe).toFixed(2)})`, c: "good" };
     case "seam_outdated": return { t: `${x.code}: ${x.reason}; eski klip yeniden üretilecek`, c: "bad" };
+    case "color_auto_matched": return { t: (x.codes as string[]).length ? `Renk otomatik eşleştirildi: ${(x.codes as string[]).join(", ")} (GRADE + MUX); filmi yeniden birleştirin` : "Otomatik renk eşleştirme: değişiklik gerekmedi", c: "good" };
+    case "color_auto_failed": return { t: `Otomatik renk eşleştirme uygulanamadı: ${x.error}`, c: "bad" };
     case "runpod_idle_changed": return { t: `RunPod boşta bekleme ${x.seconds} sn (storyboard şeridi incelemesi${Number(x.seconds) <= 120 ? " bitti" : ": art arda yeniden çizimler sıcak worker'a düşer"})` };
     case "runpod_idle_change_failed": return { t: `RunPod boşta bekleme süresi yazılamadı: ${x.error}`, c: "bad" };
     case "chain_stale_stop": return { t: `${where}üretim durdu: ${x.reason}; video eski kareden üretilmez`, c: "bad" };
@@ -256,9 +258,13 @@ export function impactText(i: StyleImpact): string {
   return t;
 }
 
-export const deltaText = (d: Record<string, number>) =>
-  ([["brightness", "parlaklık"], ["warmth", "sıcaklık"], ["saturation", "doygunluk"]] as const)
-    .map(([k, label]) => `${label} ${d[k] > 0 ? "+" : ""}${Math.round(d[k])}`).join(", ");
+/** Karakter dışı bölgenin LAB farkı: ΔL (parlaklık), Δb (sıcaklık), ΔE; doygunluk tüm kareden (bilgi). */
+export const deltaText = (d: Record<string, number>) => {
+  const sign = (v: number, digits = 1) => `${v > 0 ? "+" : ""}${v.toFixed(digits).replace(".", ",")}`;
+  const parts = [`ΔL ${sign(d.brightness ?? 0)}`, `sıcaklık ${sign(d.warmth ?? 0)}`];
+  if (d.E != null) parts.push(`ΔE ${(d.E).toFixed(1).replace(".", ",")}`);
+  return parts.join(", ");
+};
 
 export const paletteOf = (raw: string) => raw.split(",").map((x) => x.trim()).filter(Boolean);
 export const isHex = (c: string) => /^#[0-9a-f]{6}$/i.test(c);

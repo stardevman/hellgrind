@@ -100,8 +100,9 @@ def test_frames_are_drawn_in_chain_order_from_the_previous_frame(chained):
     kinds = ["edit" if "170:151" in r["input"]["workflow"] else "qwen" for r in fake.runs]
     assert kinds == ["qwen", "edit", "edit"]
     prompts = [r["input"]["workflow"]["170:151"]["inputs"]["prompt"] for r in edit_runs(fake)]
-    assert all(p.startswith("Image 1 is the previous shot of this scene") for p in prompts)
-    assert "Reframe the camera for this shot: a medium shot, 35 mm lens." in prompts[0]        # K2: kesme
+    assert prompts[0].startswith("Image 1 shows this location in an earlier shot (S001_SH01)")   # K2: kesme, geniş plandan
+    assert "Move the camera closer" in prompts[0] and "must clearly differ from image 1" in prompts[0]
+    assert prompts[1].startswith("Image 1 is the previous shot of this scene")                  # K3: devam
     assert "Keep the same room, layout, props" in prompts[1]                                    # K3: devam
     assert all(len(r["input"]["images"]) == 1 for r in edit_runs(fake))          # karakter yok: yalnızca önceki kare
     with session_scope() as s:
@@ -115,7 +116,7 @@ def test_a_cut_keeps_the_place_but_frees_the_camera(chained):
     fake, pid, codes, _ = chained
     storyboard.make_board(pid, codes["S001_SH04"])
     cut = edit_runs(fake)[-1]["input"]["workflow"]["170:151"]["inputs"]["prompt"]
-    assert "Reframe the camera for this shot: a medium shot" in cut and "characters' state" in cut
+    assert "Move the camera" in cut and "must clearly differ from image 1" in cut and "characters' state" in cut
     storyboard.make_board(pid, codes["S002_SH01"])                # yeni sahne: zincir kırılır, referanslardan
     assert "170:151" not in fake.runs[-1]["input"]["workflow"]
 
@@ -140,11 +141,11 @@ def test_a_redrawn_frame_makes_the_next_frames_stale(chained, api):
 def test_a_frame_that_breaks_continuity_is_redrawn_and_the_chain_waits(chained):
     from app.engine import storyboard
     fake, pid, codes, state = chained
-    state["continuity"] = [0.52, 0.55, 0.56]                       # K2 (kesme) üç denemede de önceki kareden farklı oda
+    state["continuity"] = [0.2, 0.25, 0.3]                         # K2 (kesme) üç denemede de bambaşka oda
     storyboard.make_board(pid, codes["S001_SH03"])
     with session_scope() as s:
         k2, k3 = s.get(Scene, codes["S001_SH02"]), s.get(Scene, codes["S001_SH03"])
-        assert k2.board_status == "changes_requested" and "süreklilik 0,56 < 0,60" in k2.board_note
+        assert k2.board_status == "changes_requested" and "süreklilik 0,30 < 0,35" in k2.board_note
         assert k3.board_key is None                                # K3, kabul edilmemiş K2'den çizilmez
     assert len(edit_runs(fake)) == 3
 

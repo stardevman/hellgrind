@@ -35,6 +35,7 @@ from sqlalchemy import and_, or_, select
 from app import storage
 from app.budget import killswitch
 from app.config import project_settings, settings
+from app.core.chain import camera_of
 from app.core.h3mode import effective_mode
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
@@ -146,7 +147,7 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
         return v
 
 
-def compose_for_scene(scene, chars, assets, style, frame: str | None = None) -> Composed:
+def compose_for_scene(scene, chars, assets, style, frame: str | None = None, entering=None) -> Composed:
     """Sağlayıcıya giden prompt: yalnızca bestecinin çıktısı (kılavuzun ışık ve hareket dili, çekim tarifi, varlıklar ve
     "yalnızca listelenen karakterler" kısıtı). Görüntü, storyboard karesi, previs aktarımı ve ilk kare düzeltmesi aynı
     fonksiyonu kullanır. frame: "start" (ilk kare) | "end" (son kare) | None (video): karenin durumu
@@ -154,8 +155,9 @@ def compose_for_scene(scene, chars, assets, style, frame: str | None = None) -> 
     from app.core.h3mode import is_human
     spec = scene.prompt_spec or {}
     return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""), "lang": spec.get("lang"),
-                           "camera": scene.camera or {}, "characters": [ch.name for ch in chars],
+                           "camera": camera_of(scene), "characters": [ch.name for ch in chars],
                            "note": getattr(scene, "director_note", None), "frame": frame,
+                           "entering": list(entering or []) if getattr(scene, "entry_mode", None) == "walk_in" else [],
                            "nonhuman": [ch.name for ch in chars if not is_human(ch)]}, assets, style)
 
 
@@ -379,9 +381,11 @@ def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None =
         chars = load_characters(s, scene_id)
         assets = load_assets(s, scene_id)
         style = bible.active(s, project_id)
-        camera = scene.camera or {}
+        camera = camera_of(scene)
         spec = dict(scene.prompt_spec or {})
-        composed = compose_for_scene(scene, chars, assets, style)          # hepsi görsel özetteki girdilerden türer
+        from app.core.chain import plan_of
+        walk_in = plan_of(s, scene)["entering"] if scene.entry_mode == "walk_in" else None    # giriş eylemi videoda
+        composed = compose_for_scene(scene, chars, assets, style, entering=walk_in)   # görsel özetteki girdilerden
         spec["prompt"], spec["negative"] = composed.prompt, composed.negative
         # Yarım kalmış önceki çalıştırmanın asılı satırları: kimse üstünde çalışmıyor.
         for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id,
