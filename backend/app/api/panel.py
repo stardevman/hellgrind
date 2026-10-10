@@ -27,7 +27,7 @@ from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2
 from app.core.hashing import grade_settings
 from app.engine.iteration import reference_set
 from app.engine.methods import suggest_method
-from app.engine.storyboard import chain_enabled, clean_key
+from app.engine.storyboard import chain_enabled, clean_key, parent_token
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
@@ -62,6 +62,7 @@ Kerem stands on a rooftop at sunset, looking over a calm city.
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
                   "seam/")
+MUTABLE_PREFIXES = ("storyboard/",)             # içerik-adresli değil: yeniden çizim aynı anahtara yazar
 EVENT_LIMIT = 30
 
 
@@ -134,8 +135,12 @@ def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
     return dispatch_all(s, project_id)
 
 
-def _media(key: str | None) -> str | None:
-    return f"/api/media?key={key}" if key else None
+def _media(key: str | None, version: str | None = None) -> str | None:
+    """version: yeniden çizilince aynı anahtara yazılan kare (storyboard) için içerik sürümü; adres değişir, tarayıcı eski
+    kareyi önbellekten göstermez."""
+    if not key:
+        return None
+    return f"/api/media?key={key}" + (f"&v={version[:12]}" if version else "")
 
 
 def _film(key: str | None) -> dict | None:
@@ -227,7 +232,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
-        "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key),
+        "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key, sc.board_sha or sc.board_hash),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
         "h3_mode": effective_mode(sc, refs[sc.id], shot_assets(sc.id)),
@@ -237,15 +242,16 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         **chain[sc.id],
         "transition_reason": sc.transition_reason, "transition_hint": sc.transition_hint,
         "chain_cast": carried[sc.id],
-        "end_board_url": _media(sc.end_board_key), "end_board_note": sc.end_board_note,
+        "end_board_url": _media(sc.end_board_key, sc.end_board_sha), "end_board_note": sc.end_board_note,
         "end_board_score": sc.end_board_score,
-        "end_board_current": bool(sc.end_board_key and sc.end_board_parent and sc.end_board_parent == sc.board_sha),
+        "end_board_current": bool(sc.end_board_key and sc.end_board_parent and sc.end_board_parent == parent_token(sc)),
         "edit_refs": [{"name": r["name"], "kind": r["kind"], "url": _media(r["key"])}
                       for r in edit_references(sc, refs[sc.id], shot_assets(sc.id), strict)],
         "face_expected": face_expected(sc, cast[sc.id]), "face_expected_explicit": sc.face_expected,
         "board_score": sc.board_score, "board_source": sc.board_source,
         "keyframe_source": "upload" if sc.keyframe_key else ("board" if sc.board_key and sc.board_source else None),
-        "keyframe_url": _media(sc.keyframe_key or (clean_key(sc.board_key) if sc.board_key and sc.board_source else None)),
+        "keyframe_url": _media(sc.keyframe_key or (clean_key(sc.board_key) if sc.board_key and sc.board_source else None),
+                               sc.keyframe_hash if sc.keyframe_key else (sc.board_sha or sc.board_hash)),
         "h3_refs": [{"name": r["name"], "url": _media(r["key"])} for r in reference_set(refs[sc.id])],
         "guide_url": _media(sc.guide_key), "grade": grade_settings(sc.grade), "graded": bool(sc.graded_video_key),
         "lipsync_ready": bool(sc.lipsync_video_key),
@@ -332,6 +338,13 @@ def media(request: Request, key: str = Query(min_length=1, max_length=512), redi
         except Exception:
             raise HTTPException(404, "Dosya bulunamadı")
         kind = "image/jpeg" if key.endswith(".jpg") else "application/json"
+        if key.startswith(MUTABLE_PREFIXES):         # yeniden çizilen kare aynı anahtara yazılır: her seferinde doğrula
+            import hashlib
+            etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+            headers = {"Cache-Control": "no-cache", "ETag": etag}
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            return Response(data, media_type=kind, headers=headers)
         return Response(data, media_type=kind, headers=cache)
     try:
         head = storage.client().head_object(Bucket=settings.s3_bucket, Key=key)

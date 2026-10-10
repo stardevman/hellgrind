@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { BOARD_TR, MOVE_TR, SHOT_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { passText, stripText } from "@/lib/text";
-import type { DispatchAll, Scene, StripApproval } from "@/lib/types";
+import type { DispatchAll, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
 import { NoteBox, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
@@ -49,7 +49,7 @@ function BoardCard({ sc }: { sc: Scene }) {
   const lines = sc.tracks.filter((t) => t.kind === "dialogue");
   const decide = (status: string) => act(async () => {
     const r = await api.post<{ board_status: string; board_note: string | null }>(`/scenes/${sc.id}/board`, { status, note: text });
-    note("board", `${sc.scene_code}: ${BOARD_TR[r.board_status]}${r.board_note ? ": " + r.board_note : ""}`, r.board_status === "changes_requested" ? "err" : "ok");
+    note("board", `${sc.scene_code}: ${BOARD_TR[r.board_status]}${r.board_note ? ": " + r.board_note : ""}${r.board_status === "changes_requested" ? ". \"Kareleri hazırla\" bu kareyi notunuzla yeniden çizer (zincirde sonrakiler de)." : ""}`, r.board_status === "changes_requested" ? "err" : "ok");
   }, "board");
   return (
     <article className={`board ${sc.board_status}`} aria-label={`${sc.scene_code} storyboard karesi`}>
@@ -101,6 +101,16 @@ export function BoardPage() {
           <span className="meta">{approved}/{scenes.length} kare onaylı · {drafts} taslak çekim · {flagged} iyileştirilecek</span>
           <span className="grow" />
           <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {
+            const plan = await api.get<StoryboardPlan>(`/projects/${projectId}/storyboard/plan`);
+            if (plan.requested.length || plan.clips.length) {
+              const lines = [
+                plan.requested.length ? `Değişiklik istenen kareler yeni seed'lerle ve notunuzla yeniden çizilecek: ${plan.requested.join(", ")}.` : "",
+                plan.followers.length ? `Zincirde onlardan türeyen kareler de yeniden çizilecek: ${plan.followers.join(", ")}.` : "",
+                plan.clips.length ? `Eski kareden kalacak klipler (yeniden üretilecek): ${plan.clips.join(", ")}.` : "",
+                `Toplam ${plan.frames.length} kare${plan.ends.length ? ` + ${plan.ends.length} son kare` : ""}, tahmini $${plan.estimate_usd.toFixed(2)}. Devam edilsin mi?`,
+              ].filter(Boolean);
+              if (!window.confirm(lines.join("\n"))) return;
+            }
             const r = await api.post<{ queued: string[] }>(`/projects/${projectId}/storyboard`);
             note("board", r.queued.length ? `Kareler hazırlanıyor: ${r.queued.join(", ")}.` : "Bütün kareler güncel.", "ok");
           }, "board")}>Kareleri hazırla</button>

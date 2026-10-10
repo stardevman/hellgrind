@@ -152,7 +152,8 @@ def compose_for_scene(scene, chars, assets, style) -> Composed:
     fonksiyonu kullanır."""
     spec = scene.prompt_spec or {}
     return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""), "lang": spec.get("lang"),
-                           "camera": scene.camera or {}, "characters": [ch.name for ch in chars]}, assets, style)
+                           "camera": scene.camera or {}, "characters": [ch.name for ch in chars],
+                           "note": getattr(scene, "director_note", None)}, assets, style)
 
 
 def still_of(ch) -> str | None:

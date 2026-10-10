@@ -53,6 +53,7 @@ export const EMOTION_COLOR: Record<string, string> = {
 export const ANOMALY_TR: Record<string, string> = {
   black: "siyah kare", freeze: "donmuş görüntü", low_clip: "düşük kalite skoru", empty: "boş dosya",
   no_face: "karakterin yüzü görünmedi", low_identity: "kimlik eşiğin altında", low_likeness: "karakter benzerliği düşük",
+  duplicate_character: "karakter karede birden fazla",
   continuity_jump: "önceki kareyle mekân farklı", transition_jump: "son kare sonraki çekimin karesine uymuyor",
   unreadable: "okunamayan dosya", flat: "tek renk kare",
 };

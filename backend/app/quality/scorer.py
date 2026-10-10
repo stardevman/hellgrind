@@ -327,15 +327,52 @@ def crops(image: Image.Image) -> list[Image.Image]:
             for x in range(3) for y in range(3)]
 
 
-def dino_likeness(m, images: list[Image.Image], keys) -> float | None:
-    """İnsan olmayan karakter: karelerin kırpımlarıyla referanslar arasındaki en yüksek DINOv2 benzerliği."""
+INSTANCE_MARGIN = 0.04          # ikinci örnek: en iyi kırpıma bu kadar yakın ve onunla örtüşmeyen kırpım
+
+
+def crop_boxes() -> list[tuple[float, float, float, float]]:
+    """crops() ile aynı sırada kırpım kutuları (0-1 koordinat): x0, y0, x1, y1."""
+    return [(x / 4, y / 4, x / 4 + 0.5, y / 4 + 0.5) for x in range(3) for y in range(3)]
+
+
+def _overlap(a, b) -> bool:
+    return min(a[2], b[2]) - max(a[0], b[0]) > 1e-6 and min(a[3], b[3]) - max(a[1], b[1]) > 1e-6
+
+
+def separate_instances(sims: list[float]) -> list[float]:
+    """Bir karedeki kırpım benzerliklerinden ayrı örnekler: en iyiden başlayarak, en iyiye INSTANCE_MARGIN kadar yakın ve
+    seçilenlerle örtüşmeyen kırpımlar (tek bir robotu kapsayan örtüşen kırpımlar tek örnek sayılır)."""
+    boxes = crop_boxes()
+    order = sorted(range(len(sims)), key=lambda i: -sims[i])
+    if not order:
+        return []
+    best, picked = sims[order[0]], []
+    for i in order:
+        if sims[i] < best - INSTANCE_MARGIN:
+            break
+        if not any(_overlap(boxes[i], boxes[j]) for j in picked):
+            picked.append(i)
+    return [round(sims[i], 4) for i in picked]
+
+
+def dino_scan(m, images: list[Image.Image], keys) -> tuple[float | None, list[list[float]]]:
+    """İnsan olmayan karakter: (karelerin kırpımlarıyla referanslar arasındaki en yüksek DINOv2 benzerliği, kare başına ayrı
+    örneklerin benzerlikleri). Kıvılcım SH05: kapı yalnızca en iyi eşleşmeye bakınca karedeki ikinci örneği görmüyordu."""
     refs = [r for r in (m.reference_dino(k) for k in keys[:LOOK_REFS * 3]) if r is not None]
     if not refs:
-        return None
+        return None, []
     vectors = m.encode_dino([c for im in images for c in crops(im)])
     if vectors is None:
-        return None
-    return float(max(float(v @ r) for v in vectors for r in refs))
+        return None, []
+    sims = [max(float(v @ r) for r in refs) for v in vectors]
+    n = len(crop_boxes())
+    per_image = [separate_instances(sims[k * n:(k + 1) * n]) for k in range(len(images))]
+    return float(max(sims)), per_image
+
+
+def dino_likeness(m, images: list[Image.Image], keys) -> float | None:
+    """İnsan olmayan karakter: karelerin kırpımlarıyla referanslar arasındaki en yüksek DINOv2 benzerliği."""
+    return dino_scan(m, images, keys)[0]
 
 
 def character_mask(image: Image.Image, faces: list) -> Image.Image:
@@ -481,27 +518,44 @@ def score_images(images: list[Image.Image], target: Target) -> Result:
     vectors = m.encode_images(images)
     probs = alignment(vectors, m.encode_texts(list(texts.values()) + list(RIVALS)), len(texts), m.scale)
     clip = float(np.mean(probs))
-    found = [f for im in images for f in m.faces(im)] if target.faces else []
+    per_image = [m.faces(im) for im in images] if target.faces else []
+    found = [f for fs in per_image for f in fs]
     measured = [vector for _, vector, side in found if side >= MEASURE_PX]
+    face_refs = {name: [r for r in (m.reference_face(k) for k in keys) if r is not None] for name, keys in target.faces}
     best: dict[str, float] = {}
-    for name, keys in target.faces:
-        refs = [r for r in (m.reference_face(k) for k in keys) if r is not None]
+    for name, refs in face_refs.items():
         if refs and measured:
             best[name] = max(float(v @ r) for v in measured for r in refs)
+    # Örnek sayısı: her ölçülebilir yüz en çok benzediği karaktere sayılır (kare başına kimlik skorları); kapı aynı
+    # karaktere eşiği geçen birden fazla yüz görürse eler ("karede birden fazla").
+    face_instances: dict[str, list[list[float]]] = {name: [] for name, refs in face_refs.items() if refs}
+    for fs in per_image:
+        counts: dict[str, list[float]] = {name: [] for name in face_instances}
+        for _, vector, side in fs:
+            scores = {name: max(float(vector @ r) for r in face_refs[name]) for name in face_instances}
+            if side >= MEASURE_PX and scores:
+                who = max(scores, key=scores.get)
+                counts[who].append(round(identity(scores[who]), 4))
+        for name, values in counts.items():
+            face_instances[name].append(values)
     looks: dict[str, float] = {}
     dinos: dict[str, float] = {}
+    look_instances: dict[str, list[list[float]]] = {}
     for name, keys in target.looks:
         refs = [m.reference_look(k) for k in keys[:LOOK_REFS]]
         if refs:
             looks[name] = max(float(v @ r) for v in vectors for r in refs)
-        if (d := dino_likeness(m, images, keys)) is not None:
-            dinos[name] = d
+        d, instances = dino_scan(m, images, keys)
+        if d is not None:
+            dinos[name], look_instances[name] = d, instances
     face = float(np.mean([identity(c) for c in best.values()])) if best else None
     composite = combine(clip, face, settings.score_face_weight)
     detail = {"scorer": SCORER_ID, "alignment": {k: round(p, 4) for k, p in zip(texts, probs)},
               "faces_seen": len(found), "faces_measured": len(measured),
               "identity": {k: round(identity(c), 4) for k, c in best.items()},
               "identity_cosine": {k: round(c, 4) for k, c in best.items()},
+              **({"face_instances": face_instances} if face_instances else {}),
+              **({"look_instances": look_instances} if look_instances else {}),
               **({"look": {k: round(v, 4) for k, v in looks.items()}} if target.looks else {}),
               **({"look_dino": {k: round(v, 4) for k, v in dinos.items()}} if dinos else {})}
     return Result(clip=round(clip, 4), face=None if face is None else round(face, 4), composite=round(composite, 4),

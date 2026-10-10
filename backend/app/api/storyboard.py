@@ -38,35 +38,126 @@ def _scenes(s: Session, project_id: str) -> list[Scene]:
     return s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order, Scene.scene_code)).all()
 
 
+def _storyboard_plan(s: Session, project_id: str) -> dict:
+    """"Kareleri hazırla"nın planı: eski kareler (görsel özet değişti, ör. yönetmen notu), değişiklik istenen kareler
+    (yeni seed'lerle yeniden çizilir; zincirde onlardan türeyen sonraki kareler de), çekim sonu karesi eksik ya da eski
+    olan çekimler. Değişiklik istenen karenin ardılları ayrıca sıraya alınmaz: aynı zincirde, o kareden sonra çizilir."""
+    from app.config import project_settings
+    from app.core.chain import successors
+    from app.engine.storyboard import chain_enabled, end_fresh, end_wanted
+    from app.models import Project
+    cfg = project_settings(s.get(Project, project_id).settings)
+    style = bible.active_version(s, project_id)
+    shots = _scenes(s, project_id)
+    info = {}
+    for sc in shots:
+        chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+        fp = fingerprints(sc, chars, [], assets, style)
+        info[sc.id] = (board_stale(sc, fp), fp.visual, chars, assets)
+    requested, followers = [], {}
+    for sc in shots:
+        if sc.board_key and sc.board_status == "changes_requested":
+            requested.append(sc)
+            followers[sc.id] = successors(s, sc) if chain_enabled() else []
+    after = {x.id for xs in followers.values() for x in xs}
+    stale, ends, current = [], [], []
+    for sc in shots:
+        is_stale, fp, chars, assets = info[sc.id]
+        if sc in requested or sc.id in after:
+            continue
+        if is_stale:
+            stale.append(sc)
+        elif sc.board_key and end_wanted(s, sc, cfg, chars, assets) and not end_fresh(sc, fp):
+            ends.append(sc)
+        else:
+            current.append(sc)
+    return {"requested": requested, "followers": followers, "stale": stale, "ends": ends, "current": current, "cfg": cfg}
+
+
+@router.get("/projects/{project_id}/storyboard/plan")
+def storyboard_plan(project_id: ProjectId, s: Session = Depends(get_session)):
+    """"Kareleri hazırla" onaydan önce: hangi kareler yeniden çizilecek (değişiklik istenenler ve zincirde onlardan
+    türeyenler, eskiler, eksik son kareler), hangi kliplerin eskiyeceği ve tahmini maliyet."""
+    from app.budget import pricing
+    from app.core.h3mode import edit_mode
+    from app.engine.storyboard import dependents
+    from app.models import Variation
+    project_or_404(s, project_id)
+    plan = _storyboard_plan(s, project_id)
+    frames = [sc.scene_code for sc in plan["requested"]] + \
+        [x.scene_code for xs in plan["followers"].values() for x in xs] + [sc.scene_code for sc in plan["stale"]]
+    frames = list(dict.fromkeys(frames))
+    touched = {x.id: x for sc in plan["requested"] for x in dependents(s, sc)}
+    clips = [x.scene_code for x in touched.values() if s.scalar(select(Variation.id).where(
+        Variation.scene_id == x.id, Variation.status.in_(("passed", "refined")),
+        Variation.params["stale_keyframe"].astext.is_(None)).limit(1)) is not None]
+    cost = pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=edit_mode(plan["cfg"])) * len(frames) + \
+        pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode="lightning") * (len(frames) + len(plan["ends"]))
+    return {"requested": [sc.scene_code for sc in plan["requested"]],
+            "followers": list(dict.fromkeys(x.scene_code for xs in plan["followers"].values() for x in xs)),
+            "stale": [sc.scene_code for sc in plan["stale"]], "ends": [sc.scene_code for sc in plan["ends"]],
+            "frames": frames, "clips": clips, "estimate_usd": round(cost, 4)}
+
+
+def queue_requested_redraw(s: Session, sc: Scene, followers: list) -> list[str]:
+    """Değişiklik istenen kare yeni seed'lerle (ve yönetmen notuyla) yeniden çizilir, ardından aynı Celery zincirinde
+    ondan türeyen sonraki kareler (sonuncusu istenir; make_board öncekileri sırayla çizer)."""
+    from celery import chain as celery_chain
+    from app.worker import tasks
+    steps = [tasks.storyboard_scene.si(project_id=str(sc.project_id), scene_id=str(sc.id), standalone=True, paid=True)]
+    if followers:
+        steps.append(tasks.storyboard_scene.si(project_id=str(sc.project_id), scene_id=str(followers[-1].id),
+                                               standalone=True))
+    sc.status, sc.last_error = "storyboard", None
+    s.commit()
+    celery_chain(*steps).apply_async()
+    return [sc.scene_code, *(x.scene_code for x in followers)]
+
+
 @router.post("/projects/{project_id}/storyboard")
 @curated("storyboard_prepare")
 def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session)):
-    """Karesi olmayan ya da eskiyen her çekim için kare çizer (yalnızca STORYBOARD aşaması; görüntü üretilmez).
-    Kareler sahneyi onaya bırakır. Varlık kontrolü uygulanmaz: storyboard, varlıklar kilitlenmeden önce de hazırlanır."""
+    """Karesi olmayan ya da eskiyen her çekim için kare çizer (yalnızca STORYBOARD aşaması; görüntü üretilmez); değişiklik
+    istenen kareleri yeni seed'lerle ve yönetmen notuyla yeniden çizer (zincirde ondan türeyenler de); eksik ya da eski
+    çekim sonu karelerini çizer. Kareler sahneyi onaya bırakır. Varlık kontrolü uygulanmaz: storyboard, varlıklar
+    kilitlenmeden önce de hazırlanır. Etki önce GET /projects/{id}/storyboard/plan ile gösterilir."""
+    from app.worker import tasks
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
-    style = bible.active_version(s, project_id)
-    queued, current, skipped = [], [], []
-    for sc in _scenes(s, project_id):
-        fp = fingerprints(sc, load_characters(s, sc.id), [], load_assets(s, sc.id), style)
-        if not board_stale(sc, fp):
-            current.append(sc.scene_code)
-            continue
+    plan = _storyboard_plan(s, project_id)
+    queued, skipped = [], []
+
+    def ready(sc) -> bool:
         seq = s.get(Sequence, sc.sequence_id) if sc.sequence_id else None
         try:
             ensure_idle(sc)
         except Busy:
+            return False
+        return not (seq is not None and seq.status == "capped")
+
+    for sc in plan["requested"]:
+        if ready(sc):
+            queued += queue_requested_redraw(s, sc, plan["followers"][sc.id])
+        else:
             skipped.append(sc.scene_code)
-            continue
-        if seq is not None and seq.status == "capped":
+    for sc in plan["stale"]:
+        if not ready(sc):
             skipped.append(sc.scene_code)
             continue
         sc.status, sc.last_error = "storyboard", None
         s.commit()
         build_chain(project_id, str(sc.id), Stage.STORYBOARD).apply_async()
         queued.append(sc.scene_code)
-    killswitch.event(project_id, "storyboard_queued", queued=len(queued))
-    return {"queued": queued, "current": current, "skipped": skipped}
+    for sc in plan["ends"]:                           # yalnızca son kare: Kn güncel, durum değişmez
+        if ready(sc):
+            tasks.storyboard_scene.si(project_id=project_id, scene_id=str(sc.id)).apply_async()
+            queued.append(sc.scene_code)
+        else:
+            skipped.append(sc.scene_code)
+    queued = list(dict.fromkeys(queued))
+    killswitch.event(project_id, "storyboard_queued", queued=len(queued),
+                     requested=[sc.scene_code for sc in plan["requested"]])
+    return {"queued": queued, "current": [sc.scene_code for sc in plan["current"]], "skipped": skipped}
 
 
 @router.post("/scenes/{scene_id}/board/draw")
@@ -105,6 +196,8 @@ def review_board(scene_id: SceneId, body: BoardIn, s: Session = Depends(get_sess
     sc.board_status = body.status
     if body.note is not None:
         sc.board_note = body.note.strip() or None
+        if body.status == "changes_requested":       # yönetmenin notu bu çekimin istemlerine girer
+            sc.director_note = body.note.strip() or None
     s.commit()
     killswitch.event(str(sc.project_id), "board_status", scene_id=scene_id, code=sc.scene_code, status=body.status)
     return {"scene_id": scene_id, "board_status": sc.board_status, "board_note": sc.board_note}
@@ -208,8 +301,13 @@ def redraw_chain(scene_id: SceneId, s: Session = Depends(get_session)):
     """"Sonraki N kareyi yeniden çiz": bu kareden türeyen eski ya da eksik zincir karelerini sırayla çizer (zincirin son
     eski karesi istenir; make_board öncekileri en eskisinden başlayarak çizer). Görüntü üretilmez."""
     from app.core.chain import successors
+    from app.engine.storyboard import chain_enabled
     sc = scene_or_404(s, scene_id)
     ensure_not_frozen(str(sc.project_id))
+    if sc.board_key and sc.board_status == "changes_requested":   # bu kare ve ondan türeyen sonraki halkalar
+        ensure_idle(sc)
+        codes = queue_requested_redraw(s, sc, successors(s, sc) if chain_enabled() else [])
+        return {"queued": codes[:1], "codes": codes}
     codes = chain_redraw(s, sc)
     if not codes:
         return {"queued": [], "codes": []}

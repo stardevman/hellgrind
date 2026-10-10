@@ -56,7 +56,7 @@ def clip_score_dry(seed: int) -> float:
     return round(min(max(rng.gauss(settings.dry_run_score_mean, settings.dry_run_score_sd), 0.0), 1.0), 4)
 
 
-IDENTITY_ANOMALIES = ("no_face", "low_identity", "low_likeness")
+IDENTITY_ANOMALIES = ("no_face", "low_identity", "low_likeness", "duplicate_character")
 CHAIN_ANOMALIES = ("continuity_jump", "transition_jump")
 
 
@@ -71,6 +71,8 @@ def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
     if target is None or not detail:
         return []
     out = []
+    if dup := duplicates(detail, cfg):
+        out.append({"type": "duplicate_character", "characters": dup})
     if getattr(target, "faces", ()) and getattr(target, "face_expected", True) and "faces_seen" in detail:
         threshold = float(cfg.get("identity_threshold", 0.6))
         if not detail.get("faces_seen"):
@@ -92,6 +94,19 @@ def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
             low = {name: dino.get(name) for name, _ in target.looks if name in dino and dino[name] < threshold}
             if low:
                 out.append({"type": "low_likeness", "look_dino": low, "threshold": threshold})
+    return out
+
+
+def duplicates(detail: dict, cfg: dict) -> list[str]:
+    """Karede birden fazla örneği olan karakterler: bir karede aynı karaktere eşiği geçen birden fazla yüz (insan:
+    identity_threshold) ya da birbiriyle örtüşmeyen birden fazla kırpım (insan olmayan: look_dino_threshold). Kıvılcım
+    SH05: iki Mila oluşmuştu, kapı yalnızca en iyi yüze baktığı için kimlik 1,00 ile geçirmişti."""
+    out = []
+    for key, threshold in (("face_instances", float(cfg.get("identity_threshold", 0.6))),
+                           ("look_instances", float(cfg.get("look_dino_threshold", 0.78)))):
+        for name, per_image in (detail.get(key) or {}).items():
+            if any(sum(v >= threshold for v in values) > 1 for values in per_image) and name not in out:
+                out.append(name)
     return out
 
 

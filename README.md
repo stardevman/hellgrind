@@ -465,6 +465,24 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
   - **Tasarım kayması:** her edit isteminde "<karakter> must look exactly like image N" + değişmezler; değişmezlerden
     otomatik negatifler ("exactly one bent antenna" → second antenna, extra antenna, extra bulb). Senaryodaki durum
     sözcükleri (dark, off, broken, closed…) olumlu isteme "State: eyes dark." olarak, zıtları negatife yazılır.
+  - **Tek örnek:** önceki karede zaten olan karakter "eklenmez", korunur ("keep the single Mila already in image 1
+    unchanged"; durağan görseli yalnızca kimlik referansıdır) ve her istem "Each character appears exactly once" der.
+    Kalite kapısı her karakterin karede tek örneğini arar: aynı kimliğe eşleşen birden fazla yüz (insan) ya da birbiriyle
+    örtüşmeyen birden fazla benzer kırpım (robot) → "<karakter> karede birden fazla", kare elenir.
+  - **Durum önce gelir:** senaryodaki ve yönetmen notundaki durum ("Bolt is still switched off, eyes dark and unlit")
+    istemin en sonuna, referans ve değişmezlerden sonra yazılır: "Exception for this shot, overriding the reference images
+    and the invariants: …"; negatife zıtları ("glowing eyes, lit eyes", değişmezdeki renkle "blue glow"). Değişmezi
+    durumdan bağımsız yazın: "round glass eyes (glow blue only when switched on)". Son kare çekimin kendi durumunu korur.
+  - **Değişiklik iste:** not, çekimin istemlerine "Director note: …" olarak girer (görsel özete girmez: notlu kare
+    yeniden çizdirmeden de onaylanabilir). **Kareleri hazırla**
+    önce etkisini gösterir (yeniden çizilecek kareler, eskiyecek klipler, tahmini maliyet), sonra değişiklik istenen kareyi
+    yeni seed'lerle ve zincirde ondan türeyen kareleri sırayla yeniden çizer; eksik son kareleri de çizer. Denetçide
+    **Bu kareyi ve sonrakileri yeniden çiz** aynı işi tek kare için yapar.
+  - **Görsel önbelleği:** yeniden çizilen kare aynı dosyaya yazılır; panel adresi kare sürümünü taşır (`&v=`) ve
+    `storyboard/` dosyaları ETag ile her seferinde doğrulanır.
+  - **Şerit incelemesinde boşta bekleme:** kare işinden sonra 15 dk boyunca uç noktanın boşta beklemesi
+    `RUNPOD_REVIEW_IDLE_S` (300 sn) olur, sonra `RUNPOD_IDLE_TIMEOUT_S`'e döner; art arda yeniden çizimler soğuk başlatma
+    (~195 sn) ödemez. Boşta süre geçerli değerle faturalanır.
   - **Süre:** H3 kare sayısını 17n+5'e yukarı yuvarlar (4 sn → 4,46 sn); montajda hedef süreye kesilir. Devam eden çekim
     baştan kesilir, varış ucu korunur.
 - **Karakter referanslarıyla (Ref2VA, elle seçilir):** çekim bazında denetçiden seçilir; kare çizilmez. Çekimdeki karakterlerin
@@ -736,6 +754,7 @@ Bilinmesi gerekenler:
 | `RUNPOD_DATACENTER` / `H3_ALLOW_NORDIC` | `CA-MTL-1` / `false` | Volume'un veri merkezi; Kuzey merkezlerini (EUR-NO-1, EUR-IS-*) izinli listeye ekle |
 | `RUNPOD_GPU_TYPES` / `RUNPOD_IDLE_TIMEOUT_S` / `RUNPOD_MIN_BALANCE_USD` | `RTX 5090,RTX PRO 6000` / `60` / `10` | Uç noktanın GPU tipleri, worker'ın boşta bekleme süresi (sn), bakiye eşiği ($) |
 | `RUNPOD_GPU_POOLS` | `auto` | **Ayarları uç noktaya uygula**'nın yazdığı GPU havuzları: `auto` (GPU tiplerinden) ya da ör. yalnızca `ADA_32_PRO` (RTX 5090; RTX PRO 6000 havuzu eklenmeden `RUNPOD_WORKERS_MAX` 2-3 worker) |
+| `RUNPOD_REVIEW_IDLE_S` | `300` | Storyboard şeridi incelemesinde (son kare işinden sonra 15 dk) geçici boşta bekleme, sn; `0` kapalı |
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |

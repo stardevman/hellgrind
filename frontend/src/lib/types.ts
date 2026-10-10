@@ -196,6 +196,12 @@ export interface DispatchAll {
   capped: string[]; awaiting_board?: string[]; frozen: boolean;
 }
 
+/** "Kareleri hazırla"nın planı (GET /projects/{id}/storyboard/plan): onaydan önce gösterilir. */
+export interface StoryboardPlan {
+  requested: string[]; followers: string[]; stale: string[]; ends: string[]; frames: string[]; clips: string[];
+  estimate_usd: number;
+}
+
 /** Storyboard önce: şeridin tek tıkla onayı (POST /projects/{id}/boards/approve). */
 export interface StripApproval extends Partial<DispatchAll> {
   approved: string[]; review: string[]; missing: string[]; frozen: boolean;

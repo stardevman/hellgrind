@@ -59,12 +59,14 @@ def _cast_text(names: list[str]) -> str:
 def classify_shots(shots: list[dict]) -> list[dict]:
     """Bir sekansın çekimleri (sırayla) -> her çekim için {transition, cast, carried, removed, reason}.
     Girdi: {"new_scene": bool, "location", "cast": [yazılı kadro], "camera": {...}, "hint": cut|continuous|None,
-    "description"}. cast: etkin kadro (yazılı + zincirden gelen); removed: önceki karede olup bu çekimde olmayanlar."""
+    "description"}. cast: etkin kadro (yazılı + zincirden gelen); removed: önceki karede olup bu çekimde olmayanlar;
+    kept: önceki karede zaten olan ve bu çekimde de kalanlar (edit istemi onları "ekletmez", korutur: Kıvılcım SH05'te
+    zincirden gelen Mila "eklenince" karede iki Mila oluşmuştu)."""
     out, prev, prev_cast = [], None, []
     for i, sh in enumerate(shots):
         stated = list(dict.fromkeys(sh.get("cast") or []))
         if prev is None or sh.get("new_scene"):
-            out.append({"transition": "new_scene", "cast": stated, "carried": [], "removed": [],
+            out.append({"transition": "new_scene", "cast": stated, "carried": [], "removed": [], "kept": [],
                         "reason": "yeni sahne"})
             prev, prev_cast = sh, stated
             continue
@@ -90,7 +92,8 @@ def classify_shots(shots: list[dict]) -> list[dict]:
             transition, reason = "cut", "; ".join(differences)
         else:
             transition, reason = "continuous", f"kadro aynı: {_cast_text(cast)}"
-        out.append({"transition": transition, "cast": cast, "carried": carried, "removed": removed, "reason": reason})
+        out.append({"transition": transition, "cast": cast, "carried": carried, "removed": removed,
+                    "kept": [n for n in cast if n in prev_cast], "reason": reason})
         prev, prev_cast = sh, cast
     return out
 
@@ -208,7 +211,7 @@ def plan_of(s, scene) -> dict:
     shots = sequence_shots(s, scene.project_id).get(scene.sequence_id or scene.project_id, [])
     ids = [sc.id for sc in shots]
     if scene.id not in ids:
-        return {"transition": "new_scene", "cast": [], "carried": [], "removed": [], "reason": ""}
+        return {"transition": "new_scene", "cast": [], "carried": [], "removed": [], "kept": [], "reason": ""}
     return classify_shots(shot_inputs(s, shots))[ids.index(scene.id)]
 
 

@@ -145,6 +145,7 @@ class Scene(Base):
     board_parent: Mapped[str | None] = mapped_column(Text)                 # zincirle çizildiyse önceki karenin board_sha'sı
     transition_hint: Mapped[str | None] = mapped_column(Text)              # senaryodan zorlanan geçiş: cut | continuous
     transition_reason: Mapped[str | None] = mapped_column(Text)            # otomatik sınıflamanın gerekçesi
+    director_note: Mapped[str | None] = mapped_column(Text)                # "Değişiklik iste" notu: istemlere girer
     end_board_key: Mapped[str | None] = mapped_column(Text)                # çekim sonu karesi (Kn_end, yazısız)
     end_board_sha: Mapped[str | None] = mapped_column(Text)
     end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı

@@ -61,6 +61,9 @@ FIELDS: tuple[Field, ...] = (
           "yazılır (projenin bekleyen iş sınırı RUNPOD_MAX_PENDING_JOBS bundan küçük olmamalı)", ("keep", "1", "2", "3")),
     Field("RUNPOD_IDLE_TIMEOUT_S", "runpod_idle_timeout_s", "number", "runpod",
           "Boşta bekleme (sn; son işten sonra worker açık kalır ve faturalanır)", minimum=5),
+    Field("RUNPOD_REVIEW_IDLE_S", "runpod_review_idle_s", "number", "runpod",
+          "Storyboard şeridi incelemesinde boşta bekleme (sn; kare işinden sonra 15 dk geçerli, art arda yeniden çizimler "
+          "soğuk başlatma ödemesin; 0: kapalı)", minimum=0),
     Field("RUNPOD_MIN_BALANCE_USD", "runpod_min_balance_usd", "number", "runpod",
           "Bakiye eşiği ($; altında yeni iş başlamaz)", minimum=1),
     Field("RUNPOD_MAX_PENDING_JOBS", "runpod_max_pending_jobs", "number", "runpod",

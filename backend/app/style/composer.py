@@ -9,7 +9,9 @@ compose_prompt(shot, assets, bible) deterministiktir ve her zaman aynı sırayı
   6. negatifler                      kılavuz + çekim + kadro negatifi + durum sözcüklerinin zıtları ("eyes dark" ->
                                      glowing eyes) + karakter değişmezlerinin zıtları ("exactly one antenna" -> second
                                      antenna, extra antenna)
-Senaryodaki durum sözcükleri (dark, off, broken, closed…) olumlu isteme "State: eyes dark." olarak açıkça yazılır.
+Senaryodaki ve yönetmen notundaki durum sözcükleri (dark, switched off, broken, closed…) istemin EN SONUNA, referans ve
+değişmezlerden sonra açık öncelikle yazılır: "Exception for this shot, overriding the reference images and the invariants:
+the eyes are dark — unlit, no glow." Yönetmen notu ("Değişiklik iste") "Director note: …" olarak eklenir.
 Stil çekim bazında elle yazılmaz: ışık ve hareket dili yalnızca kılavuzdan gelir.
 
 Ücretli modda Türkçe metinler (çekim tarifi, mekân ve nesne adları ve tarifleri, Türkçe yazılmış kılavuz alanları)
@@ -126,35 +128,85 @@ def invariant_negatives(invariants) -> list[str]:
 # Senaryodaki durum sözcükleri (ör. SH03 "eyes dark"): olumlu isteme açıkça, zıtları negatife
 STATES = {
     "dark": ("glowing", "lit", "bright"), "unlit": ("glowing", "lit"), "off": ("glowing", "lit", "switched on"),
+    "switched off": ("glowing", "lit", "switched on"), "turned off": ("glowing", "lit", "switched on"),
+    "powered off": ("glowing", "lit", "switched on"),
     "dim": ("bright", "glowing"), "lifeless": ("glowing", "animated"), "broken": ("intact", "repaired"),
     "closed": ("open",), "shut": ("open",), "open": ("closed", "shut"), "empty": ("full",), "lit": ("dark", "unlit"),
     "glowing": ("dark", "unlit"), "cracked": ("intact",), "wet": ("dry",),
 }
-STATE_WORDS = "|".join(sorted(STATES, key=len, reverse=True))
-# "with its eyes dark", "the lamp is off": belirteçli isim + (is/are/...) + durum; "a broken lamp": durum + isim
-STATE_AFTER = re.compile(rf"\b(?:its|his|her|their|the|a|an)\s+([a-z-]{{3,}})\s+(?:(?:is|are|stay|stays|remain|"
-                         rf"remains|still|now|all)\s+)*({STATE_WORDS})\b", re.IGNORECASE)
+UNLIT = {"dark", "unlit", "off", "switched off", "turned off", "powered off", "lifeless"}
+# Durumun açık tarifi ("Exception for this shot: the eyes are dark — unlit, no glow")
+STATE_TEXT = {"dark": "dark — unlit, no glow", "unlit": "unlit — no glow", "off": "switched off — dark, no glow",
+              "switched off": "switched off — dark, no glow", "turned off": "switched off — dark, no glow",
+              "powered off": "switched off — dark, no glow", "lifeless": "lifeless and inactive — no glow"}
+STATE_WORDS = "|".join(re.escape(w).replace(r"\ ", r"\s+") for w in sorted(STATES, key=len, reverse=True))
+# "with its eyes dark", "the lamp is off", "Bolt is still switched off", "eyes dark and unlit": isim + (is/are/...) +
+# durum (+ "and" + durum); "a broken lamp": durum + isim
+STATE_AFTER = re.compile(rf"\b(?:(?:its|his|her|their|the|a|an)\s+)?([a-z-]{{3,}})\s+(?:(?:is|are|stay|stays|remain|"
+                         rf"remains|still|now|all|completely)\s+)*({STATE_WORDS})(?:\s+and\s+({STATE_WORDS}))?\b",
+                         re.IGNORECASE)
 STATE_BEFORE = re.compile(rf"\b({STATE_WORDS})\s+([a-z-]{{3,}})\b", re.IGNORECASE)
-STOP = {"with", "and", "the", "its", "his", "her", "while", "into", "from", "that", "this", "light", "shot"}
+STOP = {"with", "and", "the", "its", "his", "her", "while", "into", "from", "that", "this", "light", "shot", "but",
+        # fiiller ("falls off", "sits lifeless", "jumps off"): isim değil
+        "falls", "turns", "switches", "runs", "jumps", "gets", "comes", "goes", "takes", "puts", "steps", "walks", "sits",
+        "stands", "looks", "flips", "pulls", "pushes", "drops", "knocks", "slides", "tips", "kicks", "rolls", "breaks",
+        "cuts", "sets", "lays", "lies", "keeps", "stays", "remains", "was", "were", "has", "have", "had", "been", "being",
+        "seems", "appears", "becomes", "fades", "dies", "shuts", "lights", "glows", "blinks", "flickers"}
 
 
-def state_terms(text: str | None) -> tuple[list[str], list[str]]:
-    """(olumlu, negatif), İngilizce metinden (ücretli modda istem İngilizceye çevrilmiştir):
-    "with its eyes dark" -> (["eyes dark"], ["glowing eyes", "lit eyes", "bright eyes"])."""
-    pos, neg = [], []
-    text = text or ""
-    found = [(m.group(1), m.group(2)) for m in STATE_AFTER.finditer(text)]
-    found += [(m.group(2), m.group(1)) for m in STATE_BEFORE.finditer(text)]
+def _noun_ok(noun: str) -> bool:
+    n = noun.lower()
+    return not (n in STOP or n in STATES or n.endswith(("ed", "ing")) or n in ("is", "are"))
+
+
+def state_list(text: str | None) -> list[tuple[str, str]]:
+    """[(isim, durum)] İngilizce metinden: "Bolt is still switched off, eyes dark and unlit" ->
+    [("bolt", "switched off"), ("eyes", "dark"), ("eyes", "unlit")]."""
+    found = []
+    for m in STATE_AFTER.finditer(text or ""):
+        found += [(m.group(1), s) for s in (m.group(2), m.group(3)) if s]
+    found += [(m.group(2), m.group(1)) for m in STATE_BEFORE.finditer(text or "")]
+    out = []
     for noun, state in found:
-        noun_l, state_l = noun.lower(), state.lower()
-        if noun_l in STOP or noun_l in STATES or state_l not in STATES:
-            continue
-        phrase = f"{noun_l} {state_l}"
-        if phrase in pos:
-            continue
-        pos.append(phrase)
-        neg += [f"{opposite} {noun_l}" for opposite in STATES[state_l]]
+        state_l = " ".join(state.lower().split())
+        if _noun_ok(noun) and state_l in STATES and (noun.lower(), state_l) not in out:
+            out.append((noun.lower(), state_l))
+    return out
+
+
+def state_terms(text: str | None, glow_colors=()) -> tuple[list[str], list[str]]:
+    """(olumlu, negatif): "with its eyes dark" -> (["eyes dark"], ["glowing eyes", "lit eyes", "bright eyes",
+    "eyes glow"]). glow_colors: değişmezlerde geçen renkler ("blue" -> "blue glow")."""
+    pos, neg = [], []
+    for noun, state in state_list(text):
+        pos.append(f"{noun} {state}")
+        neg += [f"{opposite} {noun}" for opposite in STATES[state]]
+        if state in UNLIT:
+            neg += [f"{noun} glow", *(f"{c} glow" for c in glow_colors)]
     return pos, list(dict.fromkeys(neg))
+
+
+def state_exception(text: str | None) -> str:
+    """Durum, referans görseli ve değişmezlerden SONRA ve açık öncelikle (Kıvılcım SH03/SH04: referansta yanık gözler ve
+    "blue glass eyes" değişmezi "eyes dark" durumunu eziyordu)."""
+    parts = []
+    for noun, state in state_list(text):
+        verb = "are" if noun.endswith("s") and not noun.endswith("ss") else "is"
+        subject = noun.capitalize() if noun[:1].isalpha() and noun not in ("eyes",) and verb == "is" and \
+            (text or "").find(noun.capitalize()) >= 0 else f"the {noun}"
+        parts.append(f"{subject} {verb} {STATE_TEXT.get(state, state)}")
+    parts = list(dict.fromkeys(parts))
+    return sentence("Exception for this shot, overriding the reference images and the invariants: " + "; ".join(parts)) \
+        if parts else ""
+
+
+COLORS = ("blue", "red", "green", "yellow", "orange", "purple", "pink", "white", "amber", "cyan", "golden")
+
+
+def glow_colors(invariants) -> list[str]:
+    """Değişmezlerde geçen renkler: "round glass eyes (glow blue only when switched on)" -> ["blue"]."""
+    text = " ".join(str(x).lower() for x in invariants or ())
+    return [c for c in COLORS if re.search(rf"\b{c}\b", text)]
 
 
 def _join_negative(*parts: str) -> str:
@@ -177,11 +229,16 @@ def compose_prompt(shot: dict, assets, bible) -> Composed:
     names = cast + [a.name for a in assets if a.type == "character"]
     ordered = sorted(assets, key=lambda a: (TYPE_ORDER.index(a.type), a.name))
     described = translate.to_english(shot.get("prompt") or "", names, lang)
+    note = translate.to_english(" ".join((shot.get("note") or "").split()), names, lang)
     english = lang == "en" or described != (shot.get("prompt") or "") or not translate.looks_turkish(described)
-    states, opposite = state_terms(described) if english else ([], [])
-    body = [prefix, sentence(described), sentence("State: " + ", ".join(states)) if states else "",
-            camera_text(shot.get("camera")), *(asset_text(a, bible, names, lang) for a in ordered),
-            lint.cast_constraint(cast)]
+    invariants = [i for a in ordered if a.type == "character" for i in (getattr(a, "invariants", None) or [])]
+    state_source = " ".join(x for x in (described, note) if x) if english else ""
+    states, opposite = state_terms(state_source, glow_colors(invariants)) if english else ([], [])
+    # Sıra: tarif, kamera, varlıklar (referans ve değişmezler), kadro kısıtı, yönetmen notu, durum istisnası (en son,
+    # açık öncelikle: değişmezi ve referansı ezer)
+    body = [prefix, sentence(described), camera_text(shot.get("camera")),
+            *(asset_text(a, bible, names, lang) for a in ordered), lint.cast_constraint(cast),
+            sentence("Director note: " + note) if note else "", state_exception(state_source) if states else ""]
     designs = [x for a in ordered if a.type == "character"
                for x in invariant_negatives(translate.to_english(" ".join(str(i).split()), names, lang)
                                             for i in (getattr(a, "invariants", None) or []))]

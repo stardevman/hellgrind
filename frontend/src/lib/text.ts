@@ -175,7 +175,15 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };
     case "budget_changed": return { t: `Bütçe ${usd(Number(x.old))} → ${usd(Number(x.new))}` };
-    case "chain_invalidated": return { t: `${x.reason}: ${(x.codes as string[]).length ? `${(x.codes as string[]).join(", ")} eski kareden; yeniden üretilecek` : "bağlı çekim yok"}${x.clips ? ` (${x.clips} klip eski)` : ""}`, c: "bad" };
+    case "chain_invalidated": {
+      const frames = (x.frames as string[] | undefined) ?? [];
+      const codes = x.codes as string[];
+      const parts = [frames.length ? `${frames.join(", ")} kareleri eski (zincirle yeniden çizilecek)` : "",
+        codes.length ? `${codes.join(", ")} eski kareden; yeniden üretilecek` : "", x.clips ? `${x.clips} klip eski` : ""].filter(Boolean);
+      return { t: `${x.reason}: ${parts.join("; ") || "bağlı çekim yok"}`, c: "bad" };
+    }
+    case "runpod_idle_changed": return { t: `RunPod boşta bekleme ${x.seconds} sn (storyboard şeridi incelemesi${Number(x.seconds) <= 120 ? " bitti" : ": art arda yeniden çizimler sıcak worker'a düşer"})` };
+    case "runpod_idle_change_failed": return { t: `RunPod boşta bekleme süresi yazılamadı: ${x.error}`, c: "bad" };
     case "chain_stale_stop": return { t: `${where}üretim durdu: ${x.reason}; video eski kareden üretilmez`, c: "bad" };
     case "chain_reset": return { t: `Temiz başlangıç: ${x.clips} klip eski, ${x.stale_frames} zincir karesi yeniden çizilecek` };
     case "runpod_model_wait": return { t: `RunPod: ${x.model} işi sırasını bekliyor (önce çalışan model grubu bitsin)` };
@@ -190,7 +198,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "end_board_ready": return { t: `${x.code}: ${x.passed ? "hazır; video bu karede biter" : "kapıdan geçemedi; video son karesiz üretilir"}${x.note && x.passed ? ` (${x.note})` : ""}`, c: x.passed ? (x.note ? "" : "good") : "bad" };
     case "board_strip_approved": return { t: `Storyboard şeridi onaylandı: ${(x.approved as string[]).length} kare${(x.review as string[]).length ? `; inceleme bekleyen: ${(x.review as string[]).join(", ")}` : ""}`, c: (x.review as string[]).length ? "bad" : "good" };
     case "seam_waiting": return { t: `${where}kesintisiz dikiş: ${x.previous} bitmeden bu çekim üretilmez`, c: "bad" };
-    case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor` };
+    case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor${(x.requested as string[] | undefined)?.length ? ` (değişiklik istenen: ${(x.requested as string[]).join(", ")}; yönetmen notuyla)` : ""}` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };
     case "continuity": return {

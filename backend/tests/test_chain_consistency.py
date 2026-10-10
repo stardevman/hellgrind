@@ -263,7 +263,7 @@ def test_a_shot_before_a_cut_ends_on_its_own_end_frame(ended):
     fake, pid, codes, _ = ended
     sb.make_board(pid, codes["S001_SH01"])                       # SH02 kesmeyle gelir: SH01 kendi son karesine gider
     end = [p for p in _prompts(fake) if p.startswith("Image 1 is the first frame of this shot")]
-    assert len(end) == 1 and "after its action is completed" in end[0] and "wide shot" in end[0]
+    assert len(end) == 1 and "when its own action is completed" in end[0] and "wide shot" in end[0]
     edit_run = [r for r in fake.runs if "170:151" in r["input"]["workflow"]][-1]["input"]["workflow"]
     assert edit_run["170:168"]["inputs"]["value"] is True                       # Lightning
     with session_scope() as s:
@@ -563,9 +563,11 @@ def test_state_words_go_into_the_prompt_and_their_opposites_into_the_negative():
     from app.style.composer import compose_prompt
     c = compose_prompt({"prompt": "Bolt sits lifeless on the workbench with its eyes dark.", "lang": "en",
                         "characters": ["Bolt"]}, [], None)
-    assert "State: eyes dark." in c.prompt and "glowing eyes" in c.negative and "lit eyes" in c.negative
+    assert c.prompt.endswith("Exception for this shot, overriding the reference images and the invariants: the eyes are "
+                             "dark — unlit, no glow.")
+    assert "glowing eyes" in c.negative and "lit eyes" in c.negative
     turkish = compose_prompt({"prompt": "Boş yol.", "lang": "tr", "characters": []}, [], None)
-    assert "State:" not in turkish.prompt                      # Türkçe (çevrilmemiş) metinde uydurma yok
+    assert "Exception" not in turkish.prompt                   # Türkçe (çevrilmemiş) metinde uydurma yok
 
 
 def test_a_long_clip_is_trimmed_to_its_duration_and_a_continuous_shot_keeps_its_arrival_end(tmp_path):
@@ -591,3 +593,254 @@ def test_the_gpu_pools_can_be_limited_to_the_rtx_5090_pool(monkeypatch):
     monkeypatch.setattr(settings, "runpod_gpu_pools", "AMPERE_16")
     with pytest.raises(PaidCallBlocked, match="Bilinmeyen GPU havuzu"):
         runpod_h3.desired_config()
+
+
+# =====================================================================================================================
+# Kıvılcım kare şeridi testi (c55e8f5 sonrası): zincirden gelen karakterin ikinci örneği, durum/referans çakışması,
+# "Değişiklik iste" akışı, sekansın ilk çekiminin son karesi, önbellekteki eski görsel, zincir geçersizleşmesi, soğuk
+# başlatma.
+# =====================================================================================================================
+
+MILA_REFS = [{"name": "S001_SH04", "key": "k", "kind": "frame"},
+             {"name": "Bolt", "key": "b", "kind": "character", "invariants": ["round glass eyes (glow blue only when switched on)"]},
+             {"name": "Mila", "key": "m", "kind": "character", "invariants": ["round yellow glasses (always worn)"]}]
+
+
+# ---------- (1) zincirden gelen karakter iki kez çizilmesin ----------
+
+def test_characters_already_in_the_previous_frame_are_kept_not_added():
+    plans = chain_rules.classify_shots(KIVILCIM_DB)
+    assert plans[4]["kept"] == ["Bolt", "Mila"] and plans[2]["kept"] == []            # SH05: ikisi de K4'te var
+    text = sb.chain_prompt("Bolt's eyes light up.", MILA_REFS, "cut", plans[4], MEDIUM)
+    assert "keep the single Mila already in image 1 unchanged — image 3 is only Mila's identity reference" in text
+    assert "do not add another Mila" in text and "Mila must look exactly like image" not in text
+    assert "Reframe the camera for this shot: a medium shot of Bolt, 35 mm lens." in text    # kadraj yazılı kadroya göre
+    assert sb.ONCE in text
+    entering = sb.chain_prompt("Mila climbs in.", MILA_REFS, "cut", plans[3], MEDIUM)       # SH04: Mila K3'te yok
+    assert "Mila must look exactly like image 3" in entering and "keep the single Bolt already in image 1" in entering
+
+
+def test_the_end_frame_keeps_every_character_of_its_first_frame():
+    text = sb.end_prompt("Bolt sits lifeless.", MILA_REFS, MEDIUM)
+    assert "keep the single Bolt already in image 1 unchanged" in text and "keep the single Mila" in text
+    assert "must look exactly like" not in text and sb.ONCE in text
+
+
+def test_a_character_twice_in_the_frame_fails_the_gate():
+    detail = {"faces_seen": 3, "faces_measured": 3, "identity": {"Mila": 1.0},
+              "face_instances": {"Mila": [[1.0, 0.93]], "Ayşe": [[]]}}
+    target = scorer.Target(faces=(("Mila", ("assets/m/still/m.png",)), ("Ayşe", ("assets/a/still/a.png",))),
+                           face_expected=False)
+    out = gate.identity_anomalies(detail, target, CFG)
+    assert out == [{"type": "duplicate_character", "characters": ["Mila"]}]
+    one = {**detail, "face_instances": {"Mila": [[1.0, 0.31]]}}                       # ikinci yüz başka biri
+    assert gate.identity_anomalies(one, target, CFG) == []
+    robot = {"look": {"Bolt": 0.9}, "look_dino": {"Bolt": 0.9}, "look_instances": {"Bolt": [[0.9, 0.88]]}}
+    assert gate.duplicates(robot, CFG) == ["Bolt"]
+    drawn = sb.Drawn("qwen_edit", 0.95, False, 3, out, {})
+    assert sb.identity_text(drawn) == "Mila karede birden fazla"
+
+
+def test_overlapping_crops_of_one_robot_count_once_and_two_robots_twice():
+    boxes = scorer.crop_boxes()
+    center = boxes.index((0.25, 0.25, 0.75, 0.75))
+    sims = [0.80] * 9
+    sims[center] = 0.92
+    assert scorer.separate_instances(sims) == [0.92]                                 # komşular merkezle örtüşür
+    left, right = boxes.index((0.0, 0.25, 0.5, 0.75)), boxes.index((0.5, 0.25, 1.0, 0.75))
+    sims = [0.70] * 9
+    sims[left], sims[right] = 0.91, 0.90
+    assert scorer.separate_instances(sims) == [0.91, 0.90]
+
+
+def test_each_face_counts_for_the_character_it_matches_best(monkeypatch):
+    import threading
+    import numpy as np
+    from PIL import Image as Img
+    e = np.eye(4)
+
+    class FakeModels:
+        scale, lock = 100.0, threading.Lock()
+
+        def encode_images(self, images):
+            return np.tile(e[3], (len(images), 1))
+
+        def encode_texts(self, texts):
+            return np.tile(e[3], (len(texts), 1))
+
+        def faces(self, image):
+            return [(0.9, e[0], 140), (0.9, e[0] * 0.99 + e[2] * 0.14, 130), (0.9, e[1], 120)]   # iki Mila, bir Ayşe
+
+        def reference_face(self, key):
+            return e[0] if "mila" in key else e[1]
+
+    monkeypatch.setattr(scorer, "models", lambda: FakeModels())
+    target = scorer.Target(faces=(("Mila", ("assets/mila/still/m.png",)), ("Ayşe", ("assets/ayse/still/a.png",))))
+    detail = scorer.score_images([Img.new("RGB", (64, 36))], target).detail
+    assert [len(x) for x in detail["face_instances"]["Mila"]] == [2] and len(detail["face_instances"]["Ayşe"][0]) == 1
+    assert gate.duplicates(detail, CFG) == ["Mila"]
+
+
+# ---------- (2) durum referansı ve değişmezi ezer ----------
+
+def test_the_state_comes_last_and_overrides_the_reference_and_the_invariant():
+    from types import SimpleNamespace
+    from app.style.composer import compose_prompt
+    bolt = SimpleNamespace(type="character", name="Bolt", description="small copper robot", render_style=None,
+                           invariants=["round glass eyes (glow blue only when switched on)"])
+    c = compose_prompt({"prompt": "Bolt is still switched off, eyes dark and unlit.", "lang": "en",
+                        "characters": ["Bolt"]}, [bolt], None)
+    assert c.prompt.index("Exception for this shot") > c.prompt.index("Bolt must always have")
+    assert "Bolt is switched off — dark, no glow" in c.prompt and "the eyes are dark — unlit, no glow" in c.prompt
+    assert {"glowing eyes", "lit eyes", "blue glow"} <= {x.strip() for x in c.negative.split(",")}
+    text = sb.chain_prompt(c.prompt, MILA_REFS[:2], "cut", {"cast": ["Bolt"], "kept": ["Bolt"]}, MEDIUM)
+    assert text.index("Exception for this shot") > text.index("keep the single Bolt")
+    end = sb.end_prompt(c.prompt, MILA_REFS[:2], MEDIUM)
+    assert "Keep this shot's own state; do not anticipate the next shot." in end and "Exception for this shot" in end
+
+
+def test_the_director_note_is_a_state_source_too():
+    from app.style.composer import compose_prompt
+    c = compose_prompt({"prompt": "Bolt sits on the workbench.", "lang": "en", "characters": ["Bolt"],
+                        "note": "Bolt's eyes stay dark, no glow."}, [], None)
+    assert "Director note: Bolt's eyes stay dark, no glow." in c.prompt
+    assert c.prompt.endswith("the eyes are dark — unlit, no glow.") and "glowing eyes" in c.negative
+
+
+# ---------- (3) "Değişiklik iste" yeniden çizer ----------
+
+def test_a_change_request_note_goes_into_the_prompt_but_not_the_fingerprint(api, mk_project):
+    """Not görsel özete girmez: yönetmen notlu kareyi yeniden çizdirmeden onaylayabilmeli (duman testi B)."""
+    from app.core.hashing import visual_fingerprint
+    from app.core.state import load_assets, load_characters
+    from app.engine.iteration import compose_for_scene
+    from app.hermes.ingest import ingest
+    pid = mk_project(5.0)
+    ingest(pid, KIVILCIM, auto_music=False)
+    with session_scope() as s:
+        sc = s.scalars(select(Scene).where(Scene.project_id == pid, Scene.scene_code == "S001_SH05")).one()
+        sc.board_key, sid = f"storyboard/{sc.id}/x.jpg", str(sc.id)
+        before = visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), None)
+    r = api.post(f"/api/scenes/{sid}/board", json={"status": "changes_requested", "note": "exactly ONE Mila"})
+    assert r.status_code == 200
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        assert sc.director_note == "exactly ONE Mila"
+        after = visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), None)
+        prompt = compose_for_scene(sc, load_characters(s, sc.id), load_assets(s, sc.id), None).prompt
+    assert after == before and "Director note: exactly ONE Mila." in prompt
+
+
+def test_prepare_redraws_a_requested_frame_with_the_note_and_then_its_successors(ended, api, eager):
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH04"])
+    with session_scope() as s:
+        old = {c: s.get(Scene, codes[c]).board_sha for c in ("S001_SH02", "S001_SH03", "S001_SH04")}
+    assert api.post(f"/api/projects/{pid}/storyboard").json()["queued"] == ["S002_SH01"]      # yalnızca eksik kare
+    api.post(f"/api/scenes/{codes['S001_SH02']}/board", json={"status": "changes_requested", "note": "lamp off"})
+    plan = api.get(f"/api/projects/{pid}/storyboard/plan").json()
+    assert plan["requested"] == ["S001_SH02"] and plan["followers"] == ["S001_SH03", "S001_SH04"]
+    assert plan["frames"] == ["S001_SH02", "S001_SH03", "S001_SH04"] and plan["estimate_usd"] > 0
+    fake.image = png((30, 160, 90))
+    r = api.post(f"/api/projects/{pid}/storyboard").json()
+    assert r["queued"][:3] == ["S001_SH02", "S001_SH03", "S001_SH04"]
+    with session_scope() as s:
+        k2, k3, k4 = (s.get(Scene, codes[c]) for c in ("S001_SH02", "S001_SH03", "S001_SH04"))
+        assert k2.board_sha != old["S001_SH02"] and k2.board_status == "pending"
+        assert k3.board_parent == k2.board_sha and k4.board_parent == k3.board_sha
+
+
+def test_the_note_reaches_the_redrawn_frames_prompt(ended, api, eager):
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH03"])
+    api.post(f"/api/scenes/{codes['S001_SH03']}/board", json={"status": "changes_requested", "note": "exactly ONE lamp"})
+    api.post(f"/api/projects/{pid}/storyboard")
+    assert any("Director note: exactly ONE lamp." in p for p in _prompts(fake))
+
+
+def test_redraw_chain_on_a_requested_frame_redraws_it_and_its_successors(ended, api, monkeypatch):
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH04"])
+    with session_scope() as s:
+        s.get(Scene, codes["S001_SH03"]).board_status = "changes_requested"
+    calls = []
+    monkeypatch.setattr("app.api.storyboard.queue_requested_redraw",
+                        lambda s, sc, followers: calls.append((sc.scene_code, [x.scene_code for x in followers]))
+                        or [sc.scene_code, *(x.scene_code for x in followers)])
+    r = api.post(f"/api/scenes/{codes['S001_SH03']}/board/redraw-chain").json()
+    assert r["codes"] == ["S001_SH03", "S001_SH04"] and calls == [("S001_SH03", ["S001_SH04"])]
+
+
+# ---------- (4) sekansın ilk çekiminin son karesi ----------
+
+def test_a_frame_drawn_before_the_chain_still_gets_its_end_frame(ended, api, eager):
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH01"])
+    with session_scope() as s:                              # zincirden önce çizilmiş kare: sha yok, son kare yok
+        sc = s.get(Scene, codes["S001_SH01"])
+        sc.board_sha = sc.end_board_key = sc.end_board_parent = sc.end_board_sha = None
+    plan = api.get(f"/api/projects/{pid}/storyboard/plan").json()
+    assert "S001_SH01" in plan["ends"]
+    api.post(f"/api/projects/{pid}/storyboard")
+    with session_scope() as s:
+        sc = s.get(Scene, codes["S001_SH01"])
+        assert sc.end_board_key and sc.end_board_parent.startswith("k") and sc.board_sha is None
+    shots = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}
+    assert shots["S001_SH01"]["end_board_current"] is True
+
+
+# ---------- (5) yeniden çizilen kare tarayıcıda yeni görünür ----------
+
+def test_a_redrawn_frame_gets_a_new_url_and_the_media_is_revalidated(ended, api):
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH01"])
+    first = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}["S001_SH01"]
+    fake.image = png((200, 30, 30))
+    sb.make_board(pid, codes["S001_SH01"], standalone=True, explicit=True)
+    second = {x["scene_code"]: x for x in api.get(f"/api/projects/{pid}/overview").json()["scenes"]}["S001_SH01"]
+    assert first["board_url"] != second["board_url"] and "&v=" in second["board_url"]
+    assert first["board_url"].split("&v=")[0] == second["board_url"].split("&v=")[0]      # aynı dosya, yeni sürüm
+    r = api.get(second["board_url"])
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers["etag"]
+    assert api.get(second["board_url"], headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+
+
+# ---------- (6) zincir geçersizleşmesi bütün sonraki halkaları sayar ----------
+
+def test_a_redrawn_frame_lists_every_following_link_even_after_a_cut(ended):
+    import json as _json
+    fake, pid, codes, _ = ended
+    sb.make_board(pid, codes["S001_SH04"])
+    killswitch.r().delete(killswitch.EVENTS.format(pid))
+    fake.image = png((10, 200, 40))
+    sb.make_board(pid, codes["S001_SH01"], standalone=True, explicit=True)       # SH02 kesmeyle K1'den düzenlenir
+    events = [_json.loads(e) for e in killswitch.r().lrange(killswitch.EVENTS.format(pid), 0, -1)]
+    inv = next(e for e in events if e["kind"] == "chain_invalidated")
+    assert inv["frames"] == ["S001_SH02", "S001_SH03", "S001_SH04"]
+
+
+# ---------- (7) şerit incelemesinde boşta bekleme ----------
+
+def test_frame_jobs_keep_the_worker_warm_during_strip_review(runpod, monkeypatch):  # noqa: F811
+    import time as _time
+    from app.live import vast_box
+    applied = []
+    monkeypatch.setattr(settings, "runpod_idle_timeout_s", 60)
+    monkeypatch.setattr(settings, "runpod_review_idle_s", 300)
+    monkeypatch.setattr(runpod_h3, "set_endpoint_idle", lambda seconds: (applied.append(seconds), killswitch.r().set(
+        vast_box._k("rp_idle_applied"), seconds)))
+    assert runpod_h3.idle_timeout_s() == 60
+    runpod_h3.review_started()
+    assert applied == [300] and runpod_h3.idle_timeout_s() == 300
+    runpod_h3.review_started()                                                    # zaten uygulandı: yeniden yazılmaz
+    assert applied == [300]
+    assert runpod_h3.idle_overlap(1000.0, 1250.0, 1000.0) == pytest.approx(min(250.0, runpod_h3.MAX_TICK_S))
+    runpod_h3.review_ended(_time.time())                                          # pencere sürüyor: dokunulmaz
+    assert applied == [300]
+    killswitch.r().set(vast_box._k("rp_review_until"), _time.time() - 1)
+    runpod_h3.review_ended(_time.time())
+    assert applied == [300, 60] and runpod_h3.idle_timeout_s() == 60
+    monkeypatch.setattr(settings, "runpod_review_idle_s", 0)                      # kapalı
+    killswitch.r().delete(vast_box._k("rp_idle_applied"))
+    runpod_h3.review_started()
+    assert applied == [300, 60]

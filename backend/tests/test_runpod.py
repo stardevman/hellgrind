@@ -51,8 +51,9 @@ def runpod(monkeypatch, tmp_path, paid, s3):
         s.execute(text("DELETE FROM h3_outputs"))
     r = vast_box._r()
     for name in ("rp_balance", "rp_config", "rp_health", "rp_tick", "rp_last_tick", "rp_job_end", "rp_balance_error", "inflight",
-                 "last_activity", "last_project", "retrieval"):
+                 "last_activity", "last_project", "retrieval", "rp_review_until", "rp_idle_applied"):
         r.delete(vast_box._k(name))
+    monkeypatch.setattr(settings, "runpod_review_idle_s", 0)     # şerit incelemesi boşta beklemesi ayrı sınanır
     for pattern in ("rp_job:*", "rp_pending:*", "rp_waiting:*"):  # önceki testlerin gönderilmiş/bekleyen iş kayıtları
         for key in r.scan_iter(vast_box._k(pattern)):
             r.delete(key)

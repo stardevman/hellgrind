@@ -135,18 +135,25 @@ SHOT_EN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "poi
            "over_shoulder": "over-the-shoulder shot", "close_up": "close-up", "extreme_close_up": "extreme close-up"}
 
 
-def looks_text(refs: list[dict]) -> list[str]:
-    """Karakterin durağan görseli her edit isteminde referanstır: "<ad> must look exactly like image N" + değişmezleri
-    (tasarım zincir boyunca kaymasın; ör. K5'te beliren ikinci anten K6'ya geçmesin)."""
+def looks_text(refs: list[dict], kept=()) -> list[str]:
+    """Karakterin durağan görseli her edit isteminde referanstır, değişmezleriyle (tasarım zincir boyunca kaymasın; ör. K5'te
+    beliren ikinci anten K6'ya geçmesin). kept: image 1'de zaten olan karakterler: onları "eklemez", korur ("keep the
+    single Mila already in image 1 unchanged"); görseli yalnızca kimlik referansıdır. Kıvılcım SH05: zincirden gelen
+    Mila "must look exactly like image 3" ile istenince karede iki Mila oluşmuştu."""
     out = []
     for i, r in enumerate(refs, start=1):
         if r["kind"] != "character":
             continue
-        line = f"{r['name']} must look exactly like image {i}"
-        if r.get("invariants"):
-            line += f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}"
-        out.append(line)
+        inv = f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}" if r.get("invariants") else ""
+        if r["name"] in kept:
+            out.append(f"keep the single {r['name']} already in image 1 unchanged — image {i} is only {r['name']}'s "
+                       f"identity reference{inv}; do not add another {r['name']}")
+        else:
+            out.append(f"{r['name']} must look exactly like image {i}{inv}")
     return out
+
+
+ONCE = "Each character appears exactly once in the frame."
 
 
 def framing_text(camera: dict | None, cast: list[str]) -> str:
@@ -176,7 +183,8 @@ def edit_prompt(prompt: str, refs: list[dict]) -> str:
     parts += [f"the setting is the location in image {i} ({r['name']})" for i, r in enumerate(refs, start=1)
               if r["kind"] == "location"]
     keep = "Keep each character's face, hair, proportions and outfit exactly as in their image."
-    return (f"{'; '.join(parts)}. {keep} {prompt} A single cinematic film frame, 16:9, no text, no captions.").strip()
+    return (f"{'; '.join(parts)}. {keep} {ONCE} {prompt} A single cinematic film frame, 16:9, no text, no captions."
+            ).strip()
 
 
 def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | None = None,
@@ -186,16 +194,18 @@ def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | No
     cut: kadraj çekimin ölçeği ve merceğiyle açıkça istenir; mekân, nesneler ve karakterlerin durumu korunur.
     plan (core/chain.classify_shots): önceki karede olup bu çekimde olmayan karakterler açıkça çıkarılır."""
     plan = plan or {}
-    parts = ["Image 1 is the previous shot of this scene", *looks_text(refs)]
+    parts = ["Image 1 is the previous shot of this scene", *looks_text(refs, plan.get("kept") or ())]
     parts += [f"the location is shown in image {i}" for i, r in enumerate(refs, start=1) if r["kind"] == "location"]
+    focus = [n for n in plan.get("cast") or [] if n not in (plan.get("carried") or [])]   # kadraj yazılı kadroya göre
     if transition != "cut":
         keep = "Keep the same room, layout, props, lighting and characters' designs as image 1."
     else:
-        keep = " ".join(x for x in (framing_text(camera, plan.get("cast") or []),
+        keep = " ".join(x for x in (framing_text(camera, focus),
                                     "Keep the same location, props, lighting, the characters' designs and the "
                                     "characters' state as in image 1.") if x)
     extra = removal_text(plan.get("removed") or [])
-    return " ".join(x for x in (f"{'; '.join(parts)}.", keep, extra, f"Change only what this shot describes: {prompt}",
+    return " ".join(x for x in (f"{'; '.join(parts)}.", keep, extra, ONCE,
+                                f"Change only what this shot describes: {prompt}",
                                 "A single cinematic film frame, 16:9, no text, no captions.") if x).strip()
 
 
@@ -205,11 +215,13 @@ def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None) -> str
     camera = camera or {}
     shot = SHOT_EN.get(camera.get("shot"))
     framing = f" ({shot}{', ' + str(camera['lens_mm']) + ' mm lens' if camera.get('lens_mm') else ''})" if shot else ""
-    parts = ["Image 1 is the first frame of this shot", *looks_text(refs)]
-    return (f"{'; '.join(parts)}. Show the last frame of the same shot, after its action is completed: {prompt} "
-            f"Keep the same camera position and framing{framing}, location, props, lighting and character designs as "
-            "image 1; change only what the action changes. A single cinematic film frame, 16:9, no text, no captions."
-            ).strip()
+    kept = [r["name"] for r in refs if r["kind"] == "character"]          # Kn'de hepsi zaten var: korunur, eklenmez
+    parts = ["Image 1 is the first frame of this shot", *looks_text(refs, kept)]
+    return (f"{'; '.join(parts)}. Show the last frame of the same shot, when its own action is completed (if the shot "
+            f"describes a still moment, the moment stays still): {prompt} Keep the same camera position and "
+            f"framing{framing}, location, props, lighting and character designs as image 1; change only what the action "
+            f"changes. Keep this shot's own state; do not anticipate the next shot. {ONCE} A single cinematic film "
+            "frame, 16:9, no text, no captions.").strip()
 
 
 def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
@@ -334,6 +346,8 @@ def framing_note(detail: dict) -> str:
 def identity_text(drawn: Drawn) -> str:
     """Kimlik kapısının sonucu, yönetmen için: "Elif 0,47 < 0,60" ya da "yüz görünmedi"."""
     for a in drawn.anomalies or ():
+        if a.get("type") == "duplicate_character":
+            return ", ".join(f"{name} karede birden fazla" for name in a.get("characters") or [])
         if a.get("type") == "no_face":
             return "yüz görünmedi"
         if a.get("type") in ("low_identity", "low_likeness"):
@@ -483,9 +497,13 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: st
     RunPod'daki bekleyen işleri iptal edilir. Karesi değişen çekimin kendi akışına (onu çizen görev) dokunulmaz."""
     from app.engine.iteration import CHAIN_STALE
     from app.models import Variation
-    stopped, clips, codes = [], 0, []
+    from app.core.chain import successors
+    stopped, clips, codes, frames = [], 0, [], []
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
+        # Kn, K(n-1)'den düzenleniyorsa (devam ya da kesme) eskir: bütün sonraki halkalar, durumlarından bağımsız
+        if scope == "chain" and chain_enabled():
+            frames = [x.scene_code for x in successors(s, scene)]
         for sc in dependents(s, scene, scope):
             marked = 0
             for v in s.scalars(select(Variation).where(Variation.scene_id == sc.id,
@@ -512,9 +530,10 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: st
             runpod_h3.cancel_scenes(project_id, stopped)
         except Exception as e:                        # noqa: BLE001 — iptal edilemese de üretim kendi kendine durur
             killswitch.event(project_id, "runpod_cancel_failed", error=str(e)[:200])
-    if codes or clips:
-        killswitch.event(project_id, "chain_invalidated", scene_id=scene_id, reason=reason, codes=codes, clips=clips)
-    return {"codes": codes, "clips": clips, "stopped": len(stopped)}
+    if codes or clips or frames:
+        killswitch.event(project_id, "chain_invalidated", scene_id=scene_id, reason=reason, codes=codes, clips=clips,
+                         frames=frames)
+    return {"codes": codes, "clips": clips, "stopped": len(stopped), "frames": frames}
 
 
 def _chain_parent(s, scene, fp_of) -> tuple:
@@ -578,7 +597,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     stored = storage.exists(key) and storage.exists(clean_key(key))
     # ücretsiz moddan kalan yerel kare ya da karakterli çekimin metinden çizilmiş karesi: karakter referansından yeniden
     upgrade = outdated(info["board_source"], source)
-    redraw = explicit and source in PAID_SOURCES and stored                 # yönetmenin açık isteği: yeni seed'lerle
+    redraw = explicit and (source in PAID_SOURCES or settings.dry_run) and stored   # yönetmenin isteği: yeni seed'lerle
     if not (info["board_hash"] == fp and info["board_key"] == key and stored and not upgrade and not redraw
             and not chain_stale):
         drawn = None
@@ -635,6 +654,17 @@ def end_key(scene_id, fp: str, parent_sha: str | None) -> str:
     return f"storyboard/{scene_id}/{fp}_end_{(parent_sha or 'none')[:12]}.jpg"
 
 
+def parent_token(scene) -> str | None:
+    """Son karenin çizildiği Kn'nin kimliği: board_sha; zincirden önce çizilmiş karede (sha'sı yok; Kıvılcım SH01) kare
+    anahtarının özeti. Böylece eski karelere de son kare çizilir ve sonraki halkalar "eski" sayılmaz."""
+    if getattr(scene, "board_sha", None):
+        return scene.board_sha
+    if getattr(scene, "board_key", None):
+        import hashlib
+        return "k" + hashlib.sha256(scene.board_key.encode()).hexdigest()[:31]
+    return None
+
+
 def end_wanted(s, scene, cfg: dict, chars=(), assets=()) -> bool:
     """Çekim sonu karesi gerekli mi: proje ayarı chain_end_frame açık, zincir çizilebilir, H3 FL2VA üretimi ve sonraki
     çekim continuous değil (kesme, yeni sahne ya da sekansın sonu): video sonraki çekime "yolculuk" yapmasın, kendi
@@ -651,8 +681,9 @@ def end_wanted(s, scene, cfg: dict, chars=(), assets=()) -> bool:
 
 def end_fresh(scene, fp: str) -> bool:
     """Son kare bu görsel özetin ve bu Kn'nin karesinden çizilmiş mi."""
-    return bool(scene.end_board_key and scene.board_sha and scene.end_board_key == end_key(scene.id, fp, scene.board_sha)
-                and scene.end_board_parent == scene.board_sha and storage.exists(clean_key(scene.end_board_key)))
+    token = parent_token(scene)
+    return bool(scene.end_board_key and token and scene.end_board_key == end_key(scene.id, fp, token)
+                and scene.end_board_parent == token and storage.exists(clean_key(scene.end_board_key)))
 
 
 def end_usable(scene, fp: str) -> bool:
@@ -676,7 +707,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         fp = visual_fingerprint(scene, chars, assets, style.version if style else None)
         if not end_wanted(s, scene, cfg, chars, assets):
             return None
-        board_ok = scene.board_key and scene.board_hash == fp and scene.board_sha \
+        board_ok = scene.board_key and scene.board_hash == fp \
             and scene.board_status != "changes_requested" and storage.exists(clean_key(scene.board_key))
         if not board_ok or (end_fresh(scene, fp) and not redraw):
             return scene.end_board_key if board_ok else None
@@ -685,7 +716,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         source = "local" if settings.dry_run else board_source("fl2va", False, "qwen_edit")
         if source != "qwen_edit" and not settings.dry_run:
             return None                                   # Qwen-Image-Edit yok: son kare çizilmez, video son karesiz
-        parent_sha, old_sha = scene.board_sha, scene.end_board_sha
+        parent_sha, old_sha = parent_token(scene), scene.end_board_sha
         target = scorer.target_for(scene, chars, style)
         kn = clean_key(scene.board_key)
         info = dict(code=f"{scene.scene_code} son kare", keyframe_key=None,

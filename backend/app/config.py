@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     runpod_gpu_types: str = "RTX 5090,RTX PRO 6000"
     runpod_gpu_pools: str = "auto"        # uç noktaya yazılan GPU havuzları: auto (GPU tiplerinden) ya da havuz kimlikleri
     runpod_idle_timeout_s: int = 60    # worker son işten sonra bu kadar bekler (faturalanır), sonra kapanır
+    runpod_review_idle_s: int = 300    # storyboard şeridi incelemesi: kare işinden sonra geçici boşta bekleme (0: kapalı)
     runpod_min_balance_usd: float = 10.0   # RunPod bakiyesi bunun altındaysa yeni iş başlamaz
     runpod_max_pending_jobs: int = 6       # bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer bekler
     runpod_workers_max: str = "keep"       # uç noktanın en çok worker'ı: keep (değiştirme) | 1 | 2 | 3

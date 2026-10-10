@@ -545,7 +545,7 @@ def cold_start_due() -> bool:
     h = _cache_get("health", 90)
     if h and int((h.get("workers") or {}).get("idle") or 0) + int((h.get("workers") or {}).get("running") or 0) > 0:
         return False
-    ttl = int(settings.runpod_idle_timeout_s) + int(pricing.serverless().get("cold_start_seconds", 140)) + 60
+    ttl = idle_timeout_s() + int(pricing.serverless().get("cold_start_seconds", 140)) + 60
     return bool(killswitch.r().set(vast_box._k("rp_cold_claim"), time.time(), nx=True, ex=ttl))
 
 
@@ -573,9 +573,11 @@ def note_worker(job: vast_h3.Job, body: dict) -> None:
     süresiyle yazılır (modeller 30-40 GB; değişim her seferinde dakikalar sürer)."""
     out = body.get("output") or {}
     timing = out.get("timing") or {}
-    _cache_set("warm", {"until": time.time() + int(settings.runpod_idle_timeout_s)})
+    _cache_set("warm", {"until": time.time() + idle_timeout_s()})
     killswitch.r().set(vast_box._k("rp_job_end"), time.time(), ex=24 * 3600)   # boşta süre bu andan başlar
     kind = model_kind(job)
+    if kind in FRAME_KINDS:                       # storyboard şeridi incelemesi: art arda yeniden çizimler sıcak kalsın
+        review_started()
     cold = timing.get("cold_start_s") or 0
     previous = killswitch.r().get(vast_box._k("rp_last_model"))
     previous = previous.decode() if isinstance(previous, bytes) else previous
@@ -1001,6 +1003,56 @@ def gpu_billed(key: str) -> bool:
     return float(rate) >= cheapest / 2
 
 
+REVIEW_WINDOW_S = 900           # son kare işinden sonra şerit incelemesi bu kadar sürer sayılır (boşta bekleme uzun kalır)
+FRAME_KINDS = ("keyframe", "edit_keyframe")
+
+
+def idle_timeout_s() -> int:
+    """Geçerli boşta bekleme: şerit incelemesi sürüyorsa (son kare işinden REVIEW_WINDOW_S içinde) RUNPOD_REVIEW_IDLE_S,
+    değilse RUNPOD_IDLE_TIMEOUT_S. Art arda yeniden çizimler her seferinde ~195 sn soğuk başlatma ödemesin."""
+    base, review = int(settings.runpod_idle_timeout_s), int(settings.runpod_review_idle_s or 0)
+    until = killswitch.r().get(vast_box._k("rp_review_until"))
+    return review if review > base and until and float(until) > time.time() else base
+
+
+def set_endpoint_idle(seconds: int) -> None:
+    """Uç noktanın boşta bekleme süresini yazar (REST v2 PATCH, yalnızca workers; ücretli kilitten geçer)."""
+    key = guard(KEY)
+    workers = {**desired_config()["workers"], "idleTimeout": int(seconds)}
+    with _client(key, REST_API) as c:
+        r = c.patch(f"/serverless/{endpoint_id()}", json={"workers": workers})
+        r.raise_for_status()
+    killswitch.r().set(vast_box._k("rp_idle_applied"), int(seconds), ex=24 * 3600)
+    vast_box._event("runpod_idle_changed", seconds=int(seconds))
+
+
+def review_started() -> None:
+    """Kare işi bitti: şerit incelemesi penceresi uzar; uç noktanın boşta beklemesi gerekirse RUNPOD_REVIEW_IDLE_S'e çıkar."""
+    base, review = int(settings.runpod_idle_timeout_s), int(settings.runpod_review_idle_s or 0)
+    if review <= base:
+        return
+    r = killswitch.r()
+    r.set(vast_box._k("rp_review_until"), time.time() + REVIEW_WINDOW_S, ex=REVIEW_WINDOW_S + 3600)
+    applied = r.get(vast_box._k("rp_idle_applied"))
+    if applied is None or int(applied) != review:
+        try:
+            set_endpoint_idle(review)
+        except Exception as e:                                       # noqa: BLE001 — üretim sürer, yalnızca uyarı
+            vast_box._event("runpod_idle_change_failed", error=str(e)[:200])
+
+
+def review_ended(now: float) -> None:
+    """Tik: inceleme penceresi bittiyse uç noktanın boşta beklemesi RUNPOD_IDLE_TIMEOUT_S'e döner."""
+    r = killswitch.r()
+    applied, until = r.get(vast_box._k("rp_idle_applied")), r.get(vast_box._k("rp_review_until"))
+    base = int(settings.runpod_idle_timeout_s)
+    if applied is not None and int(applied) != base and not (until and float(until) > now):
+        try:
+            set_endpoint_idle(base)
+        except Exception as e:                                       # noqa: BLE001
+            vast_box._event("runpod_idle_change_failed", error=str(e)[:200])
+
+
 def idle_overlap(last_tick: float, now: float, job_end: float | None) -> float:
     """Faturalanan boşta süre: bu tik aralığının [son işin bitişi, bitiş + boşta bekleme] penceresiyle kesişimi. Worker son
     işten sonra en çok RUNPOD_IDLE_TIMEOUT_S açık kalır; o pencere dışındaki süre (işin kendisi — işin bedelinde — ya da
@@ -1009,7 +1061,7 @@ def idle_overlap(last_tick: float, now: float, job_end: float | None) -> float:
     if not last_tick or job_end is None:
         return 0.0
     start = max(last_tick, job_end)
-    stop = min(now, job_end + float(settings.runpod_idle_timeout_s))
+    stop = min(now, job_end + float(idle_timeout_s()))
     return max(0.0, min(stop - start, MAX_TICK_S))
 
 
@@ -1043,6 +1095,7 @@ def tick() -> str:
             charged = cost
         except killswitch.ProjectFrozen:
             pass
+    review_ended(now)
     try:
         balance(key, refresh=True)
         endpoint_config(key)

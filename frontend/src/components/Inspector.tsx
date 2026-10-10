@@ -148,7 +148,9 @@ function H3({ sc }: { sc: Scene }) {
     await api.post(`/scenes/${sc.id}/board/end/redraw`);
     note("inspector", `${sc.scene_code}: son kare yeni seed'le yeniden çiziliyor.`, "ok");
   }, "inspector");
+  const requested = sc.board_status === "changes_requested" && Boolean(sc.board_url);
   const redrawChain = () => act(async () => {
+    if (requested && !(await impactOk("Bu kare ve zincirde ondan türeyenler yeniden çizilirse"))) return;
     const r = await api.post<{ codes: string[] }>(`/scenes/${sc.id}/board/redraw-chain`);
     note("inspector", r.codes.length ? `Sonraki ${r.codes.length} kare sırayla yeniden çiziliyor: ${r.codes.join(", ")}.` : "Yeniden çizilecek kare yok.", "ok");
   }, "inspector");
@@ -180,10 +182,12 @@ function H3({ sc }: { sc: Scene }) {
             : `Kare ${sc.chain_parent} karesinden devam eder (anahtar kare zinciri).`}
         </p>
       )}
-      {(sc.chain_redraw?.length ?? 0) > 0 && (
+      {((sc.chain_redraw?.length ?? 0) > 0 || requested) && (
         <div className="row">
-          <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : "Zincirde bu kareden türeyen eski ya da eksik kareler sırayla çizilir (ücretli)"}
-            onClick={redrawChain}>Sonraki {sc.chain_redraw!.length} kareyi yeniden çiz</button>
+          <button className="btn" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : requested
+            ? "Değişiklik istenen kare yeni seed'lerle ve yönetmen notuyla, ardından zincirde ondan türeyen kareler sırayla çizilir (ücretli)"
+            : "Zincirde bu kareden türeyen eski ya da eksik kareler sırayla çizilir (ücretli)"}
+            onClick={redrawChain}>{requested ? "Bu kareyi ve sonrakileri yeniden çiz" : `Sonraki ${sc.chain_redraw!.length} kareyi yeniden çiz`}</button>
         </div>
       )}
       <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
