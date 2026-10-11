@@ -56,6 +56,7 @@ export const ANOMALY_TR: Record<string, string> = {
   no_face: "karakterin yüzü görünmedi", low_identity: "kimlik eşiğin altında", low_likeness: "karakter benzerliği düşük",
   duplicate_character: "karakter karede birden fazla",
   state_mismatch: "durum tutmadı (zincirde kritik: video başlamaz)",
+  end_framing: "son kare başlangıç kadrajından geniş",
   continuity_jump: "önceki kareyle mekân farklı", transition_jump: "son kare sonraki çekimin karesine uymuyor",
   unreadable: "okunamayan dosya", flat: "tek renk kare",
 };

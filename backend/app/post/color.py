@@ -3,11 +3,18 @@
 Karakter dışı bölge: üst %22, sol %28 ve sağ %18 (karakterler çoğunlukla ortada ve aşağıda). Kıvılcım kalibrasyonu (arka
 plan LAB, L 0-100): renklendirilmemiş SH01 -> SH02 ΔL -4,2 / ΔE 4,4 (gözle belirgin sıçrama); yönetmenin renklendirdiği
 SH01 -> SH02 ΔE 1,3; diğer ardışık çekimler ΔE 0,4-1,3. Atlama: ΔL > 3 ya da ΔE > 4.
+
+Kamerası değişen kesme (cut-in, yeni açı): sabit şeritler farklı içerik görür (Kıvılcım SH02 -> SH03 yakın planda mavi
+pencere üst ve sol şeridi kaplıyor: şerit ΔE 5,6, merkez dışı bütün alan 4,1; gözle atlama yok; SH03 -> SH04 şerit 2,1,
+merkez dışı 3,9). İçerik iki ölçüyü farklı yöne iter, renk kayması ikisini birlikte: küçük olanı alınır ve eşik
+CAMERA_CHANGE_SLACK kadar gevşer (ΔL > 4,5 ya da ΔE > 6; renklendirilmemiş SH01 -> SH02 ΔL -5,9 yine yakalanır).
 """
 import numpy as np
 
 REGION = {"top": 0.22, "left": 0.28, "right": 0.18}
 JUMP_DL, JUMP_DE = 3.0, 4.0
+CAMERA_CHANGE_SLACK = 1.5
+OUTER = {"x": (0.3, 0.7), "y": (0.2, 1.0)}          # karakter kutusu (orta, aşağı); dışı "merkez dışı bütün alan"
 _WHITE = np.array([0.95047, 1.0, 1.08883])
 _M = np.array([[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]])
 _MI = np.linalg.inv(_M)
@@ -18,6 +25,12 @@ def background_mask(h: int, w: int) -> np.ndarray:
     m[: int(h * REGION["top"]), :] = True
     m[:, : int(w * REGION["left"])] = True
     m[:, int(w * (1 - REGION["right"])):] = True
+    return m
+
+
+def outer_mask(h: int, w: int) -> np.ndarray:
+    m = np.ones((h, w), bool)
+    m[int(h * OUTER["y"][0]):int(h * OUTER["y"][1]), int(w * OUTER["x"][0]):int(w * OUTER["x"][1])] = False
     return m
 
 
@@ -40,9 +53,11 @@ def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
     return np.clip(np.round(c * 255), 0, 255).astype(np.uint8)
 
 
-def stats(rgb: np.ndarray) -> dict:
-    """Karakter dışı bölgenin LAB ortalaması ve sapması."""
-    lab = rgb_to_lab(rgb)[background_mask(*rgb.shape[:2])]
+def stats(rgb: np.ndarray, region: str = "strips") -> dict:
+    """Karakter dışı bölgenin LAB ortalaması ve sapması. region: strips (üst, sol, sağ şeritler) | outer (orta-alt
+    karakter kutusu dışındaki bütün alan)."""
+    mask = outer_mask(*rgb.shape[:2]) if region == "outer" else background_mask(*rgb.shape[:2])
+    lab = rgb_to_lab(rgb)[mask]
     mean, sd = lab.mean(axis=0), lab.std(axis=0)
     return {"L": round(float(mean[0]), 2), "a": round(float(mean[1]), 2), "b": round(float(mean[2]), 2),
             "sdL": round(float(sd[0]), 2), "sda": round(float(sd[1]), 2), "sdb": round(float(sd[2]), 2)}
@@ -55,8 +70,12 @@ def difference(a: dict, b: dict) -> dict:
     return d
 
 
-def is_jump(d: dict) -> bool:
-    return abs(d["L"]) > JUMP_DL or d["E"] > JUMP_DE
+def is_jump(d: dict, slack: float = 1.0) -> bool:
+    return abs(d["L"]) > JUMP_DL * slack or d["E"] > JUMP_DE * slack
+
+
+def jump_score(d: dict, slack: float = 1.0) -> float:
+    return max(abs(d["L"]) / (JUMP_DL * slack), d["E"] / (JUMP_DE * slack))
 
 
 def transfer(rgb: np.ndarray, target: dict, max_shift: float = 8.0, max_ratio: float = 1.2) -> np.ndarray:

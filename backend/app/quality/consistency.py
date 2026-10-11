@@ -64,7 +64,8 @@ def frame_stats(img: np.ndarray) -> dict:
     return {"hist": [h / h.sum() for h in (hue, sat, val)],
             "brightness": float((val / val.sum() * centers).sum()),
             "saturation": float((sat / sat.sum() * centers).sum()),
-            "warmth": float(rgb[:, 0].mean() - rgb[:, 2].mean()), "lab": color.stats(img)}
+            "warmth": float(rgb[:, 0].mean() - rgb[:, 2].mean()), "lab": color.stats(img),
+            "lab_outer": color.stats(img, "outer")}
 
 
 def content_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -89,13 +90,21 @@ def bhattacharyya(p: np.ndarray, q: np.ndarray) -> float:
     return float(np.sqrt(max(0.0, 1.0 - float(np.sum(np.sqrt(p * q))))))
 
 
-def compare(a: dict, b: dict) -> dict:
+def compare(a: dict, b: dict, camera_change: bool = False) -> dict:
     """b - a. delta: parlaklık (ΔL), sıcaklık (Δb) ve ΔE karakter dışı bölgenin LAB ölçüsünden; doygunluk tüm kare HSV
-    ortalamasından (bilgi)."""
+    ortalamasından (bilgi). camera_change: kamerası değişen kesme (cut-in, yeni açı): şerit ve merkez dışı ölçülerden
+    küçüğü, eşik color.CAMERA_CHANGE_SLACK kadar gevşek (sabit şeritler farklı içerik görür)."""
     lab = color.difference(a["lab"], b["lab"])
-    score = max(abs(lab["L"]) / color.JUMP_DL, lab["E"] / color.JUMP_DE)
+    slack, region = 1.0, "strips"
+    if camera_change and "lab_outer" in a and "lab_outer" in b:
+        slack = color.CAMERA_CHANGE_SLACK
+        outer = color.difference(a["lab_outer"], b["lab_outer"])
+        if color.jump_score(outer) < color.jump_score(lab):
+            lab, region = outer, "outer"
+    score = color.jump_score(lab, slack)
     deltas = {"brightness": lab["L"], "warmth": lab["b"], "E": lab["E"]}
-    out = {"score": round(score, 3), "delta": deltas, "lab": lab}
+    out = {"score": round(score, 3), "delta": deltas, "lab": lab, "region": region, "slack": slack,
+           "jump": score > JUMP_SCORE}
     if "saturation" in a and "saturation" in b:          # bilgi: tüm kare HSV (LAB'li hedefte yok)
         deltas["saturation"] = round(b["saturation"] - a["saturation"], 1)
         out["histogram_distance"] = round(float(np.mean([bhattacharyya(x, y) for x, y in zip(a["hist"], b["hist"])])), 3)
@@ -143,6 +152,13 @@ def suggest(target: dict, source: str, at: float, current: dict, lut: str | None
 
 
 # ---------- proje raporu ----------
+
+def camera_changed(a: Scene, b: Scene) -> bool:
+    """b kesmeyle gelir ve kamera değişir (cut-in, açı LoRA'sı, kesme kamerası ya da kural farkı)."""
+    from app.core.chain import camera_of, cut_differs, transition_of
+    return transition_of(b) == "cut" and (getattr(b, "board_method", None) is not None
+                                          or cut_differs(camera_of(a), camera_of(b)))
+
 
 def _pairs(scenes: list[Scene]) -> list[tuple[Scene, Scene]]:
     """Aynı sekanstaki ardışık tamamlanmış çekimler."""
@@ -201,9 +217,9 @@ def check_project(project_id: str, only_scene: str | None = None) -> dict:
                     and ("content" in old) == (transition_of(b) == "continuous"):
                 out.append(old)
                 continue
-            result = compare(measured(a.final_video_key), measured(b.final_video_key))
+            result = compare(measured(a.final_video_key), measured(b.final_video_key), camera_changed(a, b))
             pair = {"from": a.scene_code, "to": b.scene_code, "from_id": ids[0], "to_id": ids[1],
-                    "final": [a.final_video_key, b.final_video_key], **result, "jump": color.is_jump(result["lab"]),
+                    "final": [a.final_video_key, b.final_video_key], **result,
                     "suggestion": None, "suggestion_score": None, "seam": transition_of(b)}
             if transition_of(b) == "continuous":                # dikiş: A'nın son karesi B'nin ilk karesine uymalı
                 pair["content"] = content_similarity(edges(a.final_video_key)[1], edges(b.final_video_key)[0])
@@ -236,10 +252,16 @@ def _manual(sc) -> bool:
 
 
 def auto_match(project_id: str) -> list[str]:
+    """Değişen çekimlerin kimlikleri (auto_match_report)."""
+    return auto_match_report(project_id)["changed"]
+
+
+def auto_match_report(project_id: str) -> dict:
     """Sekans başına referans çekim seçilir (karakter dışı LAB ölçüsü sekansın medyanına en yakın olan; ilk çekim değil),
     diğer çekimlerin renk ayarı referansa göre çözülür (pozlama, kontrast, doygunluk, sıcaklık; AUTO_BOUNDS içinde) ve
-    yazılır. Yönetmenin elle ayarladığı ya da eşleştirmeyi geri aldığı çekime dokunulmaz. Değişen çekimlerin kimlikleri
-    döner (çağıran GRADE + MUX çalıştırır)."""
+    yazılır. Yönetmenin elle ayarladığı ya da eşleştirmeyi geri aldığı çekime dokunulmaz. {"changed": [çekim kimlikleri]
+    (çağıran GRADE + MUX çalıştırır), "skipped": [{"code", "reason"}], "references": {sekans: referans çekim kodu}}:
+    atlanan her çekimin sebebi olaya yazılır (Kıvılcım: düğme "kuyruğa alındı" dedi, hiçbir şey değişmedi, iz yoktu)."""
     from app.core.hashing import GRADE_IDENTITY
     with session_scope() as s:
         scenes = s.scalars(select(Scene).where(Scene.project_id == project_id)
@@ -247,15 +269,20 @@ def auto_match(project_id: str) -> list[str]:
         lut_key = s.get(Project, project_id).lut_key
         s.expunge_all()
     groups: dict = {}
+    skipped: list[dict] = []
+    references: dict = {}
     for sc in scenes:
         if sc.status == "done" and sc.final_video_key and sc.lipsync_video_key:
             groups.setdefault(sc.sequence_id, []).append(sc)
+        else:
+            skipped.append({"code": sc.scene_code, "reason": "bitmedi (final video yok)"})
     changed = []
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         lut = storage.download(lut_key, os.path.join(tmp, "film.cube")) if lut_key else None
         for shots in groups.values():
             if len(shots) < 2:
+                skipped += [{"code": sc.scene_code, "reason": "sekansta tek bitmiş çekim"} for sc in shots]
                 continue
             looks = {}
             for sc in shots:
@@ -263,11 +290,19 @@ def auto_match(project_id: str) -> list[str]:
                 looks[sc.id] = frame_stats(mid_frame(path, probe_duration(path) / 2))["lab"]
             median = {k: float(np.median([v[k] for v in looks.values()])) for k in ("L", "a", "b")}
             ref = min(shots, key=lambda sc: sum((looks[sc.id][k] - median[k]) ** 2 for k in ("L", "a", "b")))
+            references[str(ref.sequence_id)] = ref.scene_code
             for sc in shots:
-                if sc.id == ref.id or _manual(sc):
+                if sc.id == ref.id:
+                    skipped.append({"code": sc.scene_code, "reason": "referans çekim"})
+                    continue
+                if _manual(sc):
+                    skipped.append({"code": sc.scene_code, "reason": "eşleştirme geri alınmış" if (sc.grade_auto or {})
+                                    .get("disabled") else "renk elle ayarlı"})
                     continue
                 before = color.difference(looks[ref.id], looks[sc.id])
                 if before["E"] <= AUTO_MIN_DE and abs(before["L"]) <= color.JUMP_DL / 2:
+                    skipped.append({"code": sc.scene_code, "reason": f"referansa zaten yakın (ΔE {before['E']:.1f})"
+                                    .replace(".", ",")})
                     continue
                 source = storage.download(sc.lipsync_video_key, os.path.join(tmp, f"s_{sc.id}.mp4"))
                 start = grade_settings(sc.grade) if sc.grade else dict(GRADE_IDENTITY)
@@ -276,6 +311,8 @@ def auto_match(project_id: str) -> list[str]:
                 after = color.difference(looks[ref.id], frame_stats(mid_frame(source, probe_duration(source) / 2,
                                                                               solved, lut))["lab"])
                 if after["E"] >= before["E"]:
+                    skipped.append({"code": sc.scene_code, "reason": f"sınırlar içinde iyileşmedi (ΔE {before['E']:.1f} → "
+                                    f"{after['E']:.1f}; fark içerikten olabilir)".replace(".", ",")})
                     continue
                 with session_scope() as s:
                     row = s.get(Scene, sc.id)
@@ -286,4 +323,4 @@ def auto_match(project_id: str) -> list[str]:
                                       "delta_e_before": before["E"], "delta_e_after": after["E"], "at": time.time()}
                 changed.append(str(sc.id))
                 log.info("otomatik renk %s -> %s: ΔE %.2f -> %.2f", sc.scene_code, ref.scene_code, before["E"], after["E"])
-    return changed
+    return {"changed": changed, "skipped": skipped, "references": references}

@@ -462,6 +462,13 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     < 0,10; geniş planda Bolt 0,04–0,08) DINOv2 benzerliği "ölçülemedi" sayılır, OpenCLIP benzerliği yine geçmeli.
     Kırp + iyileştir karesinde eşiğe ±0,02 yakın benzerlik "inceleme önerilir" olur. Kırp + iyileştir çekiminin son karesi
     ve video istemi kamerayı döndürmez (yan/dikey açı yazılmaz, son kare aynı dar kadrajda istenir).
+  - **Renk sürekliliği, kamera değişince:** kesmede kamera değiştiyse (cut-in, açı LoRA'sı, kesme kamerası) sabit şeritler
+    farklı içerik görür (Kıvılcım SH02 → SH03 yakın planda mavi pencere şeritleri kaplıyor: ΔE 5,6, gözle atlama yok).
+    O geçişlerde şerit ve merkez dışı bütün alan ölçülerinin küçüğü alınır, eşik 1,5 kat gevşer (ΔL > 4,5 ya da ΔE > 6);
+    Renk sayfası hangi ölçünün kullanıldığını yazar. "Çekimleri otomatik eşleştir" her çalışmada olay yazar: değişen
+    çekimler, referans çekim ve atlananların sebebi (elle ayarlı, referansa zaten yakın, sınırlar içinde iyileşmedi…).
+  - **Kırp + iyileştir son karesi:** karakter alanı başlangıç karesinin en az %80'i olmalı (Kıvılcım SH03: 0,297 → 0,226
+    geriye açılmıştı); üç denemede tutmazsa son kare kullanılmaz, video son karesiz üretilir.
   - **Kare değişince:** her klip ilk ve son karenin içerik kimliğiyle (koşul) kaydedilir; kare yeniden çizilince eski
     koşulun klipleri yeniden kullanılmaz ve düzeltme sayacı sıfırlanır.
   - **Yönetmen seçimi:** kapıdan kalmış ama bugünkü kareden üretilmiş aday denetçide "Yine de kullan" ile 1. sıraya

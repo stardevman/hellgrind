@@ -195,7 +195,15 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     }
     case "state_reference": return { t: `${x.code}: ${x.character} için durum referansı (${x.state === "off" ? "kapalı" : "açık"}) ${x.source} karesinden alındı (sonda ${Number(x.probe).toFixed(2)})`, c: "good" };
     case "seam_outdated": return { t: `${x.code}: ${x.reason}; eski klip yeniden üretilecek`, c: "bad" };
-    case "color_auto_matched": return { t: (x.codes as string[]).length ? `Renk otomatik eşleştirildi: ${(x.codes as string[]).join(", ")} (GRADE + MUX); filmi yeniden birleştirin` : "Otomatik renk eşleştirme: değişiklik gerekmedi", c: "good" };
+    case "color_auto_started": return { t: "Otomatik renk eşleştirme başladı" };
+    case "color_auto_matched": {
+      const codes = (x.codes as string[] | undefined) ?? [];
+      const skipped = ((x.skipped as { code: string; reason: string }[] | undefined) ?? []).map((s) => `${s.code}: ${s.reason}`);
+      const refs = Object.values((x.references as Record<string, string> | undefined) ?? {});
+      const head = codes.length ? `Renk otomatik eşleştirildi: ${codes.join(", ")} (GRADE + MUX); filmi yeniden birleştirin`
+        : "Otomatik renk eşleştirme: hiçbir çekim değişmedi";
+      return { t: `${head}${refs.length ? `; referans ${refs.join(", ")}` : ""}${skipped.length ? `. Atlananlar: ${skipped.join("; ")}` : ""}`, ...(codes.length ? { c: "good" } : {}) };
+    }
     case "color_auto_failed": return { t: `Otomatik renk eşleştirme uygulanamadı: ${x.error}`, c: "bad" };
     case "runpod_idle_changed": return { t: `RunPod boşta bekleme ${x.seconds} sn (storyboard şeridi incelemesi${Number(x.seconds) <= 120 ? " bitti" : ": art arda yeniden çizimler sıcak worker'a düşer"})` };
     case "runpod_idle_change_failed": return { t: `RunPod boşta bekleme süresi yazılamadı: ${x.error}`, c: "bad" };

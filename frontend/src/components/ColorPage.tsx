@@ -120,7 +120,7 @@ export function ColorPage() {
             : jumps.length ? jumps.map((j) => (
               <div className="jump" key={`${j.from}-${j.to}`}>
                 <b className="mono">{j.from} → {j.to}: renk sıçraması</b>
-                <span className="dim">{deltaText(j.delta)}</span>
+                <span className="dim">{deltaText(j.delta)}{j.slack && j.slack > 1 ? ` (kamera değişti: ${j.region === "outer" ? "merkez dışı alan" : "şeritler"}, gevşek eşik)` : ""}</span>
                 {j.suggestion && (
                   <div className="row">
                     <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {

@@ -40,6 +40,8 @@ export interface ContinuityPair {
   from: string; to: string; to_id: string; jump: boolean;
   delta: { brightness: number; warmth: number; saturation: number };
   suggestion?: Record<string, number> | null;
+  /** Kamerası değişen kesmede ölçü bölgesi (strips | outer) ve eşik gevşekliği. */
+  region?: string; slack?: number;
 }
 
 export interface Project {

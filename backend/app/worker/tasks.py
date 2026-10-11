@@ -190,7 +190,7 @@ def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:
 @celery.task(name="hg.continuity")
 def continuity(project_id: str, scene_id: str | None = None):
     """Süreklilik kontrolü (renk sıçramaları). scene_id verilirse yalnızca o çekimin komşu geçişleri yenilenir."""
-    from app.quality.consistency import auto_match, check_project
+    from app.quality.consistency import auto_match_report, check_project
     report = check_project(project_id, only_scene=scene_id)
     killswitch.event(project_id, "continuity", jumps=sum(p["jump"] for p in report["pairs"]), pairs=len(report["pairs"]))
     matched = []
@@ -198,20 +198,32 @@ def continuity(project_id: str, scene_id: str | None = None):
     # tam denetim: otomatik çekim eşleştirme (ücretli modda kendiliğinden; ücretsiz modun prosedürel çekimleri kasıtlı
     # olarak farklı palette, orada Renk sayfasındaki düğmeyle)
     if scene_id is None and not settings.dry_run and not killswitch.is_frozen(project_id):
-        matched = apply_auto_match(project_id, auto_match(project_id))
+        matched = apply_auto_match(project_id, auto_match_report(project_id))
     return {"jumps": sum(p["jump"] for p in report["pairs"]), "matched": matched}
 
 
 @celery.task(name="hg.auto_match")
 def auto_match_task(project_id: str):
-    """Elle istenen otomatik çekim eşleştirmesi."""
-    from app.quality.consistency import auto_match
-    return {"matched": apply_auto_match(project_id, auto_match(project_id))}
+    """Elle istenen otomatik çekim eşleştirmesi. Çalıştığı ve sonucu (değişen ve atlanan çekimler) her durumda olaya yazılır."""
+    from app.quality.consistency import auto_match_report
+    killswitch.event(project_id, "color_auto_started")
+    try:
+        report = auto_match_report(project_id)
+    except Exception as e:                              # noqa: BLE001 — iz kalsın
+        killswitch.event(project_id, "color_auto_failed", error=f"{type(e).__name__}: {str(e)[:200]}")
+        raise
+    return {"matched": apply_auto_match(project_id, report)}
 
 
-def apply_auto_match(project_id: str, scene_ids: list[str]) -> list[str]:
-    """Otomatik eşleştirilen çekimlerde yalnızca GRADE + MUX çalışır; montaj bitince süreklilik yeniden ölçülür."""
+def apply_auto_match(project_id: str, report: dict | list) -> list[str]:
+    """Otomatik eşleştirilen çekimlerde yalnızca GRADE + MUX çalışır; montaj bitince süreklilik yeniden ölçülür. Sonuç
+    (değişenler, atlananlar ve sebepleri, referans çekim) olaya yazılır; değişen yoksa da."""
+    if isinstance(report, list):
+        report = {"changed": report, "skipped": [], "references": {}}
+    scene_ids = report["changed"]
     if not scene_ids:
+        killswitch.event(project_id, "color_auto_matched", codes=[], skipped=report.get("skipped", []),
+                         references=report.get("references", {}))
         return []
     from app.api.plan import dispatch_result
     from app.core.rerender import Stage
@@ -225,7 +237,8 @@ def apply_auto_match(project_id: str, scene_ids: list[str]) -> list[str]:
                 codes.append(sc.scene_code)
             except Exception as e:                      # noqa: BLE001 — meşgul ya da donmuş: ayar yazıldı, sonra uygulanır
                 killswitch.event(project_id, "color_auto_failed", scene_id=sid, error=str(e)[:200])
-    killswitch.event(project_id, "color_auto_matched", codes=codes)
+    killswitch.event(project_id, "color_auto_matched", codes=codes, skipped=report.get("skipped", []),
+                     references=report.get("references", {}))
     return codes
 
 

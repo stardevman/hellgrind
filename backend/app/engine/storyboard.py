@@ -676,6 +676,10 @@ def jump_note(detail: dict) -> str:
 
 def framing_note(detail: dict) -> str:
     """Kadraj kontrolü (kesme karesi): istenen ölçek ile karedeki karakter alanı oranı."""
+    if (detail.get("end_framing") or {}).get("ok") is False:
+        e = detail["end_framing"]
+        return (f"son kare başlangıçtan geniş (karakter alanı {e['area']:.2f} < {e['min']:.2f}, başlangıcın %80'i)"
+                .replace(".", ","))
     f = detail.get("framing") or {}
     want = SHOT_TR.get(f.get("scale"), f.get("scale"))
     return f"kadraj istenen ölçekte değil ({want} plan beklendi, karakter alanı %{round(100 * (f.get('area') or 0))})"
@@ -686,6 +690,8 @@ def identity_text(drawn: Drawn) -> str:
     for a in drawn.anomalies or ():
         if a.get("type") == "state_mismatch":
             return ", ".join(f"durum ({label}) tutmadı" for label in a.get("labels") or []) or "durum tutmadı"
+        if a.get("type") == "end_framing":
+            return (f"son kare başlangıç kadrajından geniş (alan {a['area']:.2f} < {a['min']:.2f})".replace(".", ","))
         if a.get("type") == "duplicate_character":
             return ", ".join(f"{name} karede birden fazla" for name in a.get("characters") or [])
         if a.get("type") == "no_face":
@@ -735,6 +741,11 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
             cut = extra.get("cut") if edit and not extra.get("end") else None
             attempts = len(cut["methods"]) if cut else 1 + EDIT_RETRIES if edit else BOARD_ATTEMPTS
             cut_notes: list[str] = []
+            min_area = None                         # kırp + iyileştir son karesi: kadraj başlangıçtaki kadar dar kalmalı
+            if extra.get("end") and extra.get("tight") and previous and gate.scorer_mode() == "real":
+                from app.quality import scorer
+                start_area = scorer.framing(previous, target or scorer.Target())
+                min_area = start_area * gate.END_AREA_RATIO if start_area else None
             for attempt in range(attempts):
                 seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", *([salt] if salt else []), attempt)
                 trial = {"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed}
@@ -763,7 +774,7 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
                                          chain["transition"] == "cut" and not extra.get("end") else None,
                                          states=extra.get("state_probes") or None, jump_ref=jump_ref,
-                                         cut_in=made.get("cut_in"))
+                                         cut_in=made.get("cut_in"), min_area=min_area)
                 framing_off = bool((score.detail or {}).get("framing_mismatch"))
                 state_off = bool((score.detail or {}).get("state_mismatch"))
                 jump_off = bool((score.detail or {}).get("jump_cut"))
@@ -784,6 +795,10 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                         [f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or []]
                     detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
                                         *([jump_note(detail)] if jump_off else []), *state_notes]
+                if (detail.get("end_framing") or {}).get("ok") is False and passed and last:
+                    # geriye açılan son kare videoyu sonda genişletir: son kare kullanılmaz (video son karesiz)
+                    anomalies.append({"type": "end_framing", **detail["end_framing"]})
+                    passed = False
                 if state_off and passed and last and extra.get("state_critical"):
                     # zincirde kritik durum (sonraki olay buna dayanıyor): kare geçmez, video başlamaz
                     anomalies.append({"type": "state_mismatch", "labels": list(detail.get("state_mismatch") or [])})

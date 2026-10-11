@@ -244,6 +244,10 @@ SCALE_AREA = {                 # kadraj kontrolü: istenen ölçek için karakte
 }
 
 
+END_AREA_RATIO = 0.8           # kırp + iyileştir son karesi: karakter alanı başlangıç karesinin en az %80'i (Kıvılcım SH03:
+                               # başlangıç 0,297, geriye açılan son kare 0,226 = 0,76; video sonda geriye açılmıştı)
+
+
 def framing_check(area: float | None, scale: str | None) -> dict | None:
     """{scale, area, ok}: karakter alanı istenen ölçeğin aralığında mı. Ölçülemediyse (karakter yok) None."""
     if area is None or scale not in SCALE_AREA:
@@ -254,14 +258,16 @@ def framing_check(area: float | None, scale: str | None) -> dict | None:
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
                 transition: str | None = None, scale: str | None = None, states: list | None = None,
-                jump_ref: str | None = None, cut_in: dict | None = None) -> Score:
+                jump_ref: str | None = None, cut_in: dict | None = None, min_area: float | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
     scale: kesme karesinde istenen kamera ölçeği; karakter alanı tutmazsa detail.framing_mismatch (yeniden deneme sebebi,
     eleme değil: son denemede "inceleme önerilir").
     cut_in: kırp + iyileştir karesi ({"rect": oranlarla kırpım, "zoom"}): aynı kameranın >= 1,5 kat yakınlaşması geçerli
-    bir kesmedir (jump cut sayılmaz); kompozisyonun korunup korunmadığı (önceki karenin bölgesiyle) kaydedilir."""
+    bir kesmedir (jump cut sayılmaz); kompozisyonun korunup korunmadığı (önceki karenin bölgesiyle) kaydedilir.
+    min_area: kırp + iyileştir çekiminin son karesi: karakter alanı en az bu kadar (başlangıç alanının END_AREA_RATIO'su);
+    değilse detail.end_framing ok=False ve framing_mismatch (yeniden deneme)."""
     anomalies = detect_frame_anomalies(path)
     measured = None
     if scorer_mode() == "real":
@@ -303,6 +309,13 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
                     measured.detail["review"] = [*measured.detail.get("review", []),
                                                  "kırp + iyileştir: iyileştirme kırpımın kompozisyonunu korumadı "
                                                  f"(iç oran {change['view'].get('ratio') or 0:.2f})".replace(".", ",")]
+        if measured is not None and min_area:
+            area = scorer.framing(path, target or scorer.Target())
+            if area is not None:
+                ok = area >= min_area
+                measured.detail["end_framing"] = {"area": round(area, 3), "min": round(min_area, 3), "ok": ok}
+                if not ok:
+                    measured.detail["framing_mismatch"] = True
         if measured is not None and scale:
             framing = framing_check(scorer.framing(path, target or scorer.Target()), scale)
             if framing is not None:
