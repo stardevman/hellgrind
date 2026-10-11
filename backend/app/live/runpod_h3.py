@@ -617,6 +617,8 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
     if kind == "edit_keyframe":
         values.update(negative=job.negative, lightning=job.edit_mode == "lightning",
                       edit_steps=EDIT_STEPS.get(job.edit_mode, EDIT_STEPS["full"]))
+        if job.angles_lora:                       # açı karesi: Multiple Angles LoRA (yoksa düğüm iş akışından çıkar)
+            values.update(angles_lora=job.angles_lora, angles_strength=job.angles_strength)
     if job.keyframe:
         values["first_frame"] = add(job.keyframe)
     if job.last_frame:
@@ -627,6 +629,7 @@ def payload(job: vast_h3.Job, kind: str) -> dict:
             values[f"reference_{i}"] = refs[min(i, len(refs)) - 1]
     workflow = vast_h3.prune_references(copy.deepcopy(vast_h3.load_workflow(kind)), len(refs))
     workflow = vast_h3.prune_unfilled(workflow, values)
+    workflow = vast_h3.bypass_unused_loras(workflow, values)
     workflow = vast_h3.fill(workflow if job.audio else vast_h3.strip_audio(workflow), values)
     timeout_ms = int(float(settings.h3_timeout_s) * 1000)
     return {"input": {"workflow": workflow, "images": images,
@@ -888,11 +891,14 @@ def keyframe_image(prompt: str, seed: int, project_id: str | None = None, width:
 
 
 def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative: str = "",
-                        project_id: str | None = None, mode: str | None = None) -> GenResult:
+                        project_id: str | None = None, mode: str | None = None, angles: dict | None = None,
+                        noted: dict | None = None) -> GenResult:
     """Karakterli çekimin ilk karesi, Qwen-Image-Edit-2511 ile (edit_keyframe.json): image 1 ana karakterin referansı,
     image 2 / image 3 ikinci karakter ya da mekân; istem onlara "image 1", "image 2" diye başvurur. Kare H3 tuvalinde
     (1280x704) çizilir; FL2VA test ve tam turu aynı kareden üretir. mode: full (40 adım, cfg 4) | medium (20 adım,
     cfg 4) | lightning (Lightning LoRA, 4 adım, cfg 1); verilmezse Ayarlar'daki QWEN_EDIT_MODE.
+    angles: {"lora", "strength"}: açı değişen kesme karesinde Multiple Angles LoRA açılır (istem "<sks> ..." ile başlar).
+    noted: harcama geçmişine yazılacak ek iş girdisi (ör. kırpma kutusu).
     Çağıran `estimate_keyframe("qwen_edit", mode)` kadar rezervasyon almış olmalı."""
     guard(KEY)
     if not references:
@@ -901,11 +907,14 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
     job = vast_h3.Job(task="edit_keyframe", url=server(), prompt=prompt, seed=seed, seconds=vast_h3.SECONDS[0],
                       width=width, height=height, steps=int(settings.h3_steps),
                       references=[(r["name"], vast_h3.reference_uri(r["key"])) for r in references[:3]],
-                      negative=negative or "", edit_mode=mode if mode in EDIT_STEPS else settings.qwen_edit_mode)
+                      negative=negative or "", edit_mode=mode if mode in EDIT_STEPS else settings.qwen_edit_mode,
+                      angles_lora=(angles or {}).get("lora") or "",
+                      angles_strength=float((angles or {}).get("strength") or 0) if (angles or {}).get("lora") else 0.0)
     slots = [{"image": i, "name": r["name"], "key": r["key"]} for i, r in enumerate(references[:3], start=1)]
-    log.info("Qwen-Image-Edit iş girdisi: %s", json.dumps({"images": slots, "prompt": prompt, "negative": negative},
-                                                          ensure_ascii=False))
-    return _image(job, project_id, {"reference_keys": slots})
+    lora = {"angles_lora": job.angles_lora, "angles_strength": job.angles_strength} if job.angles_lora else {}
+    log.info("Qwen-Image-Edit iş girdisi: %s", json.dumps({"images": slots, "prompt": prompt, "negative": negative,
+                                                           **lora, **(noted or {})}, ensure_ascii=False))
+    return _image(job, project_id, {"reference_keys": slots, **lora, **(noted or {})})
 
 
 def _image(job: vast_h3.Job, project_id: str | None, noted: dict | None = None) -> GenResult:

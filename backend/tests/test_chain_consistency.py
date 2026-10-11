@@ -258,6 +258,20 @@ def _prompts(fake):
     return [r["input"]["workflow"]["170:151"]["inputs"]["prompt"] for r in edit_runs(fake)]
 
 
+CUT_FRAMES = ("must clearly differ from image 1", "Image 1 is an enlarged close crop")   # metinle tarif | kırp + iyileştir
+
+
+def _cut_prompts(fake):
+    """Kesme karesi denemeleri (yöntemden bağımsız: SH01 geniş -> SH02 orta artık kırp + iyileştir)."""
+    return [p for p in _prompts(fake) if any(x in p for x in CUT_FRAMES)]
+
+
+def _text_cut(codes, code="S001_SH02"):
+    """Kesme karesi metinle kamera tarifiyle (geniş plandan) çizilsin: jump cut kapısı o yolda sınanır."""
+    with session_scope() as s:
+        s.get(Scene, codes[code]).cut_method = "wide"
+
+
 def test_a_shot_before_a_cut_ends_on_its_own_end_frame(ended):
     from app.engine.iteration import _prepare
     fake, pid, codes, _ = ended
@@ -541,7 +555,7 @@ def test_a_cut_frame_with_the_wrong_framing_is_redrawn(chained, monkeypatch):  #
     areas = [0.92, 0.4]                                          # K2 (kesme, orta plan): önce çok yakın, sonra doğru
     monkeypatch.setattr(scorer, "framing", lambda path, target: areas.pop(0) if areas else 0.4)
     sb.make_board(pid, codes["S001_SH02"])
-    assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
+    assert len(_cut_prompts(fake)) == 2
     with session_scope() as s:
         k2 = s.get(Scene, codes["S001_SH02"])
         assert k2.board_status == "pending" and "kadraj" not in (k2.board_note or "")
@@ -554,7 +568,7 @@ def test_a_cut_frame_that_never_matches_the_framing_passes_with_a_review_note(ch
     with session_scope() as s:
         k2 = s.get(Scene, codes["S001_SH02"])
         assert k2.board_status == "pending" and "kadraj istenen ölçekte değil (orta plan beklendi" in k2.board_note
-    assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 3
+    assert len(_cut_prompts(fake)) == 3
 
 
 # ---------- (6) durum sözcükleri, süre, GPU havuzu ----------
@@ -1015,7 +1029,7 @@ def test_a_frame_whose_state_does_not_hold_is_redrawn_and_finally_flagged(chaine
     monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {
         "score": scores.pop(0) if scores else 0.0, "glow": 4.5, "clip": 0.2}})
     sb.make_board(pid, codes["S001_SH02"])
-    assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 3                   # üç deneme
+    assert len(_cut_prompts(fake)) == 3                   # üç deneme
     with session_scope() as s:
         k2 = s.get(Scene, codes["S001_SH02"])
         assert k2.board_status == "pending" and "durum (eyes dark) tutmadı" in k2.board_note
@@ -1029,7 +1043,7 @@ def test_a_frame_whose_state_holds_on_retry_needs_no_review(chained, monkeypatch
     monkeypatch.setattr(scorer, "state_probe_path", lambda path, probes: {"eyes dark": {
         "score": scores.pop(0) if scores else 0.8, "glow": 0.1, "clip": 0.4}})
     sb.make_board(pid, codes["S001_SH02"])
-    assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
+    assert len(_cut_prompts(fake)) == 2
     with session_scope() as s:
         assert "durum" not in (s.get(Scene, codes["S001_SH02"]).board_note or "")
 
@@ -1322,8 +1336,7 @@ def test_a_cut_frame_starts_from_the_wide_anchor_and_moves_the_camera(chained): 
     fake, pid, codes, _ = chained
     sb.make_board(pid, codes["S001_SH03"])
     k2 = _prompts(fake)[0]                                                       # K2: SH01 geniş -> SH02 orta (yaklaşır)
-    assert k2.startswith("Image 1 is the previous shot (S001_SH01); this shot cuts to a new camera position")
-    assert "Move the camera closer" in k2 and "must clearly differ from image 1" in k2
+    assert k2.startswith("Image 1 is an enlarged close crop")                    # yaklaşma: kırp + iyileştir
     text = sb.camera_move_text({"shot": "wide", "side": 0}, {"shot": "close_up", "side": -35, "angle": "low",
                                                               "lens_mm": 50}, ["Bolt"])
     assert text.startswith("Move the camera closer and 35° to the left, slightly low angle: a close-up of Bolt, 50 mm lens.")
@@ -1352,16 +1365,18 @@ def test_a_location_still_is_the_cut_anchor_when_there_is_one(chained, tmp_path)
 
 def test_a_cut_frame_with_the_same_camera_is_redrawn(chained, monkeypatch):  # noqa: F811
     fake, pid, codes, _ = chained
+    _text_cut(codes)
     results = [{"same": True, "ratio": 0.9, "scale": 1.0, "shift": 0.01}, {"same": False, "ratio": 0.03}]
     monkeypatch.setattr(scorer, "camera_change", lambda previous, path: results.pop(0) if results else {"same": False})
     sb.make_board(pid, codes["S001_SH02"])
-    assert len([p for p in _prompts(fake) if "must clearly differ from image 1" in p]) == 2
+    assert len(_cut_prompts(fake)) == 2
     with session_scope() as s:
         assert "jump cut" not in (s.get(Scene, codes["S001_SH02"]).board_note or "")
 
 
 def test_a_cut_frame_that_keeps_the_camera_is_flagged_as_a_jump_cut(chained, monkeypatch):  # noqa: F811
     fake, pid, codes, _ = chained
+    _text_cut(codes)
     monkeypatch.setattr(scorer, "camera_change", lambda previous, path: {"same": True, "ratio": 0.9, "scale": 1.0,
                                                                          "shift": 0.01})
     sb.make_board(pid, codes["S001_SH02"])
@@ -1572,6 +1587,7 @@ def test_a_closer_cut_starts_from_the_previous_shot_and_a_wider_one_avoids_it(ch
 
 def test_a_critical_failure_keeps_the_jump_cut_and_framing_findings(chained, monkeypatch):  # noqa: F811
     fake, pid, codes, _ = chained
+    _text_cut(codes)
     probe = {"name": "Bolt", "label": "eyes dark", "key": "off", "color": "blue", "wanted": "w", "opposite": "o", "keys": []}
     monkeypatch.setattr(sb, "state_plan", lambda *a, **k: ({}, [probe]))
     monkeypatch.setattr(sb, "state_critical", lambda *a, **k: True)

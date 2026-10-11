@@ -259,10 +259,10 @@ def run_chain(c, check, new_project) -> None:
             check(len(ends) == 2 and end_frames == [True, False, False, True],
                   f"son kareler (Kn_end) yalnızca kesme öncesi ve sekans sonunda: {end_frames}")
             prompts = [r["input"]["workflow"]["6"]["inputs"]["text"] for r in fake.runs[1:] if not is_end(r)]
-            check(all("previous shot" in p or "earlier shot" in p for p in prompts),
-                  "zincir istemi önceki kareye ya da (kesmede) sahnenin geniş planına dayanıyor")
-            check(any("must clearly differ from image 1" in p for p in prompts),
-                  "kesme karesinde kamera açıkça taşınıyor (jump cut değil)")
+            check(all("previous shot" in p or "earlier shot" in p or "enlarged close crop" in p for p in prompts),
+                  "zincir istemi önceki kareye, onun kırpımına ya da (kesmede) sahnenin geniş planına dayanıyor")
+            check(any("enlarged close crop" in p for p in prompts),
+                  "yaklaşan kesme (geniş -> orta) önceki kareden kırp + iyileştir ile çizildi (jump cut değil)")
             sent = []
             for code, sid in shots:
                 ctx = _prepare(pid, sid, "smoke")

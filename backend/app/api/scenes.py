@@ -36,6 +36,8 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         changes["transition_in"] = None
     if "camera" in changes:                                       # yönetmenin kamerası: kesme kamerası atanmaz
         changes["camera"] = {**changes["camera"], "manual": True}
+    if changes.get("cut_method") == "auto":
+        changes["cut_method"] = None
     if changes.get("entry_mode") == "walk_in":                    # devam çekimi + açık giriş eylemi
         changes["transition_in"] = "continuous"
     elif changes.get("entry_mode") == "cut":                      # varsayılan: belirgin kamera değişikliğiyle kesme

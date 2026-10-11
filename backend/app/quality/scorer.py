@@ -513,13 +513,12 @@ def reference_patches(m, key: str):
     return value
 
 
-def patch_coverage(m, image: Image.Image, key: str) -> float | None:
-    """Karakterin kare alanına oranı (0-1): karakter yamalarına PATCH_MATCH'ten çok ve arka plan yamalarından daha çok
-    benzeyen yamaların payı. Kıvılcım: SH03'teki küçük Bolt 0,09 (eski kırpım ölçeği 0,36 diyordu), iki kişilik orta plan
-    0,10-0,16, Bolt'suz SH02 0,01."""
+def patch_mask(m, image: Image.Image, key: str, short: int = 224) -> np.ndarray | None:
+    """Karakter yamaları (satır x sütun, bool): referansın karakter yamalarına PATCH_MATCH'ten çok ve arka plan
+    yamalarından daha çok benzeyenler."""
     try:
         ref = reference_patches(m, key)
-        frame = dino_patches(m, image)
+        frame = dino_patches(m, image, short)
     except Exception as e:                               # noqa: BLE001
         log.warning("yama haritası çıkarılamadı: %s", e)
         return None
@@ -528,7 +527,62 @@ def patch_coverage(m, image: Image.Image, key: str) -> float | None:
     fg, bg = ref
     f = frame.reshape(-1, frame.shape[-1])
     s_fg, s_bg = (f @ fg.T).max(axis=1), (f @ bg.T).max(axis=1)
-    return round(float(((s_fg >= PATCH_MATCH) & (s_fg > s_bg)).mean()), 3)
+    return ((s_fg >= PATCH_MATCH) & (s_fg > s_bg)).reshape(frame.shape[:2])
+
+
+def patch_coverage(m, image: Image.Image, key: str) -> float | None:
+    """Karakterin kare alanına oranı (0-1): karakter yamalarının payı (patch_mask). Kıvılcım: SH03'teki küçük Bolt 0,09
+    (eski kırpım ölçeği 0,36 diyordu), iki kişilik orta plan 0,10-0,16, Bolt'suz SH02 0,01."""
+    mask = patch_mask(m, image, key)
+    return None if mask is None else round(float(mask.mean()), 3)
+
+
+def mask_box(mask: np.ndarray, width: int, height: int) -> dict | None:
+    """Yama haritasındaki en büyük bağlı bölgenin kutusu (piksel) ve kutunun ne kadarının karakter olduğu:
+    {"box": (x0, y0, x1, y1), "fill", "coverage"}. Bölge yoksa None."""
+    import cv2
+    if mask is None or not mask.any():
+        return None
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    if count < 2:
+        return None
+    best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    x, y, w, h, area = (int(v) for v in stats[best][:5])
+    sx, sy = width / mask.shape[1], height / mask.shape[0]
+    return {"box": (round(x * sx), round(y * sy), round((x + w) * sx), round((y + h) * sy)),
+            "fill": round(area / float(w * h), 3), "coverage": round(float(mask.mean()), 3)}
+
+
+def character_box(image: Image.Image, target: Target, names=()) -> dict | None:
+    """Karakterin karedeki kutusu (kırp + iyileştir için): {"name", "box": (x0, y0, x1, y1), "fill", "coverage",
+    "kind": "patch" | "face", "head"?}. İnsan olmayan: DINOv2 yama haritasının en büyük bölgesi (448 kısa kenar: küçük
+    karakter için daha ince ızgara). İnsan: en büyük yüzden gövde kutusu (3 x 7,5 yüz) ve baş-omuz kutusu (3 x 3,5 yüz).
+    names verilirse yalnızca o karakterler; bulunamazsa None."""
+    m = models()
+    image = image.convert("RGB")
+    w, h = image.size
+    wanted = set(names or ())
+    found = []
+    for name, keys in target.looks:
+        if wanted and name not in wanted or not keys:
+            continue
+        box = mask_box(patch_mask(m, image, keys[0], short=448), w, h)
+        if box is not None:
+            found.append({"name": name, "kind": "patch", **box})
+    if any(name in wanted or not wanted for name, _ in target.faces):
+        faces = sorted(face_boxes(m, image), key=lambda b: b[2] * b[3], reverse=True)
+        if faces:
+            x, y, fw, fh = faces[0]
+            body = (max(0, round(x - fw)), max(0, round(y - 0.5 * fh)), min(w, round(x + 2 * fw)),
+                    min(h, round(y + 7 * fh)))
+            head = (max(0, round(x - fw)), max(0, round(y - 0.5 * fh)), min(w, round(x + 2 * fw)),
+                    min(h, round(y + 3 * fh)))
+            name = next((n for n, _ in target.faces if not wanted or n in wanted), "")
+            found.append({"name": name, "kind": "face", "box": body, "head": head, "fill": 0.6,
+                          "coverage": round((body[2] - body[0]) * (body[3] - body[1]) / float(w * h), 3)})
+    if not found:
+        return None
+    return max(found, key=lambda b: (b["box"][2] - b["box"][0]) * (b["box"][3] - b["box"][1]))
 
 
 FRAMING_SCALES = (1.0, 0.6, 0.35)   # insan olmayan karakter: referansa en çok benzeyen kırpımın boyu -> alan ≈ boy²
@@ -682,6 +736,17 @@ def camera_change(previous_path: str, path: str) -> dict | None:
             return camera.same_camera(a.convert("RGB"), b.convert("RGB"))
     except Exception as e:                               # noqa: BLE001 — ölçülemedi: kapı uygulanmaz
         log.warning("kamera değişimi ölçülemedi: %s", e)
+        return None
+
+
+def cut_in_view(previous_path: str, path: str, rect: tuple = (0.0, 0.0, 1.0, 1.0)) -> dict | None:
+    """Kırp + iyileştir kontrolü (quality/camera.cut_in_view): kare, önceki karenin kırpılan bölgesinin yakın görüntüsü mü."""
+    from app.quality import camera
+    try:
+        with Image.open(previous_path) as a, Image.open(path) as b:
+            return camera.cut_in_view(a.convert("RGB"), b.convert("RGB"), rect)
+    except Exception as e:                               # noqa: BLE001 — ölçülemedi: kapı uygulanmaz
+        log.warning("cut-in görünümü ölçülemedi: %s", e)
         return None
 
 

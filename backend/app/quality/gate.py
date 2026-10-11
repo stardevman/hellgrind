@@ -143,7 +143,7 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, c
     if check_identity:
         anomalies.extend(identity_anomalies(detail, target, cfg))
         if not anomalies and (review := identity_review(detail, target, cfg)):
-            detail = {**detail, "review": review}             # geçer, ama yönetmen bakmalı
+            detail = {**detail, "review": [*detail.get("review", []), *review]}   # geçer, ama yönetmen bakmalı
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 
@@ -222,12 +222,14 @@ def framing_check(area: float | None, scale: str | None) -> dict | None:
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
                 transition: str | None = None, scale: str | None = None, states: list | None = None,
-                jump_ref: str | None = None) -> Score:
+                jump_ref: str | None = None, cut_in: dict | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
     scale: kesme karesinde istenen kamera ölçeği; karakter alanı tutmazsa detail.framing_mismatch (yeniden deneme sebebi,
-    eleme değil: son denemede "inceleme önerilir")."""
+    eleme değil: son denemede "inceleme önerilir").
+    cut_in: kırp + iyileştir karesi ({"rect": oranlarla kırpım, "zoom"}): aynı kameranın >= 1,5 kat yakınlaşması geçerli
+    bir kesmedir (jump cut sayılmaz); kompozisyonun korunup korunmadığı (önceki karenin bölgesiyle) kaydedilir."""
     anomalies = detect_frame_anomalies(path)
     measured = None
     if scorer_mode() == "real":
@@ -254,10 +256,21 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
                     measured.detail["state_mismatch"] = missed
         if measured is not None and jump_ref:           # kesme: kamera önceki çekimin son karesinden değişti mi
             change = scorer.camera_change(jump_ref, path)
+            if cut_in and cut_in.get("rect"):           # kırp + iyileştir: önceki karenin bölgesiyle karşılaştırılır
+                from app.quality.camera import CUT_IN_SCALE
+                view = scorer.cut_in_view(cut_in["crop"], path) if cut_in.get("crop") else \
+                    scorer.cut_in_view(jump_ref, path, tuple(cut_in["rect"]))
+                zoom = float(cut_in.get("zoom") or 1.0)
+                change = {**(change or {}), "cut_in": zoom >= CUT_IN_SCALE, "zoom": round(zoom, 2),
+                          **({"view": view} if view else {})}
             if change is not None:
                 measured.detail["camera_change"] = change
-                if change.get("same"):
+                if change.get("same") and not change.get("cut_in"):
                     measured.detail["jump_cut"] = True
+                if (change.get("view") or {}).get("kept") is False:    # iyileştirme kırpımı başka bir kareye çevirdi
+                    measured.detail["review"] = [*measured.detail.get("review", []),
+                                                 "kırp + iyileştir: iyileştirme kırpımın kompozisyonunu korumadı "
+                                                 f"(iç oran {change['view'].get('ratio') or 0:.2f})".replace(".", ",")]
         if measured is not None and scale:
             framing = framing_check(scorer.framing(path, target or scorer.Target()), scale)
             if framing is not None:

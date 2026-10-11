@@ -155,7 +155,7 @@
       "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
       "strength_model": 1,
       "model": [
-        "170:152",
+        "170:180",
         0
       ]
     },
@@ -210,7 +210,7 @@
         0
       ],
       "on_false": [
-        "170:152",
+        "170:180",
         0
       ],
       "on_true": [
@@ -372,6 +372,20 @@
     "class_type": "LoadImage",
     "_meta": {
       "title": "Load Image"
+    }
+  },
+  "170:180": {
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA (Multiple Angles; yalnızca açı karesi)"
+    },
+    "inputs": {
+      "lora_name": "{{angles_lora}}",
+      "strength_model": "{{angles_strength}}",
+      "model": [
+        "170:152",
+        0
+      ]
     }
   }
 }

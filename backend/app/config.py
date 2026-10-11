@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # edit_keyframe.json) | qwen (Qwen-Image, yalnızca metinden; kimlik kayabilir). Karaktersiz çekim her zaman qwen.
     keyframe_character_provider: str = "qwen_edit"
     qwen_edit_mode: str = "full"        # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20 adım, cfg 4) | lightning (4, cfg 1)
+    # Qwen-Image-Edit-2511 Multiple Angles LoRA (fal, Apache-2.0): kesmede açı değişimi; dosya volume'da models/loras/
+    qwen_edit_angles: str = "off"       # on: açı değişen kesme karelerinde açılır (dosya yüklenince açın)
+    qwen_edit_angles_lora: str = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
+    qwen_edit_angles_strength: float = 0.9
+    qwen_edit_angles_mode: str = "full"     # açı karesi: full | medium | lightning (Lightning ile uyumu ilk koşuda sınanacak)
     reference_fal_fallback: bool = False   # referans görseli: Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ticari değil)
     # İlk kareyi karakter referansıyla fal.ai'de çizme kancası: off (varsayılan) | flux_kontext (Qwen'in önüne geçer)
     h3_keyframe_reference: str = "off"

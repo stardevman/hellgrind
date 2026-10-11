@@ -331,6 +331,7 @@ function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: s
               <dt>En çok</dt><dd className="mono">${est.max_usd.toFixed(2)}</dd>
               <dt>Model yükleme</dt><dd className="mono">{est.model_loads} × soğuk başlatma = ${est.cold_start_usd.toFixed(3)}</dd>
               {(est.end_frames ?? 0) > 0 && <><dt>Son kareler</dt><dd className="mono">{est.end_frames} × Lightning = ${(est.end_frame_usd ?? 0).toFixed(3)}</dd></>}
+              {((est.cut_in_frames ?? 0) + (est.angles_frames ?? 0)) > 0 && <><dt>Kesme kareleri</dt><dd className="mono">{est.cut_in_frames ?? 0} kırp + iyileştir · {est.angles_frames ?? 0} açı LoRA'sı</dd></>}
             </dl>
             <table className="tbl">
               <thead><tr><th>Çekim</th><th>Kare</th><th>Klip</th><th>Tahmini</th><th>En çok</th></tr></thead>
@@ -339,7 +340,9 @@ function Estimate({ body, refresh }: { body: Record<string, unknown>; refresh: s
                   <tr key={s.code}>
                     <td className="mono">{s.code}<small>{s.billed_seconds} sn · {s.mode === "ref2va" ? "Ref2VA" : s.engine === "h3" ? "FL2VA" : s.engine}</small></td>
                     <td>{frameTr(s.frame)}{s.frame_usd ? <small className="mono">${s.frame_usd.toFixed(3)}{s.edit_mode ? ` · ${EDIT_TR[s.edit_mode] ?? s.edit_mode}` : ""}</small> : null}
-                      {s.end_frame ? <small className="mono">+ son kare ${(s.end_frame_usd ?? 0).toFixed(3)}</small> : null}</td>
+                      {s.end_frame ? <small className="mono">+ son kare ${(s.end_frame_usd ?? 0).toFixed(3)}</small> : null}
+                      {s.cut_in_usd != null ? <small className="mono">kırp + iyileştir ${s.cut_in_usd.toFixed(3)}{s.cut_place_usd ? " (ara kare dahil)" : ""}</small> : null}
+                      {s.angles_usd != null ? <small className="mono">açı LoRA'sı ${s.angles_usd.toFixed(3)}</small> : null}</td>
                     <td className="mono">{s.clips}</td>
                     <td className="mono">${s.expected_usd.toFixed(3)}</td>
                     <td className="mono">${s.max_usd.toFixed(3)}</td>

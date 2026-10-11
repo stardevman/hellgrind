@@ -458,6 +458,124 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
     return out_path
 
 
+class CutFailed(Exception):
+    """Kesme yöntemi bu denemede uygulanamadı (ör. odak karakter önceki karede de ara karede de bulunamadı)."""
+
+
+def cut_plan(method: str, anchor: dict, camera: dict, code: str, fp: str, focus: list[str]) -> dict:
+    """Kesme karesinin yöntemi ve denemeleri (core/chain.cut_method, cut_attempts), taban kare (önceki çekimin son karesi
+    ya da geniş plan), açı LoRA'sının tokenleri ve ayarları."""
+    from app.core.chain import angle_tokens, cut_attempts
+    angles_on = settings.qwen_edit_angles == "on" and bool(settings.qwen_edit_angles_lora)
+    return {"method": method, "methods": cut_attempts(method, anchor["camera"], camera, angles_on, 1 + EDIT_RETRIES),
+            "base_key": anchor["key"], "base_code": anchor["name"], "base_camera": anchor["camera"],
+            "base_cast": anchor["cast"], "focus": focus, "fp": fp, "tokens": angle_tokens(anchor["camera"], camera),
+            "angles": {"lora": settings.qwen_edit_angles_lora, "strength": float(settings.qwen_edit_angles_strength),
+                       "mode": settings.qwen_edit_angles_mode} if angles_on else None}
+
+
+def _edit_call(out_path: str, project_id: str, scene_id: str, seed: int, text: str, refs: list[dict], negative: str,
+               mode: str, label: str, details: dict, angles: dict | None = None, noted: dict | None = None) -> str:
+    from app.live import runpod_h3                  # ücretli modül: yalnızca fonksiyon içinde
+    made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), label, "runpod_api_key",
+                     lambda: runpod_h3.edit_keyframe_image(text, seed, refs, negative, project_id, mode, angles=angles,
+                                                           noted=noted),
+                     scene_id=scene_id, details={**details, "edit_mode": mode, **(noted or {})})
+    try:
+        with Image.open(made.local_path) as im:
+            im.convert("RGB").save(out_path, "JPEG", quality=92)
+    finally:
+        os.remove(made.local_path)
+    return out_path
+
+
+def cut_base(project_id: str, scene_id: str, seed: int, prompt: str, extra: dict, tmp: str, details: dict) -> dict:
+    """Odak karakterin bulunduğu taban kare: önceki çekimin son karesi; karakter orada yoksa (SH03'ün Bolt'u SH02'de yok)
+    aynı kamerayla karakterin yerleştirildiği ara kare (cutin/… altında saklanır, sonraki denemeler yeniden kullanır).
+    {"key", "path", "box", "placed"}."""
+    from app.core.chain import sha_of
+    from app.engine import cutin
+    cut, target = extra["cut"], extra.get("target")
+    path = storage.download(cut["base_key"], os.path.join(tmp, "cut_base.jpg"))
+    if not cut["focus"]:                            # karaktersiz kesme: merkezden kırpılır
+        return {"key": cut["base_key"], "path": path, "box": None, "placed": False}
+    with Image.open(path) as im:
+        found = cutin.focus_box(im, target, cut["focus"])
+    if found is not None:
+        return {"key": cut["base_key"], "path": path, "box": found, "placed": False}
+    placed_key = f"cutin/{scene_id}/{cut['fp']}_{sha_of(path)[:12]}_placed.jpg"
+    placed = os.path.join(tmp, "cut_placed.jpg")
+    if storage.exists(placed_key):
+        storage.download(placed_key, placed)
+        with Image.open(placed) as im:
+            found = cutin.focus_box(im, target, cut["focus"])
+        if found is not None:
+            return {"key": placed_key, "path": placed, "box": found, "placed": True}
+    chars = [r for r in extra.get("edit_references") or [] if r["kind"] == "character"][:2]
+    refs = [{"name": cut["base_code"], "key": cut["base_key"], "kind": "frame"}, *chars]
+    text = cutin.place_prompt(prompt, refs, cut["focus"], cut["base_code"], looks_text(refs), ONCE)
+    _edit_call(placed, project_id, scene_id, seed, text, refs, extra.get("negative", ""),
+               extra.get("edit_mode") or "full", "h3:storyboard:cut_in:place", {**details, "cut_method": "cut_in"},
+               noted={"cut_step": "place", "cut_base": cut["base_key"]})
+    with Image.open(placed) as im:
+        found = cutin.focus_box(im, target, cut["focus"])
+    if found is None:
+        raise CutFailed(f"{', '.join(cut['focus'])} ara karede bulunamadı")
+    storage.put_file(placed, placed_key, "image/jpeg")
+    return {"key": placed_key, "path": placed, "box": found, "placed": True}
+
+
+def cut_frame(out_path: str, method: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
+              tmp: str, details: dict) -> dict:
+    """Kesme karesi, yöntemiyle (core/chain.cut_method). Dönen değer kapı için: {"method", "previous"?: süreklilik
+    karşılaştırmasının karesi, "crop"?}.
+    - cut_in: taban karede odak kutusu -> 16:9 kırpım -> 1280x704 -> Qwen-Edit Lightning iyileştirme.
+    - angles: taban kare + Multiple Angles LoRA ("<sks> …").
+    - anchor / wide: metinle kamera tarifi (chain_prompt; wide'da image 1 geniş plan)."""
+    from app.core.chain import sha_of
+    from app.engine import cutin
+    cut = extra["cut"]
+    details = {**details, "cut_method": method}
+    if method not in ("cut_in", "angles"):
+        paid_frame(out_path, "qwen_edit", project_id, scene_id, seed, prompt, extra, details=details)
+        return {"method": method}
+    base = cut_base(project_id, scene_id, seed, prompt, extra, tmp, details)
+    chars = [r for r in extra.get("edit_references") or [] if r["kind"] == "character"][:2]
+    negative = extra.get("negative", "")
+    if method == "angles":
+        refs = [{"name": cut["base_code"], "key": base["key"], "kind": "frame"}, *chars]
+        text = cutin.angles_prompt(cut["tokens"], cut["focus"], looks_text(refs, cut["focus"]), prompt, ONCE,
+                                   extra.get("state_text", ""))
+        angles = cut["angles"]
+        _edit_call(out_path, project_id, scene_id, seed, text, refs, negative, angles["mode"], "h3:storyboard:angles",
+                   details, angles={"lora": angles["lora"], "strength": angles["strength"]},
+                   noted={"cut_base": base["key"], "placed": base["placed"], "angle_tokens": cut["tokens"]["text"],
+                          "angles_lora": angles["lora"], "angles_strength": angles["strength"]})
+        return {"method": method, "previous": base["path"]}
+    from app.core.chain import SCALE_STEP
+    shot = (extra.get("camera") or {}).get("shot")
+    with Image.open(base["path"]) as im:
+        width, height = im.size
+    if base["box"] is None:
+        steps = SCALE_STEP.get(shot, 2) - SCALE_STEP.get((cut.get("base_camera") or {}).get("shot"), 2)
+        crop = cutin.centre_crop(width, height, steps)
+    else:
+        crop = cutin.crop_box(cutin.shot_box(base["box"], shot), base["box"]["fill"], width, height, shot)
+    crop_path = cutin.crop_scale(base["path"], crop["rect"], os.path.join(tmp, "cut_crop.jpg"))
+    crop_key = f"cutin/{scene_id}/{sha_of(crop_path)[:16]}.jpg"
+    storage.put_file(crop_path, crop_key, "image/jpeg")
+    refs = [{"name": f"{cut['base_code']} crop", "key": crop_key, "kind": "frame"}, *chars]
+    text = cutin.refine_prompt(looks_text(refs, cut["focus"]), ONCE, extra.get("state_text", ""))
+    _edit_call(out_path, project_id, scene_id, seed, text, refs, negative, cutin.REFINE_MODE, "h3:storyboard:cut_in",
+               details, noted={"cut_step": "refine", "cut_base": base["key"], "placed": base["placed"],
+                               "crop_box": list(crop["rect"]), "crop_zoom": crop["zoom"], "crop_area": crop["area"],
+                               "crop_key": crop_key, "base_size": [width, height]})
+    x0, y0, x1, y1 = crop["rect"]
+    return {"method": method, "previous": crop_path, "crop": crop,
+            "cut_in": {"rect": (x0 / width, y0 / height, x1 / width, y1 / height), "zoom": crop["zoom"],
+                       "crop": crop_path}}
+
+
 def board_from(clean: str, lines: list[str], out_path: str) -> str:
     """Panel ve PDF için kare: yazısız kare 960x540'a getirilir, alt bandına çekim bilgisi yazılır."""
     resized = out_path + ".png"
@@ -610,24 +728,43 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
             render_frame(clean, seed0, info["render"])
         else:
             edit = source == "qwen_edit"
-            attempts = 1 + EDIT_RETRIES if edit else BOARD_ATTEMPTS
+            cut = extra.get("cut") if edit and not extra.get("end") else None
+            attempts = len(cut["methods"]) if cut else 1 + EDIT_RETRIES if edit else BOARD_ATTEMPTS
+            cut_notes: list[str] = []
             for attempt in range(attempts):
                 seed = seed0 if attempt == 0 else seed_for(scene_id, fp, "board", *([salt] if salt else []), attempt)
-                paid_frame(clean, source, project_id, scene_id, seed, prompt, extra,
-                           details={"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed})
+                trial = {"frame_attempt": f"{attempt + 1}/{attempts}", "seed": seed}
+                compare, method, made = previous, None, {}
+                if cut:                                 # kesme: kamerayı değiştiren yol (kırp + iyileştir, açı LoRA'sı)
+                    method = cut["methods"][attempt]
+                    try:
+                        made = cut_frame(clean, method, project_id, scene_id, seed, prompt, extra, tmp, trial)
+                    except CutFailed as e:          # ör. ara karede karakter yok: bu deneme metinle kamera tarifine düşer
+                        killswitch.event(project_id, "cut_failed", scene_id=scene_id, code=info["code"],
+                                         attempt=attempt + 1, cut_method=method, error=str(e))
+                        cut_notes.append(f"kesme yöntemi ({method}) uygulanamadı: {e}")
+                        method = "anchor"
+                        made = cut_frame(clean, method, project_id, scene_id, seed, prompt, extra, tmp, trial)
+                    compare = made.get("previous") or previous
+                else:
+                    paid_frame(clean, source, project_id, scene_id, seed, prompt, extra, details=trial)
                 # kaynakta renk eşleştirme kapılardan ÖNCE: kapılar saklanacak kareyi ölçer (Kıvılcım SH03: aktarımdan
                 # önceki karede cam gözdeki pencere yansıması "parlama" sayılmıştı)
                 colour = match_colour(clean, extra["color_ref"], tmp) if extra.get("color_ref") else None
-                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=previous,
+                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=compare,
                                          transition=chain["transition"] if chain else None,
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
                                          chain["transition"] == "cut" and not extra.get("end") else None,
-                                         states=extra.get("state_probes") or None, jump_ref=jump_ref)
+                                         states=extra.get("state_probes") or None, jump_ref=jump_ref,
+                                         cut_in=made.get("cut_in"))
                 framing_off = bool((score.detail or {}).get("framing_mismatch"))
                 state_off = bool((score.detail or {}).get("state_mismatch"))
                 jump_off = bool((score.detail or {}).get("jump_cut"))
                 soft_off = framing_off or state_off or jump_off   # yeniden deneme sebebi, eleme değil
-                detail = dict(score.detail or {}, **({"color": colour} if colour else {}))
+                detail = dict(score.detail or {}, **({"color": colour} if colour else {}),
+                              **({"cut_method": method} if method else {}))
+                if cut_notes:
+                    detail["review"] = [*detail.get("review", []), *dict.fromkeys(cut_notes)]
                 anomalies, passed = list(score.anomalies), score.passed
                 last = attempt + 1 == attempts
                 if soft_off and last:                     # son deneme: bulgular nota (kare geçse de kalsa da)
@@ -650,10 +787,11 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                  framing=(score.detail or {}).get("framing"), state=(score.detail or {}).get("state"),
                                  camera_change=(score.detail or {}).get("camera_change"),
                                  review=detail.get("review"), end=bool(extra.get("end")),
-                                 chain=chain["code"] if chain else None,
+                                 chain=chain["code"] if chain else None, cut_method=method,
                                  reasons=[a.get("type") for a in anomalies])
                 history.annotate_last(scene_id, "h3:storyboard", {"gate": {     # kalibrasyon için kalıcı kayıt
                     "attempt": attempt + 1, "passed": score.passed, "composite": score.composite,
+                    **({"cut_method": method} if method else {}),
                     "reasons": [a.get("type") for a in score.anomalies],
                     **{k: (score.detail or {}).get(k) for k in ("look", "look_dino", "identity", "continuity", "review",
                                                                  "framing", "state", "camera_change")
@@ -661,7 +799,8 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 if score.passed and not (soft_off and attempt + 1 < attempts):   # kadraj ya da durum tutmadı: yeniden
                     break
         if drawn.passed and source in PAID_SOURCES and chain and chain.get("transition") == "cut" \
-                and not extra.get("end"):                 # yeni bakış açısı: mekânda olmayan büyük nesne eklenmiş olabilir
+                and not extra.get("end") and (drawn.detail or {}).get("cut_method") != "cut_in":
+            # yeni bakış açısı: mekânda olmayan büyük nesne eklenmiş olabilir (kırp + iyileştir yeni bakış açısı açmaz)
             drawn.detail = {**(drawn.detail or {}), "review": [*(drawn.detail or {}).get("review", []), NEW_VIEW_NOTE]}
         if drawn.passed and source in PAID_SOURCES and extra.get("count_notes"):   # sayılan parça ölçülemiyor: göz
             drawn.detail = {**(drawn.detail or {}), "review": [*(drawn.detail or {}).get("review", []),
@@ -788,17 +927,19 @@ def invalidate_dependents(project_id: str, scene_id: str, reason: str, scope: st
     return {"codes": codes, "clips": clips, "stopped": len(stopped), "frames": frames}
 
 
-def cut_anchor(s, scene, parent, assets, version) -> dict:
+def cut_anchor(s, scene, parent, assets, version, wide: bool | None = None) -> dict:
     """Kesme karesinin image 1'i ve kameranın ona göre tarifi. {"name", "key", "cast", "camera", "text"}.
     - Kamera yaklaşıyor ya da aynı ölçekte dönüyorsa (SH02 orta -> SH03 yakın): önceki çekimin son karesi; kamera ona göre
       göreli tarif edilir. Kıvılcım: SH02 ve SH03 aynı geniş plandan çizilince model aynı yeni açıya gitmişti (jump cut).
     - Kamera uzaklaşıyorsa (yakın -> iki kişilik orta): mekânın durağan görseli, yoksa sahnenin ilk geniş planı; istem
-      önceki çekimin bakış açısını tekrarlamamasını söyler."""
+      önceki çekimin bakış açısını tekrarlamamasını söyler.
+    wide: yöntemden (core/chain.cut_method): True geniş plandan çizim, False önceki çekimin son karesi (kırp + iyileştir,
+    açı LoRA'sı); None ölçeğe göre."""
     from app.core.chain import SCALE_STEP, ancestors, plan_of
     current, previous = camera_of(scene), camera_of(parent)
     fp_of = lambda sc: visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), version)  # noqa: E731
-    if SCALE_STEP.get(current.get("shot"), 2) >= SCALE_STEP.get(previous.get("shot"), 2) and parent.board_key \
-            and parent.board_status != "changes_requested":
+    near = SCALE_STEP.get(current.get("shot"), 2) >= SCALE_STEP.get(previous.get("shot"), 2) if wide is None else not wide
+    if near and parent.board_key and parent.board_status != "changes_requested":
         return {"name": parent.scene_code, "key": last_frame_key(parent, fp_of), "cast": plan_of(s, parent)["cast"],
                 "camera": previous,
                 "text": f"Image 1 is the previous shot ({parent.scene_code}); this shot cuts to a new camera position"}
@@ -843,7 +984,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     """Tek bir çekimin karesi. keep_status: zincirin önceki karesi olarak çizildi; çekimin durumuna dokunulmaz (kendi
     görevi ya da yönetmen yönetir)."""
     import time
-    from app.core.chain import plan_of, stale, transition_of
+    from app.core.chain import cut_method, plan_of, stale, transition_of
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
     from app.core.states import parts_of, state_key, targets as state_targets
     from app.engine.iteration import compose_for_scene, loras_of
@@ -882,8 +1023,9 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
             plan = plan_of(s, scene)
             transition = transition_of(scene)
             image1 = {"name": parent.scene_code, "key": clean_key(parent.board_key), "kind": "frame"}
-            if transition == "cut":                   # kesme: image 1 mekânın geniş görüntüsü, kamera açıkça taşınır
-                anchor = cut_anchor(s, scene, parent, assets, version)
+            if transition == "cut":                   # kesme: yöntem (kırp + iyileştir, açı LoRA'sı, geniş plan)
+                method = cut_method(camera_of(parent), camera_of(scene), scene.cut_method)
+                anchor = cut_anchor(s, scene, parent, assets, version, wide=method == "wide")
                 image1 = {"name": anchor["name"], "key": anchor["key"], "kind": "frame"}
                 plan = {**plan, "kept": [c for c in plan["cast"] if c in anchor["cast"]],
                         "removed": [c for c in anchor["cast"] if c not in plan["cast"]],
@@ -891,13 +1033,15 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
                         "avoid": anchor.get("avoid", "")}
                 extra["jump_ref"] = last_frame_key(parent, lambda sc: visual_fingerprint(
                     sc, load_characters(s, sc.id), load_assets(s, sc.id), version))
+                extra["cut"] = cut_plan(method, anchor, camera_of(scene), parent.scene_code, fp,
+                                        [n for n in plan["cast"] if n not in (plan.get("carried") or [])] or plan["cast"])
             entering = plan.get("entering") if scene.entry_mode == "walk_in" else []
             extra["chain"] = {"key": image1["key"], "transition": transition, "code": parent.scene_code,
                               "sha": parent.board_sha, "plan": plan}
             refs = [image1, *[r for r in refs if r["kind"] == "character" and r["name"] not in (entering or [])][:2]]
             model = "qwen_edit"
         extra.update(edit_references=refs, negative=composed.negative, edit_mode=edit_mode(cfg),
-                     camera=camera_of(scene))
+                     camera=camera_of(scene), state_text=composed.exception)
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
         mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
@@ -911,7 +1055,10 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     source = "upload" if info["keyframe_key"] else board_source(mode, explicit, model)
     if extra.get("chain") and source not in ("qwen_edit", "local", "upload"):
         extra.pop("chain")                            # zincir Qwen-Image-Edit ister (iş akışı yoksa referanslardan)
+        extra.pop("cut", None)
         extra["edit_references"] = extra["base_references"]
+    if extra.get("cut"):
+        extra["target"] = target
     stored = storage.exists(key) and storage.exists(clean_key(key))
     # ücretsiz moddan kalan yerel kare ya da karakterli çekimin metinden çizilmiş karesi: karakter referansından yeniden
     upgrade = outdated(info["board_source"], source)
@@ -956,7 +1103,9 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         if drawn is not None and info.get("board_sha") and drawn.sha != info["board_sha"]:
             invalidate_dependents(project_id, scene_id, f"{info['code']} karesi değişti")   # eski karelerden klip yok
         killswitch.event(project_id, "board_ready", scene_id=scene_id, code=info["code"],
-                         **({"chain": extra["chain"]["code"]} if extra.get("chain") else {}))
+                         **({"chain": extra["chain"]["code"]} if extra.get("chain") else {}),
+                         **({"cut_method": (drawn.detail or {}).get("cut_method") or extra["cut"]["method"]}
+                            if extra.get("cut") and drawn is not None else {}))
         info["board_status"] = fields.get("board_status", info["board_status"])
     make_end_board(project_id, scene_id)
     if keep_status:

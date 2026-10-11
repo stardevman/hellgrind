@@ -446,6 +446,16 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     söylüyorsa (`Mila leaves the attic.`) edit istemi karakterin kareden çıkarılmasını açıkça ister.
   - **Kesme karesi kadrajı açıkça ister** ("Reframe the camera for this shot: a medium shot of Bolt, 35 mm lens"); kapı
     karakter alanının istenen ölçeğe kabaca uyduğunu da denetler, tutmazsa yeniden çizer (son denemede "inceleme önerilir").
+  - **Kesmede kamera nasıl değişir (yöntem):** Qwen-Image-Edit image 1'in kompozisyonunu korur, kamerayı metinle taşımaz
+    (Kıvılcım SH03: üç denemede de SH02'nin kamerası). Yöntem çekim başına seçilir (Kurgu › denetçi › Kesme; boşsa otomatik):
+    **kırp + iyileştir** (ölçek daralıyor, açı ≤ 15°): önceki çekimin son karesinde odak karakterin kutusu (DINOv2 yama
+    haritası; insanda yüz kutusu) bulunur, karakter orada yoksa önce aynı kamerayla yerleştirildiği bir ara kare çizilir;
+    16:9 kırpılır (en az 1,5 kat; yakın planda karakter alanı ≥ %25 hedeflenir, gerekirse gövde alttan kesilir), 1280x704'e
+    büyütülür ve Qwen-Edit Lightning "iyileştirme" geçişiyle netleştirilir; jump-cut kapısı ≥ 1,5 kat yakınlaşmayı geçerli
+    sayar. **Açı LoRA'sı** (açı ≥ 30°): Qwen-Image-Edit-2511 Multiple Angles LoRA (`<sks> front-left quarter view low-angle
+    shot close-up`; en yakın 45° adım); Ayarlar'da `QWEN_EDIT_ANGLES=on` ve dosya volume'da `models/loras/` altında olmalı;
+    kapalıysa ya da iki deneme kapıdan kalırsa kırp + iyileştir'e düşer. **Geniş plandan çizim** (ölçek genişliyor). Tahmin
+    uç noktası iki yolu ayrı kalem olarak gösterir; iş girdisi (LoRA adı ve gücü, kırpma kutusu) harcama geçmişine yazılır.
   - **Video nerede biter:** sonraki çekim *devam* ise FL2VA iki kare arasında üretilir (ilk kare Kn, `last_frame` K(n+1)).
     Değilse (kesme, yeni sahne, sekans sonu) video sonraki kareye "yolculuk" yapmaz: **çekim sonu karesi** Kn_end, Kn'den
     Qwen-Image-Edit Lightning ile çekimin kendi eylemi tamamlanmış hâli olarak çizilir (~0,007 $; kimlik, değişmez ve süreklilik
@@ -811,6 +821,10 @@ Bilinmesi gerekenler:
 | `H3_UNET_VARIANT` | `fp8_scaled` | H3 DiT dosyası: `fp8_scaled` (cu128 worker imajı) ya da `int8_convrot` (cu130 torch'lu imaj gerekir); klip meta verisine yazılır |
 | `RUNPOD_MAX_PENDING_JOBS` | `6` | Bir projede RunPod'da aynı anda en çok bekleyen/çalışan iş; fazlası yer açılana dek gönderilmez |
 | `KEYFRAME_CHARACTER_PROVIDER` | `qwen_edit` | Karakterli çekimin ilk karesi: `qwen_edit` (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da `qwen` (Qwen-Image, yalnızca metinden; kimlik kayabilir) |
+| `QWEN_EDIT_ANGLES` | `off` | Multiple Angles LoRA (kesmede açı değişimi); `on` yalnızca dosya volume'da `models/loras/` altındaysa |
+| `QWEN_EDIT_ANGLES_LORA` | `qwen-image-edit-2511-multiple-angles-lora.safetensors` | LoRA dosya adı (fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA, Apache-2.0) |
+| `QWEN_EDIT_ANGLES_STRENGTH` | `0.9` | LoRA gücü (önerilen 0,8-1,0) |
+| `QWEN_EDIT_ANGLES_MODE` | `full` | Açı karesinin kalitesi (`full` / `medium` / `lightning`; Lightning ile uyumu ilk gerçek koşuda karşılaştırılacak) |
 | `QWEN_EDIT_MODE` | `full` | Karakterli ilk kare kalitesi: `full` 40 adım cfg 4 (~195 sn), `medium` 20 adım cfg 4 (~100 sn), `lightning` 4 adım cfg 1 (~15 sn); proje ayarı `qwen_edit_mode` önce gelir |
 | `REFERENCE_FAL_FALLBACK` | `false` | Referans görseli için RunPod'da Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ağırlıkları ticari olmayan lisanslı) |
 | `VAST_INSTANCE_ID` | boş | H3 makinesinin vast.ai kimliği (boşta durdurma, otomatik başlatma, konum) |

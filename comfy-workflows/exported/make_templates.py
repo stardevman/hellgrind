@@ -17,7 +17,10 @@
    (H3 tuvali {{width}} x {{height}}; şablonda 1. görselin VAEEncode'u, çıktı onun boyutunu alırdı), 41 = image 1 (ana
    karakter), 83 = image 2, yeni 171 = image 3 (ikinci karakter ya da mekân); her görsel iki metin kodlayıcısına
    (170:151 olumlu, 170:149 olumsuz) aynı sırayla gider. Lightning LoRA anahtarı {{lightning}} (açık: 4 adım, cfg 1;
-   kapalı: {{edit_steps}} adım — tam 40, orta 20 —, cfg 4); LoRA dosyası volume'dadır.
+   kapalı: {{edit_steps}} adım — tam 40, orta 20 —, cfg 4); LoRA dosyası volume'dadır. Yeni 170:180 = Multiple Angles
+   LoRA ({{angles_lora}}, {{angles_strength}}; fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA, Apache-2.0): CFGNorm ile
+   Lightning/anahtar arasında; yalnızca açı değişen kesme karesinde doldurulur, aksi hâlde Hell Grind düğümü istekten
+   çıkarır ve bağlantıları CFGNorm'a geri bağlar (dosya yüklenmemişken diğer işler bozulmaz).
 Değişen değerler Hell Grind yer tutucularıyla doldurulur: {{prompt}}, {{seed}}, {{duration}} (kare sayısını iş akışı
 17k+5 olarak hesaplar), {{first_frame}}, {{reference_1}}..{{reference_9}}, {{width}}, {{height}}, {{filename_prefix}}; Qwen düzenleme karesinde
 ayrıca {{negative}} ve {{lightning}}.
@@ -155,6 +158,13 @@ def edit_keyframe() -> dict:
     f["170:149"]["inputs"]["prompt"] = "{{negative}}"
     f["170:168"]["inputs"]["value"] = "{{lightning}}"
     f["170:166"]["inputs"]["value"] = "{{edit_steps}}"          # Lightning kapalıyken adım: tam 40, orta 20
+    f["170:180"] = {"class_type": "LoraLoaderModelOnly",       # açı karesi: Multiple Angles LoRA (yoksa istekten çıkar)
+                    "_meta": {"title": "Load LoRA (Multiple Angles; yalnızca açı karesi)"},
+                    "inputs": {"lora_name": "{{angles_lora}}", "strength_model": "{{angles_strength}}",
+                               "model": f["170:153"]["inputs"]["model"]}}
+    assert f["170:163"]["inputs"]["on_false"] == f["170:153"]["inputs"]["model"]
+    f["170:153"]["inputs"]["model"] = ["170:180", 0]
+    f["170:163"]["inputs"]["on_false"] = ["170:180", 0]
     f["9"]["inputs"]["filename_prefix"] = "{{filename_prefix}}"
     return check(f, "edit_keyframe", lightning=True)
 

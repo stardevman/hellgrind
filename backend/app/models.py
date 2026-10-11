@@ -149,6 +149,7 @@ class Scene(Base):
     camera_plan: Mapped[dict | None] = mapped_column(JSONB)                # kesmede otomatik kamera (30° kuralı); boşsa camera
     entry_mode: Mapped[str | None] = mapped_column(Text)                   # karakter girişi: cut (varsayılan) | walk_in
     grade_auto: Mapped[dict | None] = mapped_column(JSONB)                 # otomatik renk eşleştirmesi (geri alınabilir)
+    cut_method: Mapped[str | None] = mapped_column(Text)                   # kesme karesi yöntemi: cut_in | angles | wide
     end_board_key: Mapped[str | None] = mapped_column(Text)                # çekim sonu karesi (Kn_end, yazısız)
     end_board_sha: Mapped[str | None] = mapped_column(Text)
     end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı

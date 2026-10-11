@@ -29,6 +29,9 @@ export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
 }
 
 const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
+const CUT_TR: Record<string, string> = {
+  cut_in: "kırp + iyileştir", angles: "açı LoRA'sı", wide: "geniş plandan çizim", anchor: "metinle kamera tarifi",
+};
 
 function Shot({ sc }: { sc: Scene }) {
   const { busy, frozen, act, note, setVar } = usePanel();
@@ -38,6 +41,10 @@ function Shot({ sc }: { sc: Scene }) {
     note("inspector", entry_mode === "walk_in"
       ? `${sc.scene_code}: devam çekimi; ${(sc.entering ?? []).join(", ")} sağdan girer (ilk karede görünmez).`
       : `${sc.scene_code}: kesme; kamera belirgin biçimde değişir (30° kuralı).`, "ok");
+  }, "inspector");
+  const pickCut = (cut_method: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { cut_method });
+    note("inspector", `${sc.scene_code}: kesme karesi ${cut_method === "auto" ? "otomatik yöntemle" : CUT_TR[cut_method]} çizilecek. Uygulamak için karede "Yeniden çiz".`, "ok");
   }, "inspector");
   const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
   const regen = (thaw = false) => act(async () => {
@@ -72,6 +79,20 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Kamera</dt><dd>{SHOT_TR[cam.shot ?? ""] || cam.shot || "—"}, {MOVE_TR[cam.movement ?? ""] || cam.movement || "—"}, <span className="mono">{cam.lens_mm ?? "—"} mm</span>
           {cam.side ? <span className="mono">, {Math.abs(cam.side)}° {cam.side > 0 ? "sağdan" : "soldan"}</span> : null}
           {sc.camera_plan && <span className="tag info" style={{ marginLeft: 6 }} title="Kesmede kamera önceki çekimle aynıydı (jump cut): en az bir ölçek adımı ya da 30° açı değişimi otomatik atandı. Kamerayı elle seçerseniz atanmaz.">otomatik kesme kamerası</span>}</dd>
+        {sc.cut_method_effective && <>
+          <dt>Kesme</dt>
+          <dd>
+            <select value={sc.cut_method ?? "auto"} disabled={busy || frozen} aria-label="Kesme karesi yöntemi"
+              title={`Denemeler: ${(sc.cut_attempts ?? []).map((m) => CUT_TR[m] ?? m).join(" → ")}`}
+              onChange={(e) => pickCut(e.target.value)}>
+              <option value="auto">Otomatik: {CUT_TR[sc.cut_method_effective] ?? sc.cut_method_effective}</option>
+              <option value="cut_in">Kırp + iyileştir (yaklaşma)</option>
+              <option value="angles">Açı LoRA'sı (açı değişimi)</option>
+              <option value="wide">Geniş plandan çizim</option>
+            </select>
+            {(sc.cut_attempts ?? []).length > 0 && <span className="dim small" style={{ marginLeft: 6 }}>{(sc.cut_attempts ?? []).map((m) => CUT_TR[m] ?? m).join(" → ")}</span>}
+          </dd>
+        </>}
         {sc.entry_options && <>
           <dt>Giriş</dt>
           <dd>

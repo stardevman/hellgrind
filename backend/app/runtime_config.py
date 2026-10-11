@@ -77,6 +77,14 @@ FIELDS: tuple[Field, ...] = (
     Field("KEYFRAME_CHARACTER_PROVIDER", "keyframe_character_provider", "choice", "runpod",
           "Karakterli çekimin ilk karesi: qwen_edit (Qwen-Image-Edit-2511, karakterin onaylı referansından) ya da qwen "
           "(Qwen-Image, yalnızca metinden; kimlik kayabilir)", ("qwen_edit", "qwen")),
+    Field("QWEN_EDIT_ANGLES", "qwen_edit_angles", "choice", "runpod",
+          "Multiple Angles LoRA (kesmede açı değişimi; dosya volume'da models/loras/ altında olmalı)", ("off", "on")),
+    Field("QWEN_EDIT_ANGLES_LORA", "qwen_edit_angles_lora", "model", "runpod", "Multiple Angles LoRA dosya adı",
+          url="https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA"),
+    Field("QWEN_EDIT_ANGLES_STRENGTH", "qwen_edit_angles_strength", "number", "runpod",
+          "Multiple Angles LoRA gücü (önerilen 0,8-1,0)", minimum=0.1),
+    Field("QWEN_EDIT_ANGLES_MODE", "qwen_edit_angles_mode", "choice", "runpod",
+          "Açı karesinin kalitesi (Lightning ile uyumu bilinmiyor: ilk koşuda karşılaştırın)", ("full", "medium", "lightning")),
     Field("QWEN_EDIT_MODE", "qwen_edit_mode", "choice", "runpod",
           "Qwen-Image-Edit kalitesi (karakterli ilk kare): full 40 adım cfg 4 (~195 sn), medium 20 adım cfg 4 (~100 sn), "
           "lightning 4 adım cfg 1 (~15 sn). Proje ayarı (Senaryo › Yoğunluk) bunun önüne geçer", ("full", "medium", "lightning")),

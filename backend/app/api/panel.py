@@ -157,7 +157,8 @@ def _film(key: str | None) -> dict | None:
 def chain_info(scenes: list, enabled: bool = True) -> dict:
     """Anahtar kare zinciri (core/chain.py), sorgusuz: çekimin geçişi, zincirdeki önceki çekimi, karesinin eskiyip
     eskimediği ve bu kareden türeyen eski/eksik sonraki kareler ("sonraki N kareyi yeniden çiz")."""
-    from app.core.chain import CHAINED, stale, transition_of
+    from app.core.chain import CHAINED, camera_of, cut_attempts, cut_method, stale, transition_of
+    angles_on = settings.qwen_edit_angles == "on" and bool(settings.qwen_edit_angles_lora)
     out, by_seq = {}, defaultdict(list)
     for sc in scenes:                                  # scenes seq_order sırasında
         by_seq[sc.sequence_id or sc.project_id].append(sc)
@@ -167,7 +168,13 @@ def chain_info(scenes: list, enabled: bool = True) -> dict:
             parent = shots[i - 1] if enabled and i > 0 and transition in CHAINED else None
             out[sc.id] = {"transition": transition, "transition_explicit": sc.transition_in,
                           "chain_parent": parent.scene_code if parent else None,
-                          "chain_stale": bool(parent is not None and stale(sc, parent)), "chain_redraw": []}
+                          "chain_stale": bool(parent is not None and stale(sc, parent)), "chain_redraw": [],
+                          "cut_method": sc.cut_method, "cut_method_effective": None, "cut_attempts": []}
+            if transition == "cut" and i > 0:          # kesme karesinin yöntemi (kırp + iyileştir, açı LoRA'sı, geniş plan)
+                prev_cam, cam = camera_of(shots[i - 1]), camera_of(sc)
+                method = cut_method(prev_cam, cam, sc.cut_method)
+                out[sc.id].update(cut_method_effective=method,
+                                  cut_attempts=cut_attempts(method, prev_cam, cam, angles_on))
         for i, sc in enumerate(shots):                  # her kare için: kendisinden türeyen eski ya da eksik kareler
             pending, j = [], i + 1
             while j < len(shots) and out[shots[j].id]["chain_parent"]:

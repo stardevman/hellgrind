@@ -143,6 +143,7 @@ class ScenePatch(BaseModel):
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
     entry_mode: Literal["cut", "walk_in"] | None = None     # yeni karakter girişi: kesme (kamera değişir) | devam + giriş
+    cut_method: Literal["auto", "cut_in", "angles", "wide"] | None = None   # kesme karesi yöntemi (auto: otomatik)
 
 
 class AudioIn(BaseModel):

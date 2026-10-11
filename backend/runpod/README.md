@@ -170,7 +170,9 @@ yeniden doğrulayın.
 - **Qwen-Image-Edit karesi:** `keyframe_edit_seconds` 195 sn (tam: 40 adım, cfg 4; ölçülen ~190-200 sn, ≈0,085 $),
   `keyframe_edit_medium_seconds` 100 (20 adım) ve `keyframe_edit_lightning_seconds` 15 (Lightning; ölçülen model yükleme dahil 0,048 $) başlangıç tahmini;
   soğukta Qwen-Image'ın soğuk/sıcak farkı eklenir. Kalite: Ayarlar › `QWEN_EDIT_MODE` ya da proje ayarı `qwen_edit_mode`. Volume'da: `models/unet/qwen_image_edit_2511_fp8mixed`
-  (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); metin
+  (20 533 762 817 bayt), `models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16` (849 608 296 bayt); isteğe bağlı
+  `models/loras/qwen-image-edit-2511-multiple-angles-lora.safetensors` (kesmede açı değişimi; elle yüklenir, sonra
+  Ayarlar › `QWEN_EDIT_ANGLES=on`; yüklenmemişken düğüm istekten çıkarılır); metin
   kodlayıcı ve VAE Qwen-Image ile ortak. fp8mixed cu128 worker'da çalışır (int8_convrot cu130 ister). Worker imajı değişmez.
 - **Kimlik kapısı:** yüz beklenen çekimde (insan karakter varsa; sırt çekimi, silüet, aşırı geniş ya da geniş aksiyon
   planında hayır; denetçiden değiştirilir) yüzü hiç görünmeyen ya da 0-1 kimlik skoru (SFace kosinüsü, aynı kişi eşiği

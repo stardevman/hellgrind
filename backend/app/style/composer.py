@@ -46,6 +46,7 @@ class Composed:
     prefix: str          # 1 + 2: aynı stil sürümündeki her çekimde birebir aynı
     states: tuple = ()   # karenin durumları [(isim, durum)]: durum referansı ve durum kapısı (core/states.py)
     events: tuple = ()   # çekimdeki durum değişimleri [(isim, "on" | "off")]: "eyes flicker and light up"
+    exception: str = ""  # durum istisnası cümlesi (kırp + iyileştir ve açı karesinin istemleri de taşır)
 
 
 def sentence(text: str | None) -> str:
@@ -317,4 +318,4 @@ def compose_prompt(shot: dict, assets, bible) -> Composed:
                               translate.to_english(shot.get("negative", "") or "", names, lang), lint.CAST_NEGATIVE,
                               ", ".join(opposite), ", ".join(designs))
     return Composed(prompt=" ".join(x for x in body if x), negative=negative, prefix=prefix, states=tuple(states),
-                    events=tuple(evs))
+                    events=tuple(evs), exception=exception)

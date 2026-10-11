@@ -83,6 +83,73 @@ def cut_differs(prev: dict | None, cam: dict | None) -> bool:
     return steps >= 1 or abs(int(cam.get("side") or 0) - int(prev.get("side") or 0)) >= MIN_SIDE
 
 
+# ---------- kesme karesinin yöntemi ----------
+# Qwen-Image-Edit-2511 image 1'in kompozisyonunu korur, kamerayı metinle taşımaz (Kıvılcım SH03: üç denemede de SH02'nin
+# son karesiyle aynı kamera). Bu yüzden kamera, modelin yapabildiği yollarla değiştirilir:
+#   cut_in: kırp + iyileştir (ölçek daralıyor, açı farkı <= CUT_IN_MAX_SIDE): önceki karede karakterin kutusundan kırpılır,
+#           H3 boyutuna büyütülür, Qwen-Edit Lightning ile netleştirilir. Kamera fiziksel olarak aynı yerde, mercek daralır.
+#   angles: Multiple Angles LoRA (açı farkı >= MIN_SIDE): image 1'e göre "<sks> azimut yükseklik uzaklık".
+#   wide:   ölçek genişliyor: mekânın geniş görüntüsünden çizim (cut_anchor).
+CUT_METHODS = ("cut_in", "angles", "wide")
+CUT_IN_MAX_SIDE = 15
+METHOD_TR = {"cut_in": "kırp + iyileştir", "angles": "açı LoRA'sı", "wide": "geniş plandan çizim",
+             "anchor": "metinle kamera tarifi"}
+
+
+def cut_method(prev: dict | None, cam: dict | None, choice: str | None = None) -> str:
+    """Kesme karesinin yöntemi (yönetmenin seçimi önce): ölçek genişliyor -> wide; açı >= 30° -> angles; ölçek daralıyor
+    ve açı küçük -> cut_in. Aynı ölçekte küçük açı (kural dışı, elle kamera) -> angles."""
+    if choice in CUT_METHODS:
+        return choice
+    prev, cam = prev or {}, cam or {}
+    steps = SCALE_STEP.get(cam.get("shot"), 2) - SCALE_STEP.get(prev.get("shot"), 2)
+    turn = abs(int(cam.get("side") or 0) - int(prev.get("side") or 0))
+    if steps < 0:
+        return "wide"
+    if turn >= MIN_SIDE:
+        return "angles"
+    if steps > 0:
+        return "cut_in"
+    return "angles"
+
+
+def cut_attempts(method: str, prev: dict | None, cam: dict | None, angles_on: bool, attempts: int = 3) -> list[str]:
+    """Denemelerin yöntemleri. angles: LoRA kapalıysa ölçek daralıyorsa kırp + iyileştir, değilse metinle tarif
+    ("anchor"); açıksa son deneme kırp + iyileştir'e düşer (ölçek daralıyorsa). Kıvılcım SH03 (yakın, -35°, alçak):
+    ["angles", "angles", "cut_in"]."""
+    prev, cam = prev or {}, cam or {}
+    narrows = SCALE_STEP.get(cam.get("shot"), 2) > SCALE_STEP.get(prev.get("shot"), 2)
+    if method == "angles":
+        if not angles_on:
+            return ["cut_in" if narrows else "anchor"] * attempts
+        return ["angles"] * (attempts - 1) + ["cut_in" if narrows else "angles"]
+    if method == "cut_in":
+        return ["cut_in"] * attempts
+    return ["wide"] * attempts
+
+
+AZIMUTHS = {0: "front view", 45: "front-right quarter view", 90: "right side view", 135: "back-right quarter view",
+            180: "back view", -135: "back-left quarter view", -90: "left side view", -45: "front-left quarter view"}
+ELEVATIONS = {"low": "low-angle shot", "eye": "eye-level shot", "high": "elevated shot", "top": "high-angle shot",
+              "birds_eye": "high-angle shot"}
+DISTANCES = {"extreme_close_up": "close-up", "close_up": "close-up", "medium": "medium shot", "over_shoulder": "medium shot",
+             "pov": "medium shot", "wide": "wide shot", "extreme_wide": "wide shot"}
+
+
+def angle_tokens(base: dict | None, cam: dict | None) -> dict:
+    """Multiple Angles LoRA tokenleri: kameranın image 1'e (taban kare) göre yan açı farkı en yakın 45° adıma (+ sağ),
+    dikey açı ve ölçek. {"azimuth", "elevation", "distance", "turn", "text": "<sks> front-left quarter view low-angle
+    shot close-up"}."""
+    base, cam = base or {}, cam or {}
+    turn = int(cam.get("side") or 0) - int(base.get("side") or 0)
+    step = ((int(round(turn / 45.0)) * 45 + 180) % 360) - 180      # (-180, 180]
+    azimuth = AZIMUTHS[180 if step == -180 else step]
+    elevation = ELEVATIONS.get(cam.get("angle") or "eye", "eye-level shot")
+    distance = DISTANCES.get(cam.get("shot"), "medium shot")
+    return {"azimuth": azimuth, "elevation": elevation, "distance": distance, "turn": turn,
+            "text": f"<sks> {azimuth} {elevation} {distance}"}
+
+
 def plan_cut_camera(prev: dict | None, cam: dict | None, cast_count: int) -> dict | None:
     """Kesmede kamera önceki çekiminkiyle aynıysa (jump cut: yalnızca karakter değişir) kurala uyan, öncekinden en çok
     ayrışan aday kamera; senaryo kamerası zaten uyuyorsa ya da yönetmen kamerayı elle seçtiyse None.

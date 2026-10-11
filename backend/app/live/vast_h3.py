@@ -213,6 +213,8 @@ class Job:
     last_frame: str | None = None  # FL2VA: son kare (data URI; sonraki çekimin ilk karesi)
     audio: bool = True            # proje ayarı audio=off: ses VAE'si yüklenmez, ses çözülmez, video sessiz
     edit_mode: str = "full"       # Qwen-Image-Edit: full (40 adım, cfg 4) | medium (20, cfg 4) | lightning (4, cfg 1)
+    angles_lora: str = ""         # Qwen-Image-Edit Multiple Angles LoRA (yalnızca açı değişen kesme karesi; boşsa düğüm çıkar)
+    angles_strength: float = 0.0
 
     @property
     def names(self) -> list[str]:
@@ -222,6 +224,7 @@ class Job:
         return stable_hash([settings.h3_platform, settings.h3_backend, settings.h3_unet_variant, self.task, self.url, self.prompt, self.seed, self.seconds, self.width,
                             self.height, self.steps, self.keyframe, self.references,
                             *([self.negative, self.edit_mode] if self.task == "edit_keyframe" else []),
+                            *([self.angles_lora, self.angles_strength] if self.angles_lora else []),
                             *([self.last_frame] if self.last_frame else []),
                             *(["no-audio"] if not self.audio else [])])
 
@@ -471,6 +474,24 @@ def prune_unfilled(workflow: dict, values: dict) -> dict:
     return workflow
 
 
+def bypass_unused_loras(workflow: dict, values: dict) -> dict:
+    """Değeri gönderilmeyen LoRA yükleyicisi (`{{angles_lora}}`: Multiple Angles LoRA yalnızca açı karesinde) çıkarılır;
+    ona bağlanan düğümler yükleyicinin kendi model girdisine bağlanır. Dosya volume'a yüklenmemişken de diğer işler çalışır."""
+    for node_id, node in list(workflow.items()):
+        if node.get("class_type") != "LoraLoaderModelOnly":
+            continue
+        m = PLACEHOLDER.fullmatch(str((node.get("inputs") or {}).get("lora_name", "")).strip())
+        if not m or values.get(m.group(1)):
+            continue
+        source = node["inputs"].get("model")
+        for other in workflow.values():
+            for key, value in (other.get("inputs") or {}).items():
+                if isinstance(value, list) and len(value) == 2 and value[0] == node_id:
+                    other["inputs"][key] = source
+        workflow.pop(node_id)
+    return workflow
+
+
 def prune_references(workflow: dict, n: int) -> dict:
     """Gönderilen görselden fazla referans yuvasını çıkarır: `{{reference_k}}` (k > n) görselini yükleyen LoadImage
     düğümü, ona yalnızca isteğe bağlı referans girdilerinden (Ref2VA'nın `ref_images.ref_image_*`, Qwen-Image-Edit'in
@@ -544,6 +565,7 @@ class Comfy:
         kind = kind or comfy_kind(job)
         values = self.values(job, kind)
         workflow = prune_unfilled(prune_references(copy.deepcopy(load_workflow(kind)), len(job.references)), values)
+        workflow = bypass_unused_loras(workflow, values)      # açı LoRA'sı yalnızca RunPod'un açı karesinde
         workflow = fill(workflow if job.audio else strip_audio(workflow), values)
         r = self.c.post("/prompt", json={"prompt": workflow, "client_id": COMFY_CLIENT_ID})
         if r.status_code == 400:

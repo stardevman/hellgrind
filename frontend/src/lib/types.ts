@@ -104,6 +104,8 @@ export interface Scene {
   camera_plan?: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
   camera_effective?: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
   entry_mode?: string | null; entry_options?: string[] | null; entering?: string[] | null;
+  /** Kesme karesinin yöntemi: yönetmenin seçimi (null: otomatik), etkin yöntem ve denemelerin yöntemleri. */
+  cut_method?: string | null; cut_method_effective?: string | null; cut_attempts?: string[];
   /** Kazanan klibin varış skoru (son kare -> sonraki çekimin karesi ya da çekimin son karesi). */
   arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
   /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */
@@ -369,10 +371,12 @@ export interface CostEstimateShot {
   frame_usd: number; edit_mode?: string | null; probe_clip_usd: number; full_clip_usd: number; clips: number; expected_usd: number; max_usd: number;
   /** Çekim sonu karesi (Kn_end, Qwen-Image-Edit Lightning): sonraki çekim kesmeyle geliyorsa. */
   end_frame?: boolean; end_frame_usd?: number;
+  /** Kesme karesinin yöntemi ve kalemleri (kırp + iyileştir; açı LoRA'sı; ara kare). */
+  cut_method?: string; cut_attempts?: string[]; cut_place_usd?: number; cut_in_usd?: number | null; angles_usd?: number | null;
 }
 export interface CostEstimate {
   shots: CostEstimateShot[]; model_loads: number; cold_start_usd: number; expected_usd: number; max_usd: number;
-  end_frames?: number; end_frame_usd?: number;
+  end_frames?: number; end_frame_usd?: number; cut_in_frames?: number; angles_frames?: number;
   settings: { probe_n: number; probe_resolution: string; full_n: number; full_resolution: string; max_correction_rounds: number };
   platform: string; dry_run: boolean;
 }

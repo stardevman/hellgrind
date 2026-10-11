@@ -41,9 +41,16 @@ const BATCH_GROUP_TR: Record<string, string> = {
 };
 
 /** Kare denemesinin sebebi ve ölçümleri: " (yüz görünmedi)", " (kimlik Mila 0,47)", " (benzerlik Bolt 0,62)". */
+const CUT_METHOD_TR: Record<string, string> = {
+  cut_in: "kırp + iyileştir", angles: "açı LoRA'sı", wide: "geniş plandan", anchor: "metinle kamera tarifi",
+};
 const attemptText = (x: Record<string, unknown>) => {
   const reasons = (x.reasons as string[] | undefined) ?? (x.faces_seen === 0 ? ["no_face"] : []);
   const parts: string[] = [];
+  const method = CUT_METHOD_TR[String(x.cut_method ?? "")];
+  if (method) parts.push(method);
+  const cam = x.camera_change as { cut_in?: boolean; zoom?: number } | undefined;
+  if (cam?.cut_in) parts.push(`yakınlaşma ${num2(Number(cam.zoom ?? 0))}×`);
   if (reasons.includes("no_face")) parts.push("yüz görünmedi");
   const id = scores(x.identity), look = scores(x.look);
   if (id) parts.push(`kimlik ${id}`);
@@ -174,6 +181,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
+    case "cut_failed": return { t: `${x.code}: kesme yöntemi (${CUT_METHOD_TR[String(x.method ?? x.cut_method)] ?? x.cut_method}) uygulanamadı: ${x.error}; bu deneme metinle kamera tarifiyle çizildi`, c: "bad" };
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };
     case "budget_changed": return { t: `Bütçe ${usd(Number(x.old))} → ${usd(Number(x.new))}` };
