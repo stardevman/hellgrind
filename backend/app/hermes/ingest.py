@@ -133,6 +133,8 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
         s.flush()
 
         existing = {sc.scene_code: sc for sc in s.scalars(select(Scene).where(Scene.project_id == project_id))}
+        from app.config import project_settings
+        engine_cfg = project_settings(s.get(Project, project_id).settings)    # projenin taslak motoru
         for order, shot in enumerate(parsed["shots"], start=1):
             sc = existing.get(shot["scene_id"])
             fields = dict(seq_order=order, sequence_id=seqs[shot.get("sequence", DEFAULT_SEQUENCE["code"])].id,
@@ -144,14 +146,14 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             prompt = {"prompt": shot["visual_prompt"], "lang": lang}
             if sc is None:
                 sc = Scene(project_id=project_id, scene_code=shot["scene_id"], prompt_spec=prompt, **fields)
-                sc.engine = route_engine(sc)     # görsel özet motoru içerir: baştan yazılır, sonradan değişip render tetiklemez
+                sc.engine = route_engine(sc, engine_cfg)     # görsel özet motoru içerir: baştan yazılır, sonradan değişip render tetiklemez
                 s.add(sc)
                 created.append(shot["scene_id"])
             else:
                 for key, value in fields.items():
                     setattr(sc, key, value)
                 sc.prompt_spec = {**(sc.prompt_spec or {}), **prompt}    # düzeltme turlarının eklediği anahtarlar kalır
-                sc.engine = route_engine(sc)
+                sc.engine = route_engine(sc, engine_cfg)
                 updated.append(shot["scene_id"])
             s.flush()
             _write_cast(s, sc, shot, chars)

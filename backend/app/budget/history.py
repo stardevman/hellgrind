@@ -54,10 +54,19 @@ def describe(label: str) -> Described:
     çağrılan model(ler). Modeller çağrı anındaki ayarlardan (panelin Ayarlar sayfası) okunur."""
     head, *rest = label.split(":")
     purpose = next((p for p in rest if p in PURPOSES), None)
-    resolution = next((p for p in rest if p.endswith("p") and p[:-1].isdigit()), None)
-    if head == "h3":                           # MiniMax H3: RunPod Serverless (varsayılan) ya da vast.ai (deneysel)
+    resolution = next((p for p in rest if p[-1:] in ("p", "P") and p[:-1].isdigit()), None)
+    if head in ("h3max", "seedance25"):        # fal.ai video motorları (taslak / final)
+        video = {"h3max": (settings.fal_h3max_i2v_endpoint, settings.fal_h3max_ref_endpoint),
+                 "seedance25": (settings.fal_seedance25_i2v_endpoint, settings.fal_seedance25_ref_endpoint)}[head]
+        return Described("fal", purpose or "video", video, resolution)
+    if head == "h3":                           # MiniMax H3: RunPod Serverless ya da vast.ai (deneysel); kareler fal.ai'de
         service = "vast" if settings.h3_platform == "vast" else "runpod"
-        if purpose == "storyboard" or (purpose == "reference" and "qwen" in rest):   # aynı worker'da görsel modeli
+        if purpose == "storyboard" or (purpose == "reference" and "qwen" in rest):   # görsel modeli
+            if settings.keyframe_platform == "fal":
+                model = (settings.fal_qwen_edit_lora_endpoint if "angles" in rest else settings.fal_qwen_edit_endpoint) \
+                    if ("qwen_edit" in rest or "angles" in rest or "compose" in rest or "cut_in" in rest) \
+                    else settings.fal_qwen_image_endpoint
+                return Described("fal", purpose, (model,), resolution)
             return Described(service, purpose, (QWEN_EDIT if "qwen_edit" in rest else QWEN_IMAGE,), resolution)
         return Described(service, purpose or "video", (settings.h3_model,), resolution)
     if head == "elevenlabs":

@@ -11,8 +11,12 @@ export interface Preset {
 
 export interface Meta {
   dry_run: boolean;
-  /** MiniMax H3'ün çalıştığı platform: runpod (varsayılan) ya da vast (deneysel). */
-  h3_platform?: "runpod" | "vast";
+  /** Kendi barındırdığımız MiniMax H3'ün platformu: kapali (varsayılan; video fal.ai'de), runpod ya da vast (deneysel). */
+  h3_platform?: H3Platform;
+  /** Storyboard ve zincir karelerinin çizildiği yer (fal: Qwen-Image / Qwen-Image-Edit). */
+  keyframe_platform?: string;
+  /** Video motorları (fal.ai): taslak ve final motoru, seçilebilir motorlar ve çözünürlükler (Ayarlar'daki varsayılanlar). */
+  video?: VideoMeta;
   hermes_mode: string;
   tts_engine: string;
   quality?: QualityMeta;
@@ -20,6 +24,54 @@ export interface Meta {
   defaults: Record<string, number | string | boolean> & { probe_n: number; full_n: number };
   sample_script: string;
   trial_script?: string;
+}
+
+export type H3Platform = "runpod" | "vast" | "kapali";
+
+/** Video motoru: h3max (MiniMax H3 Max, taslak), seedance25 (Seedance 2.5, final), seedance (2.0 fast), h3 (RunPod). */
+export interface VideoEngine { id: string; label: string; disabled: boolean }
+
+export interface VideoMeta {
+  draft_engine: string; final_engine: string; engines: VideoEngine[];
+  h3max_resolutions: string[]; seedance25_resolutions: string[];
+  h3max_resolution: string; seedance25_resolution: string; seedance25_audio: boolean;
+}
+
+/** Çekimin fal.ai işi (bekleyen ya da son): kimlik, uç nokta, durum, hata ve sonucun özeti. */
+export interface FalRequest {
+  request_id?: string; endpoint?: string; engine?: string; mode?: string;
+  status?: "submitted" | "completed" | "failed"; error?: string;
+  submitted_at?: string | number; completed_at?: string | number;
+  result?: { seed?: number; draft_id?: string; billed?: number; endpoint?: string };
+}
+
+/** fal.ai video tahmini (pricing.fal_video_cost): reserve_usd bütçe kapısının ayırdığı tutardır. */
+export interface FalCost { usd?: number; reserve_usd: number; base_usd?: number; [key: string]: unknown }
+
+export interface FalReference { image: number; token: string; kind: string; name: string; key: string; description: string }
+export interface FalUpload { field: string; key: string; path?: string; upload?: string; sha256?: string }
+
+/** GET /scenes/{id}/fal-plan ve POST /scenes/{id}/render?dry_run=true: fal.ai'ye gidecek istek, gönderilmeden. */
+export interface FalPlan {
+  dry_run: boolean; scene_id?: string; scene_code: string; engine: string; engine_label: string; stages: string[];
+  paid_mode: boolean; network: false;
+  mode?: "i2v" | "ref"; mode_label?: string; reason?: string; endpoint?: string;
+  body?: Record<string, unknown>; uploads?: FalUpload[]; references?: FalReference[];
+  resolution?: string; audio?: boolean; duration?: number; cost?: FalCost;
+  unmapped_negatives?: string[]; notes?: string[];
+  upgrade?: { available: boolean; reason: string | null; engine: string; engine_label: string; mode: string; endpoint: string; cost: FalCost };
+  disabled?: boolean; message?: string; suggest?: string; note?: string;
+}
+
+/** GET /projects/{id}/render-plan?dry_run=true: her çekimin kuru planı ve toplamlar. */
+export interface RenderPlan {
+  dry_run: boolean; network: false; paid_mode: boolean; scenes: FalPlan[];
+  total_usd: number; upgrade_total_usd: number; engines: { draft: string; final: string };
+}
+
+/** POST /scenes/{id}/upgrade-final: "Seedance 2.5 ile yükselt". */
+export interface UpgradeFinal extends StageResult {
+  engine: string; from_engine: string | null; draft_variation_id: string; awaiting_board?: boolean;
 }
 
 export interface ProjectListItem {
@@ -80,6 +132,13 @@ export interface Grade { exposure: number; contrast: number; saturation: number;
 
 export interface Scene {
   id: string; scene_code: string; status: string; engine: string | null; sequence_id: string | null;
+  /** Motorun Türkçe adı; engine_disabled: motor h3 ve RunPod kapalı (üretilemez). */
+  engine_label?: string | null; engine_disabled?: boolean;
+  /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
+  video_opts?: { resolution?: string; audio?: boolean };
+  fal_request?: FalRequest | null;
+  /** "Seedance 2.5 ile yükselt" uygun: taslak motorla üretilmiş ve final motorunda değil. */
+  upgrade_available?: boolean;
   board_status: string; board_note: string | null; board_url: string | null;
   upgrade_requested: boolean; cut_tier: string | null; draft_url: string | null;
   method: string; method_hint: boolean; external_url: string | null; guide_url: string | null;
@@ -299,7 +358,7 @@ export interface SetupLog {
 }
 
 export interface ComfyWorkflow { kind: string; present: boolean; required: string[]; placeholders: string[]; error: string | null }
-export interface ComfyState { backend: string; platform?: "runpod" | "vast"; dir: string; workflows: ComfyWorkflow[] }
+export interface ComfyState { backend: string; platform?: H3Platform; dir: string; workflows: ComfyWorkflow[] }
 
 /** RunPod Serverless: son okunan durum (kayıttan; RunPod çağrılmaz) ve Ayarlar'daki istenen uç nokta ayarı. */
 export interface RunpodConfig {
@@ -307,7 +366,9 @@ export interface RunpodConfig {
   workers_min: number | null; workers_max: number | null; idle_timeout: number | null; flashboot?: unknown; at: number;
 }
 export interface RunpodState {
-  platform: "runpod" | "vast"; endpoint_id: string | null; datacenter: string; allowed_datacenters: string[];
+  platform: H3Platform; endpoint_id: string | null;
+  /** RunPod kullanılmıyor (platform runpod değil); disabled_message: kapali iken gösterilecek metin. */
+  disabled?: boolean; disabled_message?: string | null; datacenter: string; allowed_datacenters: string[];
   balance: { usd: number; spend_per_hr?: number | null; spend_limit?: number | null; at: number } | null;
   balance_low: boolean; min_balance: number; config: RunpodConfig | null;
   health: { jobs: Record<string, number>; workers: Record<string, number>; at: number } | null;

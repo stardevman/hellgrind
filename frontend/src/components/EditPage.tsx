@@ -5,12 +5,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { api } from "@/lib/api";
 import { parseIds, playable, toggle } from "@/lib/compare";
-import { EMOTION_COLOR, WORKING } from "@/lib/i18n";
+import { EMOTION_COLOR, ENGINE_TR, WORKING } from "@/lib/i18n";
 import { pickMedia, posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
-import { clock, dispatchText, eventText, tileSpec, usd } from "@/lib/text";
+import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
-import type { DispatchAll, Scene, Variation } from "@/lib/types";
+import type { DispatchAll, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
 import { Inspector } from "./Inspector";
 import { Panel, StatusDot, shortcutTarget } from "./ui";
@@ -65,6 +65,35 @@ type Player = ReturnType<typeof usePlayer>;
 
 /* ---------- çekim havuzu ---------- */
 
+/** Projenin kuru çalıştırma toplamı (GET render-plan?dry_run=true): taslak motoruyla bütün çekimler ve final motoruna
+    yükseltme. Yüklenecek dosyaların SHA-256'sını hesapladığı için yoklanmaz; "Hesapla" ile elle okunur. */
+function PlanTotal({ projectId }: { projectId: string }) {
+  const [plan, setPlan] = useState<RenderPlan | null>(null);
+  const [state, setState] = useState<"" | "busy" | string>("");
+  const run = () => {
+    setState("busy");
+    api.get<RenderPlan>(`/projects/${projectId}/render-plan?dry_run=true`)
+      .then((r) => { setPlan(r); setState(""); })
+      .catch((e: Error) => setState(e.message));
+  };
+  const off = plan ? plan.scenes.filter((r) => r.disabled).length : 0;
+  return (
+    <div className="pad stack" style={{ borderBottom: "1px solid var(--line)", gap: 4 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <span className="small">Tahmini toplam (taslak) <b className="mono">{plan ? usdTr(plan.total_usd) : "—"}</b></span>
+        <button className="btn ghost" type="button" disabled={state === "busy"} onClick={run}
+          title="Her çekimin fal.ai isteği gönderilmeden hesaplanır (kuru çalıştırma)">{state === "busy" ? "Hesaplanıyor…" : "Hesapla"}</button>
+      </div>
+      {plan && (
+        <span className="small dim">Final'e yükseltme <b className="mono">{usdTr(plan.upgrade_total_usd)}</b>
+          <span className="faint"> · {ENGINE_TR[plan.engines.draft] ?? plan.engines.draft} → {ENGINE_TR[plan.engines.final] ?? plan.engines.final}</span></span>
+      )}
+      {off > 0 && <span className="warn small">{off} çekim kapalı motorda (RunPod): denetçiden H3 Max'e geçin.</span>}
+      {state && state !== "busy" && <span className="bad small">{state}</span>}
+    </div>
+  );
+}
+
 function ShotBin() {
   const { ov, scene, selectScene, projectId, busy, frozen, act, note } = usePanel();
   const [tab, setTab] = useState<"shots" | "events">("shots");
@@ -95,6 +124,7 @@ function ShotBin() {
           </ol>
         ) : (
           <>
+            {projectId && <PlanTotal key={projectId} projectId={projectId} />}
             {blocked > 0 && (
               <div className="pad" style={{ borderBottom: "1px solid var(--line)" }}>
                 <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry}>Engellenen çekimleri yeniden dene ({blocked})</button>
@@ -121,6 +151,7 @@ function ShotBin() {
                         <StatusDot status={sc.status} />
                         <span className="mono faint">{usd(sc.spent_usd)}</span>
                         {sc.cut_tier === "draft" && <span className="tag warn">Taslak</span>}
+                        {sc.engine_disabled && <span className="tag bad" title="MiniMax H3 (RunPod) kapalı: denetçiden H3 Max'e geçin">Motor kapalı</span>}
                         {sc.upgrade_requested && <span className="tag info">İyileştirilecek</span>}
                       </span>
                     </button>

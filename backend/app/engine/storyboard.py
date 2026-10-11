@@ -48,6 +48,7 @@ EDIT_RETRIES = 2                       # Qwen-Image-Edit karesi kimlikten kalır
 PAID_SOURCES = ("flux", "comfyui", "qwen_edit")    # comfyui: Qwen-Image (metinden); qwen_edit: karakter referansından
 SHARED_SOURCES = ("comfyui", "qwen_edit")         # RunPod'da çizilen kare: Seedance de aynı kareden başlar
 SOURCE_LABEL = {"comfyui": "h3:storyboard", "qwen_edit": "h3:storyboard:qwen_edit"}
+H3_FAMILY = ("h3", "h3max", "seedance25")          # aynı kare zinciri: MiniMax H3 (RunPod) ve fal.ai motorları
 
 
 def outdated(current: str | None, source: str | None) -> bool:
@@ -119,16 +120,20 @@ def board_source(h3_mode: str = "fl2va", explicit: bool = False, model: str = "q
         return "local"
     if settings.h3_keyframe_reference == "flux_kontext" and paid.available("fal_key"):
         return "flux"
+    from app.engine import frames
+    if frames.platform() == "fal":                  # fal.ai'de Qwen-Image / Qwen-Image-Edit (varsayılan)
+        if frames.ready():
+            return "qwen_edit" if model == "qwen_edit" else "comfyui"
+        return "local"
     if settings.h3_platform == "vast":
         if paid.available("vast_api_key"):
             from app.live import vast_h3            # ücretli modül: yalnızca fonksiyon içinde
             if vast_h3.comfy_keyframes_ready():
                 return "comfyui"
-    elif paid.available("runpod_api_key"):
-        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
-        if model == "qwen_edit" and runpod_h3.keyframes_ready("edit_keyframe"):
+    elif settings.h3_platform == "runpod" and paid.available("runpod_api_key"):
+        if model == "qwen_edit" and frames.ready("edit_keyframe"):
             return "qwen_edit"
-        if runpod_h3.keyframes_ready():
+        if frames.ready():
             return "comfyui"
     return "flux" if paid.available("fal_key") else "local"
 
@@ -454,8 +459,8 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
     """Ücretli kare (yazısız): fal.ai Flux (karakter LoRA'larıyla ya da referans görseliyle Kontext) ya da H3
     makinesindeki ComfyUI görsel iş akışı. Kilit rezervasyondan önce çalışır; geçici hatalar yeniden denenir.
     details: harcama geçmişine yazılır (ör. kalite kapısı denemesi)."""
-    if source == "qwen_edit":                       # RunPod worker'ında Qwen-Image-Edit-2511, karakter referansından
-        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
+    from app.engine import frames
+    if source == "qwen_edit":                       # Qwen-Image-Edit-2511 (fal.ai ya da RunPod), karakter referansından
         refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
         chain = extra.get("chain")
         if extra.get("end"):                        # çekim sonu karesi (Kn_end): Kn'den, eylem tamamlanmış
@@ -464,22 +469,22 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
             text = chain_prompt(prompt, refs, chain["transition"], chain.get("plan"), extra.get("camera"))
         else:
             text = edit_prompt(prompt, refs)
-        made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), extra.get("label") or SOURCE_LABEL[source],
-                         "runpod_api_key",
-                         lambda: runpod_h3.edit_keyframe_image(text, seed, refs, extra.get("negative", ""), project_id,
-                                                               mode),
+        made = paid.call(project_id, frames.estimate("qwen_edit", mode), extra.get("label") or SOURCE_LABEL[source],
+                         frames.key_name(),
+                         lambda: frames.edit_keyframe_image(text, seed, refs, extra.get("negative", ""), project_id,
+                                                            mode),
                          scene_id=scene_id, details={**(details or {}), "edit_mode": mode})
         local = made.local_path
-    elif source == "comfyui":                       # H3 platformundaki ComfyUI (RunPod worker'ı ya da vast.ai makinesi)
-        if settings.h3_platform == "vast":
+    elif source == "comfyui":                       # Qwen-Image (metinden): fal.ai, RunPod worker'ı ya da vast.ai makinesi
+        if frames.platform() == "runpod" and settings.h3_platform == "vast":
             from app.live import vast_h3 as platform    # ücretli modül: yalnızca fonksiyon içinde
-            key_name = "vast_api_key"
+            made = paid.call(project_id, pricing.estimate_keyframe(), SOURCE_LABEL[source], "vast_api_key",
+                             lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id,
+                             details=details)
         else:
-            from app.live import runpod_h3 as platform
-            key_name = "runpod_api_key"
-        estimate = platform.estimate_keyframe() if hasattr(platform, "estimate_keyframe") else pricing.estimate_keyframe()
-        made = paid.call(project_id, estimate, SOURCE_LABEL[source], key_name,
-                         lambda: platform.keyframe_image(prompt, seed, project_id), scene_id=scene_id, details=details)
+            made = paid.call(project_id, frames.estimate("qwen"), SOURCE_LABEL[source], frames.key_name(),
+                             lambda: frames.keyframe_image(prompt, seed, project_id), scene_id=scene_id,
+                             details=details)
         local = made.local_path
     else:
         from app.live import fal_video              # ücretli modül: yalnızca fonksiyon içinde
@@ -521,10 +526,10 @@ def cut_plan(method: str, anchor: dict, camera: dict, code: str, fp: str, focus:
 
 def _edit_call(out_path: str, project_id: str, scene_id: str, seed: int, text: str, refs: list[dict], negative: str,
                mode: str, label: str, details: dict, angles: dict | None = None, noted: dict | None = None) -> str:
-    from app.live import runpod_h3                  # ücretli modül: yalnızca fonksiyon içinde
-    made = paid.call(project_id, runpod_h3.estimate_keyframe("qwen_edit", mode), label, "runpod_api_key",
-                     lambda: runpod_h3.edit_keyframe_image(text, seed, refs, negative, project_id, mode, angles=angles,
-                                                           noted=noted),
+    from app.engine import frames                   # fal.ai ya da RunPod (KEYFRAME_PLATFORM)
+    made = paid.call(project_id, frames.estimate("qwen_edit", mode, angles=bool(angles)), label, frames.key_name(),
+                     lambda: frames.edit_keyframe_image(text, seed, refs, negative, project_id, mode, angles=angles,
+                                                        noted=noted),
                      scene_id=scene_id, details={**details, "edit_mode": mode, **(noted or {})})
     try:
         with Image.open(made.local_path) as im:
@@ -1145,7 +1150,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
                      camera=camera_of(scene), state_text=composed.exception)
         dialogue = dialogue_of(s, scene_id)
         target = scorer.target_for(scene, chars, style)
-        mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") == "h3" else "fl2va"
+        mode = effective_mode(scene, chars, assets) if (scene.engine or "h3") in H3_FAMILY else "fl2va"
         info = dict(code=scene.scene_code, camera=camera_of(scene), duration=scene.duration_s,
                     board_key=scene.board_key, board_hash=scene.board_hash, board_status=scene.board_status,
                     board_source=scene.board_source, keyframe_key=scene.keyframe_key, board_sha=scene.board_sha,
@@ -1249,7 +1254,7 @@ def end_wanted(s, scene, cfg: dict, chars=(), assets=()) -> bool:
     from app.core.h3mode import effective_mode
     if not cfg.get("chain_end_frame", True) or not chain_enabled():
         return False
-    if (scene.engine or "h3") != "h3" or (scene.method or "generate") != "generate" \
+    if (scene.engine or "h3") not in H3_FAMILY or (scene.method or "generate") != "generate" \
             or effective_mode(scene, chars, assets) != "fl2va":
         return False
     return next_continuous(s, scene) is None

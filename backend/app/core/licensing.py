@@ -42,7 +42,8 @@ class Restricted:
 
 
 def _real_h3():
-    return (Variation.engine == "h3") & Variation.external_request_id.is_not(None) \
+    # MiniMax H3 (kendi barındırdığımız) ve H3 Max (fal.ai'de barındırılan): tutucu davranılır, ikisi de eğitim dışı
+    return Variation.engine.in_(("h3", "h3max")) & Variation.external_request_id.is_not(None) \
         & ~Variation.external_request_id.startswith("local-")
 
 

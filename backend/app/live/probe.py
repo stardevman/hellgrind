@@ -23,7 +23,7 @@ def _request(service: str, key: str) -> httpx.Request:
     if service == "elevenlabs":                             # hesap bilgisi: ücretsiz
         return httpx.Request("GET", "https://api.elevenlabs.io/v1/user", headers={"xi-api-key": key})
     if service == "fal":                                    # var olmayan bir isteğin durumu: kuyruğa iş girmez
-        return httpx.Request("GET", f"https://queue.fal.run/{settings.fal_flux_endpoint}/requests/{ZERO_REQUEST}/status",
+        return httpx.Request("GET", f"https://queue.fal.run/{settings.fal_h3max_i2v_endpoint}/requests/{ZERO_REQUEST}/status",
                              headers={"Authorization": f"Key {key}"})
     raise ValueError(f"Bilinmeyen servis: {service}")
 
@@ -33,8 +33,13 @@ def check(service: str, key: str, transport: httpx.BaseTransport | None = None) 
     if not key:
         return {"ok": False, "status": None, "message": "Anahtar tanımlı değil."}
     if service == "vast":
+        if settings.h3_platform == "kapali":
+            return {"ok": None, "status": None, "message": "vast.ai kapalı (H3_PLATFORM=kapali): çağrı yapılmadı."}
         return check_h3(key, transport)
     if service == "runpod":
+        if settings.h3_platform != "runpod":
+            return {"ok": None, "status": None,
+                    "message": "RunPod: kapalı (endpoint silindi). H3_PLATFORM=runpod olmadıkça çağrı yapılmaz."}
         return check_runpod(key)
     try:
         with httpx.Client(timeout=TIMEOUT, transport=transport) as client:

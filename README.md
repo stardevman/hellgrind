@@ -11,7 +11,7 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 3. **Tek bir stil dili kullanır.** Işık dili, hareket tarzı ve render kuralları projenin sürümlü *stil kılavuzundan* gelir ve her çekimin prompt'una aynı ifadeyle eklenir. Kılavuz değişince önce hangi çekimlerin yeniden üretileceği ve kaça mal olacağı gösterilir; yönetmen onaylamadan hiçbir şey üretilmez.
 4. **Önce storyboard, sonra kaba kurgu.** Her çekimin storyboard karesi yönetmen onayından geçer (istenirse zorunlu). Taslak geçiş yalnızca test turuyla filmin kaba kurgusunu çıkarır; yalnızca zayıf bulunan çekimler tam turla iyileştirilir.
 5. **Her çekim için yöntem seçtirir.** Çekim yapay zekâyla üretilebilir, bir previs (3D taslak) rehberinden çıkarılabilir ya da dışarıda bitirilip yüklenebilir. Üretilen klipler elle düzeltilip yeniden yüklenebilir; orijinal korunur.
-6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir; ücretli modda **MiniMax H3** kendi GPU sunucunuzda (ör. vast.ai) üretir, istenen çekimlerde Seedance (fal.ai).
+6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir; ücretli modda taslak **MiniMax H3 Max**, final **Seedance 2.5** ile fal.ai'de üretilir (kendi barındırdığımız MiniMax H3 / RunPod kapalıdır).
 7. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
 8. **Rengi ve sürekliliği denetler.** Film geneli bir LUT ve çekim bazında renk ayarı uygular; ardışık çekimler arasındaki renk sıçramalarını bulur ve tek tıkla uygulanabilir bir düzeltme önerir.
 9. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
@@ -378,7 +378,43 @@ dolunca Kill-Switch üretimi durdurur.
 > Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
 > yazabildiği için paneli ağa açmayın.
 
-## Video motoru: MiniMax H3 (RunPod Serverless)
+## Video motoru: fal.ai (taslak MiniMax H3 Max, final Seedance 2.5)
+
+RunPod uç noktası ve volume silindi: kendi barındırdığımız MiniMax H3 **kapalıdır** (`H3_PLATFORM=kapali`, varsayılan;
+dakikalık RunPod görevi ve bağlantı sınaması hiçbir RunPod çağrısı yapmaz, Ayarlar kartı "RunPod: kapalı (endpoint
+silindi)" der). Kod duruyor: `H3_PLATFORM=runpod` ile yeniden açılır. Yönetmenin ücretli karşılaştırma testinde (aynı 5
+referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak için **MiniMax H3 Max** seçildi; Kling O3 elendi.
+
+- **İş akışı:** yeni çekimler taslak motoruyla (`VIDEO_DRAFT_ENGINE=h3max`, proje ayarı `draft_engine` önce gelir) üretilir:
+  çekim başına tek klip (kalite kapısından kalırsa en çok `fal_clip_attempts`, varsayılan 2). Beğenilen çekimde denetçideki
+  **Seedance 2.5 ile yükselt** (ya da "İyileştir" işareti + iyileştirme geçişi) final motoruyla (`VIDEO_FINAL_ENGINE=seedance25`)
+  yeniden üretir: aynı kare ve referanslar kullanılır (görsel özet motor ailesini görür, kare yeniden çizilmez), eski klip
+  varyasyon olarak kalır. Eski `h3` çekimleri hata vermez; denetçi "Bu motor kapalı; H3 Max'e geç" önerir (tek tık).
+- **Mod (çekim başına):** onaylı başlangıç karesi (yüklenen kare ya da onaylanmış storyboard karesi) varsa image-to-video
+  (bitiş karesi varsa `end_image_url`), yoksa reference-to-video: karakter, nesne ve mekân referans görselleri bu sırayla
+  numaralanır, istem her birini tarifi ve numarasıyla yazar (Seedance `@Image1`, H3 Max `Image 1`; tarifteki `[Image1]` de
+  kabul edilir). Denetçideki koşul seçici (`h3_mode`) bu iki moda eşlenir; seçilen modun gerekçesi denetçide yazar.
+- **Kuyruk:** submit → status → result; `request_id` çekime yazılır (`scenes.fal_request`), görev yeniden başlarsa ya da panel
+  kapanıp açılırsa bekleyen iş yeniden gönderilmez, sürdürülür. 4xx (ör. 422) yeniden denenmez, mesaj denetçide olduğu
+  gibi görünür; yalnızca 5xx'te bir yeniden gönderim; zaman aşımında (Seedance 10 dk, H3 Max 6 dk) aynı iş bir pencere daha
+  beklenir, sonra iptal edilir. Yerel dosyalar fal deposuna SHA-256 önbellekli yüklenir; çıktı gelir gelmez indirilip yerel
+  depoya yazılır. Kayda tohum, `expanded_prompt` (H3), `draft_id` (Seedance) ve tahmini faturalanan birimler düşer.
+- **Maliyet (bütçe kapısı çağrıdan önce):** Seedance 2.5 token = yükseklik × genişlik × (girdi videosu sn + çıktı sn) × 24 /
+  1024; 480p/720p 0,0214 $, 1080p 0,0234 $ / 1000 token, video referansı varsa × 0,6; rezervasyona %25 pay (test: formül
+  216 bin, fatura 260,28 bin token = 5,57 $). H3 Max: süre × 0,05 / 0,08 / 0,16 $ (480P / 768P / 1080P) + her girdi görseli
+  1.024 token (4.096 dahil, fazlası 0,02 $ / 1000), × 1,05 (test: 10 sn 768P + 5 görsel ≈ 0,86 $). `pricing.yaml › fal_video`.
+- **Kuru çalıştır:** `POST /api/scenes/{id}/render?dry_run=true` ve `GET /api/projects/{id}/render-plan?dry_run=true`
+  fal.ai'ye gitmeden uç noktayı, tam istek gövdesini (dosyalar yerel anahtar ve SHA-256 olarak; yükleme yapılmaz), referans
+  numaralandırmasını, maliyet tahminini ve motor/mod gerekçesini döndürür.
+- **Kareler fal.ai'de** (`KEYFRAME_PLATFORM=fal`): Qwen-Image-2512 (`fal-ai/qwen-image-2512`, 0,02 $/MP), Qwen-Image-Edit-2511
+  (`fal-ai/qwen-image-edit-2511`, 0,03 $/MP; zincir, compose, kırp + iyileştir), açı değişimi Multiple Angles LoRA ile
+  (`fal-ai/qwen-image-edit-2511/lora`, 0,035 $/MP; `loras[].path` Hugging Face adresi, istem "<sks> azimut yükseklik
+  uzaklık" biçiminde). Hazır `fal-ai/qwen-image-edit-2511-multiple-angles` uç noktası açıyı sayıyla ister ve "<sks>" metnini
+  almaz, bu yüzden kullanılmaz. Kapılar (kimlik, kopya, ölçek, renk, çerçeve, sıçrama) değişmedi. Lightning'in fal karşılığı
+  yok: `lightning` = 10 adım + `acceleration: high` (fiyat adımdan bağımsız).
+- **Lisans:** MiniMax H3 Max çıktılarından türeyen kürasyon kararları da (H3 gibi) eğitim dışa aktarımına girmez.
+
+## Video motoru: MiniMax H3 (RunPod Serverless) — kapalı
 
 Ücretli modda test turu, tam tur, hareket testi, karakter dönüş videosu ve düzenlenmiş ilk kareden video **MiniMax H3**
 ile üretilir. Varsayılan platform **RunPod Serverless**: modeller bir Network Volume'da (CA-MTL-1), iş geldikçe worker açılır,

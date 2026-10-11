@@ -79,6 +79,21 @@ def shot(cfg: dict, code: str, duration_s: float, engine: str = "h3", mode: str 
             "max_usd": round(worst, 4), **(items or {})}
 
 
+def fal_shot(cfg: dict, code: str, duration_s: float, engine: str, mode: str = "ref", images: int = 0,
+             frame_usd: float = 0.0, prices: dict | None = None) -> dict:
+    """fal.ai motoru (H3 Max / Seedance 2.5): çekim başına tek klip, motorun çözünürlüğünde; kalite kapısından kalırsa
+    en çok fal_clip_attempts klip (en çok). frame_usd: açık image-to-video'da önce çizilecek kare (fal.ai Qwen)."""
+    from app.engine import fal_plan
+    clip = fal_plan.cost(engine, fal_plan.resolution(engine), duration_s, images)
+    attempts = max(1, int(cfg.get("fal_clip_attempts", 2)))
+    return {"code": code, "duration_s": duration_s, "billed_seconds": fal_plan.billed_seconds(engine, duration_s),
+            "engine": engine, "mode": mode, "frame": "qwen_edit" if frame_usd else None, "frame_usd": round(frame_usd, 4),
+            "edit_mode": None, "end_frame": False, "end_frame_usd": 0.0, "probe_clip_usd": clip["reserve_usd"],
+            "full_clip_usd": clip["reserve_usd"], "clip_usd": clip["reserve_usd"], "resolution": clip["resolution"],
+            "images": images, "clips": 1, "expected_usd": round(frame_usd + clip["reserve_usd"], 4),
+            "max_usd": round(frame_usd + clip["reserve_usd"] * attempts, 4)}
+
+
 def summarize(shots: list[dict], prices: dict | None = None) -> dict:
     models = {s["frame"] for s in shots if s["frame"] in ("qwen", "qwen_edit")} | \
         {s["mode"] for s in shots if s["engine"] == "h3"} | ({"qwen_edit"} if any(s.get("end_frame") for s in shots) else set())
@@ -97,9 +112,15 @@ def summarize(shots: list[dict], prices: dict | None = None) -> dict:
 def from_script(text: str, cfg: dict) -> dict:
     """Senaryodan (proje yokken): her çekim H3 FL2VA; karakterli çekimin karesi Qwen-Image-Edit sayılır (referanslar
     üretimden önce onaylanır; lint aksi hâlde üretimi durdurur)."""
+    from app.engine import fal_plan
     from app.hermes import rules
     edit = settings.keyframe_character_provider == "qwen_edit"
     shots = rules.parse(text)["shots"]
+    engine = fal_plan.draft_engine(cfg)
+    if fal_plan.is_fal(engine):                     # taslak fal motoru: referans görselleriyle (karakter başına bir)
+        return summarize([fal_shot(cfg, s["scene_id"], float(s.get("duration_s") or 4.0), engine, "ref",
+                                   len(set(s.get("characters") or []) | set(s.get("carried") or [])))
+                          for s in shots])
     ends = [i + 1 == len(shots) or shots[i + 1].get("transition") != "continuous"
             or shots[i + 1].get("sequence") != s.get("sequence") for i, s in enumerate(shots)]
     return summarize([shot(cfg, s["scene_id"], float(s.get("duration_s") or 4.0),
@@ -122,6 +143,10 @@ def from_project(s, project_id: str, cfg: dict) -> dict:
         group = sc.sequence_id or sc.project_id
         prev, previous[group] = previous.get(group), sc
         if (sc.method or "generate") == "external":
+            continue
+        from app.engine import fal_plan
+        if fal_plan.is_fal(sc.engine):              # fal.ai: kuru çalıştırmanın modu ve görsel sayısı
+            out.append(fal_estimate(s, sc, cfg))
             continue
         cut = None
         chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
@@ -146,3 +171,22 @@ def from_project(s, project_id: str, cfg: dict) -> dict:
                        max_usd=round(row["max_usd"] - row["frame_usd"], 4), frame_usd=0.0)
         out.append(row)
     return summarize(out)
+
+
+def fal_estimate(s, sc, cfg: dict, engine: str | None = None) -> dict:
+    """fal.ai çekiminin tahmini (ağ yok, depoya bakılmaz): mod, görsel sayısı, klip ve gerekirse önce çizilecek kare."""
+    from app.core.h3mode import strict_refs
+    from app.core.hashing import visual_fingerprint
+    from app.core.state import load_assets, load_characters
+    from app.engine import fal_plan
+    from app.style import bible
+    engine = engine or sc.engine
+    chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+    fp = visual_fingerprint(sc, chars, assets, bible.active_version(s, sc.project_id))
+    refs = fal_plan.references(sc, chars, assets, strict_refs(cfg))
+    frame = sc.keyframe_key or (sc.board_key if sc.board_hash == fp and sc.board_status == "approved" else None)
+    mode, _ = fal_plan.choose_mode(sc, frame, "upload" if sc.keyframe_key else "board", refs)
+    usable = frame or (sc.board_key if sc.board_hash == fp and sc.board_status != "changes_requested" else None)
+    frame_usd = pricing.estimate_keyframe("h3", model="qwen_edit") if mode == "i2v" and not usable else 0.0
+    images = len(refs) if mode == "ref" else 1
+    return fal_shot(cfg, sc.scene_code, float(sc.duration_s or 4.0), engine, mode, images, frame_usd)

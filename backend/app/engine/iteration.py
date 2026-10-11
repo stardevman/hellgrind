@@ -40,7 +40,9 @@ from app.core.h3mode import effective_mode
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
-from app.engine.providers import GenRequest, TransientError, get_provider, route_engine
+from app.engine import fal_plan
+from app.engine.providers import (H3_DISABLED, GenRequest, ProviderError, TransientError, get_provider, h3_disabled,
+                                  route_engine)
 from app.hermes import lint
 from app.style import bible
 from app.style.composer import Composed, compose_prompt
@@ -388,13 +390,37 @@ def summarize(results: list[VarResult]) -> dict:
 
 # ---------- sahne ----------
 
+def fal_setup(s, ctx: Ctx, scene, chars, assets, style, composed, cfg: dict) -> tuple:
+    """fal.ai motoru (H3 Max / Seedance 2.5): mod, referanslar ve gönderilecek istem (kuru çalıştırmayla aynı kural,
+    engine/fal_plan.py). (ilk kare, son kare, son karenin türü)."""
+    from app.core.h3mode import strict_refs
+    engine = scene.engine
+    refs = fal_plan.references(scene, chars, assets, strict_refs(cfg),
+                               fal_plan.H3_MAX_REFERENCES if engine == "h3max" else fal_plan.SEEDANCE_MAX_REFERENCES)
+    frame_key, frame_source = fal_plan.start_frame(scene, ctx.visual_hash)
+    mode, reason = fal_plan.choose_mode(scene, frame_key, frame_source, refs)
+    if mode == "i2v" and not frame_key:
+        frame_key = keyframe_of(scene, ctx.visual_hash)   # açık i2v: kalite kapısından geçmiş güncel kare
+    last_key, last_kind = last_frame_of(s, scene, style.version if style else None, cfg) \
+        if mode == "i2v" and frame_key else (None, None)
+    names = [ch.name for ch in chars] + [a.name for a in assets if a.type == "character"]
+    prompt, unmapped = fal_plan.build_prompt(engine, mode, composed, refs, style, names)
+    ctx.prompt_spec["prompt"] = prompt                  # varyasyon kaydındaki istem, gönderilenin kendisi
+    images = (len(refs) if mode == "ref" else 0) + int(bool(frame_key)) + int(bool(last_key))
+    ctx.render.update(h3_mode="fl2va" if mode == "i2v" else "ref2va", fal_mode=mode, fal_reason=reason,
+                      fal_refs=[r.key for r in refs] if mode == "ref" else [], fal_ref_names=[r.name for r in refs],
+                      fal_images=images, fal_audio=fal_plan.audio(engine, scene),
+                      fal_resolution=fal_plan.resolution(engine, scene), fal_unmapped=unmapped)
+    return frame_key, last_key, last_kind
+
+
 def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None = None) -> Ctx:
     killswitch.r().delete(CHAIN_STALE.format(scene_id))   # yeni çalıştırma güncel karelerle başlar
     with session_scope() as s:
         project, scene = s.get(Project, project_id), s.get(Scene, scene_id)
         cfg = project_settings(project.settings)
         if scene.engine is None:                          # yönlendirme normalde ingest/API'de yazılır
-            scene.engine = route_engine(scene)
+            scene.engine = route_engine(scene, cfg)
         scene.status, scene.last_error = "probing", None
         if project.status == "draft":
             project.status = "producing"
@@ -425,9 +451,12 @@ def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None =
                     "audio": cfg.get("audio", "on") != "off",
                     "label": f"{scene.scene_code}  {camera.get('shot', '')} {camera.get('movement', '')}"},
             target=scorer.target_for(scene, chars, style))
-        keyframe_key = seam_key or keyframe_of(scene, visual_hash)
-        last_key, last_kind = last_frame_of(s, scene, style.version if style else None, cfg) \
-            if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
+        if fal_plan.is_fal(scene.engine):                 # fal.ai: mod (i2v / ref), istem, referanslar
+            keyframe_key, last_key, last_kind = fal_setup(s, ctx, scene, chars, assets, style, composed, cfg)
+        else:
+            keyframe_key = seam_key or keyframe_of(scene, visual_hash)
+            last_key, last_kind = last_frame_of(s, scene, style.version if style else None, cfg) \
+                if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
         if seam_key:
             ctx.render["seam"] = True                     # kesintisiz dikiş: ilk kare önceki klibin gerçek son karesi
         ctx.render["cond"] = conditioning(s, scene, keyframe_key, last_key, last_kind)
@@ -498,7 +527,7 @@ def keyframe_of(scene, fp: str) -> str | None:
     yoksa Seedance her varyasyon için kendi Flux karesini üretir (önce görsel, sonra video)."""
     from app.engine.storyboard import SHARED_SOURCES, clean_key
     engine = scene.engine or "h3"
-    if engine not in ("h3", "seedance"):
+    if engine not in ("h3", "seedance", "h3max", "seedance25"):
         return None
     if scene.keyframe_key:
         return scene.keyframe_key
@@ -540,6 +569,15 @@ def current_conditioning(s, scene) -> str | None:
     fp = visual_fingerprint(scene, load_characters(s, scene.id), load_assets(s, scene.id), style)
     keyframe_key = keyframe_of(scene, fp)
     cfg = project_settings(s.get(Project, scene.project_id).settings)
+    if fal_plan.is_fal(scene.engine):                    # fal: ilk kare yalnızca image-to-video'da
+        chars, assets = load_characters(s, scene.id), load_assets(s, scene.id)
+        from app.core.h3mode import strict_refs
+        frame_key, source = fal_plan.start_frame(scene, fp)
+        mode, _ = fal_plan.choose_mode(scene, frame_key, source, fal_plan.references(scene, chars, assets,
+                                                                                     strict_refs(cfg)))
+        keyframe_key = (frame_key or keyframe_key) if mode == "i2v" else None
+        last_key, last_kind = last_frame_of(s, scene, style, cfg) if keyframe_key else (None, None)
+        return conditioning(s, scene, keyframe_key, last_key, last_kind)
     last_key, last_kind = last_frame_of(s, scene, style, cfg) \
         if keyframe_key and effective_mode(scene) == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
     return conditioning(s, scene, keyframe_key, last_key, last_kind)
@@ -715,9 +753,13 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         scene = s.get(Scene, scene_id)
         chars, assets = load_characters(s, scene_id), load_assets(s, scene_id)
         engine = scene.engine or "h3"
-        if engine not in ("h3", "seedance") or (scene.method or "generate") != "generate" \
+        if engine not in ("h3", "seedance", "h3max", "seedance25") or (scene.method or "generate") != "generate" \
                 or (engine == "h3" and effective_mode(scene, chars, assets) == "ref2va"):
             return False                                  # Ref2VA ilk kareyi kullanmaz: kare çizilmez
+        if fal_plan.is_fal(engine) and scene.h3_mode != "fl2va":
+            return False                                  # fal otomatik mod: onaylı kare yoksa reference-to-video'
+        if fal_plan.is_fal(engine):
+            engine = "h3"                                 # açık image-to-video: kare H3 FL2VA gibi çizilir
         style = bible.active_version(s, project_id)
         fp = visual_fingerprint(scene, chars, assets, style)
         strict = strict_refs(s.get(Project, project_id).settings)
@@ -801,6 +843,12 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
     if method == "previs_guide":                          # yönlendirici: rehberli çekim üretilmez, rehberden çıkar
         from app.engine.methods import run_guide
         return run_guide(project_id, scene_id, visual_hash, style)
+    with session_scope() as s:
+        engine = s.get(Scene, scene_id).engine
+    if not settings.dry_run and h3_disabled(engine):      # RunPod/vast.ai H3 kapalı: hiçbir çağrı yapılmaz
+        advance_scene(project_id, scene_id, status="needs_review", last_error=H3_DISABLED)
+        killswitch.event(project_id, "engine_disabled", scene_id=scene_id, engine="h3")
+        return "needs_review"
     gate.ensure_scorer()                                  # para harcanmadan önce (rehber ve dış çekim skor kullanmaz)
     seam, seam_key = wait_for_seam(project_id, scene_id)  # kesintisiz dikiş: önceki çekimin gerçek son karesi
     if seam == "stop":
@@ -809,12 +857,50 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
         return "board_review"
     ctx = _prepare(project_id, scene_id, uuid.uuid4().hex, seam_key)
     try:
+        if fal_plan.is_fal(ctx.provider.engine):
+            return _fal_clip(ctx, project_id, scene_id)
         return _tiered(ctx, project_id, scene_id, mode)
+    except ProviderError as e:                            # ör. fal.ai 422: yeniden denenmez, mesaj olduğu gibi
+        advance_scene(project_id, scene_id, status="needs_review", last_error=str(e))
+        killswitch.event(project_id, "provider_rejected", scene_id=scene_id, error=str(e)[:300])
+        return "needs_review"
     except ChainStale as e:                               # zincirdeki kare değişti: eski kareden video üretilmez
         advance_scene(project_id, scene_id, status="board_review",
                       last_error=f"Üretim durdu: {e}. Kare zincirle yeniden çizilip video yeniden üretilecek.")
         killswitch.event(project_id, "chain_stale_stop", scene_id=scene_id, reason=str(e))
         return "board_review"
+
+
+def _fal_clip(ctx: Ctx, project_id: str, scene_id: str) -> str:
+    """fal.ai motoru: çekim başına tek klip (taslak: H3 Max test turu kaydı; final: Seedance 2.5 tam tur kaydı). Kalite
+    kapısından kalırsa en çok `fal_clip_attempts` klip, her biri yeni tohumla ve ayrı ücretli. Geçen klip havuzun tek adayı
+    olur; önceki kazanan silinmez, varyasyon olarak (`passed`) kalır (taslağa yönetmen seçimiyle dönülebilir)."""
+    engine = ctx.provider.engine
+    tier = fal_plan.tier_of(engine, ctx.cfg)
+    resolution = ctx.render["fal_resolution"]
+    attempts = max(1, int(ctx.cfg.get("fal_clip_attempts", 2)))
+    advance_scene(project_id, scene_id, status="generating")
+    results = []
+    for idx in range(attempts):
+        result = run_one(ctx, tier, 0, idx, resolution)
+        results.append(result)
+        killswitch.event(project_id, "fal_clip", scene_id=scene_id, engine=engine, mode=ctx.render.get("fal_mode"),
+                         attempt=idx + 1, passed=result.passed)
+        if result.passed:
+            break
+    winner = next((r for r in results if r.passed), None)
+    if winner is None:
+        advance_scene(project_id, scene_id, status="needs_review",
+                      last_error=f"{fal_plan.ENGINE_TR.get(engine, engine)}: {len(results)} klip kalite kapısından "
+                                 "geçmedi. Adaylardan birini yönetmen seçimiyle kabul edebilir ya da yeniden "
+                                 "üretebilirsiniz.")
+        return "needs_review"
+    gate.set_single_winner(scene_id, winner.id, {
+        "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
+        "last_error": None, "cut_tier": "final" if tier == "full" else "draft", "upgrade_requested": False})
+    killswitch.event(project_id, "refined", scene_id=scene_id, pool=1, engine=engine, tier=tier)
+    invalidate_next_seam(project_id, scene_id)
+    return "refined"
 
 
 def _tiered(ctx: Ctx, project_id: str, scene_id: str, mode: str) -> str:

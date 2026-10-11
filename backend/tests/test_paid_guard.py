@@ -77,15 +77,20 @@ def test_free_mode_is_the_default_and_paid_keys_default_to_empty(monkeypatch):
     assert (defaults.vast_api_key, defaults.h3_api_key, defaults.fal_key, defaults.anthropic_api_key,
             defaults.elevenlabs_api_key) == ("", "", "", "", "")
     assert (defaults.h3_auto_start, defaults.h3_allow_nordic, defaults.h3_idle_stop_minutes) == (False, False, 10)
-    assert defaults.h3_platform == "runpod" and defaults.runpod_api_key == "" and defaults.runpod_idle_timeout_s == 60
+    # RunPod uç noktası silindi: kendi barındırdığımız H3 kapalı; video fal.ai'de (taslak H3 Max, final Seedance 2.5)
+    assert defaults.h3_platform == "kapali" and defaults.runpod_api_key == "" and defaults.runpod_idle_timeout_s == 60
     assert defaults.h3_endpoint_url == ""
+    assert (defaults.video_draft_engine, defaults.video_final_engine, defaults.keyframe_platform) == \
+        ("h3max", "seedance25", "fal")
+    assert (defaults.h3max_resolution, defaults.h3max_prompt_expansion, defaults.seedance25_resolution,
+            defaults.seedance25_audio) == ("768P", "disabled", "720p", False)
 
 
 def test_the_test_run_itself_is_in_free_mode():
     assert settings.dry_run is True
 
 
-@pytest.mark.parametrize("engine", ["h3", "fal_wan", "seedance", "higgsfield"])
+@pytest.mark.parametrize("engine", ["h3", "h3max", "seedance25", "fal_wan", "seedance", "higgsfield"])
 def test_get_provider_returns_the_local_provider_in_free_mode(monkeypatch, engine):
     monkeypatch.setattr(settings, "dry_run", True)
     monkeypatch.setattr(settings, "fal_key", "anahtar")

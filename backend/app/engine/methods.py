@@ -27,7 +27,7 @@ from app.core.state import advance_scene
 from app.db import session_scope
 from app.engine.iteration import make_thumb
 from app.engine.procedural import lighting_look
-from app.engine.providers import DEFAULT_ENGINE
+from app.engine.providers import default_engine
 from app.models import Project, Revision, Scene, Variation
 from app.quality import gate
 from app.quality.anomaly import detect_anomalies, probe_duration
@@ -89,7 +89,7 @@ def register_external(scene_id: str, fingerprint: str) -> str:
         v = s.scalar(select(Variation).where(Variation.scene_id == scene_id,
                                              Variation.params["external_hash"].astext == sc.external_hash))
         if v is None:
-            v = Variation(id=uuid.uuid4(), scene_id=scene_id, tier="full", wave_no=0, engine=sc.engine or DEFAULT_ENGINE,
+            v = Variation(id=uuid.uuid4(), scene_id=scene_id, tier="full", wave_no=0, engine=sc.engine or default_engine(),
                           seed=0, prompt_revision=sc.prompt_revision, status="passed", video_key=sc.external_key,
                           params={"source": "external", "external_hash": sc.external_hash}, anomalies=[], cost_usd=0)
             s.add(v)

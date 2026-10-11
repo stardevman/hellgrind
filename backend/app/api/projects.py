@@ -140,7 +140,7 @@ def _sequence_for(s: Session, project_id: str, sequence_id) -> Sequence:
 @router.post("/projects/{project_id}/scenes", status_code=201)
 @curated("scene_create")
 def create_scene(project_id: ProjectId, body: SceneIn, s: Session = Depends(get_session)):
-    project_or_404(s, project_id)
+    project = project_or_404(s, project_id)
     wanted = set(body.character_ids)
     known = set(s.scalars(select(Character.id).where(Character.project_id == project_id, Character.id.in_(wanted))))
     if wanted - known:
@@ -149,7 +149,7 @@ def create_scene(project_id: ProjectId, body: SceneIn, s: Session = Depends(get_
     data = body.model_dump(exclude={"character_ids", "engine", "camera", "prompt_spec", "sequence_id"})
     sc = Scene(project_id=project_id, sequence_id=seq.id, camera=body.camera.model_dump(),
                prompt_spec=body.prompt_spec.model_dump(), **data)
-    sc.engine = body.engine or route_engine(sc)        # görsel özet motoru içerir: baştan yazılır
+    sc.engine = body.engine or route_engine(sc, project_settings(project.settings))   # görsel özet motoru içerir
     s.add(sc)
     try:
         s.flush()

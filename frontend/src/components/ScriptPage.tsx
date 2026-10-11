@@ -4,6 +4,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
+import { engineChoices } from "@/lib/engines";
+import { ENGINE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { clipCost } from "@/lib/pricing";
 import type { CostEstimate, DispatchAll, PricingTable } from "@/lib/types";
@@ -207,10 +209,13 @@ const EDIT_TR: Record<string, string> = { full: "tam", medium: "orta", lightning
 
 /** Proje yoğunluğu: test ve tam tur aday sayısı, çözünürlükler ve kimlik eşiği (proje ayarları; PATCH /projects). */
 function Intensity() {
-  const { ov, busy, act, note } = usePanel();
+  const { ov, busy, act, note, meta } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam" | "engine"; min?: number; max?: number; step?: string }[] = [
+    { key: "draft_engine", label: "Taslak motoru (yeni çekimler)", kind: "engine" },
+    { key: "final_engine", label: "Final motoru (yükseltme)", kind: "engine" },
+    { key: "fal_clip_attempts", label: "fal.ai klip denemesi (kalite kapısından kalırsa)", kind: "int", min: 1, max: 5 },
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
     { key: "full_n", label: "Tam tur en çok aday", kind: "int", min: 1, max: 1000 },
@@ -227,13 +232,17 @@ function Intensity() {
     { key: "arrival_review_threshold", label: "Varış eşiği (altı: inceleme önerilir)", kind: "num", min: 0, max: 1, step: "0.01" },
   ];
   const value = (k: string) => draft[k] ?? String(cfg[k] ?? "");
+  const engineDefault = (k: string) => {
+    const id = k === "final_engine" ? meta?.video?.final_engine ?? "seedance25" : meta?.video?.draft_engine ?? "h3max";
+    return ENGINE_TR[id] ?? id;
+  };
   const budgetNow = String(ov?.project.budget_limit_usd ?? "");
   const budget = draft.__budget ?? budgetNow;
   const budgetDirty = draft.__budget != null && draft.__budget !== budgetNow;
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
     const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" || f.kind === "seam" ? value(f.key)
-      : f.kind === "bool" ? value(f.key) === "true" : f.kind === "edit" ? (value(f.key) || null) : Number(value(f.key))]));
+      : f.kind === "bool" ? value(f.key) === "true" : f.kind === "edit" || f.kind === "engine" ? (value(f.key) || null) : Number(value(f.key))]));
     await api.patch(`/projects/${ov!.project.id}`, { settings, ...(budgetDirty ? { budget_limit_usd: Number(budget) } : {}) });
     setDraft({});
     note("script", budgetDirty ? `Kaydedildi; bütçe $${Number(budget).toFixed(2)}.` : "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
@@ -254,7 +263,14 @@ function Intensity() {
               <tr key={f.key}>
                 <td style={{ width: "45%" }}>{f.label}<small className="mono">{f.key}</small></td>
                 <td>
-                  {f.kind === "bool" ? (
+                  {f.kind === "engine" ? (
+                    <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="">Ayarlar'daki varsayılan ({engineDefault(f.key)})</option>
+                      {engineChoices(meta?.video, String(cfg[f.key] ?? "") || null).map((e) => (
+                        <option key={e.id} value={e.id} disabled={e.disabled && e.id !== cfg[f.key]}>{e.label}</option>
+                      ))}
+                    </select>
+                  ) : f.kind === "bool" ? (
                     <select value={value(f.key) || "true"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                       <option value="true">Açık: video kendi eylemiyle biter (~0,007 $ / çekim)</option>
                       <option value="false">Kapalı: son kare serbest</option>
@@ -291,6 +307,8 @@ function Intensity() {
             ))}
           </tbody>
         </table>
+        <p className="faint small">Taslak motoru yeni çekimlerin motorudur (kaba kurgu); final motoru çekimin denetçisindeki
+          "ile yükselt" düğmesinin motorudur. Var olan çekimlerin motoru denetçiden değişir.</p>
         <p className="faint small">Kimlik eşiği: insan karakterde yüz kimliği (0-1) bunun altında kalan ya da yüzü hiç görünmeyen aday rafine
           havuza giremez; küçük yüzde kimlik ölçülmez, eleme olmaz. Benzerlik eşiği: robot, hayvan gibi karakterlerde kare ile
           referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur. Varış: klibin son karesinin

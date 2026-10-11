@@ -1,0 +1,35 @@
+{
+  "_note": "Yönetmenin ücretli karşılaştırma testi (fal playground, 2026-10-11): aynı 5 referans görsel (kız, görevli, polis, havalimanı, otoyol), aynı senaryo, 10 sn, 16:9. Görsel adresleri ve istem metni temsilîdir (gerçek koşunun adresleri saklanmadı); alanlar, tipler ve faturalar gerçektir.",
+  "seedance25_reference": {
+    "endpoint": "bytedance/seedance-2.5/reference-to-video",
+    "body": {
+      "prompt": "Render every environment in the same 3D animated style as the characters. The red-haired girl in a yellow raincoat is [Image1]. The airport attendant is [Image2]. The police officer is [Image3]. The airport terminal is [Image4]. The highway is [Image5]. Shot 1 (0-3s): [Image1] walks to the security desk at [Image4]. Shot 2 (3-5s): [Image2] reaches out a hand. Shot 3 (5-10s): [Image3] checks her pockets.",
+      "image_urls": ["https://v3b.fal.media/files/test/girl.png", "https://v3b.fal.media/files/test/attendant.png",
+                     "https://v3b.fal.media/files/test/police.png", "https://v3b.fal.media/files/test/airport.png",
+                     "https://v3b.fal.media/files/test/highway.png"],
+      "resolution": "720p",
+      "duration": "10",
+      "aspect_ratio": "16:9",
+      "generate_audio": true
+    },
+    "billed": {"tokens": 260280, "per_1k_tokens_usd": 0.0214, "usd": 5.57, "formula_tokens": 216000},
+    "output": {"width": 1280, "height": 720, "duration_s": 10.08, "fields": ["video", "seed", "draft_id"]},
+    "elapsed_s": 210
+  },
+  "h3max_reference": {
+    "endpoint": "minimax/h3-max/reference-to-video",
+    "body": {
+      "prompt": "Render every environment in the same 3D animated style as the characters. The red-haired girl in a yellow raincoat is Image 1. The airport attendant is Image 2. The police officer is Image 3. The airport terminal is Image 4. The highway is Image 5. Shot 1 (0-3s): Image 1 walks to the security desk at Image 4. Shot 2 (3-5s): Image 2 reaches out a hand. Shot 3 (5-10s): Image 3 checks her pockets.",
+      "reference_image_urls": ["https://v3b.fal.media/files/test/girl.png", "https://v3b.fal.media/files/test/attendant.png",
+                               "https://v3b.fal.media/files/test/police.png", "https://v3b.fal.media/files/test/airport.png",
+                               "https://v3b.fal.media/files/test/highway.png"],
+      "prompt_expansion_mode": "disabled",
+      "duration": 10,
+      "resolution": "768P",
+      "aspect_ratio": "16:9"
+    },
+    "billed": {"units": 17.19, "usd": 0.86},
+    "output": {"width": 1344, "height": 768, "duration_s": 10.14, "fields": ["video", "timings", "expanded_prompt"]},
+    "elapsed_s": 120
+  }
+}

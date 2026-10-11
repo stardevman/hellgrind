@@ -44,10 +44,21 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         changes["transition_in"] = None
     if "prompt_spec" in changes:                                  # düzeltme turlarının eklediği anahtarlar kalır
         changes["prompt_spec"] = {**(sc.prompt_spec or {}), **changes["prompt_spec"]}
+    opts = dict(sc.video_opts or {})                              # fal video: çözünürlük ve model sesi (auto: Ayarlar)
+    if "video_resolution" in changes:
+        value = changes.pop("video_resolution")
+        opts.pop("resolution", None) if value == "auto" else opts.update(resolution=value)
+    if "video_audio" in changes:
+        value = changes.pop("video_audio")
+        opts.pop("audio", None) if value == "auto" else opts.update(audio=value == "true")
+    if opts != (sc.video_opts or {}):
+        sc.video_opts = opts or None
     for key, value in changes.items():
         setattr(sc, key, value)
     if "action_complexity" in changes and "engine" not in changes:
-        sc.engine = route_engine(sc)                              # motor, aksiyon karmaşıklığından yönlendirilir
+        from app.config import project_settings
+        from app.models import Project
+        sc.engine = route_engine(sc, project_settings(s.get(Project, sc.project_id).settings))
     if {"camera", "description", "entry_mode", "transition_in"} & changes.keys() and sc.transition_auto is not None:
         from app.core.chain import sync_seams                     # kadraj değişti: geçişler yeniden sınıflanır
         s.flush()
@@ -57,11 +68,17 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
 
 
 @router.post("/scenes/{scene_id}/render")
-@curated(lambda kw, r: "force_rerender" if kw.get("force_visual") else "render")
-def render(scene_id: SceneId, force_visual: bool = False, thaw: bool = False, s: Session = Depends(get_session)):
+@curated(lambda kw, r: None if kw.get("dry_run") else "force_rerender" if kw.get("force_visual") else "render")
+def render(scene_id: SceneId, force_visual: bool = False, thaw: bool = False, dry_run: bool = False,
+           s: Session = Depends(get_session)):
     """Yalnızca değişen girdilerin aşamalarını çalıştırır; force_visual görüntüyü baştan üretir. thaw: proje donmuşsa
-    yalnızca bu çekim için donma kaldırılır, çekimin işi bitince proje yeniden dondurulur."""
+    yalnızca bu çekim için donma kaldırılır, çekimin işi bitince proje yeniden dondurulur.
+    dry_run: kuru çalıştırma; hiçbir şey kuyruğa verilmez ve fal.ai'ye gidilmez: uç nokta, tam istek gövdesi (yüklenecek
+    dosyalar yerel anahtar ve SHA-256 olarak), referans numaralandırması, maliyet tahmini ve motor/mod gerekçesi."""
     sc = scene_or_404(s, scene_id)
+    if dry_run:
+        from app.api.render_plan import scene_dry_run
+        return scene_dry_run(s, sc, force_visual=force_visual)
     if thaw:
         from app.budget import killswitch
         killswitch.thaw_for_scene(str(sc.project_id), scene_id)

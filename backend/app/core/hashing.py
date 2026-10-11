@@ -40,10 +40,14 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     method = getattr(scene, "method", None) or "generate"
     if method == "external":
         return stable_hash({"external": scene.external_hash})
+    # fal.ai motorları (H3 Max, Seedance 2.5) MiniMax H3 ile aynı kare zincirini ve koşulu kullanır: özette "h3" sayılır.
+    # Böylece H3'ten H3 Max'e geçiş ya da taslaktan "Seedance 2.5 ile yükselt" aynı kareyi ve referansları kullanır
+    # (storyboard karesi yeniden çizilmez); motor değişince görüntü açıkça yeniden üretilir (force / yükseltme).
+    engine = "h3" if scene.engine in ("h3max", "seedance25") else scene.engine
     payload = {
         "prompt": scene.prompt_spec,
         "camera": scene.camera,
-        "engine": scene.engine,
+        "engine": engine,
         "duration": scene.duration_s,
         "characters": sorted(
             [str(c.id), c.embedding_version, c.lora_url, c.lora_scale] for c in characters
@@ -60,7 +64,7 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     if getattr(scene, "camera_plan", None):             # kesme kamerası (30° kuralı): kare ve video istemine girer
         payload["camera_plan"] = scene.camera_plan
     from app.core.h3mode import effective_mode
-    if (scene.engine or "h3") == "h3" and effective_mode(scene, characters, assets) == "ref2va":
+    if (engine or "h3") == "h3" and effective_mode(scene, characters, assets) == "ref2va":
         payload["h3_mode"] = "ref2va"
     return stable_hash(payload)
 

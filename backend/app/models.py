@@ -16,7 +16,7 @@ ProjectStatus = pg_enum("project_status", "draft", "parsing", "producing", "paus
 SceneStatus = pg_enum("scene_status", "pending", "parsed", "probing", "generating", "correcting", "refined",
                       "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked",
                       "storyboard", "board_review", "grading")
-EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield", "h3")
+EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield", "h3", "h3max", "seedance25")
 VariationTier = pg_enum("variation_tier", "probe", "full")
 VariationStatus = pg_enum("variation_status", "queued", "running", "generated", "passed", "rejected",
                           "purged", "refined", "failed")
@@ -156,6 +156,8 @@ class Scene(Base):
     end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı
     end_board_score: Mapped[float | None] = mapped_column(Float)
     end_board_note: Mapped[str | None] = mapped_column(Text)
+    fal_request: Mapped[dict | None] = mapped_column(JSONB)                 # fal kuyruğundaki iş (request_id; sürdürme)
+    video_opts: Mapped[dict | None] = mapped_column(JSONB)                  # fal video: {"resolution", "audio"}; boşsa Ayarlar
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)

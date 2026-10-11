@@ -1,0 +1,219 @@
+{
+ "components": {
+  "schemas": {
+   "File": {
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The mime type of the file.",
+      "examples": [
+       "image/png"
+      ],
+      "title": "Content Type"
+     },
+     "file_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name of the file. It will be auto-generated if not provided.",
+      "examples": [
+       "z9RV14K95DvU.png"
+      ],
+      "title": "File Name"
+     },
+     "file_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the file in bytes.",
+      "examples": [
+       4404019
+      ],
+      "title": "File Size"
+     },
+     "url": {
+      "description": "The URL where the file can be downloaded from.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "File",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "content_type",
+     "file_name",
+     "file_size"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   },
+   "Seedance25DraftCompleteInput": {
+    "properties": {
+     "codec": {
+      "default": "auto",
+      "description": "'auto' retains default video codec behaviour; 'H264' uses H.264; 'H265' uses H.265.",
+      "enum": [
+       "auto",
+       "H264",
+       "H265"
+      ],
+      "examples": [
+       "auto",
+       "H264",
+       "H265"
+      ],
+      "title": "Codec",
+      "type": "string"
+     },
+     "draft_id": {
+      "description": "The draft_id returned with draft enabled. Valid for seven days and only for the original caller.",
+      "maxLength": 8192,
+      "minLength": 1,
+      "title": "Draft Id",
+      "type": "string"
+     },
+     "resolution": {
+      "const": "1080p",
+      "default": "1080p",
+      "description": "Completed drafts only support 1080p output.",
+      "title": "Resolution",
+      "type": "string"
+     }
+    },
+    "required": [
+     "draft_id"
+    ],
+    "title": "Seedance2DraftCompletionInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "draft_id",
+     "resolution",
+     "codec"
+    ]
+   },
+   "Seedance25DraftCompleteOutput": {
+    "properties": {
+     "draft_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The draft ID, or null when draft mode is disabled. Complete this draft within seven days using the same account.",
+      "title": "Draft Id"
+     },
+     "seed": {
+      "description": "The seed used for generation.",
+      "examples": [
+       42
+      ],
+      "title": "Seed",
+      "type": "integer"
+     },
+     "video": {
+      "$ref": "#/components/schemas/File",
+      "description": "The generated video file.",
+      "examples": [
+       {
+        "url": "https://storage.googleapis.com/falserverless/example_outputs/bytedance/seedance_2/output.mp4"
+       }
+      ]
+     }
+    },
+    "required": [
+     "video",
+     "seed"
+    ],
+    "title": "Seedance2VideoOutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video",
+     "seed",
+     "draft_id"
+    ]
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=bytedance/seedance-2.5/draft/complete",
+  "title": "Queue OpenAPI for bytedance/seedance-2.5/draft/complete",
+  "x-fal-metadata": {
+   "about": "Complete Draft",
+   "category": "video-to-video",
+   "documentationUrl": "https://fal.ai/models/bytedance/seedance-2.5/draft/complete/api",
+   "endpointId": "bytedance/seedance-2.5/draft/complete",
+   "playgroundUrl": "https://fal.ai/models/bytedance/seedance-2.5/draft/complete",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/0aabd09d/Dkiw932-_aN4ED31_H3NC.jpg"
+  }
+ }
+}

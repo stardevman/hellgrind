@@ -39,12 +39,31 @@ class Settings(BaseSettings):
     fal_lipsync_endpoint: str = "fal-ai/sync-lipsync/v2/pro"
     fal_wan_v2v_endpoint: str = "fal-ai/wan/v2.2-a14b/video-to-video"
     fal_kontext_endpoint: str = "fal-ai/flux-pro/kontext"     # karakterin referans görseliyle kare (görsel başına)
+    # Video motorları fal.ai'de (Ekim 2026): MiniMax H3 Max taslak, Seedance 2.5 final (karşılaştırma testi). /us/
+    # varyantları kullanılmaz. Şemalar: https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=<uç nokta>
+    fal_h3max_i2v_endpoint: str = "minimax/h3-max/image-to-video"
+    fal_h3max_ref_endpoint: str = "minimax/h3-max/reference-to-video"
+    fal_seedance25_i2v_endpoint: str = "bytedance/seedance-2.5/image-to-video"
+    fal_seedance25_ref_endpoint: str = "bytedance/seedance-2.5/reference-to-video"
+    fal_seedance25_draft_complete_endpoint: str = "bytedance/seedance-2.5/draft/complete"
+    video_draft_engine: str = "h3max"          # taslak: yeni çekimlerin motoru (proje ayarı draft_engine önce gelir)
+    video_final_engine: str = "seedance25"     # final: "Seedance 2.5 ile yükselt" (proje ayarı final_engine önce gelir)
+    h3max_resolution: str = "768P"             # 480P | 768P | 1080P
+    h3max_prompt_expansion: str = "disabled"   # disabled | balanced | quality (zorunlu alan)
+    seedance25_resolution: str = "720p"        # 480p | 720p | 1080p
+    seedance25_audio: bool = False             # modelin ürettiği ses: filmde kullanılmaz; fiyatı değiştirmez
+    # Kare çizimi (storyboard ilk karesi, zincir, kesme, referans görselleri): fal (varsayılan; RunPod silindi) | runpod
+    keyframe_platform: str = "fal"
+    fal_qwen_image_endpoint: str = "fal-ai/qwen-image-2512"                  # metinden kare (Qwen-Image-2512)
+    fal_qwen_edit_endpoint: str = "fal-ai/qwen-image-edit-2511"              # karakter referansından ve zincir kareleri
+    fal_qwen_edit_lora_endpoint: str = "fal-ai/qwen-image-edit-2511/lora"    # Multiple Angles LoRA (loras alanıyla)
     # MiniMax H3: yönetmenin kendi GPU sunucusu (vast.ai). Arka uç SGLang (/v1/videos) ya da ComfyUI (/prompt, /history,
     # /view; 127.0.0.1'de, SSH tüneli ya da portalın kimlik doğrulamalı vekili üzerinden). Ücretli kilidin anahtarı vast.ai
     # API anahtarıdır (makineyi o faturalar; boşta durdurma ve otomatik başlatma da onunla yapılır). Portal belirteci
     # (OPEN_BUTTON_TOKEN ya da WEB_PASSWORD) isteğe bağlıdır: SSH tünelinde gerekmez.
-    # MiniMax H3'ün çalıştığı platform: runpod (varsayılan; Serverless, Network Volume) | vast (deneysel, kapalı)
-    h3_platform: str = "runpod"
+    # Kendi barındırdığımız MiniMax H3'ün platformu: kapali (varsayılan; RunPod uç noktası ve volume silindi, video fal.ai'de)
+    # | runpod (Serverless, Network Volume) | vast (deneysel). Kapalıyken RunPod/vast.ai'ye hiçbir çağrı yapılmaz.
+    h3_platform: str = "kapali"
     runpod_api_key: str = ""
     runpod_endpoint_id: str = ""       # Serverless uç noktası (ComfyUI worker'ı; backend/runpod/worker)
     runpod_network_volume_id: str = ""
@@ -65,6 +84,9 @@ class Settings(BaseSettings):
     # Qwen-Image-Edit-2511 Multiple Angles LoRA (fal, Apache-2.0): kesmede açı değişimi; dosya volume'da models/loras/
     qwen_edit_angles: str = "off"       # on: açı değişen kesme karelerinde açılır (dosya yüklenince açın)
     qwen_edit_angles_lora: str = "qwen-image-edit-2511-multiple-angles-lora.safetensors"
+    # fal.ai'de aynı LoRA (loras[].path bir URL ister): Hugging Face'teki dosya (Apache-2.0)
+    qwen_edit_angles_lora_url: str = ("https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/"
+                                      "qwen-image-edit-2511-multiple-angles-lora.safetensors")
     qwen_edit_angles_strength: float = 0.9
     qwen_edit_angles_mode: str = "full"     # açı karesi: full | medium | lightning (Lightning ile uyumu ilk koşuda sınanacak)
     reference_fal_fallback: bool = False   # referans görseli: Qwen-Image yoksa fal.ai Flux'a düş (FLUX.1 [dev] ticari değil)
@@ -153,6 +175,10 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "asset_min_status": "locked",  # çekimdeki varlıkların ulaşması gereken en az durum (still_approved | motion_tested | locked)
     "require_board_approval": False,   # açıksa storyboard karesi onaylanmadan görüntü üretilmez
     "paid_audio": True,            # false: ücretli modda da ses yereldir (espeak) ve dudak senkronu çağrılmaz
+    "draft_engine": None,          # taslak video motoru: None = Ayarlar'daki VIDEO_DRAFT_ENGINE (h3max)
+    "final_engine": None,          # final video motoru ("yükselt"): None = Ayarlar'daki VIDEO_FINAL_ENGINE (seedance25)
+    "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
+                                   # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }
 
 

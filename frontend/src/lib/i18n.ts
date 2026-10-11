@@ -82,7 +82,17 @@ export const PURGE_TR: Record<string, string> = {
 
 /** Video motorları: panelde görünen ad ve nerede çalıştığı. */
 export const ENGINE_TR: Record<string, string> = {
-  h3: "MiniMax H3", seedance: "Seedance · fal.ai", fal_wan: "Wan 2.2 · fal.ai (eski)", higgsfield: "Higgsfield",
+  h3max: "MiniMax H3 Max (fal.ai)", seedance25: "Seedance 2.5 (fal.ai)", seedance: "Seedance 2.0 fast (fal.ai)",
+  h3: "MiniMax H3 (RunPod)", fal_wan: "Wan 2.2 (fal.ai, eski)", higgsfield: "Higgsfield",
+};
+/** fal.ai video koşulu (fal_plan.MODE_TR); seçicide h3_mode değerleri: fl2va = image-to-video, ref2va = reference-to-video. */
+export const FAL_MODE_TR: Record<string, string> = { i2v: "image-to-video", ref: "reference-to-video" };
+export const FAL_MODE_CHOICES: Record<string, string> = {
+  fl2va: "image-to-video (başlangıç karesinden)", ref2va: "reference-to-video (referans görsellerinden)",
+};
+/** Çekimin fal.ai işinin durumu (scenes.fal_request.status). */
+export const FAL_STATUS_TR: Record<string, string> = {
+  submitted: "fal.ai kuyruğunda", completed: "tamamlandı", failed: "başarısız",
 };
 /** MiniMax H3 koşulu: kompozisyon seed'le değil koşulla kontrol edilir. */
 export const H3_MODE_TR: Record<string, string> = {
@@ -109,10 +119,10 @@ export const COMFY_KIND_TR: Record<string, string> = {
 };
 
 /** Yönetmenin çekim başına seçebildiği motorlar (ilki varsayılan). */
-export const ENGINE_CHOICES = ["h3", "seedance"] as const;
+export const ENGINE_CHOICES = ["h3max", "seedance25", "seedance", "h3"] as const;
 
 export const KIND_TR: Record<string, string> = {
-  h3: "MiniMax H3", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
+  h3: "MiniMax H3", h3max: "MiniMax H3 Max", seedance25: "Seedance 2.5", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
   v2v: "Previs aktarımı", fal: "Dudak senkronu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)",
 };
 

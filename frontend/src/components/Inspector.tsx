@@ -5,10 +5,11 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { audioValue, defaultResolution, engineChoices, engineShort, isFal, modeValue, parseDuration, resolutionValue, resolutionsFor } from "@/lib/engines";
+import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_TR, FAL_MODE_CHOICES, FAL_MODE_TR, FAL_STATUS_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
-import { resultText, usd } from "@/lib/text";
-import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
+import { resultText, stagesText, usd, usdTr } from "@/lib/text";
+import type { FalPlan, RevisionList, Scene, SceneAssetRef, Sequence, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
 export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
@@ -34,8 +35,19 @@ const CUT_TR: Record<string, string> = {
   compose: "sıfırdan kurulum", upload: "yüklenen kare",
 };
 
+/** fal.ai motorlu çekimin hafif planı (SHA hesaplanmaz): mod ve gerekçesi, referanslar, tahmin, yükseltme tahmini.
+    Her eylemden sonra panel bütün okumaları yenilediği için ayrıca yoklanmaz. */
+function useFalPlan(sc: Scene) {
+  const { data } = useSWR<FalPlan>(isFal(sc.engine) ? `/scenes/${sc.id}/fal-plan` : null, fetcher, { revalidateOnFocus: false, keepPreviousData: true });
+  return data && data.scene_id === sc.id ? data : undefined;
+}
+
+/** fal.ai'nin reddettiği istek (422) olduğu gibi gösterilir: alan adları ve satır sonları korunur. */
+const FAL_REJECTED = "fal.ai isteği reddetti";
+
 function Shot({ sc }: { sc: Scene }) {
-  const { busy, frozen, act, note, setVar } = usePanel();
+  const { busy, frozen, act, note, setVar, meta, ov } = usePanel();
+  const plan = useFalPlan(sc);
   const cam = sc.camera_effective || sc.camera || {};
   const pickEntry = (entry_mode: string) => act(async () => {
     await api.patch(`/scenes/${sc.id}`, { entry_mode });
@@ -47,7 +59,8 @@ function Shot({ sc }: { sc: Scene }) {
     await api.patch(`/scenes/${sc.id}`, { cut_method });
     note("inspector", `${sc.scene_code}: kesme karesi ${cut_method === "auto" ? "otomatik yöntemle" : CUT_TR[cut_method]} çizilecek. Uygulamak için karede "Yeniden çiz".`, "ok");
   }, "inspector");
-  const error = sc.last_error && !["done", "blocked"].includes(sc.status) ? sc.last_error.split("\n")[0] : "";
+  const rejected = Boolean(sc.last_error?.startsWith(FAL_REJECTED));
+  const error = sc.last_error && (rejected || !["done", "blocked"].includes(sc.status)) ? (rejected ? sc.last_error : sc.last_error.split("\n")[0]) : "";
   const regen = (thaw = false) => act(async () => {
     const r = thaw ? await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true&thaw=true`)
       : await api.post<StageResult>(`/scenes/${sc.id}/render?force_visual=true`);
@@ -58,10 +71,19 @@ function Shot({ sc }: { sc: Scene }) {
     await api.patch(`/scenes/${sc.id}`, { face_expected });
     note("inspector", `${sc.scene_code}: yüz beklentisi ${face_expected === "auto" ? "otomatik" : face_expected === "true" ? "evet" : "hayır"}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
   }, "inspector");
-  const engines: string[] = [...ENGINE_CHOICES, ...(sc.engine && !(ENGINE_CHOICES as readonly string[]).includes(sc.engine) ? [sc.engine] : [])];
+  const engines = engineChoices(meta?.video, sc.engine);
   const pickEngine = (engine: string) => act(async () => {
     await api.patch(`/scenes/${sc.id}`, { engine });
     note("inspector", `${sc.scene_code} bundan sonra ${ENGINE_TR[engine] ?? engine} ile üretilecek. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+  }, "inspector");
+  const finalEngine = plan?.upgrade?.engine ?? (ov?.project.settings.final_engine as string | null | undefined) ?? meta?.video?.final_engine ?? "seedance25";
+  const finalName = engineShort(finalEngine, plan?.upgrade?.engine_label);
+  const upgradeFinal = () => act(async () => {
+    const r = await api.post<UpgradeFinal>(`/scenes/${sc.id}/upgrade-final`);
+    setVar(null);
+    note("inspector", r.blocked ? resultText(r)
+      : `${sc.scene_code} ${ENGINE_TR[r.engine] ?? r.engine} ile yeniden üretiliyor: aynı kare ve referanslar; taslak klip varyasyon olarak kaldı (Bunu kullan ile dönülebilir). ${r.awaiting_board ? "Kare onayı bekleniyor." : resultText(r)}`,
+    r.blocked ? "err" : "ok");
   }, "inspector");
   const upgrade = () => act(async () => {
     const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
@@ -71,7 +93,15 @@ function Shot({ sc }: { sc: Scene }) {
     <Section title="Çekim" meta={<StatusDot status={sc.status} />}>
       <p>{sc.description}</p>
       <p className="dim small">{sc.heading}</p>
-      {error && <p className="warn small">{error}</p>}
+      {error && <p className="warn small" style={rejected ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}>{error}</p>}
+      {sc.engine_disabled && (
+        <div className="hint">
+          Bu motor kapalı; H3 Max'e geç. {ENGINE_TR[sc.engine ?? ""] ?? sc.engine} RunPod'da çalışır ve RunPod kapalı (endpoint silindi): bu çekim üretilemez.
+          <div className="row mt8">
+            <button className="btn primary" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : undefined} onClick={() => pickEngine("h3max")}>H3 Max'e geç</button>
+          </div>
+        </div>
+      )}
       {sc.status === "blocked" && sc.missing.length > 0 && (
         <p className="small"><span className="warn">Eksik referans:</span> <MissingLinks list={sc.missing} /></p>
       )}
@@ -124,10 +154,10 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Aksiyon</dt><dd className="mono">{Number(sc.action_complexity).toFixed(2)}</dd>
         <dt>Motor</dt>
         <dd>
-          <select value={sc.engine ?? ENGINE_CHOICES[0]} disabled={busy || frozen} aria-label="Video motoru"
-            title={frozen ? FROZEN_TITLE : "MiniMax H3 RunPod'da (varsayılan) çalışır; Seedance fal.ai'de, yalnızca seçtiğiniz çekimlerde"}
+          <select value={sc.engine ?? meta?.video?.draft_engine ?? "h3max"} disabled={busy || frozen} aria-label="Video motoru"
+            title={frozen ? FROZEN_TITLE : "H3 Max (fal.ai) taslak, Seedance 2.5 (fal.ai) final; Seedance 2.0 fast yalnızca seçtiğiniz çekimlerde. MiniMax H3 (RunPod) kapalı."}
             onChange={(e) => pickEngine(e.target.value)}>
-            {engines.map((e) => <option key={e} value={e}>{ENGINE_TR[e] ?? e}</option>)}
+            {engines.map((e) => <option key={e.id} value={e.id} disabled={e.disabled && e.id !== sc.engine}>{e.label}</option>)}
           </select>
         </dd>
         <dt>Karakterler</dt><dd>{sc.characters.filter((c) => !sc.chain_cast?.includes(c)).join(", ") || "—"}
@@ -162,11 +192,19 @@ function Shot({ sc }: { sc: Scene }) {
           </button>
         )}
       </div>
+      {sc.upgrade_available && (
+        <div className="row">
+          <button className="btn good" type="button" disabled={busy || frozen} onClick={upgradeFinal}
+            title={frozen ? FROZEN_TITLE : `Çekim ${ENGINE_TR[finalEngine] ?? finalEngine} ile aynı kare ve referanslardan yeniden üretilir; taslak klip varyasyon olarak kalır`}>
+            {finalName} ile yükselt</button>
+          <span className="faint small">{plan?.upgrade?.cost ? <>tahmini <span className="mono">~{usdTr(plan.upgrade.cost.reserve_usd)}</span></> : "tahmin hesaplanıyor…"}</span>
+        </div>
+      )}
     </Section>
   );
 }
 
-function H3({ sc }: { sc: Scene }) {
+function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
   const { busy, frozen, act, note } = usePanel();
   const pickMode = (h3_mode: string) => act(async () => {
     await api.patch(`/scenes/${sc.id}`, { h3_mode });
@@ -213,17 +251,18 @@ function H3({ sc }: { sc: Scene }) {
   }, "inspector");
   const source = sc.keyframe_source === "upload" ? "upload" : sc.board_source;
   const review = sc.board_status === "changes_requested" && (sc.board_source === "qwen_edit" || sc.board_source === "comfyui" || sc.board_source === "flux");
-  const editRefs = sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model === "qwen_edit" ? sc.edit_refs ?? [] : [];
+  const editRefs = (fal || sc.h3_mode === "fl2va") && sc.keyframe_source !== "upload" && sc.keyframe_model === "qwen_edit" ? sc.edit_refs ?? [] : [];
   return (
-    <Section title="H3 koşulu" meta={sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"}>
-      <label className="field">Kompozisyon nereden gelsin
+    <Section title={fal ? "Başlangıç karesi ve zincir" : "H3 koşulu"} meta={fal ? (sc.keyframe_url ? (sc.board_status === "approved" || sc.keyframe_source === "upload" ? "onaylı" : "onay bekliyor") : "kare yok") : sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"}
+      open={!fal || sc.board_status === "changes_requested"}>
+      {!fal && <label className="field">Kompozisyon nereden gelsin
         <select value={sc.h3_mode_explicit ?? "auto"} disabled={busy || frozen} aria-label="H3 koşulu" title={frozen ? FROZEN_TITLE : undefined}
           onChange={(e) => pickMode(e.target.value)}>
           <option value="auto">Otomatik (şu an: {sc.h3_mode === "ref2va" ? "Ref2VA" : "FL2VA"})</option>
           {Object.entries(H3_MODE_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-      </label>
-      {sc.h3_mode_warning && <p className="warn small">{sc.h3_mode_warning}</p>}
+      </label>}
+      {!fal && sc.h3_mode_warning && <p className="warn small">{sc.h3_mode_warning}</p>}
       <label className="field">Çekime geçiş
         <select value={sc.transition_explicit ?? "auto"} disabled={busy} aria-label="Çekime geçiş" onChange={(e) => setTransition(e.target.value)}>
           <option value="auto">Senaryodaki gibi (şu an: {TRANSITION_TR[sc.transition ?? "continuous"]?.split(":")[0]})</option>
@@ -251,7 +290,8 @@ function H3({ sc }: { sc: Scene }) {
             onClick={redrawChain}>{requested ? "Bu kareyi ve sonrakileri yeniden çiz" : `Sonraki ${sc.chain_redraw!.length} kareyi yeniden çiz`}</button>
         </div>
       )}
-      <p className="faint small">Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar.</p>
+      <p className="faint small">{fal ? "Onaylı başlangıç karesi varsa image-to-video bu kareden başlar; yoksa reference-to-video referans görsellerini kullanır."
+        : "Aynı seed farklı çözünürlükte farklı kompozisyon verir; test turu ve tam tur bu ilk kareden başlar."}</p>
       {sc.end_board_url && (
         <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, alignItems: "start" }}>
           <img src={sc.end_board_url} alt="Çekimin son karesi" style={{ width: 120, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 2, opacity: sc.end_board_current ? 1 : 0.5 }} />
@@ -274,7 +314,7 @@ function H3({ sc }: { sc: Scene }) {
           <dt>İlk kare</dt><dd>{source ? BOARD_SOURCE_TR[source] ?? source : "storyboard karesi bekleniyor"}</dd>
           <dt>Skor</dt><dd className="mono">{sc.keyframe_source === "upload" ? "yönetmen" : sc.board_score != null ? sc.board_score.toFixed(3) : "—"}</dd>
           <dt>Kare kararı</dt><dd>{sc.board_status === "changes_requested" ? <span className="warn">{sc.board_note || "değişiklik istendi"}</span> : sc.board_status === "approved" ? "onaylı" : "onay bekliyor"}</dd>
-          {sc.h3_mode === "fl2va" && sc.keyframe_source !== "upload" && sc.keyframe_model && (
+          {(fal || sc.h3_mode === "fl2va") && sc.keyframe_source !== "upload" && sc.keyframe_model && (
             <><dt>Kare modeli</dt><dd>{KEYFRAME_MODEL_TR[sc.keyframe_model] ?? sc.keyframe_model}</dd></>
           )}
         </dl>
@@ -301,7 +341,7 @@ function H3({ sc }: { sc: Scene }) {
       )}
       <UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} />
       {sc.keyframe_source === "upload" && <div className="row"><button className="btn ghost" type="button" disabled={busy} onClick={clear}>Yüklenen kareyi kaldır</button></div>}
-      {sc.h3_mode === "ref2va" && (
+      {!fal && sc.h3_mode === "ref2va" && (
         <>
           <h4 className="small dim">Karakter referans seti ({sc.h3_refs.length}/9)</h4>
           {sc.h3_refs.length ? (
@@ -317,6 +357,132 @@ function H3({ sc }: { sc: Scene }) {
         </>
       )}
     </Section>
+  );
+}
+
+/** fal.ai video (H3 Max, Seedance 2.5): koşul (image-to-video / reference-to-video), çözünürlük, süre, model sesi,
+    tahmini maliyet, referans numaralandırması, bekleyen iş ve kuru çalıştırma (istek gövdesi; fal.ai'ye gidilmez). */
+function FalVideo({ sc }: { sc: Scene }) {
+  const { busy, frozen, act, note, meta } = usePanel();
+  const plan = useFalPlan(sc);
+  const engine = sc.engine ?? "h3max";
+  const [dry, setDry] = useState<FalPlan | null>(null);
+  const [dur, setDur] = useSynced(String(sc.duration_s).replace(".", ","), `${sc.id}:${sc.duration_s}`);
+  const later = "Uygulamak için \"Bu sahneyi baştan üret\".";
+  const patch = (body: Record<string, unknown>, text: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, body);
+    setDry(null);
+    note("inspector", `${sc.scene_code}: ${text}. ${later}`, "ok");
+  }, "inspector");
+  const saveDuration = () => {
+    const x = parseDuration(dur);
+    if (x == null) { note("inspector", "Süre 2 ile 15 sn arasında olmalı.", "err"); return; }
+    if (x === Number(sc.duration_s)) return;
+    void patch({ duration_s: x }, `süre ${String(x).replace(".", ",")} sn`);
+  };
+  const dryRun = () => act(async () => {
+    setDry(await api.post<FalPlan>(`/scenes/${sc.id}/render?dry_run=true`));
+  }, "inspector");
+  const res = resolutionsFor(engine, meta?.video);
+  const mode = plan?.mode ? FAL_MODE_TR[plan.mode] : "…";
+  const req = sc.fal_request;
+  const refs = plan?.references ?? [];
+  return (
+    <Section title="fal.ai video" meta={`${engineShort(engine, sc.engine_label ?? undefined)} · ${mode}`}>
+      <label className="field">Koşul
+        <select value={modeValue(sc)} disabled={busy || frozen} aria-label="fal.ai video koşulu" title={frozen ? FROZEN_TITLE : undefined}
+          onChange={(e) => patch({ h3_mode: e.target.value }, e.target.value === "auto" ? "koşul otomatik" : `koşul ${FAL_MODE_CHOICES[e.target.value]}`)}>
+          <option value="auto">Otomatik (şu an: {mode})</option>
+          {Object.entries(FAL_MODE_CHOICES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </label>
+      {plan?.reason && <p className="faint small">{plan.reason}</p>}
+      <div className="form-row">
+        <label className="field">Çözünürlük
+          <select value={resolutionValue(sc)} disabled={busy || frozen} aria-label="Video çözünürlüğü"
+            onChange={(e) => patch({ video_resolution: e.target.value }, e.target.value === "auto" ? "çözünürlük Ayarlar'daki gibi" : `çözünürlük ${e.target.value}`)}>
+            <option value="auto">Otomatik ({defaultResolution(engine, meta?.video)})</option>
+            {res.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="field">Süre (sn)
+          <input type="text" inputMode="decimal" className="mono" style={{ width: 70 }} aria-label="Çekim süresi (sn), 2-15" disabled={busy || frozen}
+            value={dur} onChange={(e) => setDur(e.target.value)} onBlur={saveDuration}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveDuration(); } }} />
+        </label>
+        <label className="field">Model sesi
+          <select value={audioValue(sc)} disabled={busy || frozen} aria-label="Modelin ürettiği ses"
+            title="Modelin kendi sesi filmde kullanılmaz (diyalog ve müzik ayrı üretilir)"
+            onChange={(e) => patch({ video_audio: e.target.value }, e.target.value === "auto" ? "model sesi Ayarlar'daki gibi" : `model sesi ${e.target.value === "true" ? "açık" : "kapalı"}`)}>
+            <option value="auto">Otomatik{plan ? ` (${plan.audio ? "açık" : "kapalı"})` : ""}</option>
+            <option value="true">Açık</option>
+            <option value="false">Kapalı</option>
+          </select>
+        </label>
+      </div>
+      <dl className="kv">
+        <dt>Tahmini maliyet</dt>
+        <dd>{plan?.cost ? <><span className="mono">~{usdTr(plan.cost.reserve_usd)}</span><span className="faint small"> klip başına (bütçe kapısı bunu ayırır)</span></> : plan?.note || plan?.message || "hesaplanıyor…"}</dd>
+        {plan?.endpoint && <><dt>Uç nokta</dt><dd className="mono small" style={{ overflowWrap: "anywhere" }}>{plan.endpoint}</dd></>}
+        {req && <>
+          <dt>fal.ai işi</dt>
+          <dd>
+            <span className={`st ${req.status === "failed" ? "bad" : req.status === "completed" ? "ok" : "work"}`}>{FAL_STATUS_TR[req.status ?? ""] ?? req.status ?? "—"}</span>
+            {req.request_id && <div className="mono small faint" style={{ overflowWrap: "anywhere" }}>{req.request_id}</div>}
+            {req.status === "failed" && req.error && <div className="bad small" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{req.error}</div>}
+          </dd>
+        </>}
+      </dl>
+      {refs.length > 0 && <>
+        <h4 className="small dim">Referans numaraları ({refs.length})</h4>
+        <ol className="lines">
+          {refs.map((r) => <li key={`${r.token}-${r.key}`}><span className="mono">{r.token}</span> → {r.name} <span className="faint small">({TYPE_TR[r.kind] ?? r.kind})</span></li>)}
+        </ol>
+      </>}
+      {(plan?.unmapped_negatives?.length ?? 0) > 0 && <p className="warn small">Kısıta çevrilemeyen negatifler: {plan!.unmapped_negatives!.join(", ")}</p>}
+      {(plan?.notes ?? []).map((n) => <p key={n} className="faint small">{n}</p>)}
+      <div className="row">
+        <button className="btn" type="button" disabled={busy} onClick={dryRun}
+          title="İstek gövdesi, yüklenecek dosyalar (SHA-256), referanslar ve tahmin hesaplanır; hiçbir şey kuyruğa verilmez">Kuru çalıştır</button>
+        {dry && <button className="btn ghost" type="button" onClick={() => setDry(null)}>Kapat</button>}
+      </div>
+      {dry && <DryRun r={dry} />}
+    </Section>
+  );
+}
+
+function DryRun({ r }: { r: FalPlan }) {
+  return (
+    <div className="stack">
+      <div className="note ok">Kuru çalıştırma: fal.ai'ye hiçbir istek gönderilmedi; hiçbir şey kuyruğa verilmedi ve hiçbir dosya yüklenmedi.</div>
+      {(r.disabled || r.note || r.message) && <p className="warn small">{r.message || r.note}</p>}
+      <dl className="kv">
+        {r.endpoint && <><dt>Uç nokta</dt><dd className="mono small" style={{ overflowWrap: "anywhere" }}>{r.endpoint}</dd></>}
+        {r.mode && <><dt>Koşul</dt><dd>{r.mode_label ?? FAL_MODE_TR[r.mode]}{r.reason && <div className="faint small">{r.reason}</div>}</dd></>}
+        {r.cost && <><dt>Tahmini maliyet</dt><dd className="mono">~{usdTr(r.cost.reserve_usd)}</dd></>}
+        {(r.resolution || r.duration != null) && <><dt>Video</dt><dd className="mono">{[r.resolution, r.duration != null ? `${r.duration} sn` : "", r.audio ? "sesli" : "sessiz"].filter(Boolean).join(" · ")}</dd></>}
+        <dt>Aşamalar</dt><dd className="small">{stagesText(r.stages)}</dd>
+      </dl>
+      {(r.references?.length ?? 0) > 0 && (
+        <ol className="lines">
+          {r.references!.map((x) => <li key={`${x.token}-${x.key}`}><span className="mono">{x.token}</span> → {x.name}{x.description ? <span className="faint small"> · {x.description}</span> : null}</li>)}
+        </ol>
+      )}
+      {(r.uploads?.length ?? 0) > 0 && (
+        <ul className="lines">
+          {r.uploads!.map((u) => (
+            <li key={u.field}><span className="mono small">{u.field}</span> ← <span className="mono small faint" style={{ overflowWrap: "anywhere" }}>{u.key}</span>
+              {u.sha256 && <div className="mono small faint" title={u.sha256}>sha256 {u.sha256.slice(0, 16)}…</div>}</li>
+          ))}
+        </ul>
+      )}
+      {r.body && (
+        <details>
+          <summary className="small">İstek gövdesi (JSON)</summary>
+          <pre className="prompt" style={{ maxHeight: 320, overflow: "auto", margin: "6px 0 0" }}>{JSON.stringify(r.body, null, 2)}</pre>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -636,7 +802,9 @@ export function Inspector({ className = "" }: { className?: string }) {
       <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
       <div className="pnl-b">
         <Shot sc={sc} />
+        {isFal(sc.engine) && <FalVideo key={`f${sc.id}`} sc={sc} />}
         {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
+        {isFal(sc.engine) && <H3 key={`hf${sc.id}`} sc={sc} fal />}
         {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
         <Pool sc={sc} />
         <Sound key={`s${sc.id}`} sc={sc} q={q} />

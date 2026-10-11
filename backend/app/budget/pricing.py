@@ -68,10 +68,85 @@ def estimate_runpod(seconds: float, gpu: str | None = None, prices: dict | None 
     return round(runpod_rate(gpu, prices) * max(0.0, seconds), 4)
 
 
+# ---------- fal.ai video motorları (MiniMax H3 Max, Seedance 2.5) ----------
+
+FAL_VIDEO_ENGINES = ("h3max", "seedance25")
+
+
+def fal_video(engine: str, prices: dict | None = None) -> dict | None:
+    return ((prices or table()).get("fal_video") or {}).get(engine)
+
+
+def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict | None = None) -> dict:
+    """MiniMax H3 Max: istenen süre × saniye ücreti (480P 0,05 / 768P 0,08 / 1080P 0,16) + referans token fazlası (her
+    girdi görseli 1.024 token; 4.096 token dahil, fazlası 0,02 $ / 1000), × billing_factor (ölçülen fatura). Bilinmeyen
+    çözünürlük: en pahalısı."""
+    row = fal_video("h3max", prices)
+    rates = row["per_second"]
+    rate = float(rates.get(resolution, max(rates.values())))
+    tokens = int(images) * int(row.get("image_tokens", 1024))
+    extra_tokens = max(0, tokens - int(row.get("included_reference_tokens", 4096)))
+    base = rate * float(duration_s) + extra_tokens / 1000.0 * float(row.get("extra_per_1k_tokens", 0.02))
+    factor = float(row.get("billing_factor", 1.0))
+    usd = round(base * factor, 4)
+    return {"engine": "h3max", "resolution": resolution, "duration_s": float(duration_s), "per_second_usd": rate,
+            "images": int(images), "reference_tokens": tokens, "extra_tokens": extra_tokens, "base_usd": round(base, 4),
+            "billing_factor": factor, "usd": usd, "reserve_usd": usd, "units": round(usd / 0.05, 2)}
+
+
+def seedance25_tokens(resolution: str, out_seconds: float, in_video_seconds: float = 0.0, prices: dict | None = None,
+                      size: tuple[int, int] | None = None) -> float:
+    row = fal_video("seedance25", prices)
+    width, height = size or row["size"].get(resolution) or max(row["size"].values(), key=lambda wh: wh[0] * wh[1])
+    return height * width * (float(in_video_seconds) + float(out_seconds)) * int(row.get("fps", 24)) / \
+        float(row.get("token_divisor", 1024))
+
+
+def seedance25_cost(resolution: str, out_seconds: float, in_video_seconds: float = 0.0, prices: dict | None = None,
+                    size: tuple[int, int] | None = None, measured: bool = False) -> dict:
+    """Seedance 2.5: token = yükseklik × genişlik × (girdi videosu sn + çıktı sn) × 24 / 1024; 480p/720p 0,0214 $,
+    1080p 0,0234 $ / 1000 token; video referansı varsa × 0,6 (görsel ve ses referansı ücretsiz). Rezervasyon tahmine
+    %25 pay ekler (reserve_usd); measured: çıktının ölçülen boyu ve süresiyle işlenen tutar (× billing_factor)."""
+    row = fal_video("seedance25", prices)
+    rates = row["per_1k_tokens"]
+    rate = float(rates.get(resolution, max(rates.values())))
+    if in_video_seconds:
+        rate *= float(row.get("video_reference_factor", 0.6))
+    tokens = seedance25_tokens(resolution, out_seconds, in_video_seconds, prices, size)
+    base = tokens / 1000.0 * rate
+    margin, factor = float(row.get("margin", 0.25)), float(row.get("billing_factor", 1.0))
+    return {"engine": "seedance25", "resolution": resolution, "duration_s": float(out_seconds),
+            "input_video_s": float(in_video_seconds), "tokens": round(tokens), "per_1k_tokens_usd": rate,
+            "base_usd": round(base, 4), "margin": margin, "billing_factor": factor,
+            "usd": round(base * (factor if measured else 1 + margin), 4), "reserve_usd": round(base * (1 + margin), 4),
+            "billed_tokens": round(tokens * factor) if measured else None}
+
+
+def fal_video_cost(engine: str, resolution: str, duration_s: float, images: int = 0, in_video_seconds: float = 0.0,
+                   prices: dict | None = None) -> dict:
+    """Çağrıdan önceki tahmin (bütçe kapısı): {"usd", "reserve_usd", ...}."""
+    if engine == "h3max":
+        return h3max_cost(resolution, duration_s, images, prices)
+    if engine == "seedance25":
+        return seedance25_cost(resolution, duration_s, in_video_seconds, prices)
+    raise KeyError(engine)
+
+
+def estimate_fal_image(model: str, width: int = 1280, height: int = 704, prices: dict | None = None) -> float:
+    """fal.ai görsel modeli (qwen_image | qwen_edit | qwen_edit_lora): megapiksel başına, yukarı yuvarlanır (en az 1)."""
+    rows = (prices or table()).get("fal_image") or {}
+    per_mp = float(rows.get(model) or rows.get("qwen_edit") or 0.03)
+    return round(math.ceil(width * height / 1_000_000 - 1e-9) * per_mp, 4)
+
+
 def estimate_video(engine: str, resolution: str, duration_s: float, prices: dict | None = None, mode: str | None = None,
                    cold: bool = False) -> float:
     """mode: H3 koşulu (fl2va | ref2va | t2va). cold: worker soğuk (açılış + model yükleme bu işe eklenir)."""
     prices = prices or table()
+    if engine in FAL_VIDEO_ENGINES and fal_video(engine, prices) is not None:
+        from app.engine.fal_plan import billed_seconds, norm_resolution    # tur çözünürlüğü -> motorun değeri
+        return fal_video_cost(engine, norm_resolution(engine, resolution), billed_seconds(engine, duration_s),
+                              prices=prices)["reserve_usd"]
     if (rp := _runpod(engine, prices)) is not None:            # birincil GPU tipiyle; işlenen tutar gerçek süreyle
         rows = render_rows(rp, mode)
         seconds = rows.get(resolution, max(rows.values())) * duration_s
@@ -106,8 +181,13 @@ def keyframe_seconds(rp: dict, model: str = "qwen", cold: bool = False, edit_mod
 
 
 def estimate_keyframe(engine: str = "h3", prices: dict | None = None, cold: bool = False, model: str = "qwen",
-                      edit_mode: str = "full") -> float:
-    """H3 platformunda (ComfyUI iş akışıyla) çizilen tek ilk karenin tahmini bedeli; cold: soğuk worker."""
+                      edit_mode: str = "full", angles: bool = False) -> float:
+    """Tek ilk karenin tahmini bedeli. KEYFRAME_PLATFORM=fal: fal.ai'de Qwen-Image-2512 / Qwen-Image-Edit-2511 (açı
+    LoRA'sıyla /lora), megapiksel başına (kalite modu fiyatı değiştirmez). Değilse H3 platformunda (ComfyUI iş akışıyla);
+    cold: soğuk worker."""
+    if settings.keyframe_platform == "fal" and (prices or table()).get("fal_image"):
+        name = "qwen_image" if model == "qwen" else "qwen_edit_lora" if angles else "qwen_edit"
+        return estimate_fal_image(name, prices=prices)
     if (rp := _runpod(engine, prices)) is not None:
         return estimate_runpod(keyframe_seconds(rp, model, cold, edit_mode), None, prices)
     return estimate_gpu(engine, self_hosted(engine, prices).get("keyframe_seconds", 10), prices)
@@ -220,6 +300,22 @@ def validate_table(text: str) -> dict:
         for name in ("keyframe_seconds", "keyframe_cold_seconds", *EDIT_MODE_ROWS.values(), "cold_start_seconds"):
             if name in rp:
                 _positive(rp[name], f"serverless.runpod.{name}")
+    fal = data.get("fal_video") or {}
+    if not isinstance(fal, dict):
+        raise PricingError("fal_video: motor -> fiyat satırı sözlüğü olmalı")
+    if "h3max" in fal:
+        for res, rate in ((fal["h3max"] or {}).get("per_second") or {}).items():
+            _positive(rate, f"fal_video.h3max.per_second.{res}")
+        if not (fal["h3max"] or {}).get("per_second"):
+            raise PricingError("fal_video.h3max.per_second eksik (çözünürlük: saniye ücreti)")
+    if "seedance25" in fal:
+        row = fal["seedance25"] or {}
+        if not row.get("per_1k_tokens") or not row.get("size"):
+            raise PricingError("fal_video.seedance25: per_1k_tokens ve size gerekli")
+        for res, rate in row["per_1k_tokens"].items():
+            _positive(rate, f"fal_video.seedance25.per_1k_tokens.{res}")
+    for name, rate in (data.get("fal_image") or {}).items():
+        _positive(rate, f"fal_image.{name}")
     _positive((data.get("image_per_megapixel") or {}).get("flux_lora"), "image_per_megapixel.flux_lora")
     _positive((data.get("image_per_image") or {}).get("flux_kontext"), "image_per_image.flux_kontext")
     _positive(data.get("lipsync_per_minute"), "lipsync_per_minute")

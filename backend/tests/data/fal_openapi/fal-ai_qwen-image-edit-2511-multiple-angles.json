@@ -1,0 +1,416 @@
+{
+ "components": {
+  "schemas": {
+   "Image": {
+    "description": "Represents an image file.",
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The mime type of the file.",
+      "examples": [
+       "image/png"
+      ],
+      "title": "Content Type"
+     },
+     "file_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name of the file. It will be auto-generated if not provided.",
+      "examples": [
+       "z9RV14K95DvU.png"
+      ],
+      "title": "File Name"
+     },
+     "file_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the file in bytes.",
+      "examples": [
+       4404019
+      ],
+      "title": "File Size"
+     },
+     "height": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The height of the image in pixels.",
+      "examples": [
+       1024
+      ],
+      "title": "Height"
+     },
+     "url": {
+      "description": "The URL where the file can be downloaded from.",
+      "title": "Url",
+      "type": "string"
+     },
+     "width": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The width of the image in pixels.",
+      "examples": [
+       1024
+      ],
+      "title": "Width"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "Image",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "content_type",
+     "file_name",
+     "file_size",
+     "width",
+     "height"
+    ]
+   },
+   "ImageSize": {
+    "properties": {
+     "height": {
+      "default": 512,
+      "description": "The height of the generated image.",
+      "exclusiveMinimum": 0,
+      "maximum": 14142,
+      "title": "Height",
+      "type": "integer"
+     },
+     "width": {
+      "default": 512,
+      "description": "The width of the generated image.",
+      "exclusiveMinimum": 0,
+      "maximum": 14142,
+      "title": "Width",
+      "type": "integer"
+     }
+    },
+    "title": "ImageSize",
+    "type": "object",
+    "x-fal-order-properties": [
+     "width",
+     "height"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   },
+   "QwenImageEdit2511MultipleAnglesInput": {
+    "description": "Input model for Multiple Angles endpoint - Camera control with precise adjustments using <sks> trigger word.\nPrompt is built automatically from slider values.",
+    "properties": {
+     "acceleration": {
+      "default": "regular",
+      "description": "Acceleration level for image generation.",
+      "enum": [
+       "none",
+       "regular"
+      ],
+      "title": "Acceleration",
+      "type": "string"
+     },
+     "additional_prompt": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Additional text to append to the automatically generated prompt.",
+      "title": "Additional Prompt"
+     },
+     "enable_safety_checker": {
+      "default": true,
+      "description": "Whether to enable the safety checker. Disabling it requires account authorization; unauthorized requests are always checked.",
+      "title": "Enable Safety Checker",
+      "type": "boolean"
+     },
+     "guidance_scale": {
+      "default": 4.5,
+      "description": "The CFG (Classifier Free Guidance) scale.",
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Guidance Scale",
+      "type": "number"
+     },
+     "horizontal_angle": {
+      "default": 0,
+      "description": "Horizontal rotation angle around the object in degrees. 0°=front view, 90°=right side, 180°=back view, 270°=left side, 360°=front view again.",
+      "maximum": 360,
+      "minimum": 0,
+      "title": "Horizontal Angle (Azimuth °)",
+      "type": "number"
+     },
+     "image_size": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ImageSize"
+       },
+       {
+        "enum": [
+         "square_hd",
+         "square",
+         "portrait_4_3",
+         "portrait_16_9",
+         "landscape_4_3",
+         "landscape_16_9"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the generated image. If not provided, the size of the input image will be used.",
+      "title": "Image Size"
+     },
+     "image_urls": {
+      "description": "The URL of the image to adjust camera angle for.",
+      "examples": [
+       [
+        "https://v3b.fal.media/files/b/0a8973cb/qUbVwDCcMlvX4drBGYB1H.png"
+       ]
+      ],
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Image URLs",
+      "type": "array"
+     },
+     "lora_scale": {
+      "default": 1,
+      "description": "The scale factor for the LoRA model. Controls the strength of the camera control effect.",
+      "maximum": 4,
+      "minimum": 0,
+      "title": "Lora Scale",
+      "type": "number"
+     },
+     "negative_prompt": {
+      "default": "",
+      "description": "The negative prompt for the generation",
+      "title": "Negative Prompt",
+      "type": "string"
+     },
+     "num_images": {
+      "default": 1,
+      "description": "Number of images to generate",
+      "maximum": 4,
+      "minimum": 1,
+      "title": "Num Images",
+      "type": "integer"
+     },
+     "num_inference_steps": {
+      "default": 28,
+      "description": "The number of inference steps to perform.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Num Inference Steps",
+      "type": "integer"
+     },
+     "output_format": {
+      "default": "png",
+      "description": "The format of the output image",
+      "enum": [
+       "png",
+       "jpeg",
+       "webp"
+      ],
+      "title": "Output Format",
+      "type": "string"
+     },
+     "seed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Random seed for reproducibility.",
+      "title": "Seed"
+     },
+     "sync_mode": {
+      "default": false,
+      "description": "If `True`, the media will be returned as a data URI.",
+      "title": "Sync Mode",
+      "type": "boolean"
+     },
+     "vertical_angle": {
+      "default": 0,
+      "description": "Vertical camera angle in degrees. -30°=low-angle shot (looking up), 0°=eye-level, 30°=elevated, 60°=high-angle, 90°=bird's-eye view (looking down).",
+      "maximum": 90,
+      "minimum": -30,
+      "title": "Vertical Angle (Elevation °)",
+      "type": "number"
+     },
+     "zoom": {
+      "default": 5,
+      "description": "Camera zoom/distance. 0=wide shot (far away), 5=medium shot (normal), 10=close-up (very close).",
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Zoom (Distance)",
+      "type": "number"
+     }
+    },
+    "required": [
+     "image_urls"
+    ],
+    "title": "MultipleAnglesInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "image_urls",
+     "horizontal_angle",
+     "vertical_angle",
+     "zoom",
+     "additional_prompt",
+     "lora_scale",
+     "image_size",
+     "guidance_scale",
+     "num_inference_steps",
+     "acceleration",
+     "negative_prompt",
+     "seed",
+     "sync_mode",
+     "enable_safety_checker",
+     "output_format",
+     "num_images"
+    ]
+   },
+   "QwenImageEdit2511MultipleAnglesOutput": {
+    "description": "Output model for Multiple Angles endpoint",
+    "properties": {
+     "images": {
+      "description": "The generated/edited images",
+      "examples": [
+       [
+        {
+         "url": "https://v3b.fal.media/files/b/0a8973d9/8Z0xxKdGnoJAWc2tKJ68f.png"
+        }
+       ]
+      ],
+      "items": {
+       "$ref": "#/components/schemas/Image"
+      },
+      "title": "Images",
+      "type": "array"
+     },
+     "prompt": {
+      "description": "The constructed prompt used for generation",
+      "title": "Prompt",
+      "type": "string"
+     },
+     "seed": {
+      "description": "The seed used for generation",
+      "title": "Seed",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "images",
+     "seed",
+     "prompt"
+    ],
+    "title": "MultipleAnglesOutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "images",
+     "seed",
+     "prompt"
+    ]
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/qwen-image-edit-2511-multiple-angles",
+  "title": "Queue OpenAPI for fal-ai/qwen-image-edit-2511-multiple-angles",
+  "x-fal-metadata": {
+   "about": "Generate different camera angles using <sks> trigger word system.\n\nAutomatically builds prompt from horizontal_angle, vertical_angle, and zoom sliders.\nFormat: <sks> [angle_description] [elevation_description] [distance_description]",
+   "category": "image-to-image",
+   "documentationUrl": "https://fal.ai/models/fal-ai/qwen-image-edit-2511-multiple-angles/api",
+   "endpointId": "fal-ai/qwen-image-edit-2511-multiple-angles",
+   "playgroundUrl": "https://fal.ai/models/fal-ai/qwen-image-edit-2511-multiple-angles",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/0a89744e/euqxNQk3eIDDL3GDS_pkZ.png"
+  }
+ }
+}

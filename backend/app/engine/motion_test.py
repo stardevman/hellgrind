@@ -21,7 +21,7 @@ from app.core.hashing import seed_for
 from app.db import session_scope
 from app.engine import references
 from app.engine.iteration import make_thumb
-from app.engine.providers import DEFAULT_ENGINE, GenRequest, TransientError, get_provider
+from app.engine.providers import GenRequest, TransientError, default_engine, get_provider
 from app.style import bible
 from app.style.composer import compose_prompt
 from app.models import Asset, Variation
@@ -30,7 +30,6 @@ from app.quality.anomaly import detect_anomalies
 log = logging.getLogger("hellgrind.motion_test")
 
 MOTION_TEST_S = 3.0
-ENGINE = DEFAULT_ENGINE          # filmi üreten motor (MiniMax H3): varlık, çekimlerde kullanılacağı motorla sınanır
 MAX_ATTEMPTS = 3
 RENDER = {   # tür -> (kamera, aksiyon): karakter koşar, mekânda vinç, nesne etrafında yörünge
     "character": ({"shot": "medium", "movement": "orbit"}, 0.8),
@@ -56,7 +55,7 @@ def create(s, asset: Asset, cfg: dict) -> Variation:
     n = s.scalar(select(func.count()).select_from(Variation).where(Variation.asset_id == asset.id)) or 0
     style = bible.active(s, asset.project_id)
     composed = compose_for(asset, style)
-    v = Variation(asset_id=asset.id, scene_id=None, tier="probe", wave_no=n, engine=ENGINE,
+    v = Variation(asset_id=asset.id, scene_id=None, tier="probe", wave_no=n, engine=default_engine(cfg),   # filmin taslak motoru
                   seed=seed_for(str(asset.id), asset.version, "motion", n), prompt_revision=0, status="queued",
                   params={"kind": "motion_test", "asset_version": asset.version, "resolution": cfg["probe_resolution"],
                           "duration_s": MOTION_TEST_S, "prompt": composed.prompt, "negative": composed.negative,
@@ -91,12 +90,13 @@ def run(project_id: str, variation_id: str) -> str:
                                 "project_id": project_id,
                                 "label": f"{asset.name} · hareket testi #{v.wave_no + 1}"})
         asset_id = str(asset.id)
+        engine = v.engine
         source = references.motion_source(asset.references or {})
     if killswitch.is_frozen(project_id):
         _set(variation_id, status="failed", params={**v.params, "purge_reason": "frozen"})
         raise killswitch.ProjectFrozen(project_id)
 
-    provider = get_provider(ENGINE)
+    provider = get_provider(engine)
     _set(variation_id, status="running")
     result = None
     try:
@@ -108,7 +108,7 @@ def run(project_id: str, variation_id: str) -> str:
         estimate = provider.estimate(req)
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                with killswitch.spend(project_id, estimate, f"{ENGINE}:{req.resolution}:motion_test",
+                with killswitch.spend(project_id, estimate, f"{engine}:{req.resolution}:motion_test",
                                       variation_id=variation_id, details={"attempt": attempt}) as charge:
                     result = provider.generate(req)
                     charge.actual = result.cost_usd

@@ -74,7 +74,13 @@ def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(a
     assert key == {"env": "FAL_KEY", "label": "API anahtarı", "kind": "secret", "set": True, "masked": "••••WXYZ"}
     endpoints = {f["env"]: f for f in fal["fields"] if f["kind"] == "model"}
     assert set(endpoints) == {"FAL_FLUX_ENDPOINT", "FAL_WAN_ENDPOINT", "FAL_SEEDANCE_ENDPOINT", "FAL_LIPSYNC_ENDPOINT", "FAL_WAN_V2V_ENDPOINT",
-                              "FAL_KONTEXT_ENDPOINT"}
+                              "FAL_KONTEXT_ENDPOINT", "FAL_H3MAX_I2V_ENDPOINT", "FAL_H3MAX_REF_ENDPOINT",
+                              "FAL_SEEDANCE25_I2V_ENDPOINT", "FAL_SEEDANCE25_REF_ENDPOINT",
+                              "FAL_SEEDANCE25_DRAFT_COMPLETE_ENDPOINT", "FAL_QWEN_IMAGE_ENDPOINT", "FAL_QWEN_EDIT_ENDPOINT",
+                              "FAL_QWEN_EDIT_LORA_ENDPOINT"}
+    assert endpoints["FAL_H3MAX_I2V_ENDPOINT"]["default"] == "minimax/h3-max/image-to-video"
+    assert endpoints["FAL_SEEDANCE25_REF_ENDPOINT"]["default"] == "bytedance/seedance-2.5/reference-to-video"
+    assert not any("/us/" in f["default"] for f in endpoints.values())
     assert endpoints["FAL_WAN_ENDPOINT"]["url"] == "https://fal.ai/models/fal-ai/wan/v2.2-a14b/image-to-video"
     assert fal["console"].startswith("https://") and fal["used_by"]
     assert SECRET not in json.dumps(body)
@@ -86,7 +92,8 @@ def test_runpod_is_listed_first_as_the_default_h3_platform(api, cfg):
     rp, vast = services[0], services[1]
     assert rp["name"] == "MiniMax H3 · RunPod" and rp["key_env"] == "RUNPOD_API_KEY" and rp["active"] is True
     fields = {f["env"]: f for f in rp["fields"]}
-    assert fields["H3_PLATFORM"]["value"] == "runpod" and fields["H3_PLATFORM"]["choices"] == ["runpod", "vast"]
+    assert fields["H3_PLATFORM"]["value"] == "runpod" and fields["H3_PLATFORM"]["choices"] == ["kapali", "runpod", "vast"]
+    assert fields["H3_PLATFORM"]["default"] == "kapali"                 # RunPod uç noktası silindi
     # geliştirme .env'i konteynere yüklenir: dosyada olmayan alanlar için varsayılanlar sınanır
     assert fields["RUNPOD_ENDPOINT_ID"]["value"] == "ep123" and fields["RUNPOD_DATACENTER"]["default"] == "CA-MTL-1"
     assert (fields["RUNPOD_IDLE_TIMEOUT_S"]["default"], fields["RUNPOD_MIN_BALANCE_USD"]["default"]) == ("60", "10.0")

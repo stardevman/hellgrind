@@ -38,6 +38,28 @@ serverless:
     keyframe_edit_lightning_seconds: 15 # Lightning (4 adım, cfg 1): ölçülen kare model yükleme dahil 0,048 $ (~109 sn) = 15 + soğuk fark (95)
     cold_start_seconds: 140     # soğuk worker'da ilk video işine eklenen faturalanan süre (açılış + H3 yükleme): ~136-141
 
+# fal.ai video motorları (Ekim 2026; model sayfaları ve yönetmenin ücretli karşılaştırma testi, aynı 5 referans, 10 sn 16:9).
+fal_video:
+  h3max:              # MiniMax H3 Max: istenen süre × saniye ücreti + referans token fazlası (minimax/h3-max/*)
+    per_second: {"480P": 0.05, "768P": 0.08, "1080P": 0.16}
+    included_reference_tokens: 4096   # her istekte dahil (4 görsel)
+    image_tokens: 1024                # her girdi görseli (referans, ilk ve son kare) bu kadar token sayılır
+    extra_per_1k_tokens: 0.02         # dahil olanın üstü
+    billing_factor: 1.05              # test: 10 sn 768P + 5 görsel formülle 0,82 $, faturalanan 17,19 birim ≈ 0,86 $
+                                      # (çıktı ~0,7 sn uzun olabilir, istem token'ları)
+  seedance25:         # Seedance 2.5: token = yükseklik × genişlik × (girdi videosu sn + çıktı sn) × 24 / 1024
+    per_1k_tokens: {"480p": 0.0214, "720p": 0.0214, "1080p": 0.0234}
+    size: {"480p": [864, 480], "720p": [1280, 720], "1080p": [1920, 1080]}
+    fps: 24
+    token_divisor: 1024
+    video_reference_factor: 0.6       # video referansı varsa; görsel ve ses referansı ücretsiz
+    margin: 0.25                      # rezervasyon payı (test: formül 216 bin token, faturalanan 260,28 bin = 5,57 $)
+    billing_factor: 1.2               # işlenen tutar: çıktının ölçülen token'ı × bu çarpan (217,7 bin ölçülen -> 260,3 bin)
+fal_image:            # fal.ai görsel modelleri, megapiksel başına (yukarı yuvarlanır); kare 1280x704 = 1 MP
+  qwen_image: 0.02          # fal-ai/qwen-image-2512
+  qwen_edit: 0.03           # fal-ai/qwen-image-edit-2511
+  qwen_edit_lora: 0.035     # fal-ai/qwen-image-edit-2511/lora (Multiple Angles LoRA)
+
 video_per_second:
   fal_wan:            # Wan 2.2 A14B image-to-video (yalnızca bu motorla açılmış eski çekimler)
     "480p": 0.04

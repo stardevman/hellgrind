@@ -20,8 +20,10 @@ router = APIRouter(tags=["settings"])
 
 WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
+RUNPOD_OFF = "RunPod: kapalı (endpoint silindi). H3_PLATFORM=runpod olmadıkça hiçbir RunPod çağrısı yapılmaz."
+
 SERVICES = {
-    "runpod": {"name": "MiniMax H3 · RunPod", "purpose": "Video üretimi: MiniMax H3, RunPod Serverless'ta (varsayılan platform)",
+    "runpod": {"name": "MiniMax H3 · RunPod", "purpose": "Kapalı (endpoint silindi): kendi barındırdığımız MiniMax H3; video artık fal.ai'de",
                "key": "RUNPOD_API_KEY", "console": "https://console.runpod.io/serverless",
                "used_by": ["Kurgu: görüntü üretimi (test ve tam tur; dalganın işleri birlikte kuyruğa)",
                            "Storyboard ilk kareleri (ComfyUI keyframe.json iş akışı varsa)",
@@ -37,9 +39,11 @@ SERVICES = {
                          "Makine yönetimi: boşta durdurma, otomatik başlatma, boşta bekleme bedeli",
                          "Yeni ve yedek makine: teklif arama, onaylı kiralama, setup.sh ile kurulum, eski makineyi silme",
                          "Çıktı güvencesi: her çıktı indirilip yerel depoda doğrulanır; eksik çıktılı makine silinmez"]},
-    "fal": {"name": "fal.ai", "purpose": "İsteğe bağlı: Seedance, Flux kareleri, previs aktarımı, dudak senkronu",
+    "fal": {"name": "fal.ai", "purpose": "Video: MiniMax H3 Max (taslak) ve Seedance 2.5 (final); kareler Qwen-Image / Qwen-Image-Edit",
             "key": "FAL_KEY", "console": "https://fal.ai/dashboard",
-            "used_by": ["Kurgu: yönetmenin Seedance seçtiği çekimler (ilk kare Flux'tan)", "Storyboard kareleri (yoksa yerel çizilir)",
+            "used_by": ["Kurgu: taslak H3 Max, \"Seedance 2.5 ile yükselt\" final (fal kuyruğu, request_id'den sürdürme)",
+                        "Storyboard ve zincir kareleri: Qwen-Image-2512, Qwen-Image-Edit-2511 (+ açı LoRA'sı)",
+                        "Kurgu: yönetmenin Seedance 2.0 fast seçtiği çekimler (ilk kare Flux'tan)",
                         "Varlıklar: mekân ve nesne referans görseli", "Yöntem: previs rehberinden video",
                         "Dudak senkronu (yoksa video senkronsuz kullanılır)"]},
     "elevenlabs": {"name": "ElevenLabs", "purpose": "Türkçe diyalog seslendirme", "key": "ELEVENLABS_API_KEY",
@@ -100,15 +104,21 @@ def _missing(service: str) -> list[str]:
     return missing_packages(service)
 
 
+def fal_required() -> bool:
+    """Ücretli modda fal.ai zorunlu mu: taslak video motoru (H3 Max / Seedance 2.5) ya da kare çizimi fal.ai'deyse."""
+    from app.engine.fal_plan import is_fal
+    return is_fal(settings.video_draft_engine) or settings.keyframe_platform == "fal"
+
+
 def _needed(service: str) -> tuple[bool, str]:
     """Servis şu ayarlarla ücretli modda çağrılır mı; çağrılmıyorsa neden."""
     if service == "vast" and settings.h3_platform != "vast":
-        return False, "deneysel ve kapalı: MiniMax H3 RunPod'da çalışır (Platform ayarı)"
+        return False, "deneysel ve kapalı: video fal.ai'de (H3 Max, Seedance 2.5) üretilir (Platform ayarı)"
     if service == "runpod" and settings.h3_platform != "runpod":
-        return False, "platform vast (deneysel): RunPod çağrılmaz"
-    if service == "fal" and not _key("FAL_KEY")["set"]:
-        return False, ("isteğe bağlı: anahtar yoksa Seedance seçilemez, storyboard karesi yerel çizilir ve dudak senkronu "
-                       "atlanır; video MiniMax H3 ile üretilir")
+        return False, (RUNPOD_OFF if settings.h3_platform == "kapali" else "platform vast (deneysel): RunPod çağrılmaz")
+    if service == "fal" and not fal_required() and not _key("FAL_KEY")["set"]:
+        return False, ("isteğe bağlı: taslak motoru ve kare çizimi fal.ai'de değil; anahtar yoksa Seedance seçilemez, "
+                       "storyboard karesi yerel çizilir ve dudak senkronu atlanır")
     if service == "elevenlabs" and settings.tts_engine != "elevenlabs":
         return False, f"konuşma motoru {settings.tts_engine}: ElevenLabs çağrılmaz, anahtar gerekmez"
     if service == "anthropic" and settings.hermes_mode != "llm":
@@ -220,10 +230,13 @@ def set_mode(body: ModeIn, s: Session = Depends(get_session)):
         raise HTTPException(422, "vast.ai API anahtarı tanımlı değil: video MiniMax H3 ile vast.ai makinesinde üretilir. "
                                  "Önce Ayarlar › MiniMax H3 · vast.ai'den anahtarı girin; makineyi sonra \"Yeni makine "
                                  "kirala\" ile kurabilir ya da kimliğini ve adresini elle girebilirsiniz.")
-    if body.paid and settings.h3_platform != "vast" and not (_key("RUNPOD_API_KEY")["set"] and settings.runpod_endpoint_id):
-        raise HTTPException(422, "RunPod tanımlı değil: video MiniMax H3 ile RunPod Serverless'ta üretilir. Önce Ayarlar › "
-                                 "MiniMax H3 · RunPod'dan API anahtarını ve uç nokta kimliğini girin (kurulum: "
-                                 "backend/runpod/README.md).")
+    if body.paid and settings.h3_platform == "runpod" and not (_key("RUNPOD_API_KEY")["set"] and settings.runpod_endpoint_id):
+        raise HTTPException(422, "RunPod tanımlı değil: H3_PLATFORM=runpod iken MiniMax H3 RunPod Serverless'ta üretilir. "
+                                 "Önce Ayarlar › MiniMax H3 · RunPod'dan API anahtarını ve uç nokta kimliğini girin ya da "
+                                 "platformu kapali yapın (video fal.ai'de).")
+    if body.paid and fal_required() and not _key("FAL_KEY")["set"]:
+        raise HTTPException(422, "fal.ai anahtarı tanımlı değil: video (H3 Max taslak, Seedance 2.5 final) ve kareler "
+                                 "fal.ai'de üretilir. Önce Ayarlar › fal.ai'den anahtarı girin.")
     note = None
     if not body.paid and not settings.dry_run and _active("vast") and int(settings.h3_idle_stop_minutes or 0) > 0:
         note = _stop_box_before_free_mode()
@@ -338,7 +351,9 @@ def runpod_state():
         None if regions.datacenter_allowed(settings.runpod_datacenter) else runpod_h3.region_problem(None))
     floor = float(settings.runpod_min_balance_usd)
     balance = cached["balance"]
-    return {"platform": settings.h3_platform, "endpoint_id": settings.runpod_endpoint_id or None,
+    return {"platform": settings.h3_platform, "disabled": settings.h3_platform != "runpod",
+            "disabled_message": RUNPOD_OFF if settings.h3_platform == "kapali" else None,
+            "endpoint_id": settings.runpod_endpoint_id or None,
             "datacenter": settings.runpod_datacenter, "allowed_datacenters": list(regions.runpod_datacenters()),
             "balance": balance, "balance_low": bool(balance and balance["usd"] < floor), "min_balance": floor,
             "config": cached["config"], "health": cached["health"], "tick": cached["tick"], "region_problem": region,
@@ -358,6 +373,8 @@ def runpod_action(body: RunpodIn):
     rc.refresh_if_changed()
     if settings.dry_run:
         raise HTTPException(409, "Ücretsiz modda RunPod çağrılmaz.")
+    if settings.h3_platform != "runpod":
+        raise HTTPException(409, RUNPOD_OFF)
     from app.live import PaidCallBlocked, guard, runpod_h3
     try:
         if body.action == "apply":

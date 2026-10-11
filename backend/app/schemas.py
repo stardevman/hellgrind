@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Emotion = Literal["neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension"]
-Engine = Literal["h3", "seedance", "fal_wan", "higgsfield"]
+Engine = Literal["h3max", "seedance25", "seedance", "h3", "fal_wan", "higgsfield"]
 Shot = Literal["extreme_wide", "wide", "pov", "medium", "over_shoulder", "close_up", "extreme_close_up"]
 Movement = Literal["static", "dolly_in", "dolly_out", "pan", "tilt", "crane", "orbit", "tracking", "handheld"]
 Angle = Literal["low", "eye", "high"]
@@ -57,6 +57,11 @@ SETTING_RULES = {
     "paid_audio": (lambda v: type(v) is bool, "true ya da false"),
     "asset_min_status": (lambda v: v in ("still_approved", "motion_tested", "locked"),
                          "still_approved, motion_tested ya da locked"),
+    # fal.ai video motorları: boş = Ayarlar'daki VIDEO_DRAFT_ENGINE / VIDEO_FINAL_ENGINE
+    "draft_engine": (lambda v: v in (None, "h3max", "seedance25", "seedance", "h3"),
+                     "h3max, seedance25, seedance, h3 ya da boş"),
+    "final_engine": (lambda v: v in (None, "seedance25", "h3max", "seedance"), "seedance25, h3max, seedance ya da boş"),
+    "fal_clip_attempts": (_int(1, 5), "1 ile 5 arasında tam sayı"),
 }
 
 
@@ -136,9 +141,12 @@ class ScenePatch(BaseModel):
     emotion: Emotion | None = None
     camera: CameraIn | None = None
     action_complexity: float | None = Field(None, ge=0, le=1)
-    duration_s: float | None = Field(None, ge=2, le=10)
+    duration_s: float | None = Field(None, ge=2, le=15)          # H3 Max en çok 15 sn üretir
     prompt_spec: PromptSpecIn | None = None
     engine: Engine | None = None
+    # fal video (H3 Max / Seedance 2.5): çözünürlük ve model sesi; auto: Ayarlar'daki varsayılan
+    video_resolution: Literal["auto", "480P", "768P", "1080P", "480p", "720p", "1080p"] | None = None
+    video_audio: Literal["auto", "true", "false"] | None = None
     h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)

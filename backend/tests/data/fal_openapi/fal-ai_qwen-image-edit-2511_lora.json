@@ -1,0 +1,376 @@
+{
+ "components": {
+  "schemas": {
+   "Image": {
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": "image/jpeg",
+      "title": "Content Type"
+     },
+     "height": {
+      "title": "Height",
+      "type": "integer"
+     },
+     "url": {
+      "title": "Url",
+      "type": "string"
+     },
+     "width": {
+      "title": "Width",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "url",
+     "width",
+     "height"
+    ],
+    "title": "Image",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "width",
+     "height",
+     "content_type"
+    ]
+   },
+   "ImageSize": {
+    "properties": {
+     "height": {
+      "default": 512,
+      "description": "The height of the generated image.",
+      "exclusiveMinimum": 0,
+      "maximum": 14142,
+      "title": "Height",
+      "type": "integer"
+     },
+     "width": {
+      "default": 512,
+      "description": "The width of the generated image.",
+      "exclusiveMinimum": 0,
+      "maximum": 14142,
+      "title": "Width",
+      "type": "integer"
+     }
+    },
+    "title": "ImageSize",
+    "type": "object",
+    "x-fal-order-properties": [
+     "width",
+     "height"
+    ]
+   },
+   "LoraWeight": {
+    "properties": {
+     "path": {
+      "description": "URL or the path to the LoRA weights.",
+      "title": "Path",
+      "type": "string"
+     },
+     "scale": {
+      "default": 1,
+      "description": "\n            The scale of the LoRA weight. This is used to scale the LoRA weight\n            before merging it with the base model.\n        ",
+      "maximum": 4,
+      "minimum": 0,
+      "title": "Scale",
+      "type": "number"
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "title": "LoraWeight",
+    "type": "object",
+    "x-fal-order-properties": [
+     "path",
+     "scale"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   },
+   "QwenImageEdit2511LoraInput": {
+    "properties": {
+     "acceleration": {
+      "default": "regular",
+      "description": "The acceleration level to use.",
+      "enum": [
+       "none",
+       "regular",
+       "high"
+      ],
+      "title": "Acceleration",
+      "type": "string"
+     },
+     "enable_safety_checker": {
+      "default": true,
+      "description": "If set to true, the safety checker will be enabled. Disabling it requires account authorization; unauthorized requests are always checked.",
+      "title": "Enable Safety Checker",
+      "type": "boolean"
+     },
+     "guidance_scale": {
+      "default": 4.5,
+      "description": "The guidance scale to use for the image generation.",
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Guidance Scale",
+      "type": "number"
+     },
+     "image_size": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ImageSize"
+       },
+       {
+        "enum": [
+         "square_hd",
+         "square",
+         "portrait_4_3",
+         "portrait_16_9",
+         "landscape_4_3",
+         "landscape_16_9"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the generated image. If None, uses the input image dimensions.",
+      "title": "Image Size"
+     },
+     "image_urls": {
+      "description": "The URLs of the images to edit.",
+      "examples": [
+       [
+        "https://v3b.fal.media/files/b/0a877afe/karyVuQ62j0V6ErYzyW-w_image_6.png"
+       ]
+      ],
+      "items": {
+       "type": "string"
+      },
+      "title": "Image URLs",
+      "type": "array"
+     },
+     "loras": {
+      "default": [],
+      "description": "The LoRAs to use for the image generation. You can use up to 3 LoRAs and they will be merged together to generate the final image.",
+      "items": {
+       "$ref": "#/components/schemas/LoraWeight"
+      },
+      "title": "Loras",
+      "type": "array"
+     },
+     "negative_prompt": {
+      "default": "",
+      "description": "The negative prompt to generate an image from.",
+      "title": "Negative Prompt",
+      "type": "string"
+     },
+     "num_images": {
+      "default": 1,
+      "description": "The number of images to generate.",
+      "maximum": 4,
+      "minimum": 1,
+      "title": "Num Images",
+      "type": "integer"
+     },
+     "num_inference_steps": {
+      "default": 28,
+      "description": "The number of inference steps to perform.",
+      "maximum": 50,
+      "minimum": 1,
+      "title": "Num Inference Steps",
+      "type": "integer"
+     },
+     "output_format": {
+      "default": "png",
+      "description": "The format of the generated image.",
+      "enum": [
+       "jpeg",
+       "png",
+       "webp"
+      ],
+      "title": "Output Format",
+      "type": "string"
+     },
+     "prompt": {
+      "description": "The prompt to edit the image with.",
+      "examples": [
+       "Change angle to front view"
+      ],
+      "title": "Prompt",
+      "type": "string"
+     },
+     "seed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The same seed and the same prompt given to the same version of the model will output the same image every time.",
+      "title": "Seed"
+     },
+     "sync_mode": {
+      "default": false,
+      "description": "If `True`, the media will be returned as a data URI.",
+      "title": "Sync Mode",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "prompt",
+     "image_urls"
+    ],
+    "title": "EditImageLoraInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "prompt",
+     "negative_prompt",
+     "image_size",
+     "image_urls",
+     "num_inference_steps",
+     "guidance_scale",
+     "seed",
+     "sync_mode",
+     "num_images",
+     "enable_safety_checker",
+     "output_format",
+     "acceleration",
+     "loras"
+    ]
+   },
+   "QwenImageEdit2511LoraOutput": {
+    "properties": {
+     "has_nsfw_concepts": {
+      "description": "Whether the generated images contain NSFW concepts.",
+      "items": {
+       "type": "boolean"
+      },
+      "title": "Has Nsfw Concepts",
+      "type": "array"
+     },
+     "images": {
+      "description": "The generated image files info.",
+      "examples": [
+       [
+        {
+         "content_type": "image/png",
+         "height": 768,
+         "url": "https://v3b.fal.media/files/b/0a877afe/InJJA0Q1gtQnyK1N3wdg5.png",
+         "width": 1376
+        }
+       ]
+      ],
+      "items": {
+       "$ref": "#/components/schemas/Image"
+      },
+      "title": "Images",
+      "type": "array"
+     },
+     "prompt": {
+      "description": "The prompt used for generating the image.",
+      "title": "Prompt",
+      "type": "string"
+     },
+     "seed": {
+      "description": "\n            Seed of the generated Image. It will be the same value of the one passed in the\n            input or the randomly generated that was used in case none was passed.\n        ",
+      "title": "Seed",
+      "type": "integer"
+     },
+     "timings": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "title": "Timings",
+      "type": "object"
+     }
+    },
+    "required": [
+     "images",
+     "timings",
+     "seed",
+     "has_nsfw_concepts",
+     "prompt"
+    ],
+    "title": "ImageToImageOutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "images",
+     "timings",
+     "seed",
+     "has_nsfw_concepts",
+     "prompt"
+    ]
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/qwen-image-edit-2511/lora",
+  "title": "Queue OpenAPI for fal-ai/qwen-image-edit-2511/lora",
+  "x-fal-metadata": {
+   "about": "Edit images using Qwen Image Edit 2511 with LoRA support",
+   "category": "image-to-image",
+   "documentationUrl": "https://fal.ai/models/fal-ai/qwen-image-edit-2511/lora/api",
+   "endpointId": "fal-ai/qwen-image-edit-2511/lora",
+   "playgroundUrl": "https://fal.ai/models/fal-ai/qwen-image-edit-2511/lora",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/0a887017/5CHxB7UP_2DDDrYwUMY1P_758632ead2224926b213655a720357b0.jpg"
+  }
+ }
+}

@@ -97,6 +97,9 @@ def spent(pid: str) -> float:
 
 
 def new_project(title: str, budget: float, **cfg) -> str:
+    """Ana akış ve bütçe kontrolleri MiniMax H3 (kendi barındırdığımız; ücretsiz modda yerel motor) ile kurulmuştur:
+    `draft_engine="h3"`. fal.ai varsayılanları (H3 Max taslak, Seedance 2.5 final) ayrı bölümde (check_fal) sınanır."""
+    cfg = {"draft_engine": "h3", **cfg}
     preset = c.get("/meta").json()["presets"]["preview"]
     # Panelin formundaki gibi: hız bekçisi bütçenin yarısı. Yerel motor saniyeler içinde üretir; varsayılan 10 dakikalık
     # sınır, pahalı bir motor seçilmiş çekimlerde filmi ortasında dondurabilirdi.
@@ -380,6 +383,8 @@ def main() -> int:
     r = c.post(f"/scenes/{ov['scenes'][0]['id']}/render")
     check(r.status_code == 423, f"yeni render isteği 423 döndü ({r.status_code})")
 
+    check_fal(meta)
+
     from scripts import smoke_runpod                # en sonda: süreç içinde, sahte RunPod'la (ağ yok)
     smoke_runpod.run(c, check, new_project, meta["sample_script"])
     smoke_runpod.run_order(c, check, new_project, meta["sample_script"])
@@ -391,6 +396,46 @@ def main() -> int:
         return 1
     print("TÜM KONTROLLER GEÇTİ")
     return 0
+
+
+def check_fal(meta: dict) -> None:
+    """fal.ai varsayılanları ücretsiz modda: yeni çekimler taslak motoruna (H3 Max) gider, çekim başına tek klip; kuru
+    çalıştırma fal'e gitmeden şemaya uygun gövde verir; "Seedance 2.5 ile yükselt" aynı çekimi final motoruyla üretir,
+    eski klip varyasyon olarak kalır."""
+    print("V) fal.ai motorları: taslak MiniMax H3 Max, Seedance 2.5 ile yükselt (sanal)")
+    check(meta["h3_platform"] == "kapali" and meta["video"]["draft_engine"] == "h3max"
+          and meta["video"]["final_engine"] == "seedance25", "RunPod kapalı; taslak h3max, final seedance25")
+    pid = new_project("duman-testi-fal", 100.0, lint_strictness="off", draft_engine=None, fal_clip_attempts=3)
+    c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]}).raise_for_status()
+    ov = wait_scenes(pid)
+    check({s["engine"] for s in ov["scenes"]} == {"h3max"}, "yeni çekimler H3 Max'e yönlendi")
+    check(all(s["status"] == "done" and s["cut_tier"] == "draft" for s in ov["scenes"]),
+          "dört çekim taslak olarak bitti: " + " ".join(f"{s['scene_code']}:{s['status']}" for s in ov["scenes"]))
+    check(all(len([v for v in s["variations"] if v["rank"]]) == 1 for s in ov["scenes"]), "çekim başına tek klip havuzda")
+    plan = c.get(f"/projects/{pid}/render-plan", params={"dry_run": "true"}).json()
+    rows = plan["scenes"]
+    check(plan["network"] is False and all(r["endpoint"].startswith("minimax/h3-max/") for r in rows),
+          f"kuru çalıştırma: {len(rows)} çekim H3 Max uç noktasına, ağ yok")
+    check(all(isinstance(r["body"]["duration"], (int, float)) and r["body"]["prompt_expansion_mode"] == "disabled"
+              for r in rows), "H3 Max gövdesi: süre sayı, prompt_expansion_mode zorunlu alan dolu")
+    check(plan["upgrade_total_usd"] > plan["total_usd"] > 0,
+          f"tahmin: taslak {plan['total_usd']:.2f} $, yükseltme {plan['upgrade_total_usd']:.2f} $")
+    sc = ov["scenes"][0]
+    before, draft_id = spent(pid), next(v["id"] for v in sc["variations"] if v["rank"] == 1)
+    previous_final = c.get(f"/scenes/{sc['id']}").json()["final_video_key"]
+    r = c.post(f"/scenes/{sc['id']}/upgrade-final")
+    check(r.status_code == 200 and r.json()["engine"] == "seedance25", f"Seedance 2.5 ile yükselt ({r.status_code})")
+    wait_scene(sc["id"], changed_from=previous_final, timeout=600)
+    after = next(s for s in overview(pid)["scenes"] if s["id"] == sc["id"])
+    winner = next((v for v in after["variations"] if v["rank"] == 1), None)
+    old = next((v for v in after["variations"] if v["id"] == draft_id), None)
+    check(after["cut_tier"] == "final" and after["engine"] == "seedance25" and winner and winner["id"] != draft_id,
+          "yükseltilen çekim final, havuzun başında Seedance 2.5 klibi")
+    check(old is not None and old["status"] == "passed", "taslak klip varyasyon olarak kaldı")
+    check(spent(pid) > before, f"yükseltme sanal olarak ücretlendi ({spent(pid) - before:.2f} $)")
+    dry = c.post(f"/scenes/{sc['id']}/render", params={"dry_run": "true"}).json()
+    check(dry["dry_run"] and dry["endpoint"].startswith("bytedance/seedance-2.5/") and isinstance(dry["body"]["duration"], str),
+          "kuru çalıştırma: Seedance 2.5 gövdesinde süre metin")
 
 
 def check_history(pid: str) -> None:
@@ -410,8 +455,9 @@ def check_history(pid: str) -> None:
     check(bool(h3) and all(x["service"] == "runpod" and x["model"] == "MiniMaxAI/MiniMax-H3" for x in h3),
           f"video ve hareket testi MiniMax H3'e (RunPod Serverless) yazıldı ({len(h3)} çağrı)")
     rp = c.get("/settings/runpod").json()
-    check(rp["platform"] == "runpod" and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
-          f"izinli bölgeler yalnızca Kanada veri merkezleri ({', '.join(rp['allowed_datacenters'])})")
+    check(rp["platform"] == "kapali" and rp["disabled"] and rp["disabled_message"].startswith("RunPod: kapalı")
+          and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
+          f"RunPod kapalı (endpoint silindi); izinli bölgeler yine yalnızca Kanada ({', '.join(rp['allowed_datacenters'])})")
     ov = overview(pid)
     modes = {sc["scene_code"]: (sc["h3_mode"], sc["keyframe_model"]) for sc in ov["scenes"]}
     check(all(sc["h3_mode"] == "fl2va" and sc["keyframe_url"] for sc in ov["scenes"])

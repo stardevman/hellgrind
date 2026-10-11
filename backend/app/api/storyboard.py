@@ -19,7 +19,7 @@ from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, 
 from app.api.plan import (AwaitingBoard, Blocked, Busy, SequenceCapped, dispatch_all, dispatch_result, ensure_idle,
                           plan_and_dispatch)
 from app.budget import killswitch
-from app.config import settings
+from app.config import project_settings, settings
 from app.core.rerender import Stage, board_stale, fingerprints
 from app.core.state import load_assets, load_characters
 from app.curation import curated
@@ -417,6 +417,11 @@ def upgrade_pass(project_id: ProjectId, s: Session = Depends(get_session)):
         if sc.cut_tier != "draft":
             skipped.append(sc.scene_code)            # zaten tam turdan geçmiş ya da hiç üretilmemiş
             continue
+        from app.engine import fal_plan
+        cfg = project_settings(project_or_404(s, project_id).settings)
+        if fal_plan.is_fal(sc.engine) and sc.engine != fal_plan.final_engine(cfg):
+            sc.engine = fal_plan.final_engine(cfg)   # fal taslağı (H3 Max) final motoruyla (Seedance 2.5) yeniden üretilir
+            s.commit()
         try:
             planned[sc.scene_code] = plan_and_dispatch(s, sc, rerun_visual=True, mode="full")
         except Busy:

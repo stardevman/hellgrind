@@ -219,11 +219,14 @@ def reference_estimate(asset_type: str, kind: str = "still") -> tuple[str, float
     """(defter etiketi, tahmin): dönüş videosu = 4 sn 480p MiniMax H3; durağan görsel = RunPod'da Qwen-Image-2512 karesi
     (sıcak worker süresi, boyla orantılı). Ücretsiz modda yerel taslak da bu fiyatla sanal olarak bütçeden düşer."""
     from app.budget import pricing
-    from app.engine.providers import DEFAULT_ENGINE
+    from app.engine.providers import default_engine
     if kind == "turnaround":
-        return f"{DEFAULT_ENGINE}:{TURNAROUND_RESOLUTION}:reference", \
-            pricing.estimate_video(DEFAULT_ENGINE, TURNAROUND_RESOLUTION, TURNAROUND_S)
+        engine = default_engine()
+        return f"{engine}:{TURNAROUND_RESOLUTION}:reference", \
+            pricing.estimate_video(engine, TURNAROUND_RESOLUTION, TURNAROUND_S)
     w, h = STILL_SIZES[asset_type]
+    if settings.keyframe_platform == "fal":         # fal.ai Qwen-Image-2512: megapiksel başına (yukarı yuvarlanır)
+        return "h3:reference:qwen", pricing.estimate_fal_image("qwen_image", w, h)
     return "h3:reference:qwen", round(pricing.estimate_keyframe("h3", model="qwen") * (w * h) / KEYFRAME_PIXELS, 4)
 
 
@@ -234,12 +237,12 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str, kind
     yeniden denenir (gönderilmiş iş yeniden ödenmez). (tür, yol, dosya adı)."""
     from dataclasses import replace
     from app.engine import paid
-    from app.engine.providers import DEFAULT_ENGINE, GenRequest, get_provider
+    from app.engine.providers import GenRequest, default_engine, get_provider
     seed = seed_for(str(asset.id), asset.version, "reference", *([kind] if kind != "turnaround" else []))
     composed = reference_prompt(asset, style, kind)
     label, estimate = reference_estimate(asset.type, kind)
     if kind == "turnaround":
-        provider = get_provider(DEFAULT_ENGINE)
+        provider = get_provider(default_engine())
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,
                          duration_s=TURNAROUND_S, extra={**lora, "project_id": project_id})
         still = (asset.references or {}).get("still")
@@ -251,22 +254,21 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str, kind
         path = os.path.join(out_dir, "turnaround.mp4")
         os.replace(made.local_path, path)
         return "turnaround", path, "turnaround.mp4"
-    if settings.h3_platform != "vast" and paid.available("runpod_api_key"):
-        from app.live import runpod_h3              # ücretli modül: yalnızca fonksiyon içinde
-        if runpod_h3.keyframes_ready("keyframe"):
-            w, h = STILL_SIZES[asset.type]
-            made = paid.call(project_id, estimate, label, "runpod_api_key",
-                             lambda: runpod_h3.keyframe_image(composed.prompt, seed, project_id, width=w, height=h),
-                             asset_id=asset.id)
-            ext = os.path.splitext(made.local_path)[1] or ".png"
-            path = os.path.join(out_dir, "still" + ext)
-            os.replace(made.local_path, path)
-            return "still", path, "still" + ext
+    from app.engine import frames                   # fal.ai (varsayılan) ya da RunPod worker'ı
+    if (frames.platform() == "fal" or settings.h3_platform == "runpod") and frames.ready("keyframe"):
+        w, h = STILL_SIZES[asset.type]
+        made = paid.call(project_id, estimate, label, frames.key_name(),
+                         lambda: frames.keyframe_image(composed.prompt, seed, project_id, width=w, height=h),
+                         asset_id=asset.id)
+        ext = os.path.splitext(made.local_path)[1] or ".png"
+        path = os.path.join(out_dir, "still" + ext)
+        os.replace(made.local_path, path)
+        return "still", path, "still" + ext
     if not (still_fallback() and paid.available("fal_key")):
         from app.live import PaidCallBlocked
-        raise PaidCallBlocked("Referans görseli Qwen-Image-2512 ile RunPod'da üretilir: Ayarlar'da RunPod anahtarı ve "
-                              "keyframe.json iş akışı gerekli (fal.ai Flux'a düşme REFERENCE_FAL_FALLBACK ile açılır; "
-                              "FLUX.1 [dev] ticari olmayan lisanslıdır).")
+        raise PaidCallBlocked("Referans görseli Qwen-Image-2512 ile üretilir: KEYFRAME_PLATFORM=fal için fal.ai anahtarı, "
+                              "runpod için RunPod anahtarı ve keyframe.json iş akışı gerekli (fal.ai Flux'a düşme "
+                              "REFERENCE_FAL_FALLBACK ile açılır; FLUX.1 [dev] ticari olmayan lisanslıdır).")
     from app.live import fal_video                  # ücretli modül: yalnızca fonksiyon içinde (isteğe bağlı yedek)
     frame = paid.call(project_id, pricing_image(), "flux_lora:reference", "fal_key",
                       lambda: fal_video.image(composed.prompt, seed), asset_id=asset.id)

@@ -112,6 +112,9 @@ function KeyBlock({ svc, field, editable, onSaved, probe: canProbe = true, pendi
   );
 }
 
+/** RunPod kapalı (H3_PLATFORM=kapali, endpoint silindi): kart ve kenar listesi bunu açıkça yazar. */
+const serviceOff = (s: Service) => !s.needed && s.not_needed_reason.startsWith("RunPod: kapalı");
+
 function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsState; prices: PricingTable | undefined; onSaved: () => void }) {
   const { busy, act, note, setHistory } = usePanel();
   const keys = svc.fields.filter((f) => f.kind === "secret");
@@ -140,6 +143,9 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
           <span className="dim small">Gerçek harcama <b className="mono">{usdExact(svc.spent_usd)}</b> · sanal <span className="mono">{usdExact(svc.virtual_usd)}</span></span>
           <button className="btn ghost" type="button" onClick={() => setHistory({ service: svc.id }, true)} title={`${svc.name} çağrılarının geçmişi`}><Icon.receipt />Geçmiş</button>
         </div>
+        {!svc.needed && svc.not_needed_reason && (
+          <div className={`note ${serviceOff(svc) ? "err" : ""}`.trim()}>{serviceOff(svc) ? "" : "Gerekmez: "}{svc.not_needed_reason}</div>
+        )}
         {keys.map((k) => <KeyBlock key={k.env} svc={svc} field={k} editable={st.editable} onSaved={onSaved} probe={k.env === svc.key_env}
           pending={k.env === svc.key_env ? dirty.length : 0} saveFirst={persist} />)}
         {conn.length > 0 && (
@@ -242,9 +248,17 @@ function RunpodSection({ st, svc }: { st: SettingsState; svc: Service }) {
   }, "settings");
   if (!rp) return null;
   const cfg = rp.config, h = rp.health;
+  if (rp.disabled || rp.platform !== "runpod") {
+    return (
+      <Section title="Uç nokta" meta="RunPod · kapalı">
+        <div className="note err">{rp.disabled_message || (rp.platform === "vast" ? "Platform vast (deneysel) seçili: RunPod çağrılmaz." : "RunPod: kapalı. RunPod çağrılmaz.")}</div>
+        <p className="faint small">Bakiye, worker ve uç nokta ayarı okunmaz ve yazılmaz. Video fal.ai'de üretilir (H3 Max taslak, Seedance 2.5 final).</p>
+        {rp.outputs && <OutputsView rep={rp} st={st} onDone={() => void mutate()} />}
+      </Section>
+    );
+  }
   return (
     <Section title="Uç nokta" meta={rp.endpoint_id ? `RunPod · ${rp.endpoint_id}` : "RunPod · uç nokta yok"}>
-      {rp.platform !== "runpod" && <p className="warn small">Platform vast (deneysel) seçili: RunPod çağrılmaz.</p>}
       {rp.region_problem && <div className="note err small">{rp.region_problem}</div>}
       {rp.balance_low && <div className="note err small">RunPod bakiyesi {rp.balance!.usd.toFixed(2)} $: eşiğin ({rp.min_balance} $) altında, yeni iş başlamaz.</div>}
       <dl className="kv">
@@ -564,7 +578,8 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
     note("settings", paid ? "Ücretli mod açık: bundan sonraki üretimler gerçek servisleri çağırır ve gerçek harcama yapar." : `Ücretsiz moda dönüldü: hiçbir ücretli servis çağrılmaz.${r.vast_note ? " " + r.vast_note : ""}`, paid ? "err" : "ok");
   }, "settings");
   const platform = st.comfy?.platform ?? "runpod";
-  const h3 = st.services.find((s) => s.id === platform);
+  // Video motoru: kapali (varsayılan) ise fal.ai (H3 Max, Seedance 2.5); runpod ya da vast ise kendi barındırdığımız H3.
+  const h3 = st.services.find((s) => s.id === (platform === "kapali" ? "fal" : platform));
   const h3Ready = platform === "runpod" ? Boolean(h3?.active) : Boolean(h3?.key_set);
   const missingPkgs = st.services.some((s) => s.needed && Boolean(s.missing_packages?.length));
   return (
@@ -589,6 +604,8 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
               ))}
               <li><span className={`st ${st.scorer.ready ? "ok" : "bad"}`}>Kalite skorlayıcısı: {st.scorer.message}</span></li>
               {st.translator && <li><span className={`st ${st.translator.ready ? "ok" : "warn"}`}>Prompt çevirisi: {st.translator.message}</span></li>}
+              {platform === "kapali" && !h3Ready && <li className="warn">fal.ai anahtarı gerekir: video (H3 Max taslak, Seedance 2.5 final) ve kareler fal.ai'de üretilir. fal.ai bölümünden anahtarı girin.</li>}
+              {platform === "kapali" && h3Ready && <li>fal.ai bölümünde "Bağlantıyı sına" ile anahtarı doğrulayın; Kurgu'da çekimin denetçisindeki "Kuru çalıştır" gönderilecek isteği gösterir.</li>}
               {platform === "runpod" && !h3Ready && <li className="warn">RunPod gerekir: video MiniMax H3 ile RunPod Serverless'ta üretilir. MiniMax H3 · RunPod'dan API anahtarını ve uç nokta kimliğini girin (kurulum: backend/runpod/README.md).</li>}
               {platform === "runpod" && h3Ready && <li>"Bağlantıyı sına" ile bakiyeyi, uç noktanın veri merkezini (izinli liste) ve worker durumunu doğrulayın.</li>}
               {platform === "vast" && h3 && !h3.key_set && <li className="warn">vast.ai API anahtarı gerekir: video MiniMax H3 ile vast.ai makinesinde üretilir (deneysel).</li>}
@@ -606,7 +623,7 @@ function ModeView({ st, onSaved }: { st: SettingsState; onSaved: () => void }) {
                 </label>
                 <div className="row">
                   <button className="btn danger lg" type="submit" disabled={busy || !matches || st.busy.length > 0 || !h3Ready || !st.scorer.ready || missingPkgs}>Ücretli moda geç</button>
-                  {(!h3Ready || !st.scorer.ready) && <span className="faint small">Önce {platform === "runpod" ? "RunPod API anahtarını ve uç nokta kimliğini" : "vast.ai API anahtarını"} girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
+                  {(!h3Ready || !st.scorer.ready) && <span className="faint small">Önce {platform === "kapali" ? "fal.ai API anahtarını" : platform === "runpod" ? "RunPod API anahtarını ve uç nokta kimliğini" : "vast.ai API anahtarını"} girin{st.scorer.ready ? "" : " ve kalite skorlayıcısını hazırlayın"}.</span>}
                   {h3Ready && missingPkgs && <span className="faint small">Ücretli paketler imajda kurulu değil: docker compose up -d --build.</span>}
                 </div>
               </form>
@@ -662,7 +679,8 @@ export function SettingsPage() {
         <ul className="list">{item("mode", "Çalışma modu", <span className={`st ${st.dry_run ? "ok" : "bad"}`}>{st.dry_run ? "ücretsiz" : "ücretli"}</span>)}</ul>
         <div className="side-h">Servisler</div>
         <ul className="list">
-          {st.services.map((s) => item(s.id, s.name, <span className={`st ${s.key_set ? (s.active ? "ok" : "info") : "bad"}`}>{s.key_set ? (s.active ? "kullanımda" : "hazır") : "anahtar yok"}</span>))}
+          {st.services.map((s) => item(s.id, s.name, serviceOff(s) ? <span className="st">kapalı</span>
+            : <span className={`st ${s.key_set ? (s.active ? "ok" : "info") : "bad"}`}>{s.key_set ? (s.active ? "kullanımda" : "hazır") : "anahtar yok"}</span>))}
         </ul>
         <div className="side-h">Bütçe</div>
         <ul className="list">

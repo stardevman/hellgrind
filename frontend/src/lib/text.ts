@@ -5,6 +5,9 @@ import type { Blocked, DispatchAll, Measure, PanelEvent, StageResult, StripAppro
 export const usd = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(2);
 /** Kuruşun altını da gösteren tutar (tek çağrılar 0,035 USD gibi küçüktür): en az 2, en çok 4 ondalık. */
 export const usdExact = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(4).replace(/(\.\d\d\d*?)0+$/, "$1");
+/** Türkçe ondalıklı tahmin: "0,042 $", "1,25 $" (1 doların altında 3 ondalık). */
+export const usdTr = (n: number | null | undefined) =>
+  n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(Math.abs(n) >= 1 ? 2 : 3).replace(".", ",")} $`;
 export const num2 = (x: number) => x.toFixed(2).replace(".", ",");
 export const clock = (ts: number) => new Date(ts * 1000).toLocaleTimeString("tr-TR", { hour12: false });
 export const pct = (x: number | null | undefined) => (x == null ? "—" : `%${Math.round(x * 100)}`);
@@ -220,6 +223,9 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "board_attempt": return { t: `${where}${x.end ? "son kare" : "ilk kare"} ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${attemptText(x)}`, c: x.passed ? "good" : "bad" };
     case "end_board_ready": return { t: `${x.code}: ${x.passed ? "hazır; video bu karede biter" : "kapıdan geçemedi; video son karesiz üretilir"}${x.note && x.passed ? ` (${x.note})` : ""}`, c: x.passed ? (x.note ? "" : "good") : "bad" };
     case "board_strip_approved": return { t: `Storyboard şeridi onaylandı: ${(x.approved as string[]).length} kare${(x.review as string[]).length ? `; inceleme bekleyen: ${(x.review as string[]).join(", ")}` : ""}`, c: (x.review as string[]).length ? "bad" : "good" };
+    case "fal_clip": return { t: `${where}fal.ai klibi (${x.engine === "seedance25" ? "Seedance 2.5" : x.engine === "h3max" ? "H3 Max" : x.engine}, ${x.mode === "i2v" ? "image-to-video" : "reference-to-video"}, deneme ${x.attempt}): ${x.passed ? "kalite kapısından geçti" : "kalite kapısında kaldı"}`, c: x.passed ? "good" : "bad" };
+    case "provider_rejected": return { t: `${where}fal.ai isteği reddetti (yeniden denenmedi): ${x.error}`, c: "bad" };
+    case "engine_disabled": return { t: `${where}motor kapalı (MiniMax H3 · RunPod): H3 Max'e geçin`, c: "bad" };
     case "seam_waiting": return { t: `${where}kesintisiz dikiş: ${x.previous} bitmeden bu çekim üretilmez`, c: "bad" };
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor${(x.requested as string[] | undefined)?.length ? ` (değişiklik istenen: ${(x.requested as string[]).join(", ")}; yönetmen notuyla)` : ""}` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };

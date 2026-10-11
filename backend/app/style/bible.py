@@ -73,6 +73,10 @@ def effective_style(asset, bible) -> str:
 def visual_cost(cfg: dict, engine: str, duration: float) -> tuple[float, float]:
     """Bir çekimin görsel aşamasının sanal maliyeti: (beklenen, en kötü). Beklenen: bir test turu ve bir tam dalga.
     En kötü: tüm düzeltme turları ve `full_n` tam varyasyon."""
+    from app.engine.fal_plan import is_fal, resolution
+    if is_fal(engine):                           # fal: çekim başına tek klip (kalite kapısından kalırsa fal_clip_attempts)
+        clip = pricing.estimate_video(engine, resolution(engine), duration)
+        return round(clip, 4), round(clip * max(1, int(cfg.get("fal_clip_attempts", 2))), 4)
     probe = pricing.estimate_video(engine, cfg["probe_resolution"], duration)
     full = pricing.estimate_video(engine, cfg["full_resolution"], duration)
     expected = cfg["probe_n"] * probe + min(cfg["wave_size"], cfg["full_n"]) * full
@@ -94,7 +98,7 @@ def impact(s, project_id, version: int) -> dict:
         chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
         if visual_fingerprint(sc, chars, assets, version) == sc.visual_hash:
             continue
-        expected, worst = visual_cost(cfg, sc.engine or route_engine(sc), sc.duration_s)
+        expected, worst = visual_cost(cfg, sc.engine or route_engine(sc, cfg), sc.duration_s)
         expected_total, worst_total = expected_total + expected, worst_total + worst
         affected.append({"scene_code": sc.scene_code, "scene_id": str(sc.id), "status": sc.status,
                          "style_only": visual_fingerprint(sc, chars, assets, current) == sc.visual_hash,

@@ -23,7 +23,8 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 - **Medya:** FFmpeg ve ffprobe, espeak-ng (ücretsiz Türkçe konuşma), fonts-dejavu-core.
 - **Panel:** Next.js (App Router) + TypeScript + SWR, `frontend/` altında. Statik dışa aktarım (`output: export`, `basePath: /panel`) Docker imajının ilk aşamasında Node 22 ile derlenir ve FastAPI tarafından `/panel` altında servis edilir; çalışma anında Node yoktur.
 - **Ücretli, kilitli entegrasyonlar** (ayrı `requirements-live.txt`): fal-client, langgraph, langchain-anthropic.
-- **Video motoru (ücretli modda):** MiniMax H3, **RunPod Serverless**'ta (varsayılan platform; `/run` + `/status`, httpx ile): modeller bir Network Volume'da (CA-MTL-1, `backend/runpod/setup_volume.sh`), worker RunPod'un resmî ComfyUI worker'ı tabanlı imaj (`backend/runpod/worker`). vast.ai arka ucu (ComfyUI ya da SGLang, `backend/vast/setup.sh`) deneyseldir ve varsayılan olarak kapalıdır (`H3_PLATFORM=vast`). Bölgeler izinli listeyle denetlenir (`app/core/regions.py`). fal.ai isteğe bağlıdır: Seedance (yönetmenin seçtiği çekimler), Flux kareleri, previs aktarımı, dudak senkronu.
+- **Video motoru (ücretli modda, Ekim 2026'dan):** fal.ai kuyruğunda taslak **MiniMax H3 Max** (`h3max`, yeni çekimlerin varsayılanı), final **Seedance 2.5** (`seedance25`, "Seedance 2.5 ile yükselt"); kareler fal.ai'de Qwen-Image-2512 / Qwen-Image-Edit-2511 (`KEYFRAME_PLATFORM=fal`). Kendi barındırdığımız H3 **kapalıdır** (`H3_PLATFORM=kapali`; RunPod uç noktası ve volume silindi, kod duruyor). Eski açıklama:
+  MiniMax H3, **RunPod Serverless**'ta (o zamanki varsayılan platform; `/run` + `/status`, httpx ile): modeller bir Network Volume'da (CA-MTL-1, `backend/runpod/setup_volume.sh`), worker RunPod'un resmî ComfyUI worker'ı tabanlı imaj (`backend/runpod/worker`). vast.ai arka ucu (ComfyUI ya da SGLang, `backend/vast/setup.sh`) deneyseldir ve varsayılan olarak kapalıdır (`H3_PLATFORM=vast`). Bölgeler izinli listeyle denetlenir (`app/core/regions.py`). fal.ai isteğe bağlıdır: Seedance (yönetmenin seçtiği çekimler), Flux kareleri, previs aktarımı, dudak senkronu.
 
 ## Repo yapısı
 - `docker-compose.yml`: postgres, redis, minio, api, worker, worker-gen, beat, flower servisleri. Ortak backend ayarları YAML anchor ile paylaşılır; panel kaynağı `additional_contexts: frontend` ile imaja verilir.
@@ -182,7 +183,7 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 - **Sağlayıcılar:**
   - `LocalProvider`: ücretsiz. `dry_run_defect_rate` oranında bozuk klip üretir. Maliyet, motorun gerçek fiyatından sanal olarak hesaplanır.
   - `get_provider`: DRY_RUN açıkken her zaman LocalProvider döner; kapalıyken `app.live.fal_video` modülünü lazy import eder.
-  - `route_engine`: her çekim h3 (MiniMax H3). Seedance yalnızca yönetmen panelden seçerse kullanılır ve yeniden yönlendirmede korunur; eski fal_wan çekimleri h3'e geçer.
+  - `route_engine`: yeni çekim taslak motoruna gider (`VIDEO_DRAFT_ENGINE`, varsayılan h3max; proje ayarı `draft_engine` önce gelir). Seçilmiş motor (h3max, seedance25, seedance, h3) yeniden yönlendirmede korunur; eski fal_wan çekimleri taslak motoruna geçer.
 
 ## Faz 6 — Kademeli iterasyon ve Quality Gate
 - **Test turu:** `probe_n` varyasyon, `probe_resolution` çözünürlüğünde.

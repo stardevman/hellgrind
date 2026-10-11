@@ -25,7 +25,9 @@ from app.hermes.rules import SAMPLE_SCRIPT
 from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2va_identity_warning, keyframe_model,
                              strict_refs)
 from app.core.hashing import grade_settings
+from app.engine import fal_plan
 from app.engine.iteration import reference_set
+from app.engine.providers import h3_disabled
 from app.engine.methods import suggest_method
 from app.core.chain import camera_of
 from app.engine.storyboard import chain_enabled, clean_key, parent_token
@@ -87,10 +89,26 @@ def measure_of(params: dict | None) -> dict | None:
     return {"alignment": detail["alignment"], "identity": detail.get("identity", {}), "faces_seen": detail.get("faces_seen", 0)}
 
 
+def fal_request_view(req: dict | None) -> dict | None:
+    """Çekimin fal.ai işi (bekleyen ya da son): kimlik, uç nokta, durum, hata ve sonucun özeti."""
+    if not req:
+        return None
+    return {k: req.get(k) for k in ("request_id", "endpoint", "engine", "mode", "status", "error", "submitted_at",
+                                    "completed_at", "result") if req.get(k) is not None}
+
+
 @router.get("/meta")
 def meta():
     return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
-            "h3_platform": settings.h3_platform,
+            "h3_platform": settings.h3_platform, "keyframe_platform": settings.keyframe_platform,
+            "video": {"draft_engine": settings.video_draft_engine, "final_engine": settings.video_final_engine,
+                      "engines": [{"id": e, "label": fal_plan.ENGINE_TR[e], "disabled": h3_disabled(e)}
+                                  for e in ("h3max", "seedance25", "seedance", "h3")],
+                      "h3max_resolutions": list(fal_plan.H3_RESOLUTIONS),
+                      "seedance25_resolutions": list(fal_plan.SEEDANCE_RESOLUTIONS),
+                      "h3max_resolution": settings.h3max_resolution,
+                      "seedance25_resolution": settings.seedance25_resolution,
+                      "seedance25_audio": settings.seedance25_audio},
             "quality": quality_meta(), "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS,
             "sample_script": SAMPLE_SCRIPT, "trial_script": TRIAL_SCRIPT}
 
@@ -252,6 +270,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
 
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
+        "engine_label": fal_plan.ENGINE_TR.get(sc.engine or "", sc.engine), "engine_disabled": h3_disabled(sc.engine),
+        "video_opts": sc.video_opts or {}, "fal_request": fal_request_view(sc.fal_request),
+        "upgrade_available": fal_plan.is_fal(sc.engine) and sc.cut_tier == "draft"
+                             and sc.engine != fal_plan.final_engine(cfg),
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key, sc.board_sha or sc.board_hash),
         "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
