@@ -88,8 +88,8 @@ def summarize(shots: list[dict], prices: dict | None = None) -> dict:
     return {"shots": shots, "model_loads": len(models), "cold_start_usd": loads,
             "end_frames": sum(bool(s.get("end_frame")) for s in shots),
             "end_frame_usd": round(sum(s.get("end_frame_usd", 0.0) for s in shots), 4),
-            "cut_in_frames": sum(s.get("cut_method") == "cut_in" for s in shots),
-            "angles_frames": sum(s.get("cut_method") == "angles" for s in shots),
+            "cut_in_frames": sum((s.get("cut_attempts") or [None])[0] == "cut_in" for s in shots),   # uygulanacak yol
+            "angles_frames": sum((s.get("cut_attempts") or [None])[0] == "angles" for s in shots),
             "expected_usd": round(sum(s["expected_usd"] for s in shots) + loads, 4),
             "max_usd": round(sum(s["max_usd"] for s in shots) + loads, 4)}
 

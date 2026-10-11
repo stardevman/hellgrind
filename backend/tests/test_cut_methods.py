@@ -269,7 +269,7 @@ def test_the_estimate_lists_cut_in_and_angle_frames_separately(api, mk_project, 
     sh03 = next(x for x in off["shots"] if x["code"] == "S001_SH03")
     assert sh03["cut_method"] == "angles" and sh03["cut_attempts"] == ["cut_in"] * 3
     assert sh03["cut_in_usd"] > 0 and sh03["angles_usd"] is None and sh03["cut_place_usd"] > 0   # Bolt SH02'de yok
-    assert off["cut_in_frames"] == 0 or off["cut_in_frames"] >= 0
+    assert off["angles_frames"] == 0 and off["cut_in_frames"] >= 1           # LoRA kapalı: SH03 kırp + iyileştir
     monkeypatch.setattr(settings, "qwen_edit_angles", "on")
     on = api.post("/api/estimate", json={"project_id": pid}).json()
     sh03 = next(x for x in on["shots"] if x["code"] == "S001_SH03")
