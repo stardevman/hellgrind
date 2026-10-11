@@ -143,7 +143,7 @@ class ScenePatch(BaseModel):
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
     entry_mode: Literal["cut", "walk_in"] | None = None     # yeni karakter girişi: kesme (kamera değişir) | devam + giriş
-    cut_method: Literal["auto", "cut_in", "angles", "wide"] | None = None   # kesme karesi yöntemi (auto: otomatik)
+    cut_method: Literal["auto", "cut_in", "angles", "wide", "compose"] | None = None   # kesme karesi yöntemi (auto: otomatik)
 
 
 class AudioIn(BaseModel):
@@ -211,6 +211,7 @@ class AssetPatch(BaseModel):
     voice_id: str | None = Field(None, max_length=200)         # yalnızca karakter: ses kimliği karakterde tutulur
     character_kind: Literal["human", "non_human"] | None = None  # yalnızca karakter: kimlik kontrolünün türü
     invariants: list[str] | None = Field(None, max_length=12)  # tasarım değişmezleri (her kare ve video istemine eklenir)
+    scale: str | None = Field(None, max_length=200)          # gerçek boyut (ör. "tiny, palm-sized; much smaller than a hen")
 
     @field_validator("invariants")
     @classmethod

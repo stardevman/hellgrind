@@ -42,7 +42,7 @@ const BATCH_GROUP_TR: Record<string, string> = {
 
 /** Kare denemesinin sebebi ve ölçümleri: " (yüz görünmedi)", " (kimlik Mila 0,47)", " (benzerlik Bolt 0,62)". */
 const CUT_METHOD_TR: Record<string, string> = {
-  cut_in: "kırp + iyileştir", angles: "açı LoRA'sı", wide: "geniş plandan", anchor: "metinle kamera tarifi",
+  cut_in: "kırp + iyileştir", angles: "açı LoRA'sı", wide: "geniş plandan", anchor: "metinle kamera tarifi", compose: "sıfırdan kurulum",
 };
 const attemptText = (x: Record<string, unknown>) => {
   const reasons = (x.reasons as string[] | undefined) ?? (x.faces_seen === 0 ? ["no_face"] : []);

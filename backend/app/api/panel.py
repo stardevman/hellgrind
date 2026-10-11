@@ -62,7 +62,7 @@ Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
-                  "seam/")
+                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/")
 MUTABLE_PREFIXES = ("storyboard/",)             # içerik-adresli değil: yeniden çizim aynı anahtara yazar
 EVENT_LIMIT = 30
 
@@ -154,10 +154,11 @@ def _film(key: str | None) -> dict | None:
     return {"url": _media(key), "cut": cut}
 
 
-def chain_info(scenes: list, enabled: bool = True) -> dict:
+def chain_info(scenes: list, enabled: bool = True, scaled: set | None = None) -> dict:
     """Anahtar kare zinciri (core/chain.py), sorgusuz: çekimin geçişi, zincirdeki önceki çekimi, karesinin eskiyip
     eskimediği ve bu kareden türeyen eski/eksik sonraki kareler ("sonraki N kareyi yeniden çiz")."""
-    from app.core.chain import CHAINED, angle_tokens, camera_of, cut_attempts, cut_method, stale, transition_of
+    from app.core.chain import (CHAINED, angle_tokens, camera_of, compose_hint, cut_attempts, cut_method, pose_words,
+                                stale, transition_of, wants_compose)
     angles_on = settings.qwen_edit_angles == "on" and bool(settings.qwen_edit_angles_lora)
     out, by_seq = {}, defaultdict(list)
     for sc in scenes:                                  # scenes seq_order sırasında
@@ -173,10 +174,13 @@ def chain_info(scenes: list, enabled: bool = True) -> dict:
                           "board_method": sc.board_method, "angle_tokens": None}
             if transition == "cut" and i > 0:          # kesme karesinin yöntemi (kırp + iyileştir, açı LoRA'sı, geniş plan)
                 prev_cam, cam = camera_of(shots[i - 1]), camera_of(sc)
-                method = cut_method(prev_cam, cam, sc.cut_method)
+                method = cut_method(prev_cam, cam, sc.cut_method, compose=wants_compose(sc, sc.id in (scaled or set())))
                 out[sc.id].update(cut_method_effective=method,
                                   cut_attempts=cut_attempts(method, prev_cam, cam, angles_on),
-                                  angle_tokens=angle_tokens(prev_cam, cam)["text"])
+                                  angle_tokens=angle_tokens(prev_cam, cam)["text"],
+                                  pose_words=pose_words(getattr(sc, "director_note", None)),
+                                  compose_hint=compose_hint(sc),
+                                  scaled=sc.id in (scaled or set()))
         for i, sc in enumerate(shots):                  # her kare için: kendisinden türeyen eski ya da eksik kareler
             pending, j = [], i + 1
             while j < len(shots) and out[shots[j].id]["chain_parent"]:
@@ -198,6 +202,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     refs = defaultdict(list)                          # sahne -> karakterlerin referans görselleri (Ref2VA seti)
     places = defaultdict(list)                        # sahne -> mekân varlıkları
     carried = defaultdict(list)                       # sahne -> zincirden gelen karakterler
+    scaled: set = set()                               # gerçek boyutu yazılı karakter ya da nesnesi olan sahneler
     revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
     names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
     if ids:
@@ -211,30 +216,34 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         for t in s.scalars(select(AudioTrack).where(AudioTrack.scene_id.in_(ids), AudioTrack.is_active)
                            .order_by(AudioTrack.start_offset_s, AudioTrack.kind)):
             tracks[t.scene_id].append(t)
-        for scene_id, name, aid, status, images, role in s.execute(
+        for scene_id, name, aid, status, images, role, scale, kind in s.execute(
                 select(SceneCharacter.scene_id, Character.name, Asset.id, Asset.status, Character.reference_images,
-                       SceneCharacter.role)
+                       SceneCharacter.role, Asset.scale, Asset.type)
                 .join(Character, Character.id == SceneCharacter.character_id)
                 .outerjoin(Asset, Asset.id == Character.asset_id)
                 .where(SceneCharacter.scene_id.in_(ids)).order_by(Character.name)):
             cast[scene_id].append(name)
+            if scale:                                  # gerçek boyutu yazılı karakter: kesme karesi sıfırdan kurulur
+                scaled.add(scene_id)
             if role == "chain":                        # zincirden gelen: önceki çekimin karesinde kaldı
                 carried[scene_id].append(name)
             refs[scene_id].append(SimpleNamespace(name=name, reference_images=images or [], asset_id=aid,
                                                   asset=SimpleNamespace(id=aid, status=status) if aid else None))
             items[scene_id].append((str(aid) if aid else None, "character", name, status))
-        for scene_id, aid, type_, name, status, references in s.execute(
-                select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status, Asset.references)
+        for scene_id, aid, type_, name, status, references, scale in s.execute(
+                select(SceneAsset.scene_id, Asset.id, Asset.type, Asset.name, Asset.status, Asset.references, Asset.scale)
                 .join(Asset, Asset.id == SceneAsset.asset_id)
                 .where(SceneAsset.scene_id.in_(ids)).order_by(Asset.type, Asset.name)):
             items[scene_id].append((str(aid), type_, name, status))
+            if scale and type_ != "location":
+                scaled.add(scene_id)
             if type_ == "location":                    # Qwen-Image-Edit karesinin mekân görseli
                 places[scene_id].append(SimpleNamespace(id=aid, type=type_, name=name, status=status,
                                                         references=references or {}))
     check = cfg["lint_strictness"] != "off"
 
     strict = strict_refs(cfg)
-    chain = chain_info(scenes, chain_enabled())
+    chain = chain_info(scenes, chain_enabled(), scaled)
     from app.core.chain import plans_for
     seams = plans_for(s, project_id) if scenes else {}
 

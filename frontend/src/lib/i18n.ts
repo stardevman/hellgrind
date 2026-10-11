@@ -57,6 +57,7 @@ export const ANOMALY_TR: Record<string, string> = {
   duplicate_character: "karakter karede birden fazla",
   state_mismatch: "durum tutmadı (zincirde kritik: video başlamaz)",
   end_framing: "son kare başlangıç kadrajından geniş",
+  scale_mismatch: "boyut tutmadı (gerçek boyutundan büyük)",
   continuity_jump: "önceki kareyle mekân farklı", transition_jump: "son kare sonraki çekimin karesine uymuyor",
   unreadable: "okunamayan dosya", flat: "tek renk kare",
 };

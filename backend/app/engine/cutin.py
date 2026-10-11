@@ -141,6 +141,24 @@ def refine_prompt(looks: list[str], once: str, state: str = "") -> str:
         "A single cinematic film frame, 16:9, no text, no captions.") if x).strip()
 
 
+def compose_prompt(prompt: str, refs: list[dict], looks: list[str], once: str, poses=()) -> str:
+    """Sahne sıfırdan (boş tuval): görseller yalnızca tasarım ve ortam referansı; kamera, poz, eylem ve boyut ilişkisi
+    istemden kurulur. Pip SH03: mekân image 1 iken Qwen-Edit mekânın kompozisyonunu korudu, karakterleri referans
+    görsellerindeki pozda ve ölçekte yapıştırdı."""
+    shows = [f"image {i} shows {r['name']}'s design only" if r["kind"] == "character" else
+             f"image {i} shows the location's look, lighting and palette only ({r['name']})"
+             for i, r in enumerate(refs, start=1)]
+    design = [x.replace(" must look exactly like image ", " must have the same design (face, hair, outfit, colours) as image ")
+              for x in looks]
+    return " ".join(x for x in (
+        f"Compose a brand-new film frame from scratch; {'; '.join(shows)}.",
+        "Do not copy the framing, camera, pose or size of any reference image: build the camera angle, the poses, the "
+        "action and the relative sizes from the description below.",
+        f"{'; '.join(design)}." if design else "",
+        f"The poses and action must follow the description exactly ({', '.join(poses)})." if poses else "",
+        once, prompt, "A single cinematic film frame, 16:9, no text, no captions.") if x).strip()
+
+
 def angles_prompt(tokens: dict, focus: list[str], looks: list[str], prompt: str, once: str, state: str = "") -> str:
     """Açı karesi (Multiple Angles LoRA): istem LoRA'nın biçimiyle başlar ("<sks> front-left quarter view low-angle shot
     close-up"); ardından odak karakter, tasarım ve durum, çekimin tarifi."""

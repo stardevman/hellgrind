@@ -171,7 +171,7 @@ def prompt_camera(scene) -> dict:
     yan açı ve dikey açı yazılmaz (Kıvılcım SH03: "35° to the left, low angle" son karede ve videoda kamerayı döndürdü,
     lamba ve masa göründü)."""
     camera = camera_of(scene)
-    if getattr(scene, "board_method", None) == "cut_in":
+    if getattr(scene, "board_method", None) in ("cut_in", "upload"):
         camera = {k: v for k, v in camera.items() if k not in ("side", "angle")}
     return camera
 

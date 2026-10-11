@@ -197,6 +197,7 @@ class Asset(Base):
     references: Mapped[dict] = mapped_column("references", JSONB, default=dict)
     reference_history: Mapped[list] = mapped_column(JSONB, default=list)   # yerini yenisine bırakan referanslar
     invariants: Mapped[list] = mapped_column(JSONB, default=list)          # tasarım değişmezleri (her isteme eklenir)
+    scale: Mapped[str | None] = mapped_column(Text)                        # gerçek boyut ("tiny, palm-sized; …")
     motion_test_variation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

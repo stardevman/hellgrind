@@ -110,7 +110,8 @@ def from_script(text: str, cfg: dict) -> dict:
 def from_project(s, project_id: str, cfg: dict) -> dict:
     """Projenin çekimlerinden: çekimin motoru, H3 koşulu ve ilk kare modeli. Dış çekimler (yüklenen klip) ücretsizdir."""
     from sqlalchemy import select
-    from app.core.chain import CHAINED, camera_of, cut_attempts, cut_method, next_continuous, plans_for, transition_of
+    from app.core.chain import (CHAINED, camera_of, cut_attempts, cut_method, next_continuous, plans_for,
+                                transition_of, wants_compose)
     from app.core.h3mode import effective_mode, keyframe_model, strict_refs
     from app.core.state import load_assets, load_characters
     from app.models import Scene
@@ -123,14 +124,15 @@ def from_project(s, project_id: str, cfg: dict) -> dict:
         if (sc.method or "generate") == "external":
             continue
         cut = None
+        chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
         if prev is not None and transition_of(sc) == "cut":
             prev_cam, cam = camera_of(prev), camera_of(sc)
-            method = cut_method(prev_cam, cam, sc.cut_method)
+            scaled = any(getattr(a, "scale", None) for a in assets if getattr(a, "type", None) != "location")
+            method = cut_method(prev_cam, cam, sc.cut_method, compose=wants_compose(sc, scaled))
             plan = plans.get(sc.id) or {}
             focus = [n for n in plan.get("cast") or [] if n not in (plan.get("carried") or [])]
             cut = {"method": method, "methods": cut_attempts(method, prev_cam, cam, angles_on),
-                   "placed": bool(set(focus) - set((plans.get(prev.id) or {}).get("cast") or []))}
-        chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+                   "placed": bool(set(focus) - set((plans.get(prev.id) or {}).get("cast") or [])) and method != "compose"}
         mode = effective_mode(sc, chars, assets) if (sc.engine or "h3") == "h3" else "fl2va"
         frame = "upload" if sc.keyframe_key else keyframe_model(sc, chars, assets, strict_refs(cfg))
         if frame == "qwen" and prev is not None and transition_of(sc) in CHAINED \

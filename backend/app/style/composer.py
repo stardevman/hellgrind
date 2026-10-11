@@ -104,7 +104,18 @@ def asset_text(asset, bible, names=(), lang: str | None = None, state: tuple = (
     description = state_text(translate.to_english(" ".join((asset.description or "").split()), names, lang).rstrip("."),
                              *state)
     body = ", ".join(x for x in (description, style_text(effective_style(asset, bible))) if x)
-    return " ".join(x for x in (sentence(f"{what}: {body}"), invariant_text(asset, names, lang, state)) if x)
+    return " ".join(x for x in (sentence(f"{what}: {body}"), invariant_text(asset, names, lang, state),
+                                scale_text(asset, names, lang)) if x)
+
+
+def scale_text(asset, names=(), lang: str | None = None) -> str:
+    """Gerçek boyut (varlık sayfasında; ör. Pip: "tiny, palm-sized; much smaller than a hen"): referans görseli yakın
+    plan olsa da karede bu boyutta çizilir (Pip SH03: avuç büyüklüğündeki civciv baldır boyunda çizilmişti)."""
+    scale = " ".join(str(getattr(asset, "scale", None) or "").split())
+    if not scale:
+        return ""
+    return sentence(f"{asset.name}'s real size: {translate.to_english(scale, names, lang).rstrip('.')}; draw {asset.name} "
+                    "at this size relative to the other characters and the setting, not at the size in its reference image")
 
 
 def invariant_text(asset, names=(), lang: str | None = None, state: tuple = (None, ())) -> str:

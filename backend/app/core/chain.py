@@ -95,17 +95,48 @@ def cut_differs(prev: dict | None, cam: dict | None) -> bool:
 #           H3 boyutuna büyütülür, Qwen-Edit Lightning ile netleştirilir. Kamera fiziksel olarak aynı yerde, mercek daralır.
 #   angles: Multiple Angles LoRA (açı farkı >= MIN_SIDE): image 1'e göre "<sks> azimut yükseklik uzaklık".
 #   wide:   ölçek genişliyor: mekânın geniş görüntüsünden çizim (cut_anchor).
-CUT_METHODS = ("cut_in", "angles", "wide")
+#   compose: sahne sıfırdan kurulur (boş tuval; image 1-2 karakterlerin durağan görselleri, image 3 mekân yalnızca stil ve
+#            ortam referansı): poz ya da eylem (diz çökmek, avuçta tutmak…) ve referanstan çok farklı ölçek. Pip SH03:
+#            "wide" yolu mekân görselinin kompozisyonunu korudu, Nora referanstaki gibi ayakta, Pip baldır boyunda çizildi.
+CUT_METHODS = ("cut_in", "angles", "wide", "compose")
 CUT_IN_MAX_SIDE = 15
 METHOD_TR = {"cut_in": "kırp + iyileştir", "angles": "açı LoRA'sı", "wide": "geniş plandan çizim",
-             "anchor": "metinle kamera tarifi"}
+             "anchor": "metinle kamera tarifi", "compose": "sıfırdan kurulum"}
+# poz ve eylem fiilleri (çekim tarifi ve yönetmen notu): referans görselinin pozu bu kareye taşınmamalı
+POSE = re.compile(
+    r"\b(?:kneel\w*|knelt|sit|sits|sitting|sat|crouch\w*|squat\w*|lies|lying|lay|lays|laying|hold|holds|holding|held|"
+    r"carr(?:y|ies|ying|ied)|hug|hugs|hugging|hugged|cradl\w*|cup|cups|cupped|cupping|perch\w*|jump\w*|leap\w*|hop|hops|"
+    r"hopped|hopping|climb\w*|ride|rides|riding|rode|bend|bends|bending|lean|leans|leaning|leaned|crawl\w*|"
+    r"stands? on|standing on|diz çök\w*|otur\w*|uzan\w*|çömel\w*|kucakla\w*|zıpla\w*|tırman\w*|avucun\w*|eğil\w*)\b",
+    re.IGNORECASE)
 
 
-def cut_method(prev: dict | None, cam: dict | None, choice: str | None = None) -> str:
-    """Kesme karesinin yöntemi (yönetmenin seçimi önce): ölçek genişliyor -> wide; açı >= 30° -> angles; ölçek daralıyor
-    ve açı küçük -> cut_in. Aynı ölçekte küçük açı (kural dışı, elle kamera) -> angles."""
+def pose_words(*texts) -> list[str]:
+    """Metinlerdeki poz ve eylem fiilleri: ["kneels", "cupped", "hops"]."""
+    return list(dict.fromkeys(m.group(0).lower() for text in texts for m in POSE.finditer(text or "")))
+
+
+def wants_compose(scene, scaled: bool = False) -> bool:
+    """Kesme karesi kendiliğinden sıfırdan kurulsun mu: yönetmen notunda poz/eylem fiili var (not, "keep composition" ve
+    referansa sadakat cümlelerine yenik düşüyordu) ya da çekimde gerçek boyutu yazılı (referanstan farklı ölçekte) bir
+    karakter var. Çekim tarifindeki poz fiilleri yalnızca öneridir (compose_hint): neredeyse her senaryo satırında bir
+    fiil var ve kırp + iyileştir / açı LoRA'sı önceki karenin pozunu taşıyarak başarılı oldu (Kıvılcım SH03 "Bolt sits
+    lifeless", Nora SH02)."""
+    return scaled or bool(pose_words(getattr(scene, "director_note", None)))
+
+
+def compose_hint(scene) -> list[str]:
+    """Çekim tarifindeki poz/eylem fiilleri: denetçide "sıfırdan kurulum önerilir" (yönetmen seçer)."""
+    return pose_words(getattr(scene, "description", None))
+
+
+def cut_method(prev: dict | None, cam: dict | None, choice: str | None = None, compose: bool = False) -> str:
+    """Kesme karesinin yöntemi (yönetmenin seçimi önce): poz/eylem ya da farklı ölçek -> compose; ölçek genişliyor ->
+    wide; açı >= 30° -> angles; ölçek daralıyor ve açı küçük -> cut_in. Aynı ölçekte küçük açı (elle kamera) -> angles."""
     if choice in CUT_METHODS:
         return choice
+    if compose:
+        return "compose"
     prev, cam = prev or {}, cam or {}
     steps = SCALE_STEP.get(cam.get("shot"), 2) - SCALE_STEP.get(prev.get("shot"), 2)
     turn = abs(int(cam.get("side") or 0) - int(prev.get("side") or 0))
@@ -130,6 +161,8 @@ def cut_attempts(method: str, prev: dict | None, cam: dict | None, angles_on: bo
         return ["angles"] * (attempts - 1) + ["cut_in" if narrows else "angles"]
     if method == "cut_in":
         return ["cut_in"] * attempts
+    if method == "compose":
+        return ["compose"] * attempts
     return ["wide"] * attempts
 
 

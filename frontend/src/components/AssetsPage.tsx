@@ -81,6 +81,12 @@ function Detail({ a }: { a: Asset }) {
     const r = await api.patch<{ version: number }>(`/assets/${a.id}`, { invariants: inv.split("\n").map((x) => x.trim()).filter(Boolean) });
     note("assets", `Değişmezler kaydedildi (sürüm ${r.version}); her kare ve video istemine eklenir. Çekimler yeniden üretilince uygulanır.`, "ok");
   }, "assets");
+  const [scale, setScale] = useState(a.scale ?? "");
+  const saveScale = () => act(async () => {
+    const r = await api.patch<{ version: number }>(`/assets/${a.id}`, { scale: scale.trim() });
+    note("assets", scale.trim() ? `Gerçek boyut kaydedildi (sürüm ${r.version}): istemlere girer, karede bu boyutta çizilir ve ölçek kapısıyla denetlenir.`
+      : `Gerçek boyut kaldırıldı (sürüm ${r.version}).`, "ok");
+  }, "assets");
   const bad = t && (t.status === "rejected" || t.status === "failed");
   return (
     <section className="pnl" aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
@@ -97,6 +103,13 @@ function Detail({ a }: { a: Asset }) {
               <textarea rows={3} value={inv} disabled={busy} aria-label="Değişmez özellikler" onChange={(e) => setInv(e.target.value)}
                 placeholder="ör. exactly one bent antenna with a small bulb" />
               <div className="row mt8"><button className="btn" type="button" disabled={busy || inv === (a.invariants ?? []).join("\n")} onClick={saveInv}>Değişmezleri kaydet</button></div>
+            </label>
+          )}
+          {a.type !== "location" && (
+            <label className="field">Gerçek boyut (referans görseli yakın plan olsa da karede bu boyutta çizilir)
+              <input value={scale} disabled={busy} aria-label="Gerçek boyut" onChange={(e) => setScale(e.target.value)}
+                placeholder="ör. tiny, palm-sized; much smaller than a hen" maxLength={200} />
+              <div className="row mt8"><button className="btn" type="button" disabled={busy || scale.trim() === (a.scale ?? "")} onClick={saveScale}>Boyutu kaydet</button></div>
             </label>
           )}
           {ch && (

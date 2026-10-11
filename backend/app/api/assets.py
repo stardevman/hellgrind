@@ -103,7 +103,7 @@ def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
         out.append({
             "id": str(a.id), "project_id": str(a.project_id), "type": a.type, "name": a.name,
             "description": a.description, "render_style": a.render_style, "status": a.status, "version": a.version,
-            "invariants": list(a.invariants or []),
+            "invariants": list(a.invariants or []), "scale": a.scale,
             "effective_style": bible.effective_style(a, style),       # render_style boşsa kılavuzun tür kuralı
             "references": {k: _reference_out(v) for k, v in (a.references or {}).items()},
             "motion_test": _test_out(tests.get(a.motion_test_variation_id), a.version),
@@ -172,15 +172,17 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
     """Tarif ya da stil değişince sürüm artar ve hareket testi yeniden gerekir; ses kimliği görüntüyü etkilemez."""
     a = asset_or_404(s, asset_id, lock=True)
     changes = body.model_dump(exclude_unset=True)
+    if "scale" in changes:                              # boş: ölçek ifadesi kaldırılır
+        changes["scale"] = " ".join((changes["scale"] or "").split()) or None
     if "render_style" in changes:                       # boş: istisnayı kaldır, kılavuzun tür kuralına dön
         changes["render_style"] = " ".join((changes["render_style"] or "").split()) or None
     visual = {k: v for k, v in changes.items()
-              if k in ("description", "render_style", "invariants") and v != getattr(a, k)
+              if k in ("description", "render_style", "invariants", "scale") and v != getattr(a, k)
               and not (k == "invariants" and v is None)}
     if visual:
         # Değişmezler tasarımı değiştirmez, korur (her istemde aynen; negatife zıtları): kilitli varlıkta da yazılır,
         # hareket testi geçerli kalır; sürüm artar (çekimler yeniden üretilince uygulanır).
-        guard_only = set(visual) == {"invariants"}
+        guard_only = set(visual) <= {"invariants", "scale"}     # ölçek de tasarımı değiştirmez, korur
         if not guard_only:
             ensure_editable(a)
         for key, value in visual.items():

@@ -476,6 +476,17 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
   - **Kırp + iyileştir sınırı:** kırpım 2,5 kattan fazla büyütülecekse (geniş planda boy boy karakterden yakın plan; Nora
     SH02 3,3×) ya da iyileştirme kırpımın kompozisyonunu korumazsa, o ve sonraki denemeler açı LoRA'sına (kapalıysa metinle
     kamera tarifine) düşer. Açı karesi yolunda da son kare başlangıç kadrajında kalmalı (alan ≥ %80, aynı plan ölçeği).
+  - **Sıfırdan kurulum (compose):** yönetmen notunda poz/eylem fiili (kneel, sit, hold, cup, lie, jump, hop, stand on,
+    diz çök, otur…) ya da çekimde gerçek boyutu yazılı karakter varsa kesme karesi boş tuvalde sıfırdan kurulur:
+    image 1-2 karakterlerin durağan görselleri (yalnızca tasarım), image 3 mekânın görseli (yalnızca ışık ve ortam);
+    kamera, poz, eylem ve boyut ilişkisi istemden. Pip SH03: mekân image 1 iken Nora referanstaki gibi ayakta, Pip
+    baldır boyunda çizilmişti. Çekim tarifindeki poz fiilleri yalnızca öneridir (denetçide tek tıkla seçilir): kırp +
+    iyileştir ve açı LoRA'sı önceki karenin pozunu taşıyarak başarılı oluyor.
+  - **Gerçek boyut:** varlık sayfasında karakter ya da nesneye "Gerçek boyut" yazılır (ör. "tiny, palm-sized; much smaller
+    than a hen"): istemlere girer ("draw Pip at this size, not at the size in its reference image") ve ölçek kapısı
+    karakterin boyunu karedeki insanın yüz boyuyla karşılaştırır ("tiny/palm/minik/avuç" ≤ 1,5 yüz boyu, "small/küçük"
+    ≤ 3; Pip SH03'teki dev civciv 2,8, SH01'deki doğru boy 1,2); tutmazsa yeniden çizilir, üç denemede kare reddedilir.
+  - **Yüklenen ilk kare:** panelde görünür; son karesi yüklenen kareden aynı plan ölçeğinde çizilir (alan ≥ %80).
   - **Kare değişince:** her klip ilk ve son karenin içerik kimliğiyle (koşul) kaydedilir; kare yeniden çizilince eski
     koşulun klipleri yeniden kullanılmaz ve düzeltme sayacı sıfırlanır.
   - **Yönetmen seçimi:** kapıdan kalmış ama bugünkü kareden üretilmiş aday denetçide "Yine de kullan" ile 1. sıraya

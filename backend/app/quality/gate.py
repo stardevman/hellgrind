@@ -275,7 +275,8 @@ def framing_check(area: float | None, scale: str | None) -> dict | None:
 
 def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bool = False, previous: str | None = None,
                 transition: str | None = None, scale: str | None = None, states: list | None = None,
-                jump_ref: str | None = None, cut_in: dict | None = None, min_area: float | None = None) -> Score:
+                jump_ref: str | None = None, cut_in: dict | None = None, min_area: float | None = None,
+                scales: list | None = None) -> Score:
     """Önce görsel (Faz 18): ilk kare videodan önce aynı eşikle ve aynı skorlayıcıyla puanlanır; geçemeyen kare için
     video hiç üretilmez. check_identity: kare karakter referansından çizildi (Qwen-Image-Edit): karedeki yüz referansa
     SFace ile ≥ identity_threshold benzemeli (metinden çizilen karede kimlik aranmaz).
@@ -326,6 +327,17 @@ def score_frame(path: str, seed: int, cfg: dict, target=None, check_identity: bo
                     measured.detail["review"] = [*measured.detail.get("review", []),
                                                  "kırp + iyileştir: iyileştirme kırpımın kompozisyonunu korumadı "
                                                  f"(iç oran {change['view'].get('ratio') or 0:.2f})".replace(".", ",")]
+        if measured is not None and scales:            # ölçek: küçük karakterin boyu / insanın yüz boyu
+            sizes = {}
+            for expect in scales:
+                ratio = scorer.size_ratio(path, target or scorer.Target(), expect["name"])
+                if ratio is not None:
+                    sizes[expect["name"]] = {"ratio": round(ratio, 2), "max": expect["max_faces"],
+                                             "ok": ratio <= expect["max_faces"]}
+            if sizes:
+                measured.detail["scale"] = sizes
+                if any(not v["ok"] for v in sizes.values()):
+                    measured.detail["scale_mismatch"] = [n for n, v in sizes.items() if not v["ok"]]
         if measured is not None and min_area:
             area = scorer.framing(path, target or scorer.Target())
             if area is not None:

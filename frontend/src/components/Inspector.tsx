@@ -31,6 +31,7 @@ export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
 const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
 const CUT_TR: Record<string, string> = {
   cut_in: "kırp + iyileştir", angles: "açı LoRA'sı", wide: "geniş plandan çizim", anchor: "metinle kamera tarifi",
+  compose: "sıfırdan kurulum", upload: "yüklenen kare",
 };
 
 function Shot({ sc }: { sc: Scene }) {
@@ -89,9 +90,15 @@ function Shot({ sc }: { sc: Scene }) {
               <option value="cut_in">Kırp + iyileştir (yaklaşma)</option>
               <option value="angles">Açı LoRA'sı (açı değişimi)</option>
               <option value="wide">Geniş plandan çizim</option>
+              <option value="compose">Sıfırdan kurulum (poz, eylem, ölçek)</option>
             </select>
             {(sc.cut_attempts ?? []).length > 0 && <span className="dim small" style={{ marginLeft: 6 }}>{(sc.cut_attempts ?? []).map((m) => CUT_TR[m] ?? m).join(" → ")}</span>}
             {(sc.cut_attempts ?? []).includes("angles") && sc.angle_tokens && <div className="faint small mono">{sc.angle_tokens}</div>}
+            {sc.cut_method_effective === "compose" && !sc.cut_method && <div className="faint small">
+              Sahne sıfırdan kurulur: {[(sc.pose_words ?? []).length ? `yönetmen notunda poz/eylem (${(sc.pose_words ?? []).join(", ")})` : "", sc.scaled ? "gerçek boyutu yazılı karakter" : ""].filter(Boolean).join(" ve ")}.</div>}
+            {sc.cut_method_effective !== "compose" && (sc.compose_hint ?? []).length > 0 && <div className="small">
+              <span className="warn">Tarifte poz/eylem var ({(sc.compose_hint ?? []).join(", ")}):</span> önceki karede bu poz yoksa{" "}
+              <button className="btn ghost" type="button" disabled={busy || frozen} onClick={() => pickCut("compose")}>sıfırdan kurulumu seç</button></div>}
           </dd>
         </>}
         {!sc.cut_method_effective && sc.cut_method && <>

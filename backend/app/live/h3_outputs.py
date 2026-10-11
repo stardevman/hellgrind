@@ -4,7 +4,7 @@ Her iş gönderilir gönderilmez kayda geçer (`h3_outputs`: makine, sunucu, iş
 (çıktı dosyaları, GPU süresi) kayda yazılır; çıktı hemen indirilir:
 - indirilen bayt sayısı sunucunun bildirdiği Content-Length ile karşılaştırılır,
 - dosya ve iş meta verisi (sunucu yanıtı + kaynak bilgisi, JSON) yerel nesne deposuna içerik adresli yazılır
-  (`h3-outputs/ab/<sha256>.<uzantı>`),
+  (`h3-outputs/ab/<sha256>.<uzantı>`, meta verisi `<sha256>.<meta sha256>.json`),
 - depodaki kopyanın boyutu ve SHA-256'sı yeniden okunarak indirilenle karşılaştırılır; ancak o zaman kayıt `stored` olur.
 
 Eski makine yalnızca kendi kayıtlarının hiçbiri `submitted`/`completed` değilken silinir (`failed`: sunucu iş üretemedi,
@@ -136,7 +136,9 @@ def archive(server: str, job_id: str, download, extra: dict | None = None) -> st
                 "output": {"key": key, "size_bytes": download.size, "sha256": download.sha256}, **(extra or {})}
         blob = json.dumps(meta, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
         meta_digest = hashlib.sha256(blob).hexdigest()
-        meta_key = f"{PREFIX}/{download.sha256[:2]}/{download.sha256}.json"
+        # meta verisi kendi içeriğiyle adreslenir: aynı baytları üreten iki iş (ör. aynı seed ve kare) aynı anahtara yazıp
+        # birbirinin doğrulamasını bozmasın (duman testinde sahte işlerle görüldü)
+        meta_key = f"{PREFIX}/{download.sha256[:2]}/{download.sha256}.{meta_digest[:16]}.json"
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=settings.work_dir, suffix=".json", delete=False) as f:
             f.write(blob)

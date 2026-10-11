@@ -896,6 +896,23 @@ def video_frames(path: str, n: int = SAMPLES) -> list[Image.Image]:
     return frames
 
 
+def size_ratio(path: str, target: Target, name: str) -> float | None:
+    """Karakterin karedeki boyu / karedeki en büyük insan yüzünün boyu (ölçek kapısı). Karakter: DINOv2 yama haritasının
+    en büyük bölgesinin kutusu; yüz ya da karakter bulunamazsa None (ölçülemedi)."""
+    keys = dict(target.looks).get(name)
+    if not keys:
+        return None
+    m = models()
+    with Image.open(path) as im:
+        image = im.convert("RGB")
+    faces = face_boxes(m, image)
+    box = mask_box(patch_mask(m, image, keys[0], short=448), *image.size)
+    if not faces or box is None:
+        return None
+    face_h = max(f[3] for f in faces)
+    return (box["box"][3] - box["box"][1]) / max(1.0, face_h)
+
+
 COUNT_STEP_S = 0.5             # videoda örnek sayımı: her 0,5 saniyede bir kare
 
 

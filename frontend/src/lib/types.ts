@@ -112,6 +112,8 @@ export interface Scene {
   cut_method?: string | null; cut_method_effective?: string | null; cut_attempts?: string[];
   /** Karenin gerçekte çizildiği yol (son çizim) ve açı LoRA'sının tokenleri. */
   board_method?: string | null; angle_tokens?: string | null;
+  /** Kesme karesinin sıfırdan kurulma gerekçesi: tarif ve nottaki poz/eylem fiilleri, gerçek boyutu yazılı karakter. */
+  pose_words?: string[]; scaled?: boolean; compose_hint?: string[];
   /** Kazanan klibin varış skoru (son kare -> sonraki çekimin karesi ya da çekimin son karesi). */
   arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
   /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */
@@ -163,6 +165,8 @@ export interface Asset {
   character: { id: string; voice_id: string | null; embedding_version: number; kind: "human" | "non_human"; kind_suggested: "human" | "non_human" } | null;
   reference_history?: { kind: string; version: number; replaced_at: number; entry: Reference }[];
   invariants?: string[];
+  /** Gerçek boyut (ör. "tiny, palm-sized; much smaller than a hen"): istemlere ve ölçek kapısına girer. */
+  scale?: string | null;
 }
 
 /* ---------- stil ---------- */

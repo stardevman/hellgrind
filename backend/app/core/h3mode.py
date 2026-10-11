@@ -61,7 +61,8 @@ def edit_references(scene, chars=(), assets=(), strict: bool = True) -> list[dic
     by_id = {a.id: a for a in assets or ()}
     out = [{"name": ch.name, "key": key, "kind": "character",
             "invariants": [str(x).strip() for x in (getattr(by_id.get(ch.asset_id), "invariants", None) or [])
-                           if str(x).strip()]}
+                           if str(x).strip()],
+            "scale": " ".join(str(getattr(by_id.get(ch.asset_id), "scale", None) or "").split()) or None}
            for ch in _mentioned_first(scene, list(chars or ()))
            if _approved(ch, by_id, strict) and (key := still_key(ch))][:MAX_EDIT_IMAGES]
     if out and len(out) < MAX_EDIT_IMAGES:

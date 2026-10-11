@@ -164,6 +164,8 @@ def looks_text(refs: list[dict], kept=()) -> list[str]:
         if r["kind"] != "character":
             continue
         inv = f", always with {'; '.join(x.rstrip('.') for x in r['invariants'])}" if r.get("invariants") else ""
+        if r.get("scale"):                          # gerçek boyut: referans görseli yakın plan olsa da
+            inv += f", at its real size ({r['scale'].rstrip('.')}), not the size in image {i}"
         state = f" (image {i} shows {r['name']} in this shot's state)" if r.get("state_image") else ""
         change = state_clause(r, i)
         if r["name"] in kept:
@@ -252,6 +254,29 @@ def state_critical(s, scene, key: str | None, frame: str, style) -> bool:
 
 
 COUNTED = re.compile(r"^\s*(?:exactly\s+one|only\s+one|a\s+single|single|one)\b", re.IGNORECASE)
+
+
+SIZE_WORDS = ((re.compile(r"\b(?:tiny|palm|miniature|minuscule|minik|minicik|avuç)", re.IGNORECASE), 1.5),
+              (re.compile(r"\b(?:small|little|küçük|ufak)", re.IGNORECASE), 3.0))
+
+
+def scale_expectations(chars, assets) -> list[dict]:
+    """Ölçek kapısı: gerçek boyutu yazılı insan olmayan karakterin boyu, karedeki insanın yüz boyunun en çok kaç katı
+    olabilir ("tiny, palm-sized": 1,5; "small": 3). Avuç büyüklüğündeki civciv bir yüz boyu kadardır; Pip SH03'te dev çizilen
+    civciv 2,8 yüz boyu, SH01'deki doğru boy 1,2. Çekimde insan yoksa ölçülemez (boş)."""
+    from app.core.h3mode import is_human
+    by_id = {a.id: a for a in assets or ()}
+    if not any(is_human(ch) for ch in chars):
+        return []
+    out = []
+    for ch in chars:
+        scale = getattr(by_id.get(ch.asset_id), "scale", None) or ""
+        if is_human(ch) or not scale:
+            continue
+        limit = next((v for pattern, v in SIZE_WORDS if pattern.search(scale)), None)
+        if limit is not None:
+            out.append({"name": ch.name, "max_faces": limit})
+    return out
 
 
 def count_notes(chars, assets) -> list[str]:
@@ -402,8 +427,9 @@ TIGHT_END = ("Image 1 is an enlarged close-up: keep exactly the same tight frami
 
 SAME_SIZE_END = ("Keep exactly the same shot size and framing as image 1; do not widen, zoom out or pull the camera back, "
                  "and do not bring new objects or furniture into view.")
-TIGHT_PATHS = ("cut_in", "angles")      # son karesi başlangıç kadrajında kalmalı (alan kapısı; Nora SH02 açı karesi
-                                        # yakın plandan boy boy orta plana açılmıştı)
+TIGHT_PATHS = ("cut_in", "angles", "upload", "compose")   # son karesi başlangıç kadrajında kalmalı (alan kapısı; Nora
+                                        # SH02 açı karesi yakın plandan boy boy orta plana açılmıştı; Pip SH02 yüklenen yakın
+                                        # plan karenin son karesi tavuklu geniş plana açıldı)
 
 
 def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight: bool | str = False) -> str:
@@ -419,7 +445,7 @@ def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight:
             f"describes a still moment, the moment stays still): {prompt} Keep the same camera position and "
             f"framing{framing}, location, {designs} as image 1; change only what the action "
             f"changes. Keep this shot's own state; do not anticipate the next shot. "
-            f"{(SAME_SIZE_END if tight == 'angles' else TIGHT_END) + ' ' if tight else ''}"
+            f"{(TIGHT_END if tight in (True, 'cut_in') else SAME_SIZE_END) + ' ' if tight else ''}"
             f"{ONCE} A single cinematic film frame, 16:9, no text, no captions.").strip()
 
 
@@ -555,6 +581,14 @@ def cut_frame(out_path: str, method: str, project_id: str, scene_id: str, seed: 
     from app.engine import cutin
     cut = extra["cut"]
     details = {**details, "cut_method": method}
+    if method == "compose":                         # sahne sıfırdan: karakterlerin ve mekânın durağan görselleri
+        from app.core.chain import pose_words
+        refs = list(extra.get("base_references") or [])[:3]
+        text = cutin.compose_prompt(prompt, refs, looks_text(refs), ONCE, pose_words(prompt))
+        _edit_call(out_path, project_id, scene_id, seed, text, refs, extra.get("negative", ""),
+                   extra.get("edit_mode") or "full", "h3:storyboard:compose", details,
+                   noted={"compose_refs": [r["name"] for r in refs]})
+        return {"method": method}
     if method not in ("cut_in", "angles"):
         paid_frame(out_path, "qwen_edit", project_id, scene_id, seed, prompt, extra, details=details)
         return {"method": method}
@@ -707,6 +741,10 @@ def identity_text(drawn: Drawn) -> str:
     for a in drawn.anomalies or ():
         if a.get("type") == "state_mismatch":
             return ", ".join(f"durum ({label}) tutmadı" for label in a.get("labels") or []) or "durum tutmadı"
+        if a.get("type") == "scale_mismatch":
+            return "boyut tutmadı: " + ", ".join(
+                f"{name} {v['ratio']:.1f} yüz boyu > {v['max']:.1f}".replace(".", ",")
+                for name, v in (a.get("scale") or {}).items() if not v.get("ok"))
         if a.get("type") == "end_framing":
             return (f"son kare başlangıç kadrajından geniş (alan {a['area']:.2f} < {a['min']:.2f})".replace(".", ","))
         if a.get("type") == "duplicate_character":
@@ -796,11 +834,13 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
                                          chain["transition"] == "cut" and not extra.get("end") else None,
                                          states=extra.get("state_probes") or None, jump_ref=jump_ref,
-                                         cut_in=made.get("cut_in"), min_area=min_area)
+                                         cut_in=made.get("cut_in"), min_area=min_area,
+                                         scales=extra.get("scales") or None)
                 framing_off = bool((score.detail or {}).get("framing_mismatch"))
                 state_off = bool((score.detail or {}).get("state_mismatch"))
                 jump_off = bool((score.detail or {}).get("jump_cut"))
-                soft_off = framing_off or state_off or jump_off   # yeniden deneme sebebi, eleme değil
+                scale_off = bool((score.detail or {}).get("scale_mismatch"))
+                soft_off = framing_off or state_off or jump_off or scale_off   # yeniden deneme sebebi, eleme değil
                 detail = dict(score.detail or {}, **({"color": colour} if colour else {}),
                               **({"cut_method": method} if method else {}))
                 if cut_notes:
@@ -823,6 +863,9 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                         [f"durum ({label}) tutmadı" for label in detail.get("state_mismatch") or []]
                     detail["review"] = [*detail.get("review", []), *([framing_note(detail)] if framing_off else []),
                                         *([jump_note(detail)] if jump_off else []), *state_notes]
+                if scale_off and passed and last:        # dev civciv: kare kullanılamaz
+                    anomalies.append({"type": "scale_mismatch", "scale": detail.get("scale")})
+                    passed = False
                 if (detail.get("end_framing") or {}).get("ok") is False and passed and last:
                     # geriye açılan son kare videoyu sonda genişletir: son kare kullanılmaz (video son karesiz)
                     anomalies.append({"type": "end_framing", **detail["end_framing"]})
@@ -1039,7 +1082,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
     """Tek bir çekimin karesi. keep_status: zincirin önceki karesi olarak çizildi; çekimin durumuna dokunulmaz (kendi
     görevi ya da yönetmen yönetir)."""
     import time
-    from app.core.chain import cut_method, plan_of, stale, transition_of
+    from app.core.chain import cut_method, plan_of, stale, transition_of, wants_compose
     from app.core.h3mode import edit_mode, edit_references, effective_mode, keyframe_model, strict_refs
     from app.core.states import parts_of, state_key, targets as state_targets
     from app.engine.iteration import compose_for_scene, loras_of
@@ -1063,6 +1106,7 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         extra["state_probes"] = probes
         extra["state_critical"] = bool(probes) and state_critical(s, scene, skey, "start", style)
         extra["count_notes"] = count_notes(chars, assets)
+        extra["scales"] = scale_expectations(chars, assets)
         parent, usable = _chain_parent(s, scene, lambda sc: visual_fingerprint(
             sc, load_characters(s, sc.id), load_assets(s, sc.id), version)) if chain_enabled() else (None, False)
         if parent is not None and not usable and not scene.keyframe_key:
@@ -1078,9 +1122,11 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
             plan = plan_of(s, scene)
             transition = transition_of(scene)
             image1 = {"name": parent.scene_code, "key": clean_key(parent.board_key), "kind": "frame"}
-            if transition == "cut":                   # kesme: yöntem (kırp + iyileştir, açı LoRA'sı, geniş plan)
-                method = cut_method(camera_of(parent), camera_of(scene), scene.cut_method)
-                anchor = cut_anchor(s, scene, parent, assets, version, wide=method == "wide")
+            if transition == "cut":                   # kesme: yöntem (kırp + iyileştir, açı LoRA'sı, geniş plan, sıfırdan)
+                scaled = any(getattr(a, "scale", None) for a in assets or () if getattr(a, "type", None) != "location")
+                method = cut_method(camera_of(parent), camera_of(scene), scene.cut_method,
+                                    compose=wants_compose(scene, scaled))
+                anchor = cut_anchor(s, scene, parent, assets, version, wide=method in ("wide", "compose"))
                 image1 = {"name": anchor["name"], "key": anchor["key"], "kind": "frame"}
                 plan = {**plan, "kept": [c for c in plan["cast"] if c in anchor["cast"]],
                         "removed": [c for c in anchor["cast"] if c not in plan["cast"]],
@@ -1134,7 +1180,8 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         if drawn is not None:
             fields.update(board_source=drawn.source, board_score=drawn.score, board_sha=drawn.sha,
                           board_parent=(extra.get("chain") or {}).get("sha"),
-                          board_method=(drawn.detail or {}).get("cut_method") if extra.get("cut") else None)
+                          board_method="upload" if drawn.source == "upload" else
+                          (drawn.detail or {}).get("cut_method") if extra.get("cut") else None)
             if drawn.sha != info.get("board_sha"):
                 fields["correction_count"] = 0           # yeni kare: düzeltme turları ve test turu geçmişi baştan
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
@@ -1267,7 +1314,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
                  "negative": composed.negative, "edit_mode": END_MODE, "camera": camera_of(scene),
                  "label": "h3:storyboard:end", "state_probes": probes, "state_critical": critical, "color_ref": kn,
                  "tight": tight,
-                 "count_notes": count_notes(chars, assets),
+                 "count_notes": count_notes(chars, assets), "scales": scale_expectations(chars, assets),
                  "estimate": pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=END_MODE)}
         lines = [f"{scene.scene_code} · son kare · {camera_text(camera_of(scene))}"]
         code = scene.scene_code

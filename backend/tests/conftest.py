@@ -379,6 +379,7 @@ def _no_real_seam_models(monkeypatch):
     monkeypatch.setattr(scorer, "camera_change", lambda previous, path: None)    # jump cut (OpenCV homografi)
     monkeypatch.setattr(scorer, "clip_motion", lambda path, movement: None)      # klipte kamera hareketi
     monkeypatch.setattr(scorer, "face_counts", lambda path, step=0.5: None)    # videoda yüz sayımı (YuNet)
+    monkeypatch.setattr(scorer, "size_ratio", lambda path, target, name: None)  # ölçek kapısı
     monkeypatch.setattr(scorer, "cut_in_view", lambda previous, path, rect=None: None)  # kırp + iyileştir
 
     def centre_box(image, target, names=()):                                      # kırp + iyileştir: karakter kutusu
