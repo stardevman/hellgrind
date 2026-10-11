@@ -217,7 +217,7 @@ def test_a_missing_focus_character_is_placed_first_then_cropped(edit, mk_project
             seen["base"] += 1
             return {"name": "Bolt", "kind": "patch", "box": (40, 10, 44, 12), "fill": 0.5, "coverage": 0.011}
         w, h = image.size
-        return {"name": names[0], "kind": "patch", "box": (int(w * .4), int(h * .3), int(w * .6), int(h * .8)),
+        return {"name": names[0], "kind": "patch", "box": (int(w * .36), int(h * .31), int(w * .64), int(h * .78)),
                 "fill": 0.65, "coverage": 0.09}
     monkeypatch.setattr(scorer, "character_box", box)
     monkeypatch.setattr(scorer, "framing", lambda path, target: 0.32)
@@ -337,7 +337,7 @@ def test_a_cut_in_that_cannot_find_its_character_falls_back_to_the_text_camera(e
         if "Bolt" in names:
             return None
         w, h = image.size
-        return {"name": names[0], "kind": "patch", "box": (int(w * .4), int(h * .3), int(w * .6), int(h * .8)),
+        return {"name": names[0], "kind": "patch", "box": (int(w * .36), int(h * .31), int(w * .64), int(h * .78)),
                 "fill": 0.65, "coverage": 0.09}
     monkeypatch.setattr(scorer, "character_box", box)
     sb.make_board(pid, codes["S001_SH03"])

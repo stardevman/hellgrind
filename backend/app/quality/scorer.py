@@ -896,6 +896,47 @@ def video_frames(path: str, n: int = SAMPLES) -> list[Image.Image]:
     return frames
 
 
+COUNT_STEP_S = 0.5             # videoda örnek sayımı: her 0,5 saniyede bir kare
+
+
+def count_faces(m, image: Image.Image) -> int:
+    """Karedeki yüz sayısı (YuNet; kısa kenarı MIN_FACE_PX'ten büyük; kimlik ölçülemeyecek kadar küçükler de sayılır)."""
+    image = image.convert("RGB")
+    r = 1.0
+    if max(image.size) > DETECT_MAX_SIDE:
+        r = DETECT_MAX_SIDE / max(image.size)
+        image = image.resize((max(1, round(image.width * r)), max(1, round(image.height * r))), Image.LANCZOS)
+    bgr = np.ascontiguousarray(np.asarray(image)[:, :, ::-1])
+    with m.lock:
+        m.detector.setInputSize((bgr.shape[1], bgr.shape[0]))
+        _, found = m.detector.detect(bgr)
+    return sum(1 for row in (found if found is not None else []) if min(row[2], row[3]) / r >= MIN_FACE_PX)
+
+
+def face_counts(path: str, step: float = COUNT_STEP_S) -> list[tuple[float, int]] | None:
+    """[(saniye, yüz sayısı)] videonun her `step` saniyesinde. Nora SH01: kazanan klipte 1-2. saniyede ikinci
+    bir Nora belirdi; dört örnek karede ikinci yüz küçük kaldığı (42 px < 80) için kimliği ölçülmemiş, sayıma girmemişti.
+    0,5 sn'de bir sayım: o klip 0,75 ve 1,25 sn'de 2 yüz, diğer 23 klip hiçbir karede 1'den fazla değil."""
+    from app.quality.anomaly import probe_duration
+    duration = probe_duration(path)
+    if not duration:
+        return None
+    m = models()
+    out = []
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        at = step / 2
+        while at < duration:
+            frame = os.path.join(tmp, f"{len(out)}.png")
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{at:.3f}", "-i", path, "-frames:v", "1", frame],
+                           capture_output=True)
+            if os.path.exists(frame):
+                with Image.open(frame) as im:
+                    out.append((round(at, 2), count_faces(m, im)))
+            at += step
+    return out
+
+
 def score_video(path: str, target: Target) -> Result | None:
     """Okunabilir kare yoksa None (anomali tespiti zaten eler)."""
     frames = video_frames(path)

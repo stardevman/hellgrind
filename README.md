@@ -469,6 +469,13 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     çekimler, referans çekim ve atlananların sebebi (elle ayarlı, referansa zaten yakın, sınırlar içinde iyileşmedi…).
   - **Kırp + iyileştir son karesi:** karakter alanı başlangıç karesinin en az %80'i olmalı (Kıvılcım SH03: 0,297 → 0,226
     geriye açılmıştı); üç denemede tutmazsa son kare kullanılmaz, video son karesiz üretilir.
+  - **Videoda mükerrer karakter:** video kapısı her 0,5 saniyede bir kare alıp yüzleri sayar (kimliği ölçülemeyecek kadar
+    küçük yüzler de); çekimdeki insan sayısından fazla yüz en az iki örnek karede görülürse klip elenir, tek karede
+    görülürse "inceleme önerilir". Nora SH01: ikinci Nora'nın belirdiği klip 0,75 ve 1,25 sn'de 2 yüz verdi; diğer 23 klip
+    hiçbir karede 1'den fazla değil.
+  - **Kırp + iyileştir sınırı:** kırpım 2,5 kattan fazla büyütülecekse (geniş planda boy boy karakterden yakın plan; Nora
+    SH02 3,3×) ya da iyileştirme kırpımın kompozisyonunu korumazsa, o ve sonraki denemeler açı LoRA'sına (kapalıysa metinle
+    kamera tarifine) düşer. Açı karesi yolunda da son kare başlangıç kadrajında kalmalı (alan ≥ %80, aynı plan ölçeği).
   - **Kare değişince:** her klip ilk ve son karenin içerik kimliğiyle (koşul) kaydedilir; kare yeniden çizilince eski
     koşulun klipleri yeniden kullanılmaz ve düzeltme sayacı sıfırlanır.
   - **Yönetmen seçimi:** kapıdan kalmış ama bugünkü kareden üretilmiş aday denetçide "Yine de kullan" ile 1. sıraya

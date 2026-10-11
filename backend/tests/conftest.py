@@ -378,10 +378,11 @@ def _no_real_seam_models(monkeypatch):
     monkeypatch.setattr(scorer, "continuity", lambda path, previous: None)       # zincir karesi mekân benzerliği
     monkeypatch.setattr(scorer, "camera_change", lambda previous, path: None)    # jump cut (OpenCV homografi)
     monkeypatch.setattr(scorer, "clip_motion", lambda path, movement: None)      # klipte kamera hareketi
+    monkeypatch.setattr(scorer, "face_counts", lambda path, step=0.5: None)    # videoda yüz sayımı (YuNet)
     monkeypatch.setattr(scorer, "cut_in_view", lambda previous, path, rect=None: None)  # kırp + iyileştir
 
     def centre_box(image, target, names=()):                                      # kırp + iyileştir: karakter kutusu
         w, h = image.size
-        return {"name": (list(names) or [""])[0], "kind": "patch", "box": (int(w * .42), int(h * .3), int(w * .58),
-                int(h * .75)), "fill": 0.6, "coverage": 0.06}
+        return {"name": (list(names) or [""])[0], "kind": "patch", "box": (int(w * .36), int(h * .31), int(w * .64),
+                int(h * .78)), "fill": 0.65, "coverage": 0.095}          # gerçek SH03 kutusu oranında (yakın plan ~2×)
     monkeypatch.setattr(scorer, "character_box", centre_box)

@@ -179,6 +179,8 @@ def _judge(measured, seed: int, anomalies: list[dict], cfg: dict, target=None, c
     return Score(clip=clip, face=face, composite=composite, anomalies=anomalies, passed=not anomalies, detail=detail)
 
 
+DUPLICATE_FRAMES = 2            # çekimdeki insan sayısından fazla yüz en az bu kadar örnek karede: klip elenir
+
 MOVING = ("pan", "tilt", "dolly_in", "dolly_out", "crane", "orbit", "tracking")
 ARRIVAL_WEIGHT = 0.3        # aday sıralaması: birleşik skor × 0,7 + varış skoru × 0,3 (varış ölçüldüyse)
 
@@ -221,6 +223,21 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
                 threshold = float(cfg.get("transition_threshold", 0.8))
                 if arrival["target"] == "next" and arrival["dino"] < threshold:
                     anomalies.append({"type": "transition_jump", "score": arrival["dino"], "threshold": threshold})
+    if measured is not None and getattr(target, "faces", ()):     # örnek sayımı 0,5 sn'de bir (mükerrer karakter)
+        from app.quality import scorer
+        counts = scorer.face_counts(path)
+        if counts:
+            humans = len(target.faces)
+            over = [at for at, n in counts if n > humans]
+            measured.detail["face_counts"] = [n for _, n in counts]
+            names = [name for name, _ in target.faces]
+            if len(over) >= DUPLICATE_FRAMES:
+                anomalies.append({"type": "duplicate_character", "characters": names if humans == 1 else [],
+                                  "seconds": over, "faces": max(n for _, n in counts), "expected": humans})
+            elif over:
+                measured.detail["review"] = [*measured.detail.get("review", []),
+                                             f"{over[0]:.1f}. saniyede beklenenden fazla yüz ({max(n for _, n in counts)} > "
+                                             f"{humans}); gözle kontrol edin".replace(".", ",", 1)]
     if measured is not None and getattr(target, "movement", None) in MOVING:
         from app.quality import scorer
         motion = scorer.clip_motion(path, target.movement)       # kamera hareketi (pan, dolly…) kaydedilir

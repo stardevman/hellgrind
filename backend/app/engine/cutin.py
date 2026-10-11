@@ -22,6 +22,9 @@ FACTOR_STEP = 0.05
 PRESENT_MIN = 0.03              # karakter yamalarının kare payı bunun altındaysa karakter karede yok (Bolt'suz SH02: 0,013)
 CUT_IN_SCALE = 1.5              # jump-cut kapısı: aynı kameranın >= 1,5 kat yakınlaşması geçerli cut-in
 REFINE_MODE = "lightning"       # iyileştirme geçişi: Lightning (4 adım; kompozisyon kırpımdan gelir)
+MAX_ZOOM = 2.5                  # bundan fazla büyütülen kırpımda iyileştirme sahneyi yeniden uyduruyor: kırp + iyileştir
+                                # uygulanmaz (Kıvılcım SH03 2,03× tuttu; Nora SH02 geniş planda boy boy karakterden yakın
+                                # plan 3,32×: üç denemede de iç oran 0,00, arka plansız gökyüzünde boy boy Nora)
 
 
 def union(boxes: list[tuple]) -> tuple:

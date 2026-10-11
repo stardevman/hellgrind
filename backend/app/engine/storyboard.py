@@ -400,7 +400,13 @@ TIGHT_END = ("Image 1 is an enlarged close-up: keep exactly the same tight frami
              "camera, and do not bring new objects or furniture into view.")
 
 
-def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight: bool = False) -> str:
+SAME_SIZE_END = ("Keep exactly the same shot size and framing as image 1; do not widen, zoom out or pull the camera back, "
+                 "and do not bring new objects or furniture into view.")
+TIGHT_PATHS = ("cut_in", "angles")      # son karesi başlangıç kadrajında kalmalı (alan kapısı; Nora SH02 açı karesi
+                                        # yakın plandan boy boy orta plana açılmıştı)
+
+
+def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight: bool | str = False) -> str:
     """Çekim sonu karesi (Kn_end): image 1 çekimin ilk karesi (Kn). Aynı çekimin son anı: eylem tamamlanmış (ör. SH05:
     Bolt'un gözleri yanmış), kamera, kadraj, mekân ve tasarımlar aynı."""
     camera = camera or {}
@@ -412,7 +418,8 @@ def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight:
     return (f"{'; '.join(parts)}. Show the last frame of the same shot, when its own action is completed (if the shot "
             f"describes a still moment, the moment stays still): {prompt} Keep the same camera position and "
             f"framing{framing}, location, {designs} as image 1; change only what the action "
-            f"changes. Keep this shot's own state; do not anticipate the next shot. {TIGHT_END + ' ' if tight else ''}"
+            f"changes. Keep this shot's own state; do not anticipate the next shot. "
+            f"{(SAME_SIZE_END if tight == 'angles' else TIGHT_END) + ' ' if tight else ''}"
             f"{ONCE} A single cinematic film frame, 16:9, no text, no captions.").strip()
 
 
@@ -426,7 +433,7 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
         refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
         chain = extra.get("chain")
         if extra.get("end"):                        # çekim sonu karesi (Kn_end): Kn'den, eylem tamamlanmış
-            text = end_prompt(prompt, refs, extra.get("camera"), tight=bool(extra.get("tight")))
+            text = end_prompt(prompt, refs, extra.get("camera"), tight=extra.get("tight") or False)
         elif chain:
             text = chain_prompt(prompt, refs, chain["transition"], chain.get("plan"), extra.get("camera"))
         else:
@@ -464,6 +471,14 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
 
 class CutFailed(Exception):
     """Kesme yöntemi bu denemede uygulanamadı (ör. odak karakter önceki karede de ara karede de bulunamadı)."""
+
+
+def fallback_method(cut: dict, attempt: int) -> str:
+    """Kırp + iyileştir uygulanamadı ya da kompozisyonu korumadı: bu ve sonraki kırp + iyileştir denemeleri açı LoRA'sına
+    (açıksa), değilse metinle kamera tarifine düşer. Bu denemenin yeni yöntemi döner."""
+    to = "angles" if cut.get("angles") else "anchor"
+    cut["methods"] = [*cut["methods"][:attempt], *[to if m == "cut_in" else m for m in cut["methods"][attempt:]]]
+    return cut["methods"][attempt]
 
 
 def cut_plan(method: str, anchor: dict, camera: dict, code: str, fp: str, focus: list[str]) -> dict:
@@ -565,6 +580,8 @@ def cut_frame(out_path: str, method: str, project_id: str, scene_id: str, seed: 
         crop = cutin.centre_crop(width, height, steps)
     else:
         crop = cutin.crop_box(cutin.shot_box(base["box"], shot), base["box"]["fill"], width, height, shot)
+    if crop["zoom"] > cutin.MAX_ZOOM:              # çok küçük bölge: iyileştirme kompozisyonu koruyamaz
+        raise CutFailed(f"kırpım çok küçük ({crop['zoom']:.2f}× > {cutin.MAX_ZOOM:.1f}×)".replace(".", ","))
     crop_path = cutin.crop_scale(base["path"], crop["rect"], os.path.join(tmp, "cut_crop.jpg"))
     crop_key = f"cutin/{scene_id}/{sha_of(crop_path)[:16]}.jpg"
     storage.put_file(crop_path, crop_key, "image/jpeg")
@@ -758,8 +775,13 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                         killswitch.event(project_id, "cut_failed", scene_id=scene_id, code=info["code"],
                                          attempt=attempt + 1, cut_method=method, error=str(e))
                         cut_notes.append(f"kesme yöntemi ({method}) uygulanamadı: {e}")
-                        method = "anchor"
-                        made = cut_frame(clean, method, project_id, scene_id, seed, prompt, extra, tmp, trial)
+                        method = fallback_method(cut, attempt)
+                        try:
+                            made = cut_frame(clean, method, project_id, scene_id, seed, prompt, extra, tmp, trial)
+                        except CutFailed as again:          # açı karesi de uygulanamadı: metinle kamera tarifi
+                            cut_notes.append(f"kesme yöntemi ({method}) uygulanamadı: {again}")
+                            method = "anchor"
+                            made = cut_frame(clean, method, project_id, scene_id, seed, prompt, extra, tmp, trial)
                     compare = made.get("previous") or previous
                 else:
                     paid_frame(clean, source, project_id, scene_id, seed, prompt, extra, details=trial)
@@ -784,6 +806,12 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 if cut_notes:
                     detail["review"] = [*detail.get("review", []), *dict.fromkeys(cut_notes)]
                 anomalies, passed = list(score.anomalies), score.passed
+                if method == "cut_in" and ((score.detail or {}).get("camera_change") or {}).get("view", {}).get("kept") \
+                        is False and attempt + 1 < attempts:
+                    # iyileştirme kompozisyonu korumadı: kırpım aynı kalır, yeniden denemek aynı sonucu verir
+                    fallback_method(cut, attempt)
+                    cut_notes.append("kırp + iyileştir kompozisyonu korumadı; sonraki denemeler "
+                                     f"{'açı LoRA' + chr(39) + 'sı' if cut.get('angles') else 'metinle kamera tarifi'}")
                 if method == "cut_in" and not passed:     # kırp + iyileştir: eşiğe çok yakın benzerlik inceleme notu
                     anomalies, soft = gate.soften_likeness(anomalies)
                     if soft:
@@ -1227,7 +1255,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         parent_sha, old_sha = parent_token(scene), scene.end_board_sha
         target = scorer.target_for(scene, chars, style)
         kn = clean_key(scene.board_key)
-        tight = scene.board_method == "cut_in"
+        tight = scene.board_method if scene.board_method in TIGHT_PATHS else None
         if close_shot(camera_of(scene)):           # yakın planın son karesi: stil, çekimin ilk karesine göre ölçülür
             target = replace(target, style_frame=kn)
         info = dict(code=f"{scene.scene_code} son kare", keyframe_key=None,
