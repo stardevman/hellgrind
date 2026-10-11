@@ -88,13 +88,41 @@ def identity_anomalies(detail: dict, target, cfg: dict) -> list[dict]:
         low = {name: look.get(name) for name, _ in target.looks if (look.get(name) or 0.0) < threshold}
         if low:
             out.append({"type": "low_likeness", "look": low, "threshold": threshold})
-        elif "look_dino" in detail:               # DINOv2 (kırpımlar)
+        elif "look_dino" in detail:               # DINOv2 (kırpımlar); küçük karakterde ölçülemedi (small_looks)
             threshold = float(cfg.get("look_dino_threshold", 0.78))
             dino = detail.get("look_dino") or {}
-            low = {name: dino.get(name) for name, _ in target.looks if name in dino and dino[name] < threshold}
+            small = small_looks(detail)
+            low = {name: dino.get(name) for name, _ in target.looks
+                   if name in dino and dino[name] < threshold and name not in small}
             if low:
                 out.append({"type": "low_likeness", "look_dino": low, "threshold": threshold})
     return out
+
+
+def small_looks(detail: dict) -> dict[str, float]:
+    """Karede küçük kalan insan olmayan karakterler {ad: alan}: DINOv2 kırpım benzerliği güvenilmez, eleme sebebi değil
+    (scorer.SMALL_LOOK_AREA; Kıvılcım SH04/SH06 geniş planda Bolt 0,02-0,09)."""
+    from app.quality.scorer import SMALL_LOOK_AREA
+    return {name: area for name, area in (detail.get("look_area") or {}).items()
+            if area is not None and area < SMALL_LOOK_AREA}
+
+
+LIKENESS_MARGIN = 0.02          # kırp + iyileştir karesi: eşiğe bu kadar yakın benzerlik "inceleme önerilir"
+
+
+def soften_likeness(anomalies: list[dict], margin: float = LIKENESS_MARGIN) -> tuple[list[dict], list[str]]:
+    """(kalan anomaliler, inceleme notları): yalnızca eşiğe `margin` kadar yakın low_likeness'lar nota döner (Kıvılcım SH03
+    kırp + iyileştir karesi "Bolt 0,78 < 0,78" ile üç denemede kritik hataya düşmüştü; kare doğruydu)."""
+    kept, notes = [], []
+    for a in anomalies:
+        values = a.get("look") or a.get("look_dino") or {}
+        if a.get("type") == "low_likeness" and values and all((v or 0) >= a["threshold"] - margin for v in values.values()):
+            what = "DINOv2" if a.get("look_dino") else "OpenCLIP"
+            notes += [f"{name} benzerliği sınırda ({what} {v:.2f}, eşik {a['threshold']:.2f}; kırp + iyileştir)"
+                      .replace(".", ",") for name, v in values.items()]
+        else:
+            kept.append(a)
+    return kept, notes
 
 
 def duplicates(detail: dict, cfg: dict) -> list[str]:
@@ -118,10 +146,14 @@ def identity_review(detail: dict, target, cfg: dict) -> list[str]:
     if target is None or not detail or not getattr(target, "looks", ()):
         return []
     margin = float(cfg.get("look_review_margin", 0.05))
-    notes = []
+    small = small_looks(detail)
+    notes = [f"{name} karede küçük (alan {area:.2f}): DINOv2 benzerliği ölçülemedi, OpenCLIP ile geçti".replace(".", ",")
+             for name, area in small.items() if (detail.get("look_dino") or {}).get(name) is not None]
     for key, name_tr, threshold in (("look", "OpenCLIP", float(cfg.get("look_threshold", 0.70))),
                                     ("look_dino", "DINOv2", float(cfg.get("look_dino_threshold", 0.78)))):
         for name, _ in target.looks:
+            if key == "look_dino" and name in small:
+                continue
             value = (detail.get(key) or {}).get(name)
             if value is not None and threshold <= value < threshold + margin:
                 notes.append(f"{name} benzerliği sınırda ({name_tr} {value:.2f}, eşik {threshold:.2f})".replace(".", ","))
@@ -336,6 +368,28 @@ def finalize_refined_pool(scene_id, run_id: str, k: int, scene_update: dict) -> 
 
     purge_files(retire)
     return ranked
+
+
+def promote_override(s, scene_id, variation_id, scene_update: dict, k: int, note: dict | None = None) -> None:
+    """Yönetmen seçimi (geçersiz kılma): kapıdan kalmış olsa da eski olmayan aday Rafine Havuz'un 1. sırasına girer;
+    mevcut havuz birer sıra kayar, k'yı aşan `passed`'e döner. Kapının ölçümleri ve anomalileri kayıtta kalır."""
+    winner = s.get(Variation, variation_id)
+    pool = [v for v in s.scalars(select(Variation).where(Variation.scene_id == scene_id,
+                                                         Variation.refined_rank.is_not(None))
+                                 .order_by(Variation.refined_rank)) if v.id != winner.id]
+    s.execute(update(Variation).where(Variation.scene_id == scene_id).values(refined_rank=None))
+    s.flush()
+    for rank, v in enumerate(pool, start=2):
+        if rank <= k:
+            v.refined_rank = rank
+        else:
+            v.status = "passed"
+    s.flush()
+    winner.refined_rank, winner.status = 1, "refined"
+    winner.params = {**(winner.params or {}), "director_override": note or True}
+    scene = s.get(Scene, scene_id)
+    for field, value in scene_update.items():
+        setattr(scene, field, value)
 
 
 def finalize_draft(scene_id, variation_id: str, scene_update: dict) -> None:

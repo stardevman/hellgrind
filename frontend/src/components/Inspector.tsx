@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
-import { ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_CHOICES, ENGINE_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { resultText, usd } from "@/lib/text";
 import type { RevisionList, Scene, SceneAssetRef, Sequence, StageResult, Variation } from "@/lib/types";
@@ -91,7 +91,16 @@ function Shot({ sc }: { sc: Scene }) {
               <option value="wide">Geniş plandan çizim</option>
             </select>
             {(sc.cut_attempts ?? []).length > 0 && <span className="dim small" style={{ marginLeft: 6 }}>{(sc.cut_attempts ?? []).map((m) => CUT_TR[m] ?? m).join(" → ")}</span>}
+            {(sc.cut_attempts ?? []).includes("angles") && sc.angle_tokens && <div className="faint small mono">{sc.angle_tokens}</div>}
           </dd>
+        </>}
+        {!sc.cut_method_effective && sc.cut_method && <>
+          <dt>Kesme</dt>
+          <dd className="faint small">Çekim devam ediyor ({TRANSITION_TR[sc.transition ?? ""] ?? sc.transition}): seçili yöntem ({CUT_TR[sc.cut_method] ?? sc.cut_method}) uygulanmaz.</dd>
+        </>}
+        {sc.board_method && <>
+          <dt>Kare yolu</dt>
+          <dd className="small">{CUT_TR[sc.board_method] ?? sc.board_method}<span className="faint"> (son çizim)</span></dd>
         </>}
         {sc.entry_options && <>
           <dt>Giriş</dt>
@@ -300,6 +309,27 @@ function H3({ sc }: { sc: Scene }) {
           ) : <p className="warn small">Çekimdeki karakterlerin referansı yok: Varlıklar'dan durağan görsel, ifade sayfası ya da dönüş videosu yükleyin.</p>}
         </>
       )}
+    </Section>
+  );
+}
+
+/** Yönetmen seçimi: kapıdan kalan ama bugünkü kareden üretilmiş aday da kullanılabilir (isteğe bağlı aynı seed ile tam tur). */
+function Override({ sc, v }: { sc: Scene; v: Variation }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const pick = (full: boolean) => act(async () => {
+    const r = await api.post<StageResult>(`/scenes/${sc.id}/promote/${v.id}?override=true${full ? "&full=true" : ""}`);
+    setVar(null);
+    note("inspector", full ? `Aynı seed (${v.seed}) ile tam tur klibi üretilecek ve 1. sıraya girecek. ${resultText(r)}`
+      : `Kapının kararı geçersiz kılındı: aday 1. sırada. ${resultText(r)}`, r.blocked ? "err" : "ok");
+  }, "inspector");
+  const why = v.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ");
+  return (
+    <Section title="Seçili aday" meta={`seed ${v.seed}`}>
+      <p className="small">{v.status === "purged" ? `Kalite kapısından kaldı${why ? ` (${why})` : ""}.` : "Rafine havuzda değil."} Gözle iyiyse yönetmen seçimiyle kullanılabilir; kapının ölçümleri kayıtta kalır.</p>
+      <div className="row">
+        <button className="btn good" type="button" disabled={busy || frozen} title={frozen ? FROZEN_TITLE : undefined} onClick={() => pick(false)}>Yine de kullan</button>
+        {v.tier === "probe" && <button className="btn" type="button" disabled={busy || frozen} title="Test turu klibi düşük çözünürlüklü: aynı seed ile tam tur çözünürlüğünde (720p) yeniden üretilir" onClick={() => pick(true)}>Aynı seed ile 720p üret</button>}
+      </div>
     </Section>
   );
 }
@@ -592,13 +622,15 @@ function ColorLink({ sc }: { sc: Scene }) {
 export function Inspector({ className = "" }: { className?: string }) {
   const { scene: sc, sequence: q, varId } = usePanel();
   if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2></header><p className="empty">Çekim seçin.</p></section>;
-  const revTarget = (varId ? sc.variations.find((v) => v.id === varId) : undefined) ?? sc.variations.find((v) => v.rank === 1);
+  const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
+  const revTarget = chosen ?? sc.variations.find((v) => v.rank === 1);
   return (
     <section className={`pnl ${className}`} aria-label="Denetçi">
       <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
       <div className="pnl-b">
         <Shot sc={sc} />
         {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
+        {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
         <Pool sc={sc} />
         <Sound key={`s${sc.id}`} sc={sc} q={q} />
         {q && <SequenceBox q={q} />}

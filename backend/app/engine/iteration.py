@@ -35,7 +35,7 @@ from sqlalchemy import and_, or_, select
 from app import storage
 from app.budget import killswitch
 from app.config import project_settings, settings
-from app.core.chain import camera_of
+from app.core.chain import camera_of, close_shot
 from app.core.h3mode import effective_mode
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
@@ -127,7 +127,10 @@ def _merge_params(vid, **extra) -> None:
 def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None:
     """Aynı seed ile daha önce tamamlanmış varyasyon: videosu hâlâ depoda duran geçen ya da kalite kapısında elenen.
     Taslak geçişte havuza giren test klibi de (yalnızca test turunda) yeniden kullanılır: iyileştirme geçişi onu yeniden
-    üretmez. Havuzdan emekli edilmiş (superseded / not_top_k) ya da hata vermiş olanlar yeniden kullanılmaz."""
+    üretmez. Havuzdan emekli edilmiş (superseded / not_top_k) ya da hata vermiş olanlar yeniden kullanılmaz.
+    Koşul (ilk ve son karenin içerik kimliği, `conditioning`) aynı olmalı: kare yeniden çizilince görsel özet ve seed'ler
+    aynı kalır; Kıvılcım şerit onayından sonra SH03/SH04/SH06 eski karelerin elenmiş test klipleriyle hemen needs_review
+    olmuştu."""
     usable = ("passed", "refined") if tier == "probe" else ("passed",)
     with session_scope() as s:
         v = s.scalars(select(Variation).where(
@@ -143,6 +146,8 @@ def _reusable(c: Ctx, seed: int, tier: str, resolution: str) -> Variation | None
             return None
         if c.render.get("seam") and (v.params or {}).get("keyframe_key") != c.render.get("keyframe_key"):
             return None                                   # kesintisiz dikiş: başka bir son kareden üretilmiş
+        if c.render.get("cond") and (v.params or {}).get("cond") != c.render["cond"]:
+            return None                                   # başka bir ilk/son kareden üretilmiş (kare yeniden çizildi)
         s.expunge(v)
         return v
 
@@ -155,10 +160,20 @@ def compose_for_scene(scene, chars, assets, style, frame: str | None = None, ent
     from app.core.h3mode import is_human
     spec = scene.prompt_spec or {}
     return compose_prompt({"prompt": spec.get("prompt", ""), "negative": spec.get("negative", ""), "lang": spec.get("lang"),
-                           "camera": camera_of(scene), "characters": [ch.name for ch in chars],
+                           "camera": prompt_camera(scene), "characters": [ch.name for ch in chars],
                            "note": getattr(scene, "director_note", None), "frame": frame,
                            "entering": list(entering or []) if getattr(scene, "entry_mode", None) == "walk_in" else [],
                            "nonhuman": [ch.name for ch in chars if not is_human(ch)]}, assets, style)
+
+
+def prompt_camera(scene) -> dict:
+    """İstemdeki kamera. Kare kırp + iyileştir ile çizildiyse (board_method cut_in) kare aynı kameranın yakın kırpımıdır:
+    yan açı ve dikey açı yazılmaz (Kıvılcım SH03: "35° to the left, low angle" son karede ve videoda kamerayı döndürdü,
+    lamba ve masa göründü)."""
+    camera = camera_of(scene)
+    if getattr(scene, "board_method", None) == "cut_in":
+        camera = {k: v for k, v in camera.items() if k not in ("side", "angle")}
+    return camera
 
 
 def still_of(ch) -> str | None:
@@ -208,14 +223,18 @@ def loras_of(chars) -> dict:
 
 # ---------- tek varyasyon ----------
 
-def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarResult:
+def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str, seed: int | None = None,
+            force: dict | None = None) -> VarResult:
+    """seed: yönetmenin seçtiği adayın seed'i (geçersiz kılma: aynı seed ile tam tur); force: kapıdan kalsa da kabul
+    edilir (yönetmen seçimi), {"from": aday kimliği}."""
     if killswitch.is_frozen(c.project_id):                                             # 1. Frozen kontrolü
         raise killswitch.ProjectFrozen(c.project_id)
     chain_check(c)                                                                     #    zincir karesi değişmedi mi
-    seed_parts = [c.scene_id, c.visual_hash, tier, wave_no, idx]                       # 2. Seed
-    seed = seed_for(*seed_parts, *([c.revision] if c.revision else []))                #    ("baştan üret" yeni seed'ler verir)
+    if seed is None:
+        seed_parts = [c.scene_id, c.visual_hash, tier, wave_no, idx]                   # 2. Seed
+        seed = seed_for(*seed_parts, *([c.revision] if c.revision else []))            #    ("baştan üret" yeni seed'ler verir)
 
-    done = _reusable(c, seed, tier, resolution)
+    done = None if force else _reusable(c, seed, tier, resolution)
     if done is not None:
         _merge_params(done.id, run=c.run_id)
         return VarResult(str(done.id), done.status in ("passed", "refined"), done.composite_score, list(done.anomalies or []))
@@ -229,6 +248,8 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
                       prompt_revision=c.revision, status="queued",
                       params={"resolution": resolution, "duration_s": c.duration, "prompt": req.prompt,
                               "negative": req.negative, "run": c.run_id,
+                              **({"cond": c.render["cond"]} if c.render.get("cond") else {}),
+                              **({"director_override": force} if force else {}),
                               **({"keyframe_key": c.render["keyframe_key"], "h3_mode": c.render["h3_mode"]}
                                  if (c.keyframe or c.render.get("seam")) and c.render.get("keyframe_key") else {}),
                               **({"last_frame_key": c.render["last_frame_key"],
@@ -263,7 +284,7 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
         raise
 
     extra = {"provider_meta": result.meta, **({"score_detail": score.detail} if score.detail else {})}
-    if score.passed:
+    if score.passed or force:                                                          # yönetmen seçimi: kapı kaydedilir
         fields = dict(status="passed", video_key=key)
     else:                                                                              # 7. Anında imha
         extra.update(quarantine_key=storage.purge(key), purge_reason="quality_gate")
@@ -276,7 +297,7 @@ def run_one(c: Ctx, tier: str, wave_no: int, idx: int, resolution: str) -> VarRe
         v.params = {**(v.params or {}), **extra}
         for name, value in fields.items():
             setattr(v, name, value)
-    return VarResult(str(vid), score.passed, score.composite, list(score.anomalies))
+    return VarResult(str(vid), score.passed or bool(force), score.composite, list(score.anomalies))
 
 
 def _first_frame(c: Ctx, req: GenRequest, vid, seed: int):
@@ -409,6 +430,7 @@ def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None =
             if keyframe_key and ctx.render["h3_mode"] == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
         if seam_key:
             ctx.render["seam"] = True                     # kesintisiz dikiş: ilk kare önceki klibin gerçek son karesi
+        ctx.render["cond"] = conditioning(s, scene, keyframe_key, last_key, last_kind)
     if keyframe_key and hasattr(ctx.provider, "upload"):
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:   # bir kez yüklenir, bütün varyasyonlar kullanır
@@ -416,10 +438,36 @@ def _prepare(project_id: str, scene_id: str, run_id: str, seam_key: str | None =
             if last_key:                                  # çekimin son karesi sonraki çekimin ilk karesi olsun
                 ctx.last_frame = ctx.provider.upload(storage.download(last_key, os.path.join(tmp, "last.jpg")))
     ctx.render["keyframe_key"] = keyframe_key
+    if keyframe_key and close_shot(ctx.render["camera"]):     # yakın plan: stil, onaylı ilk kareye göre (ölçek eşleşen)
+        ctx.target = replace(ctx.target, style_frame=keyframe_key)
     if ctx.last_frame:
         ctx.render["last_frame_key"], ctx.render["last_frame_kind"] = last_key, last_kind
         ctx.target = replace(ctx.target, next_frame=last_key, arrival_kind=last_kind)
     return ctx
+
+
+def run_override_full(project_id: str, scene_id: str, variation_id: str) -> str:
+    """Yönetmen seçimi + 720p tam tur: seçilen adayın seed'iyle tam tur çözünürlüğünde tek klip; kapıdan kalsa da kabul
+    edilir (ölçümleri kaydedilir) ve Rafine Havuz'un 1. sırasına girer. Ardından zincir dudak senkronu ve montajı yapar."""
+    gate.ensure_scorer()
+    with session_scope() as s:
+        seed = s.get(Variation, variation_id).seed
+    ctx = _prepare(project_id, scene_id, uuid.uuid4().hex)
+    advance_scene(project_id, scene_id, status="generating")
+    result = run_one(ctx, "full", 0, 0, ctx.cfg["full_resolution"], seed=seed, force={"from": str(variation_id)})
+    with session_scope() as s:
+        v = s.get(Variation, result.id)
+        if v is None or v.status != "passed" or not v.video_key:
+            scene = s.get(Scene, scene_id)
+            scene.status, scene.last_error = "needs_review", "Yönetmen seçimi: tam tur klibi üretilemedi."
+            return "needs_review"
+        gate.promote_override(s, scene_id, result.id, {
+            "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
+            "last_error": None, "cut_tier": "final"}, int(ctx.cfg["refined_k"]),
+            {"from": str(variation_id), "seed": seed, "full": True})
+        code = s.get(Scene, scene_id).scene_code
+    killswitch.event(project_id, "director_override", scene_id=scene_id, code=code, variation=str(result.id), full=True)
+    return "refined"
 
 
 def _finish_draft(c: Ctx, first: VarResult) -> str:
@@ -460,6 +508,41 @@ def keyframe_of(scene, fp: str) -> str | None:
         key = clean_key(scene.board_key)
         return key if storage.exists(key) else None
     return None
+
+
+def conditioning(s, scene, keyframe_key: str | None, last_key: str | None, last_kind: str | None) -> str | None:
+    """Klibin koşul kimliği: ilk ve son karenin içerik kimliği (SHA; yüklenen kare keyframe_hash, dikiş karesi anahtarı).
+    Kare yeniden çizilince değişir (anahtar ve görsel özet aynı kalsa da): eski koşulun klipleri yeniden kullanılmaz,
+    yönetmen geçersiz kılmasında "eski" sayılır."""
+    from app.core.chain import next_continuous
+    from app.core.hashing import stable_hash
+    if not keyframe_key:
+        return None
+    if scene.keyframe_key and keyframe_key == scene.keyframe_key:
+        first = scene.keyframe_hash or keyframe_key
+    elif keyframe_key.startswith("seam/"):
+        first = keyframe_key
+    else:
+        first = scene.board_sha or keyframe_key
+    last = None
+    if last_key:
+        if last_kind == "end":
+            last = scene.end_board_sha or last_key
+        else:
+            nxt = next_continuous(s, scene)
+            last = (nxt.board_sha if nxt is not None else None) or last_key
+    return stable_hash([first, last])[:16]
+
+
+def current_conditioning(s, scene) -> str | None:
+    """Bugünkü koşul (API: yönetmen seçiminde adayın eski olup olmadığı)."""
+    style = bible.active_version(s, scene.project_id)
+    fp = visual_fingerprint(scene, load_characters(s, scene.id), load_assets(s, scene.id), style)
+    keyframe_key = keyframe_of(scene, fp)
+    cfg = project_settings(s.get(Project, scene.project_id).settings)
+    last_key, last_kind = last_frame_of(s, scene, style, cfg) \
+        if keyframe_key and effective_mode(scene) == "fl2va" and (scene.engine or "h3") == "h3" else (None, None)
+    return conditioning(s, scene, keyframe_key, last_key, last_kind)
 
 
 def last_frame_of(s, scene, style_version, cfg: dict | None = None) -> tuple[str | None, str | None]:

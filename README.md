@@ -456,6 +456,17 @@ Denetçideki **H3 koşulu** her çekim için seçilir:
     shot close-up`; en yakın 45° adım); Ayarlar'da `QWEN_EDIT_ANGLES=on` ve dosya volume'da `models/loras/` altında olmalı;
     kapalıysa ya da iki deneme kapıdan kalırsa kırp + iyileştir'e düşer. **Geniş plandan çizim** (ölçek genişliyor). Tahmin
     uç noktası iki yolu ayrı kalem olarak gösterir; iş girdisi (LoRA adı ve gücü, kırpma kutusu) harcama geçmişine yazılır.
+  - **Kadraja duyarlı kapı:** yakın planda (yakın, çok yakın) stil, ışık dili metni yerine çekimin onaylı karesine göre
+    ölçülür (OpenCLIP görüntü benzerliği × LAB palet yakınlığı; kırp + iyileştir karesinde kırpıma, son karede ilk kareye);
+    Kıvılcım SH03 klipleri metinle 0,06–0,33, kareyle 0,94–1,0. Karede küçük kalan insan olmayan karakterde (yama alanı
+    < 0,10; geniş planda Bolt 0,04–0,08) DINOv2 benzerliği "ölçülemedi" sayılır, OpenCLIP benzerliği yine geçmeli.
+    Kırp + iyileştir karesinde eşiğe ±0,02 yakın benzerlik "inceleme önerilir" olur. Kırp + iyileştir çekiminin son karesi
+    ve video istemi kamerayı döndürmez (yan/dikey açı yazılmaz, son kare aynı dar kadrajda istenir).
+  - **Kare değişince:** her klip ilk ve son karenin içerik kimliğiyle (koşul) kaydedilir; kare yeniden çizilince eski
+    koşulun klipleri yeniden kullanılmaz ve düzeltme sayacı sıfırlanır.
+  - **Yönetmen seçimi:** kapıdan kalmış ama bugünkü kareden üretilmiş aday denetçide "Yine de kullan" ile 1. sıraya
+    alınır (karantinadan geri alınır; kapının ölçümleri kayıtta kalır); test turu klibi için "Aynı seed ile 720p üret"
+    tam tur çözünürlüğünde yeni klip üretir ve onu 1. sıraya koyar.
   - **Video nerede biter:** sonraki çekim *devam* ise FL2VA iki kare arasında üretilir (ilk kare Kn, `last_frame` K(n+1)).
     Değilse (kesme, yeni sahne, sekans sonu) video sonraki kareye "yolculuk" yapmaz: **çekim sonu karesi** Kn_end, Kn'den
     Qwen-Image-Edit Lightning ile çekimin kendi eylemi tamamlanmış hâli olarak çizilir (~0,007 $; kimlik, değişmez ve süreklilik

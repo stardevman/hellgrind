@@ -150,6 +150,7 @@ class Scene(Base):
     entry_mode: Mapped[str | None] = mapped_column(Text)                   # karakter girişi: cut (varsayılan) | walk_in
     grade_auto: Mapped[dict | None] = mapped_column(JSONB)                 # otomatik renk eşleştirmesi (geri alınabilir)
     cut_method: Mapped[str | None] = mapped_column(Text)                   # kesme karesi yöntemi: cut_in | angles | wide
+    board_method: Mapped[str | None] = mapped_column(Text)                 # karenin gerçekte çizildiği yol (son çizim)
     end_board_key: Mapped[str | None] = mapped_column(Text)                # çekim sonu karesi (Kn_end, yazısız)
     end_board_sha: Mapped[str | None] = mapped_column(Text)
     end_board_parent: Mapped[str | None] = mapped_column(Text)             # çizildiği Kn'nin board_sha'sı

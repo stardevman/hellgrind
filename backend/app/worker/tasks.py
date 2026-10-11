@@ -133,6 +133,17 @@ def generate_scene(self, project_id: str, scene_id: str, mode: str = "full", bat
             batch_done(batch, scene_id, ok)
 
 
+@celery.task(bind=True, name="hg.override_full")
+def override_full(self, project_id: str, scene_id: str, variation_id: str):
+    """Yönetmen seçimi: seçilen adayın seed'iyle tam tur klibi (iteration.run_override_full)."""
+    release_dispatch(scene_id)
+
+    def work():
+        from app.engine.iteration import run_override_full
+        return run_override_full(project_id, scene_id, variation_id)
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.lipsync_scene")
 def lipsync_scene(self, project_id: str, scene_id: str):
     def work():

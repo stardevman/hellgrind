@@ -71,6 +71,11 @@ CUT_CANDIDATES = {
 }
 
 
+def close_shot(camera: dict | None) -> bool:
+    """Yakın plan (yakın, çok yakın): stil metni (ışık dili odayı anlatır) yerine ölçek eşleşen kareye göre ölçülür."""
+    return SCALE_STEP.get((camera or {}).get("shot"), 2) >= SCALE_STEP["close_up"]
+
+
 def camera_of(scene) -> dict:
     """Çekimin etkin kamerası: kesme için atanan kamera (camera_plan), yoksa senaryodaki."""
     return dict(getattr(scene, "camera_plan", None) or getattr(scene, "camera", None) or {})

@@ -24,7 +24,7 @@ import re
 import subprocess
 import tempfile
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PIL import Image, ImageDraw
 from sqlalchemy import select
@@ -38,7 +38,7 @@ from app.db import session_scope
 from app.engine import paid
 from app.engine.procedural import _font, render_clip
 from app.models import AudioTrack, Character, Project, Scene
-from app.core.chain import camera_of
+from app.core.chain import camera_of, close_shot
 from app.style import bible
 
 BOARD_W, BOARD_H = 960, 540
@@ -396,7 +396,11 @@ def chain_prompt(prompt: str, refs: list[dict], transition: str, plan: dict | No
                                 "A single cinematic film frame, 16:9, no text, no captions.") if x).strip()
 
 
-def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None) -> str:
+TIGHT_END = ("Image 1 is an enlarged close-up: keep exactly the same tight framing; do not widen, rotate or move the "
+             "camera, and do not bring new objects or furniture into view.")
+
+
+def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None, tight: bool = False) -> str:
     """Çekim sonu karesi (Kn_end): image 1 çekimin ilk karesi (Kn). Aynı çekimin son anı: eylem tamamlanmış (ör. SH05:
     Bolt'un gözleri yanmış), kamera, kadraj, mekân ve tasarımlar aynı."""
     camera = camera or {}
@@ -408,8 +412,8 @@ def end_prompt(prompt: str, refs: list[dict], camera: dict | None = None) -> str
     return (f"{'; '.join(parts)}. Show the last frame of the same shot, when its own action is completed (if the shot "
             f"describes a still moment, the moment stays still): {prompt} Keep the same camera position and "
             f"framing{framing}, location, {designs} as image 1; change only what the action "
-            f"changes. Keep this shot's own state; do not anticipate the next shot. {ONCE} A single cinematic film "
-            "frame, 16:9, no text, no captions.").strip()
+            f"changes. Keep this shot's own state; do not anticipate the next shot. {TIGHT_END + ' ' if tight else ''}"
+            f"{ONCE} A single cinematic film frame, 16:9, no text, no captions.").strip()
 
 
 def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed: int, prompt: str, extra: dict,
@@ -422,7 +426,7 @@ def paid_frame(out_path: str, source: str, project_id: str, scene_id: str, seed:
         refs, mode = extra.get("edit_references") or [], extra.get("edit_mode") or "full"
         chain = extra.get("chain")
         if extra.get("end"):                        # çekim sonu karesi (Kn_end): Kn'den, eylem tamamlanmış
-            text = end_prompt(prompt, refs, extra.get("camera"))
+            text = end_prompt(prompt, refs, extra.get("camera"), tight=bool(extra.get("tight")))
         elif chain:
             text = chain_prompt(prompt, refs, chain["transition"], chain.get("plan"), extra.get("camera"))
         else:
@@ -573,7 +577,7 @@ def cut_frame(out_path: str, method: str, project_id: str, scene_id: str, seed: 
     x0, y0, x1, y1 = crop["rect"]
     return {"method": method, "previous": crop_path, "crop": crop,
             "cut_in": {"rect": (x0 / width, y0 / height, x1 / width, y1 / height), "zoom": crop["zoom"],
-                       "crop": crop_path}}
+                       "crop": crop_path}, "crop_key": crop_key}
 
 
 def board_from(clean: str, lines: list[str], out_path: str) -> str:
@@ -751,7 +755,10 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 # kaynakta renk eşleştirme kapılardan ÖNCE: kapılar saklanacak kareyi ölçer (Kıvılcım SH03: aktarımdan
                 # önceki karede cam gözdeki pencere yansıması "parlama" sayılmıştı)
                 colour = match_colour(clean, extra["color_ref"], tmp) if extra.get("color_ref") else None
-                score = gate.score_frame(clean, seed, cfg, target, check_identity=edit, previous=compare,
+                judged = target
+                if made.get("crop_key") and close_shot(extra.get("camera")) and target is not None:
+                    judged = replace(target, style_frame=made["crop_key"])   # yakın plan: stil kırpıma göre
+                score = gate.score_frame(clean, seed, cfg, judged, check_identity=edit, previous=compare,
                                          transition=chain["transition"] if chain else None,
                                          scale=(extra.get("camera") or {}).get("shot") if chain and
                                          chain["transition"] == "cut" and not extra.get("end") else None,
@@ -766,6 +773,11 @@ def draw(project_id: str, scene_id: str, fp: str, key: str, source: str, prompt:
                 if cut_notes:
                     detail["review"] = [*detail.get("review", []), *dict.fromkeys(cut_notes)]
                 anomalies, passed = list(score.anomalies), score.passed
+                if method == "cut_in" and not passed:     # kırp + iyileştir: eşiğe çok yakın benzerlik inceleme notu
+                    anomalies, soft = gate.soften_likeness(anomalies)
+                    if soft:
+                        passed = not anomalies
+                        detail["review"] = [*detail.get("review", []), *soft]
                 last = attempt + 1 == attempts
                 if soft_off and last:                     # son deneme: bulgular nota (kare geçse de kalsa da)
                     state_notes = [] if extra.get("state_critical") else \
@@ -1078,7 +1090,10 @@ def _make_board(project_id: str, scene_id: str, standalone: bool = False, explic
         fields = {"board_key": key, "board_hash": fp}
         if drawn is not None:
             fields.update(board_source=drawn.source, board_score=drawn.score, board_sha=drawn.sha,
-                          board_parent=(extra.get("chain") or {}).get("sha"))
+                          board_parent=(extra.get("chain") or {}).get("sha"),
+                          board_method=(drawn.detail or {}).get("cut_method") if extra.get("cut") else None)
+            if drawn.sha != info.get("board_sha"):
+                fields["correction_count"] = 0           # yeni kare: düzeltme turları ve test turu geçmişi baştan
         if drawn is not None and not drawn.passed:          # kalite kapısı: video bu kareden üretilmez
             if drawn.source == "qwen_edit" or any(x.get("type") == "state_mismatch" for x in drawn.anomalies or ()):
                 extra_notes = "; ".join((drawn.detail or {}).get("review") or [])
@@ -1197,6 +1212,9 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         parent_sha, old_sha = parent_token(scene), scene.end_board_sha
         target = scorer.target_for(scene, chars, style)
         kn = clean_key(scene.board_key)
+        tight = scene.board_method == "cut_in"
+        if close_shot(camera_of(scene)):           # yakın planın son karesi: stil, çekimin ilk karesine göre ölçülür
+            target = replace(target, style_frame=kn)
         info = dict(code=f"{scene.scene_code} son kare", keyframe_key=None,
                     render={"emotion": scene.emotion, "camera": camera_of(scene),
                             "characters": [c.name for c in chars], "action": scene.action_complexity,
@@ -1205,6 +1223,7 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
                  "edit_references": [{"name": scene.scene_code, "key": kn, "kind": "frame"}, *refs],
                  "negative": composed.negative, "edit_mode": END_MODE, "camera": camera_of(scene),
                  "label": "h3:storyboard:end", "state_probes": probes, "state_critical": critical, "color_ref": kn,
+                 "tight": tight,
                  "count_notes": count_notes(chars, assets),
                  "estimate": pricing.estimate_keyframe("h3", model="qwen_edit", edit_mode=END_MODE)}
         lines = [f"{scene.scene_code} · son kare · {camera_text(camera_of(scene))}"]
@@ -1220,6 +1239,8 @@ def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str 
         note = None
     fields = dict(end_board_key=key, end_board_sha=drawn.sha, end_board_parent=parent_sha, end_board_score=drawn.score,
                   end_board_note=note)
+    if old_sha and drawn.sha != old_sha:
+        fields["correction_count"] = 0                # yeni son kare: düzeltme turları baştan
     if not drawn.passed and any(x.get("type") == "state_mismatch" for x in drawn.anomalies or ()):
         # kritik durum son karede tutmadı: video son karesiz de başlamasın, yönetmen baksın
         fields.update(board_status="changes_requested",

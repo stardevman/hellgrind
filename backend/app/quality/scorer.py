@@ -79,6 +79,7 @@ class Target:
     next_frame: str | None = None     # FL2VA last_frame hedefi: klibin son karesi ona benzemeli (varış skoru)
     arrival_kind: str | None = None   # next: sonraki çekimin ilk karesi K(n+1); end: çekimin son karesi Kn_end
     movement: str | None = None       # kamera hareketi (pan, dolly…): klipte görüldü mü kaydedilir
+    style_frame: str | None = None    # yakın plan: stil metni yerine ölçek eşleşen onaylı kareye (frame_style) göre stil
 
 
 def target_for(scene, chars, style) -> Target:
@@ -763,6 +764,56 @@ def clip_motion(path: str, movement: str) -> dict | None:
         return None
 
 
+# Kadraja duyarlı stil (Kıvılcım SH03): ışık dili metni ("warm tungsten desk lamp… rain light from the window") yakın
+# planda görünmeyen ögeleri anlatır; OpenCLIP softmax'ı 0,06-0,33 verdi ve iyi klipler low_clip ile elendi. Yakın planda
+# stil, çekimin onaylı karesine (ölçek eşleşen stil referansı) göre ölçülür: OpenCLIP görüntü benzerliği × LAB palet
+# yakınlığı. Kalibrasyon: SH03 klipleri kendi karesine 0,92-0,94 / ΔE 1,5-2,0; geniş SH01 karesine 0,63-0,65; gri
+# tonlanmış SH03 0,95 / ΔE 10 (benzerlik rengi görmez, palet yakalar); stüdyo görseli 0,84 / ΔE 25.
+STYLE_SIM = (0.70, 0.90)        # görüntü benzerliği: 0,70 -> 0, 0,90 -> 1
+STYLE_DE = (3.0, 9.0)           # LAB ortalama farkı: <= 3 -> 1, >= 9 -> 0
+# Küçük karakter (Kıvılcım SH04/SH06 geniş plan, Bolt'un yama alanı 0,02-0,09): DINOv2 kırpım benzerliği doğru Bolt'ta
+# 0,70-0,81 arasında dağılıyor; bu alanda "ölçülemedi" sayılır (yüzdeki 80 px kuralı gibi), OpenCLIP benzerliği yine geçmeli.
+SMALL_LOOK_AREA = 0.10
+
+
+def _clip01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def lab_mean(image: Image.Image) -> np.ndarray:
+    """Tam karenin LAB ortalaması (L 0-100, a/b ±128)."""
+    import cv2
+    a = cv2.cvtColor(np.asarray(image.convert("RGB").resize((640, 352))), cv2.COLOR_RGB2LAB).astype(float)
+    a[..., 0] *= 100 / 255
+    a[..., 1:] -= 128
+    return a.reshape(-1, 3).mean(axis=0)
+
+
+def frame_style(m, vectors: np.ndarray, images: list[Image.Image], reference: Image.Image) -> dict:
+    """{"score", "similarity", "delta_e"}: karelerin onaylı kareye stil yakınlığı (0-1)."""
+    ref_vector = m.encode_images([reference])[0]
+    ref_lab = lab_mean(reference)
+    sims = [float(v @ ref_vector) for v in vectors]
+    des = [float(np.linalg.norm(lab_mean(im) - ref_lab)) for im in images]
+    per = [_clip01((s - STYLE_SIM[0]) / (STYLE_SIM[1] - STYLE_SIM[0]))
+           * _clip01(1 - (d - STYLE_DE[0]) / (STYLE_DE[1] - STYLE_DE[0])) for s, d in zip(sims, des)]
+    return {"score": round(float(np.mean(per)), 4), "similarity": round(float(np.mean(sims)), 4),
+            "delta_e": round(float(np.mean(des)), 2)}
+
+
+def _style_reference(key: str) -> Image.Image | None:
+    """Onaylı kare (anahtarı içerik-adresli değil: yeniden çizim aynı anahtara yazar, önbelleğe alınmaz)."""
+    from app import storage
+    os.makedirs(settings.work_dir, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            with Image.open(storage.download(key, os.path.join(tmp, "style" + os.path.splitext(key)[1]))) as im:
+                return im.convert("RGB")
+    except Exception as e:                               # noqa: BLE001 — okunamadı: metin stili kalır
+        log.warning("stil referansı okunamadı: %s", e)
+        return None
+
+
 def score_images(images: list[Image.Image], target: Target) -> Result:
     """identity: insan karakter başına 0-1 kimlik skoru (SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde lojistik
     eğrisi; kapı bununla identity_threshold'u karşılaştırır), identity_cosine: ham kosinüs. Yalnızca kısa kenarı
@@ -772,6 +823,11 @@ def score_images(images: list[Image.Image], target: Target) -> Result:
     texts = positives(target)
     vectors = m.encode_images(images)
     probs = alignment(vectors, m.encode_texts(list(texts.values()) + list(RIVALS)), len(texts), m.scale)
+    style_ref = None
+    if target.style_frame and "style" in texts and (reference := _style_reference(target.style_frame)) is not None:
+        i = list(texts).index("style")
+        style_ref = {**frame_style(m, vectors, images, reference), "text": round(probs[i], 4)}
+        probs[i] = style_ref["score"]
     clip = float(np.mean(probs))
     per_image = [m.faces(im) for im in images] if target.faces else []
     found = [f for fs in per_image for f in fs]
@@ -796,7 +852,11 @@ def score_images(images: list[Image.Image], target: Target) -> Result:
     looks: dict[str, float] = {}
     dinos: dict[str, float] = {}
     look_instances: dict[str, list[list[float]]] = {}
+    look_area: dict[str, float] = {}
     for name, keys in target.looks:
+        areas = [a for a in (patch_coverage(m, im, keys[0]) for im in images) if a is not None] if keys else []
+        if areas:
+            look_area[name] = round(float(np.median(areas)), 3)
         refs = [m.reference_look(k) for k in keys[:LOOK_REFS]]
         if refs:
             looks[name] = max(float(v @ r) for v in vectors for r in refs)
@@ -812,7 +872,9 @@ def score_images(images: list[Image.Image], target: Target) -> Result:
               **({"face_instances": face_instances} if face_instances else {}),
               **({"look_instances": look_instances} if look_instances else {}),
               **({"look": {k: round(v, 4) for k, v in looks.items()}} if target.looks else {}),
-              **({"look_dino": {k: round(v, 4) for k, v in dinos.items()}} if dinos else {})}
+              **({"look_dino": {k: round(v, 4) for k, v in dinos.items()}} if dinos else {}),
+              **({"look_area": look_area} if look_area else {}),
+              **({"style_ref": style_ref} if style_ref else {})}
     return Result(clip=round(clip, 4), face=None if face is None else round(face, 4), composite=round(composite, 4),
                   detail=detail)
 

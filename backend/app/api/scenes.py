@@ -130,12 +130,20 @@ def list_variations(scene_id: SceneId, s: Session = Depends(get_session)):
 
 @router.post("/scenes/{scene_id}/promote/{variation_id}")
 @curated("promote")
-def promote(scene_id: SceneId, variation_id: VariationId, s: Session = Depends(get_session)):
-    """Küratör seçimi: Rafine Havuz'dan bir varyasyonu 1. sıraya alır; yalnızca dudak senkronu ve montaj yeniden çalışır."""
+def promote(scene_id: SceneId, variation_id: VariationId, override: bool = False, full: bool = False,
+            s: Session = Depends(get_session)):
+    """Küratör seçimi: Rafine Havuz'dan bir varyasyonu 1. sıraya alır; yalnızca dudak senkronu ve montaj yeniden çalışır.
+    override: yönetmen geçersiz kılması: kapıdan kalan (eski olmayan) aday da seçilebilir. full: seçilen adayın seed'iyle
+    tam tur çözünürlüğünde (720p) yeni klip üretilir ve o klip 1. sıraya girer."""
     sc = scene_or_404(s, scene_id)
     v = s.get(Variation, variation_id)
-    if v is None or str(v.scene_id) != scene_id or v.refined_rank is None:
-        raise HTTPException(404, "Bu sahnenin Rafine Havuz'unda böyle bir varyasyon yok")
+    if v is None or str(v.scene_id) != scene_id:
+        raise HTTPException(404, "Bu sahnenin böyle bir varyasyonu yok")
+    if (v.refined_rank is None or full) and (override or full):
+        return _override(s, sc, v, full)
+    if v.refined_rank is None:
+        raise HTTPException(404, "Bu sahnenin Rafine Havuz'unda böyle bir varyasyon yok (kapıdan kalan adayı seçmek "
+                                 "için yönetmen seçimi: override=true)")
     ensure_not_frozen(str(sc.project_id))           # 423 dönen istek havuz sırasını değiştirmiş olmamalı
     ensure_idle(sc)
     if v.refined_rank != 1:
@@ -150,3 +158,59 @@ def promote(scene_id: SceneId, variation_id: VariationId, s: Session = Depends(g
         sc.lipsync_video_key = None                 # Stateless Re-render: LIPSYNC + MUX planlanır, VISUAL değil
         s.commit()
     return dispatch_result(s, sc)
+
+
+def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
+    """Yönetmen geçersiz kılması: eski olmayan (bugünkü ilk/son kareden üretilmiş) aday. Karantinadaki video geri alınır."""
+    from app.config import project_settings
+    from app.core.hashing import visual_fingerprint
+    from app.core.state import load_assets, load_characters
+    from app.engine.iteration import current_conditioning
+    from app.models import Project
+    from app.quality import gate
+    from app.style import bible
+    from app.worker.dispatch import claim_dispatch
+    ensure_not_frozen(str(sc.project_id))
+    ensure_idle(sc)
+    params = v.params or {}
+    cond = current_conditioning(s, sc)
+    if params.get("stale_keyframe") or (cond and params.get("cond") != cond):
+        raise HTTPException(409, "Bu aday eski bir kareden üretildi; seçilemez. Bugünkü kareden üretilen bir aday seçin.")
+    if v.status in ("queued", "running", "failed"):
+        raise HTTPException(409, "Bu adayın videosu yok.")
+    if full:                                        # aynı seed ile tam tur (720p): görevde üretilir, sonra montaj
+        from app.core.rerender import Stage, plan_rerender, stage_names
+        from app.worker import tasks
+        from app.worker.dispatch import build_chain
+        project = s.get(Project, sc.project_id)
+        tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
+        _, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
+                              bible.active_version(s, sc.project_id), project.lut_hash)
+        post_stages = Stage.LIPSYNC | Stage.MUX | (Stage.GRADE if fp.grade is not None else Stage.NONE)
+        if not claim_dispatch(sc.id):
+            raise HTTPException(409, f"{sc.scene_code} için üretim zaten sıraya alındı.")
+        sc.status, sc.last_error = "pending", None
+        s.commit()
+        post = build_chain(str(sc.project_id), str(sc.id), post_stages)
+        (tasks.override_full.si(project_id=str(sc.project_id), scene_id=str(sc.id), variation_id=str(v.id))
+         | post).apply_async()
+        return {"stages": ["VISUAL", *stage_names(post_stages)], "override": "full"}
+    key = v.video_key
+    if not (key and storage.exists(key)):
+        quarantine = params.get("quarantine_key")
+        if not (quarantine and storage.exists(quarantine)):
+            raise HTTPException(409, "Bu adayın videosu silinmiş (karantinada yok).")
+        key = f"variations/{sc.id}/{v.id}.mp4"
+        storage.copy(quarantine, key)               # karantinadan geri alınır (kopya; karantina kaydı kalır)
+        v.video_key = key
+    style = bible.active_version(s, sc.project_id)
+    fp = visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), style)
+    cfg = project_settings(s.get(Project, sc.project_id).settings)
+    gate.promote_override(s, sc.id, v.id, {"status": "refined", "visual_hash": fp, "lipsync_video_key": None,
+                                           "final_video_key": None, "last_error": None},
+                          int(cfg["refined_k"]), {"from": str(v.id), "was": v.status, "gate": v.anomalies or []})
+    s.commit()
+    from app.budget import killswitch
+    killswitch.event(str(sc.project_id), "director_override", scene_id=str(sc.id), code=sc.scene_code,
+                     variation=str(v.id), full=False)
+    return {**dispatch_result(s, sc), "override": "promote"}

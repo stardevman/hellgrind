@@ -181,6 +181,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "thawed_for_scene": return { t: "Tek çekim için donma geçici kaldırıldı; iş bitince proje yeniden donacak" };
     case "runpod_balance_low": return { t: `RunPod bakiyesi düşük (${Number(x.balance).toFixed(2)} $ < ${Number(x.floor).toFixed(2)} $): yeni iş başlatılmadı`, c: "bad" };
     case "runpod_config_applied": return { t: `RunPod uç nokta ayarları uygulandı (${(x.datacenters as string[] | undefined)?.join(", ") ?? "?"})`, c: "good" };
+    case "director_override": return { t: `${x.code ?? ""}${x.code ? ": " : ""}yönetmen seçimi${x.full ? " (aynı seed ile tam tur)" : ""}: aday 1. sırada; kapının kararı geçersiz kılındı`, c: "good" };
     case "cut_failed": return { t: `${x.code}: kesme yöntemi (${CUT_METHOD_TR[String(x.method ?? x.cut_method)] ?? x.cut_method}) uygulanamadı: ${x.error}; bu deneme metinle kamera tarifiyle çizildi`, c: "bad" };
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };

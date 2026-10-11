@@ -16,6 +16,7 @@ celery.conf.update(
     task_default_queue="control",
     task_routes={
         "hg.generate_scene": {"queue": "gen"},
+        "hg.override_full": {"queue": "gen"},
         "hg.motion_test": {"queue": "gen"},
         "hg.storyboard_scene": {"queue": "gen"},
         "hg.end_board_scene": {"queue": "gen"},

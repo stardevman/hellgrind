@@ -157,7 +157,7 @@ def _film(key: str | None) -> dict | None:
 def chain_info(scenes: list, enabled: bool = True) -> dict:
     """Anahtar kare zinciri (core/chain.py), sorgusuz: çekimin geçişi, zincirdeki önceki çekimi, karesinin eskiyip
     eskimediği ve bu kareden türeyen eski/eksik sonraki kareler ("sonraki N kareyi yeniden çiz")."""
-    from app.core.chain import CHAINED, camera_of, cut_attempts, cut_method, stale, transition_of
+    from app.core.chain import CHAINED, angle_tokens, camera_of, cut_attempts, cut_method, stale, transition_of
     angles_on = settings.qwen_edit_angles == "on" and bool(settings.qwen_edit_angles_lora)
     out, by_seq = {}, defaultdict(list)
     for sc in scenes:                                  # scenes seq_order sırasında
@@ -169,12 +169,14 @@ def chain_info(scenes: list, enabled: bool = True) -> dict:
             out[sc.id] = {"transition": transition, "transition_explicit": sc.transition_in,
                           "chain_parent": parent.scene_code if parent else None,
                           "chain_stale": bool(parent is not None and stale(sc, parent)), "chain_redraw": [],
-                          "cut_method": sc.cut_method, "cut_method_effective": None, "cut_attempts": []}
+                          "cut_method": sc.cut_method, "cut_method_effective": None, "cut_attempts": [],
+                          "board_method": sc.board_method, "angle_tokens": None}
             if transition == "cut" and i > 0:          # kesme karesinin yöntemi (kırp + iyileştir, açı LoRA'sı, geniş plan)
                 prev_cam, cam = camera_of(shots[i - 1]), camera_of(sc)
                 method = cut_method(prev_cam, cam, sc.cut_method)
                 out[sc.id].update(cut_method_effective=method,
-                                  cut_attempts=cut_attempts(method, prev_cam, cam, angles_on))
+                                  cut_attempts=cut_attempts(method, prev_cam, cam, angles_on),
+                                  angle_tokens=angle_tokens(prev_cam, cam)["text"])
         for i, sc in enumerate(shots):                  # her kare için: kendisinden türeyen eski ya da eksik kareler
             pending, j = [], i + 1
             while j < len(shots) and out[shots[j].id]["chain_parent"]:
@@ -288,6 +290,11 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "anomalies": sorted({a["type"] for a in (v.anomalies or [])}),
             "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
             "stale": (v.params or {}).get("stale_keyframe"),                       # eski kareden üretildi
+            "overridable": bool(v.refined_rank is None and not (v.params or {}).get("stale_keyframe")
+                                and (v.params or {}).get("cond")                 # koşul kaydı olan (bu turdan) aday
+                                and v.status in ("passed", "purged", "generated")
+                                and (v.video_key or (v.params or {}).get("quarantine_key"))),   # yönetmen seçebilir
+            "override": bool((v.params or {}).get("director_override")),
             "review": ((v.params or {}).get("score_detail") or {}).get("review"),   # sınırda: inceleme önerilir
             "arrival": ((v.params or {}).get("score_detail") or {}).get("arrival"),  # son kare hedefe ne kadar vardı
             "last_frame_kind": (v.params or {}).get("last_frame_kind"),

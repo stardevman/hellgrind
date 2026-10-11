@@ -62,6 +62,8 @@ export interface Variation {
   last_frame_kind?: "next" | "end" | null;
   thumb_url: string | null; video_url: string | null;
   source: string; revisions: number; revision: number | null;
+  /** Yönetmen seçimi: kapıdan kalmış olsa da eski olmayan aday seçilebilir; override: seçilmiş aday. */
+  overridable?: boolean; override?: boolean;
 }
 
 export interface Track {
@@ -106,6 +108,8 @@ export interface Scene {
   entry_mode?: string | null; entry_options?: string[] | null; entering?: string[] | null;
   /** Kesme karesinin yöntemi: yönetmenin seçimi (null: otomatik), etkin yöntem ve denemelerin yöntemleri. */
   cut_method?: string | null; cut_method_effective?: string | null; cut_attempts?: string[];
+  /** Karenin gerçekte çizildiği yol (son çizim) ve açı LoRA'sının tokenleri. */
+  board_method?: string | null; angle_tokens?: string | null;
   /** Kazanan klibin varış skoru (son kare -> sonraki çekimin karesi ya da çekimin son karesi). */
   arrival?: { score: number; dino: number; identity: number | null; target?: "next" | "end" } | null;
   /** Zincirden gelen karakterler: önceki çekimin karesinde kalanlar (referans, değişmez ve kimlik kapısıyla). */
