@@ -27,6 +27,7 @@ celery.conf.update(
         "hg.mux_scene": {"queue": "post"},
         "hg.continuity": {"queue": "post"},
         "hg.auto_match": {"queue": "post"},
+        "hg.write_prompt": {"queue": "control"},     # sahne istemi yazıcı (LLM; ücretli, kısa)
         "hg.assemble_timeline": {"queue": "post"},
         "hg.*": {"queue": "control"},
     },

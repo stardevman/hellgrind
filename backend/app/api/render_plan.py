@@ -153,6 +153,39 @@ def fal_plan_view(scene_id: SceneId, s: Session = Depends(get_session)):
     return scene_dry_run(s, scene_or_404(s, scene_id), with_sha=False)
 
 
+@router.post("/scenes/{scene_id}/prompt/write")
+@curated(lambda kw, r: None if kw.get("dry_run") else "prompt_write")
+def prompt_write(scene_id: SceneId, force: bool = False, dry_run: bool = False, s: Session = Depends(get_session)):
+    """Parçanın istemini LLM ile yazdırır (arka planda; PROMPT_WRITER=llm). dry_run: tahmini belirteç ve bedel, önbellek
+    durumu; hiçbir şey çağrılmaz. force: önbellekteki istem yeniden yazdırılır (ücretli). Ücretsiz modda ya da anahtar
+    yokken 409 (kurallar istemi kullanılır)."""
+    from app.engine import prompt_writer
+    sc = scene_or_404(s, scene_id)
+    if not scene_parts.active(sc.engine):
+        raise HTTPException(409, "İstem yazıcı yalnızca referans modunda (H3 Max / Seedance 2.5) kullanılır.")
+    plan = scene_parts.plan_part(s, sc)
+    tokens_in, tokens_out, usd = prompt_writer.estimate_usd(plan.engine, plan.writer_input)
+    meta = plan.prompt_meta or {}
+    reason = ("PROMPT_WRITER=rules: istem kurallarla yazılıyor (Ayarlar'dan llm seçin)."
+              if prompt_writer.mode() != "llm" else prompt_writer.unavailable())
+    view = {"part": [x.scene_code for x in plan.shots], "estimate": {"input_tokens": tokens_in, "output_tokens": tokens_out,
+                                                                    "usd": usd},
+            "cached": meta.get("llm"), "source": plan.prompt_source, "available": reason is None, "reason": reason,
+            "remaining_usd": remaining_budget(s, sc.project_id)}
+    if dry_run:
+        return {"dry_run": True, **view}
+    if reason:
+        raise HTTPException(409, reason)
+    ensure_not_frozen(str(sc.project_id))
+    if meta.get("llm") and meta["llm"].get("ok") and not force:
+        return {**view, "queued": False, "note": "LLM istemi zaten yazılı (yeniden yazdırmak için force=true)."}
+    if usd > view["remaining_usd"]:
+        raise HTTPException(409, f"Bütçe yetmiyor: tahmini {_usd(usd)} $, kalan {_usd(view['remaining_usd'])} $.")
+    queued = prompt_writer.queue(str(sc.project_id), scene_id, plan, force=force)
+    return {**view, "queued": queued,
+            "note": "LLM istemi yazılıyor; bitince plan güncellenir." if queued else "Bu istem zaten yazılıyor."}
+
+
 @router.get("/projects/{project_id}/render-plan")
 def render_plan(project_id: ProjectId, dry_run: bool = True, s: Session = Depends(get_session)):
     """Projenin her çekimi için kuru çalıştırma planı ve toplamlar (taslak ve yükseltme). Her zaman kurudur. Referans
@@ -258,7 +291,7 @@ def upgrade_final(scene_id: SceneId, expected_usd: float | None = None, s: Sessi
     s.flush()
     if scene_parts.active(preview["engine"]):          # bu onay, final planlarının onayıdır (tek adım)
         for x in targets:
-            scene_parts.approve(s, x, scene_parts.plan_part(s, x))
+            scene_parts.approve(s, x, _llm_plan(s, x))
     s.commit()
     dispatched = {}
     for x in targets:
@@ -356,7 +389,7 @@ def scene_engine(scene_id: SceneId, engine: str, expected_usd: float | None = No
         x.visual_hash = None                          # görüntü yeniden planlanır
     s.flush()
     for x in targets:
-        scene_parts.approve(s, x, scene_parts.plan_part(s, x))
+        scene_parts.approve(s, x, _llm_plan(s, x))
     s.commit()
     dispatched = {}
     for x in targets:
@@ -417,7 +450,7 @@ def shot_engine(scene_id: SceneId, engine: str, expected_usd: float | None = Non
         x.visual_hash = None
     s.flush()
     for x in relink:
-        scene_parts.approve(s, x, scene_parts.plan_part(s, x))    # onay ekranı planı gösterdi: onaylanmış sayılır
+        scene_parts.approve(s, x, _llm_plan(s, x))    # onay ekranı planı gösterdi: onaylanmış sayılır
     s.commit()
     dispatched = {}
     for x in relink:
@@ -427,6 +460,23 @@ def shot_engine(scene_id: SceneId, engine: str, expected_usd: float | None = Non
             dispatched[x.scene_code] = {"stages": [], "busy": e.detail}
     return {"engine": engine, "relinked": [x.scene_code for x in relink], "dispatched": dispatched, "total_usd": total,
             "note": "Sahne içi model değişimi: çekim ayrı üretilir ve önceki çekimin son karesiyle başlar."}
+
+
+def _llm_plan(s: Session, x):
+    """Sunucunun onayladığı plan (yükseltme, sahne/çekim motoru): LLM istemi gerekiyorsa ve yazılabiliyorsa önce
+    yazdırılır (ücretli, bütçe rezervasyonuyla), böylece onay LLM istemine bağlanır; yazılamazsa kurallar istemiyle."""
+    from app.engine import prompt_writer
+    plan = scene_parts.plan_part(s, x)
+    if not prompt_writer.needed(plan):
+        return plan
+    try:
+        prompt_writer.write(str(x.project_id), plan.writer_input)
+    except Exception as e:                            # noqa: BLE001 — kurallar istemiyle devam, iz olay olarak
+        from app.budget import killswitch
+        killswitch.event(str(x.project_id), "prompt_write_failed", part=[y.scene_code for y in plan.shots],
+                         error=str(e)[:200])
+        return plan
+    return scene_parts.plan_part(s, x)
 
 
 def _usd(x: float) -> str:

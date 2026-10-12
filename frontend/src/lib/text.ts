@@ -135,6 +135,20 @@ export function upgradeText(r: UpgradeFinal, engineName: string, code: string): 
 }
 
 /** Planın uyarıları; eksik ve düşen referanslar ile süreklilik notu ayrı gösterildiği için tekrarlanmaz. */
+/** İstemin kaynağı ve bedeli: "LLM istemi · 1.984 karakter · 3.000 + 600 belirteç · $0,0180". */
+export function promptSourceText(p: { prompt_source?: string; prompt_source_label?: string; prompt_chars?: number;
+  prompt_writer?: { llm?: { ok: boolean; input_tokens: number; output_tokens: number; usd: number; model: string } | null;
+    estimate?: { usd: number } | null; writing?: boolean } }): string {
+  const parts = [p.prompt_source_label ?? (p.prompt_source === "llm" ? "LLM istemi" : p.prompt_source === "override" ? "Yönetmen istemi" : "Kurallar istemi")];
+  if (p.prompt_chars != null) parts.push(`${p.prompt_chars.toLocaleString("tr-TR")} karakter`);
+  const w = p.prompt_writer;
+  if (w?.llm?.ok && p.prompt_source === "llm")
+    parts.push(`${w.llm.model}, ${w.llm.input_tokens.toLocaleString("tr-TR")} + ${w.llm.output_tokens.toLocaleString("tr-TR")} belirteç, ${usdExact(w.llm.usd)}`);
+  else if (w?.writing) parts.push("LLM istemi yazılıyor…");
+  else if (w?.estimate && p.prompt_source === "rules") parts.push(`LLM ile yazım ~${usdExact(w.estimate.usd)}`);
+  return parts.join(" · ");
+}
+
 export function planWarnings(p: Pick<FalPlan, "warnings" | "missing" | "dropped" | "continuity">): string[] {
   return (p.warnings ?? []).filter((w) => w !== p.continuity?.note
     && !((p.missing?.length ?? 0) > 0 && w.startsWith("Eksik referans"))
@@ -277,6 +291,12 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     }
     case "color_auto_failed": return { t: `Otomatik renk eşleştirme uygulanamadı${x.code ? ` (${x.code})` : ""}: ${x.error || "sebep bildirilmedi"}`, c: "bad" };
     case "color_round_done": return { t: "Otomatik renk eşleme turu bitti" };
+    case "prompt_written": {
+      const part = ((x.part as string[] | undefined) ?? []).join("+");
+      return x.ok ? { t: `${part}: LLM istemi yazıldı (${x.chars} karakter, ${usdExact(Number(x.usd))}); planı inceleyip onaylayın`, c: "good" }
+        : { t: `${part}: LLM istemi doğrulamadan geçmedi, kurallar istemi kullanılıyor (${((x.errors as string[] | undefined) ?? []).join("; ")})`, c: "bad" };
+    }
+    case "prompt_write_failed": return { t: `${((x.part as string[] | undefined) ?? []).join("+")}: LLM istemi yazılamadı, kurallar istemi kullanılıyor: ${x.error}`, c: "bad" };
     case "auto_assemble_skipped": {
       const waiting = (x.waiting as string[] | undefined) ?? [];
       const more = Number(x.count ?? waiting.length) - waiting.length;

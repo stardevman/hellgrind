@@ -44,8 +44,11 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     # Böylece H3'ten H3 Max'e geçiş ya da taslaktan "Seedance 2.5 ile yükselt" aynı kareyi ve referansları kullanır
     # (storyboard karesi yeniden çizilmez); motor değişince görüntü açıkça yeniden üretilir (force / yükseltme).
     engine = "h3" if scene.engine in ("h3max", "seedance25") else scene.engine
+    spec = scene.prompt_spec
+    if isinstance(spec, dict) and "override" in spec:      # yönetmen istemi (parça istemi) görüntüyü kendiliğinden yenilemez
+        spec = {k: v for k, v in spec.items() if k != "override"}
     payload = {
-        "prompt": scene.prompt_spec,
+        "prompt": spec,
         "camera": scene.camera,
         "engine": engine,
         "duration": scene.duration_s,

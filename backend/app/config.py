@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
     hermes_model: str = "claude-sonnet-5-5"
+    # Sahne istemi (referans modu): llm = yönetmen tarzı istemi Hermes modeli yazar (ücretli, ANTHROPIC_API_KEY; anahtar
+    # yoksa ya da ücretsiz modda kurallara düşer, planda uyarı) | rules = kural tabanlı istem
+    prompt_writer: str = "llm"
     # Ücretli model ve uç nokta kimlikleri (panelin Ayarlar sayfasından da düzenlenir; fal.ai model sayfalarıyla doğrula)
     fal_flux_endpoint: str = "fal-ai/flux-lora"
     fal_wan_endpoint: str = "fal-ai/wan/v2.2-a14b/image-to-video"

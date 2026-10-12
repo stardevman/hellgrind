@@ -156,6 +156,9 @@ class ScenePatch(BaseModel):
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
     entry_mode: Literal["cut", "walk_in"] | None = None     # yeni karakter girişi: kesme (kamera değişir) | devam + giriş
     cut_method: Literal["auto", "cut_in", "angles", "wide", "compose"] | None = None   # kesme karesi yöntemi (auto: otomatik)
+    # Yönetmen istemi (referans modu): parçanın istemi olduğu gibi gönderilir, yalnızca referans yazımı motora göre
+    # çevrilir ([ImageN] / @ImageN / Image N). Boş metin siler.
+    prompt_override: str | None = Field(None, max_length=20000)
 
 
 class AudioIn(BaseModel):

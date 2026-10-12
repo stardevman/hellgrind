@@ -253,9 +253,9 @@ def test_paid_upscale_uploads_the_clip_and_calls_the_chosen_endpoint(seedance_dr
 def test_the_scene_cast_includes_living_props_and_shot_rosters_stay_on_their_line(ref_defaults, mk_project, s3):
     pid, ids = nora(mk_project)
     prompt = plan_for(ids["S001_SH01"])["body"]["prompt"]
-    assert "The cast of this scene: Nora, Pip and the Hens." in prompt
-    assert "unpopulated" not in prompt and "only this scene's cast (Nora, Pip and the Hens) is present" in prompt
-    shot3 = prompt[prompt.index("Shot 3"):prompt.index("Visual constraints")]
+    assert prompt.endswith("The cast of this scene is exactly Nora, Pip and the Hens; no other people, animals or figures appear. No subtitles or text on screen.")   # en çok iki kısıt cümlesi
+    assert "unpopulated" not in prompt
+    shot3 = prompt[prompt.index("Shot 3"):prompt.index("The cast of this scene")]
     assert "Only Nora and Pip in frame; the Hens are out of frame." in shot3
     shot1 = prompt[prompt.index("Shot 1"):prompt.index("Shot 2")]
     assert "the Hens are out of frame" not in shot1                       # sürü 1. çekimde bastırılmaz

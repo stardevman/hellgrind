@@ -232,6 +232,22 @@ class StyleBible(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class PromptCache(Base):
+    """Sahne istemi yazıcının (LLM) önbelleği: girdi özeti -> yazılan istem (engine/prompt_writer.py)."""
+    __tablename__ = "prompt_cache"
+    input_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    engine: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt: Mapped[str | None] = mapped_column(Text)
+    errors: Mapped[list] = mapped_column(JSONB, default=list)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Variation(Base):
     __tablename__ = "variations"
     id: Mapped[uuid.UUID] = PK()

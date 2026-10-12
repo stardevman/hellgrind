@@ -28,6 +28,11 @@ def get_scene(scene_id: SceneId, s: Session = Depends(get_session)):
 def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_session)):
     sc = scene_or_404(s, scene_id)
     changes = body.model_dump(exclude_none=True)
+    override = changes.pop("prompt_override", None)
+    if override is not None:
+        from app.engine import scene_parts
+        if not scene_parts.active(sc.engine):
+            raise HTTPException(409, "Yönetmen istemi yalnızca referans modunda (H3 Max / Seedance 2.5) kullanılır.")
     if changes.get("h3_mode") == "auto":
         changes["h3_mode"] = None
     if "face_expected" in changes:
@@ -63,7 +68,15 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
         from app.core.chain import sync_seams                     # kadraj değişti: geçişler yeniden sınıflanır
         s.flush()
         sync_seams(s, sc.project_id)
+    saved = None
+    if override is not None:                                      # parçanın ilk çekimine; plan ve onay değişir
+        s.flush()
+        saved = scene_parts.save_override(s, sc, override)
     s.commit()
+    if saved is not None:
+        return {"ok": True, "prompt_override": saved,
+                "hint": ("Yönetmen istemi kaydedildi: plan değişti, yeniden onaylayın. Mevcut klip yeniden üretilmedi."
+                         if saved["override"] else "Yönetmen istemi silindi: plan otomatik isteme döndü.")}
     return {"ok": True, "hint": "Değişikliği uygulamak için sahneyi yeniden üret."}
 
 

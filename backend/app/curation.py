@@ -50,6 +50,7 @@ ACTIONS_TR = {
     "draft_complete": "Seedance taslağı 1080p'ye tamamlandı (onaylı)", "upscale": "Upscale (1080p) onaylandı",
     "generation_adopt": "Bütün sahne tek üretime geçirildi", "scene_engine": "Sahnenin motoru değişti (yeniden üretim)",
     "shot_engine": "Çekim ayrı üretildi (sahne içi model değişimi)",
+    "prompt_override": "Yönetmen istemi kaydedildi", "prompt_write": "Sahne istemi LLM ile yazdırıldı",
 }
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
 QUERY_FIELDS = ("kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")

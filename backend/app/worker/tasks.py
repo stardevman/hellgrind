@@ -419,6 +419,30 @@ def assemble_timeline(project_id: str, kind: str = "final", rematch: bool = True
     return result
 
 
+# ---------- sahne istemi yazıcı ----------
+
+@celery.task(name="hg.write_prompt")
+def write_prompt(project_id: str, scene_id: str, force: bool = False):
+    """Parçanın istemini LLM ile yazdırır (önbellekte varsa çağrı yok; force: yeniden yazdır). Sonuç olaya yazılır;
+    yazılamazsa plan kurallar istemiyle kalır."""
+    from app.engine import prompt_writer, scene_parts
+    from app.models import Scene as SceneRow
+    with session_scope() as s:
+        plan = scene_parts.plan_part(s, s.get(SceneRow, scene_id))
+        inp, codes = plan.writer_input, [x.scene_code for x in plan.shots]
+    ih = prompt_writer.input_hash(inp)
+    try:
+        w = prompt_writer.write(project_id, inp, force=force)
+    except Exception as e:                              # noqa: BLE001 — kurallar istemiyle kalır, iz olay olarak
+        killswitch.event(project_id, "prompt_write_failed", part=codes, error=f"{type(e).__name__}: {str(e)[:200]}")
+        return {"ok": False}
+    finally:
+        killswitch.r().delete(prompt_writer.WRITING.format(ih))
+    killswitch.event(project_id, "prompt_written", part=codes, ok=w.prompt is not None, chars=len(w.prompt or ""),
+                     usd=round(w.usd, 4), errors=w.errors[:4])
+    return {"ok": w.prompt is not None, "input_hash": ih}
+
+
 # ---------- varlıklar ----------
 
 @celery.task(bind=True, name="hg.motion_test")

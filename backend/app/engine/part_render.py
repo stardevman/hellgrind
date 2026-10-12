@@ -89,6 +89,10 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
         plan = scene_parts.plan_part(s, sc)
         _checks(s, sc, plan, cfg)
         cont = dict(plan.continuity)
+    if not scene_parts.plan_required(cfg):            # onaysız akış: LLM istemi üretimden hemen önce yazılır
+        _write_prompt(project_id, plan)
+    with session_scope() as s:
+        sc = s.get(Scene, scene_id)
         previous = None
         if cont.get("previous_active"):
             prev = s.get(Scene, cont["previous_id"])
@@ -137,6 +141,23 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
         return False
     _finalize(project_id, plan, snapshot, winners, caller)
     return True
+
+
+def _write_prompt(project_id: str, plan) -> None:
+    """PROMPT_WRITER=llm ve önbellekte yoksa istem yazdırılır (ücretli; bütçe rezervasyonuyla). Yazılamazsa kurallar
+    istemiyle devam edilir ve olay yazılır."""
+    from app.engine import prompt_writer
+    if not prompt_writer.needed(plan):
+        return
+    try:
+        w = prompt_writer.write(project_id, plan.writer_input)
+        killswitch.event(project_id, "prompt_written", part=[x.scene_code for x in plan.shots], ok=w.prompt is not None,
+                         chars=len(w.prompt or ""), usd=round(w.usd, 4), errors=w.errors[:4])
+    except killswitch.ProjectFrozen:
+        raise
+    except Exception as e:                             # noqa: BLE001 — kurallar istemiyle devam
+        killswitch.event(project_id, "prompt_write_failed", part=[x.scene_code for x in plan.shots],
+                         error=str(e)[:200])
 
 
 def _already_final(winners: dict[str, str]) -> bool:

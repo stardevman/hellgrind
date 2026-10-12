@@ -110,7 +110,8 @@ def test_noras_three_shots_are_one_h3max_request_of_ten_seconds(ref_defaults, mk
     assert "Pip is tiny, palm-sized; much smaller than a hen." in prompt               # gerçek boyut
     assert ("Use Image 4 only for the look of the place (architecture, materials, colors, light); do not copy its camera "
             "position or viewpoint — stage the action as described in each shot.") in prompt
-    assert "The cast of this scene: Nora, Pip and the Hens." in prompt and "@Image" not in prompt
+    assert "The cast of this scene is exactly Nora, Pip and the Hens; no other people, animals or figures appear." in prompt and "@Image" not in prompt
+    assert "Mood:" not in prompt and "Visual constraints" not in prompt                  # sade kurallar istemi
     assert body["resolution"] == "480P"                                                  # en ucuz varsayılan
     assert plan["cost"]["usd"] == pytest.approx(10 * 0.05 * 1.05, abs=1e-3)           # 4 görsel: token dahil
     assert plan["continuity"]["transition"] == "new_scene" and "image_url" not in body

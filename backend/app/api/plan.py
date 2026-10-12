@@ -109,6 +109,9 @@ def reference_gate(s: Session, sc: Scene, cfg: dict) -> None:
             if x.status not in ACTIVE_STATUSES:
                 x.status, x.last_error = "plan_review", "Plan onayı bekliyor: kuru çalıştırma planını onaylayın."
         s.commit()
+        from app.engine import prompt_writer
+        if prompt_writer.needed(plan):                # yönetmen onaylamadan önce LLM istemi yazılsın (arka planda)
+            prompt_writer.queue(pid, str(sc.id), plan)
         raise AwaitingPlan(sc.scene_code, {"part": [x.scene_code for x in plan.shots], "plan_hash": plan.plan_hash,
                                            "usd": plan.cost["reserve_usd"]})
 

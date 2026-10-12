@@ -497,6 +497,33 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
 - **"Bu çekimi ayrı üret" onayı** maliyet tahminiyle açılır (`/shot-engine?dry_run=true`: yeniden üretilecek parçalar,
   toplam, kalan bütçe); onay gösterilen tutarla gider (`expected_usd`), bütçe kapısından geçer ve planı onaylar.
 
+### Yönetmen istemi: LLM istem yazıcı, elle istem, sade kurallar istemi
+
+fal playground'da elle yazılmış, yönetmen tarzı istemler (referans etiketleri eylemin içinde, somut sahneleme ve
+oyunculuk, ses ayrı, ~2.000 karakter) otomatik istemden belirgin şekilde iyi sonuç verdi. Parçanın istemi artık üç
+kaynaktan birinden gelir; plan hangisinin kullanıldığını gösterir (öncelik sırasıyla):
+
+1. **Yönetmen istemi:** denetçideki planda "Yönetmen istemi yaz" (`PATCH /api/scenes/{id}` `{"prompt_override": "…"}`;
+   boş metin siler). Parçanın ilk çekiminin `prompt_spec.override` alanına kaydedilir ve **olduğu gibi** gönderilir;
+   yalnızca referans yazımı motora göre çevrilir (`[Image1]` / `@Image1` / `Image 1`). Kaydetmek planı ve onayı değiştirir,
+   klibi yeniden üretmez (görsel özete girmez). Senaryo, stil ya da parça değişince silinmez; "eski olabilir" uyarısı çıkar.
+2. **LLM istemi** (`PROMPT_WRITER=llm`, varsayılan): Hermes modeli (`HERMES_MODEL`, `ANTHROPIC_API_KEY`) parçanın istemini
+   yazar. Girdi: senaryo paragrafları (mekân başlığı tekrarı olmadan), çekimlerin kamera/yükseklik/süre/duygu alanları,
+   diyalog, kadro (kadrajda olan/olmayan), varlık tarifleri ve değişmezleri, referans numaraları (motorun biçiminde),
+   stil (ışık, hareket), motor ve ses. Sistem istemi biçimi tarif eder (stil cümlesi + referans tanımları, "Shot k (a-bs),
+   ölçek, kamera:" ve somut sahneleme, her eylemde referans etiketi, sonda animasyon + ses + en çok iki kısıt) ve
+   Passport Rush örneğini verir (`backend/app/engine/prompt_examples/passport_rush.txt`; yönetmenin playground istemiyle
+   değiştirilebilir). Doğrulama: çekim sayısı, sırası ve zamanları planla birebir, her referans en az bir çekimde eylem
+   içinde, mekân bakış kuralı, "Mood:" ve "Visual constraints" yok, uzunluk 700–4.000 (hedef 1.500–2.500). Geçmezse bir
+   kez hatalarla yeniden yazdırılır, yine geçmezse kurallar istemine düşülür ve uyarı verilir. Yazım `prompt_cache`
+   tablosunda saklanır: girdi özeti değişmedikçe yeniden yazılmaz. Planda model, belirteç ve bedel görünür; yazılmadıysa
+   tahmini bedel. Yazım zamanı: parça plan onayına düşünce arka planda (`hg.write_prompt`), onay gerekmiyorsa üretimden
+   hemen önce, ya da denetçide "İstemi LLM ile yaz" (`POST /api/scenes/{id}/prompt/write`, `dry_run=true` tahmin,
+   `force=true` yeniden yaz). Ücretsiz modda ya da anahtar yokken çağrılmaz; kurallar istemi kullanılır, planda uyarı.
+3. **Kurallar istemi** (LLM yokken): çekim satırlarında mekân başlığı ve "Mood:" yok; referans adları eylemde ilk
+   geçtikleri yerde etiketli ("Ada (Image 1)"); kısıtlar iki cümle ("The cast of this scene is exactly …; no other
+   people, animals or figures appear. No subtitles or text on screen; …").
+
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
 `VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel
@@ -1025,6 +1052,7 @@ Bilinmesi gerekenler:
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
+| `PROMPT_WRITER` | `llm` | Sahne istemi: `llm` (Hermes modeli yönetmen tarzı istem yazar; ücretli, anahtar yoksa ya da ücretsiz modda kurallara düşer) ya da `rules` |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 
 Proje ayarları (proje oluştururken verilir; Senaryo › Yoğunluk'tan aday sayıları, çözünürlükler ve kimlik eşiği değiştirilir): `clip_threshold` 0,85 · `identity_threshold` 0,60 (insan karakterde 0-1 yüz kimliği — SFace kosinüsünün aynı kişi eşiği 0,363 çevresinde — bunun altında kalan ya da yüzü hiç görünmeyen aday rafine havuza giremez; kısa kenarı 80 px'ten küçük yüzde kimlik ölçülmez, eleme olmaz) · `look_threshold` 0,80 ve `look_dino_threshold` 0,84 (insan olmayan karakter — robot, hayvan, yaratık —: kare/klip ile referans arasındaki OpenCLIP görüntü benzerliği ve karenin kırpımlarıyla DINOv2 benzerliği; ikisi de geçmeli; yüz aranmaz) · `continuity_threshold` 0,80 · `cut_continuity_threshold` 0,60 · `transition_threshold` 0,80 · `qwen_edit_mode` boş (Ayarlar'daki QWEN_EDIT_MODE; full / medium / lightning) · `excellent_threshold` 0,92 · `min_pass_rate` 0,3 · `probe_n` 10 · `full_n` 50 · `wave_size` 10 · `refined_k` 3 · `max_correction_rounds` 2 · `probe_resolution` 480p · `full_resolution` 720p · `soft_budget_ratio` 0,8 · `max_spend_per_10min` 20 · `loudness_lufs` −23 · `lint_strictness` block (`off`: kontrol yok, `warn`: olay yazılır ama üretilir, `block`: engellenir) · `asset_min_status` locked (ya da `still_approved`, `motion_tested`).

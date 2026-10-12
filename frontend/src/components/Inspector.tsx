@@ -2,7 +2,7 @@
 /* Kurgu sayfasının denetçisi: seçili çekimin bilgisi, rafine havuz, ses, sekans, varlıklar, yöntem ve elle düzeltme;
    her bölüm açılıp kapanır. */
 import { useEffect, useState, type FormEvent } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { ApiError, api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
 import { audioValue, defaultResolution, engineChoices, engineShort, isFal, modeValue, parseDuration, resolutionValue, resolutionsFor } from "@/lib/engines";
@@ -10,8 +10,8 @@ import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENG
 import { BOUNDARY_NOTE, SHOT_ONLY_LABEL, adoptText, boundarySources, cutsText, mixActions, promoteText, sceneEngineText, shotBoundaries, shotEngineText, wholeSceneSwitch } from "@/lib/mixing";
 import { usePanel } from "@/lib/panel";
 import { needsUpscale, resolutionBadge } from "@/lib/finishing";
-import { approveText, clock, gateLines, planWarnings, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdTr } from "@/lib/text";
-import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
+import { approveText, clock, gateLines, planWarnings, promptSourceText, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdExact, usdTr } from "@/lib/text";
+import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, PromptWriteResult, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
@@ -794,20 +794,86 @@ function PartPlan({ sc, plan }: { sc: Scene; plan: FalPlan | undefined }) {
           {Object.entries(TRANSITION_TR).map(([k, v]) => <option key={k} value={k}>{v.split(":")[0]}</option>)}
         </select>
       </label>
-      {prompt && (
-        <details>
-          <summary className="small">İstem (tam metin)</summary>
-          <pre className="prompt" style={{ maxHeight: 320, overflow: "auto", margin: "6px 0 0" }}>{prompt}</pre>
-        </details>
-      )}
+      {prompt && <PromptBox sc={sc} plan={plan} prompt={prompt} />}
       {warnings.map((w) => <div key={w} className="hint">{w}</div>)}
+      {plan.prompt_writer?.writing && <p className="faint small">LLM istemi yazılıyor; onaylamadan önce bekleyin (onay yazılan isteme bağlıdır).</p>}
       <div className="row">
-        <button className="btn" type="button" disabled={busy || blocked || approved} onClick={() => approve(false)}
+        <button className="btn" type="button" disabled={busy || blocked || approved || Boolean(plan.prompt_writer?.writing)} onClick={() => approve(false)}
           title={blocked ? BLOCKED_TITLE : approved ? "Plan zaten onaylı" : "Plan parçanın bütün çekimleri için onaylanır; üretim başlamaz"}>Planı onayla</button>
         <button className="btn primary" type="button" disabled={busy || frozen || blocked} onClick={() => approve(true)}
           title={frozen ? FROZEN_TITLE : blocked ? BLOCKED_TITLE : `Plan onaylanır ve ${plan.part.join(", ")} tek istekte üretilir`}>Onayla ve üret</button>
       </div>
     </>
+  );
+}
+
+/** Parçanın istemi: kaynağı (yönetmen istemi > LLM istemi > kurallar istemi), uzunluğu ve bedeli; "İstemi LLM ile
+    yaz" (arka planda, ücretli; ücretsiz modda reddedilir) ve "Yönetmen istemi" düzenleyicisi. Kaydedilen istem olduğu
+    gibi gönderilir, yalnızca referans yazımı motora göre çevrilir; kaydetmek planı (ve onayı) değiştirir, klibi yeniden
+    üretmez. */
+function PromptBox({ sc, plan, prompt }: { sc: Scene; plan: FalPlan; prompt: string }) {
+  const { busy, frozen, act, note } = usePanel();
+  const { mutate } = useSWRConfig();
+  const [edit, setEdit] = useState<string | null>(null);
+  const key = `/scenes/${sc.id}/fal-plan`;
+  const w = plan.prompt_writer;
+  const source = plan.prompt_source ?? "rules";
+  useEffect(() => {                                   // yazılırken plan birkaç saniyede bir yenilenir
+    if (!w?.writing) return;
+    const t = setInterval(() => void mutate(key), 3000);
+    return () => clearInterval(t);
+  }, [w?.writing, key, mutate]);
+  const write = (force: boolean) => act(async () => {
+    const r = await api.post<PromptWriteResult>(`/scenes/${sc.id}/prompt/write${force ? "?force=true" : ""}`);
+    note("inspector", r.note ?? "LLM istemi yazılıyor.", "ok");
+    await mutate(key);
+  }, "inspector");
+  const save = (text: string) => act(async () => {
+    const r = await api.patch<{ hint: string }>(`/scenes/${sc.id}`, { prompt_override: text });
+    setEdit(null);
+    note("inspector", r.hint, "ok");
+    await mutate(key);
+  }, "inspector");
+  return (
+    <div className="stack" style={{ gap: 4 }} aria-label="Parçanın istemi">
+      <span className="small">
+        <span className={`tag ${source === "override" ? "info" : source === "llm" ? "ok" : ""}`}>{plan.prompt_source_label ?? "Kurallar istemi"}</span>{" "}
+        <span className="faint">{promptSourceText(plan).split(" · ").slice(1).join(" · ")}</span>
+      </span>
+      {w?.override?.stale?.length ? <span className="caution small">Yönetmen istemi eski olabilir: {w.override.stale.join("; ")}.</span> : null}
+      {edit === null ? (
+        <details>
+          <summary className="small">İstem (tam metin)</summary>
+          <pre className="prompt" style={{ maxHeight: 320, overflow: "auto", margin: "6px 0 0" }}>{prompt}</pre>
+        </details>
+      ) : (
+        <label className="field">Yönetmen istemi
+          <textarea value={edit} rows={14} onChange={(e) => setEdit(e.target.value)} spellCheck={false}
+            aria-describedby={`prompt-help-${sc.id}`} />
+          <span id={`prompt-help-${sc.id}`} className="faint small">Olduğu gibi gönderilir; referansları [Image1], @Image1 ya da Image 1 yazabilirsiniz, motora göre çevrilir. Kaydetmek planı değiştirir (yeniden onay), klibi yeniden üretmez.</span>
+        </label>
+      )}
+      <div className="row">
+        {edit === null ? <>
+          <button className="btn" type="button" disabled={busy} onClick={() => setEdit(prompt)}
+            title="Gösterilen istemi düzenleyip bu parçanın istemi olarak kaydedin">Yönetmen istemi yaz</button>
+          {source === "override" && (
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => save("")}
+              title="Yönetmen istemi silinir; plan LLM ya da kurallar istemine döner">Otomatik isteme dön</button>
+          )}
+          {w?.writer === "llm" && source !== "override" && (
+            <button className="btn" type="button" disabled={busy || frozen || Boolean(w.writing)} onClick={() => write(Boolean(w.llm?.ok))}
+              title={`Hermes modeli parçanın istemini yönetmen tarzında yazar (ücretli${w.estimate ? `, ~${usdExact(w.estimate.usd)}` : ""}); girdi değişmedikçe yeniden yazılmaz`}>
+              {w.llm?.ok ? "LLM ile yeniden yaz" : "İstemi LLM ile yaz"}</button>
+          )}
+        </> : <>
+          <button className="btn primary" type="button" disabled={busy || !edit.trim()} onClick={() => save(edit)}>Yönetmen istemini kaydet</button>
+          <button className="btn ghost" type="button" onClick={() => setEdit(null)}>Vazgeç</button>
+          {plan.prompt_rules && <button className="btn ghost" type="button" onClick={() => setEdit(plan.prompt_rules!)}
+            title="Düzenlemeye kurallar isteminden başlayın">Kurallar isteminden başla</button>}
+        </>}
+      </div>
+    </div>
   );
 }
 

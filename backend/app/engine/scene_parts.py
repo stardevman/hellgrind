@@ -218,6 +218,7 @@ SHOT_PLAIN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "
 MOVE_PLAIN = {"static": "static camera", "dolly_in": "slow push in", "dolly_out": "slow pull back", "pan": "slow pan",
               "tilt": "slow tilt", "crane": "crane move", "orbit": "slow orbit", "tracking": "tracking camera",
               "handheld": "handheld camera"}
+SOURCE_LABEL = {"llm": "LLM istemi", "rules": "Kurallar istemi", "override": "Yönetmen istemi"}
 UNPOPULATED = "only the listed characters are present and the surroundings are otherwise unpopulated"
 
 
@@ -332,7 +333,7 @@ def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[s
     from app.hermes import translate
     from app.style.composer import sentence
     spec = x.prompt_spec or {}
-    action = translate.to_english(str(spec.get("prompt") or x.description or ""), names, spec.get("lang"))
+    action = translate.to_english(shot_text(x), names, spec.get("lang"))
     first = re.split(r"(?<=[.!?])\s", action.strip(), maxsplit=1)[0].lower()
     # çekim tarifi kendi kamera cümlesiyle başlıyorsa (Nora: "Wide shot, 28 mm, slow gentle dolly-in.") başlık tekrar etmez
     camera = "" if any(w in first for w in CAMERA_WORDS) else plain_camera(camera_of(x))
@@ -344,11 +345,37 @@ def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[s
     for who, line in dialogue:
         if line.strip():
             parts.append(f'{who or "A voice"} says: "{" ".join(line.split())}".')
-    if x.emotion and x.emotion != "neutral":
-        parts.append(f"Mood: {x.emotion}.")
     if getattr(x, "director_note", None):                 # yalnızca kendi çekiminde
         parts.append(sentence("Director note: " + translate.to_english(x.director_note, names, spec.get("lang"))))
     return " ".join(p for p in parts if p)
+
+
+def shot_text(x) -> str:
+    """Çekimin tarifi, başındaki mekân başlığı olmadan (Hermes her çekimin görsel tarifine "MEKÂN. …" koyar; mekân
+    referans tanımında bir kez anılır, her çekimde tekrar edilmez)."""
+    from app.hermes import rules
+    text = str((x.prompt_spec or {}).get("prompt") or x.description or "").strip()
+    where = rules._location((x.script_text or "").split("\n")[0])
+    if where and text.lower().startswith(where.lower()):
+        rest = text[len(where):].lstrip(" .,:;-–—")
+        text = rest or text
+    return text
+
+
+def tag_references(shots: list[str], refs: list, engine: str) -> list[str]:
+    """Kurallar istemi: her referansın adı çekim satırlarında ilk geçtiği yerde etiketlenir ("Nora (Image 1)")."""
+    out = list(shots)
+    for r in refs:
+        pattern = re.compile(rf"\b{re.escape(r.name)}\b(?!\s*\()", re.I)
+        for i, line in enumerate(out):
+            body = line.split(":", 1)                       # "Shot k (…), kamera:" başlığı etiketlenmez
+            head, rest = (body[0] + ":", body[1]) if len(body) == 2 and line.startswith("Shot ") else ("", line)
+            m = pattern.search(rest)
+            if m:
+                rest = f"{rest[:m.end()]} ({fal_plan.ref_token(engine, r.number)}){rest[m.end():]}"
+                out[i] = head + rest
+                break
+    return out
 
 
 def fit_length(engine: str, head: list[str], shots: list[str], tail: list[str], constraints: list[str]) -> tuple[str, list]:
@@ -395,23 +422,79 @@ def build_prompt(s, engine: str, part: list, refs: list, chars, assets, style, f
         head.append(CONTINUOUS_SEEDANCE if engine == "seedance25" else CONTINUOUS_H3)
     head += [fal_plan.reference_sentence(engine, r, names) for r in refs]
     head += scale_lines(chars, assets)
-    if members:
-        head.append(f"The cast of this scene: {cast}. No other people, animals or figures appear.")
-    else:
-        head.append(lint.cast_constraint([]))
     shots = []
     for i, (x, a, b) in enumerate(timeline(part), start=1):
         linked = {ch.name for ch in load_characters(s, x.id)} | {a_.name for a_ in load_assets(s, x.id) if a_.type == "prop"}
         shots.append(shot_line(i, x, a, b, dialogue_of(s, x.id), names, members, linked))
+    shots = tag_references(shots, refs, engine)
+    c = scene_constraints(style, part)
+    prompt, notes = fit_length(engine, head, shots, constraint_sentences(members, c.phrases), [])
+    return fal_plan.normalize_refs(engine, prompt), list(c.unmapped) + [f"! {n}" for n in notes]
+
+
+def scene_constraints(style, part: list):
+    """Stil kılavuzunun ve çekimlerin negatifleri pozitif kısıtlara çevrilmiş hâlde (modeller negatif istem almaz)."""
+    from app.hermes import lint, translate
+    from app.style.constraints import positive_constraints
     negatives = ", ".join(n for n in (translate.to_english(style.negative or "") if style else "",
                                       *[str((x.prompt_spec or {}).get("negative") or "") for x in part],
                                       lint.CAST_NEGATIVE) if n)
-    c = positive_constraints(negatives)
-    # sahne düzeyi kısıt bütün kadroyu kapsar (tavuk sürüsü "unpopulated" diye bastırılmasın)
-    phrases = [f"only this scene's cast ({cast}) is present; no other people, animals or figures" if p == UNPOPULATED
-               and members else p for p in c.phrases]
-    prompt, notes = fit_length(engine, head, shots, [], phrases)
-    return fal_plan.normalize_refs(engine, prompt), list(c.unmapped) + [f"! {n}" for n in notes]
+    return positive_constraints(negatives)
+
+
+def constraint_sentences(members: list, phrases: list[str]) -> list[str]:
+    """En çok iki kısa kısıt cümlesi: kadro (sahne düzeyinde, nesne olarak tanımlı canlılar dahil) ve ekranda yazı yok
+    (+ stil kılavuzundan en çok iki kısıt). Uzun "Visual constraints" listesi yok."""
+    from app.hermes import lint
+    cast = join_names([label(m) for m in members])
+    first = (f"The cast of this scene is exactly {cast}; no other people, animals or figures appear." if members
+             else lint.cast_constraint([]))
+    extra = [p for p in phrases if p != UNPOPULATED and "people" not in p and "figure" not in p
+             and "text" not in p.lower()][:2]
+    second = "No subtitles or text on screen" + ("; " + "; ".join(extra) if extra else "") + "."
+    return [first, second]
+
+
+def writer_input(s, engine: str, part: list, refs: list, chars, assets, style, frame: bool, audio: bool) -> dict:
+    """İstem yazıcının (LLM) girdisi: planın kendisiyle aynı bilgiler (çekim zamanları birebir, referans numaraları
+    motorun biçiminde, kamera yüksekliği, kadro). Özeti önbellek anahtarıdır (prompt_writer.input_hash)."""
+    from app.core.chain import camera_of
+    from app.core.state import load_assets, load_characters
+    from app.engine.storyboard import dialogue_of
+    members = roster(chars, assets)
+    by_name = {**{a.name: a for a in assets}, **{ch.name: ch for ch in chars}}
+    shots = []
+    for i, (x, a, b) in enumerate(timeline(part), start=1):
+        linked = {ch.name for ch in load_characters(s, x.id)} | {a_.name for a_ in load_assets(s, x.id) if a_.type == "prop"}
+        inside = [label(m) for m in members if present(x, m, linked)]
+        shots.append({"label": f"Shot {i} ({seconds_label(a)}-{seconds_label(b)}s)", "code": x.scene_code,
+                      "start": a, "end": b, "camera": plain_camera(camera_of(x)),
+                      "camera_height": height_text(x) or "as written in the action",
+                      "emotion": x.emotion or "neutral", "action": shot_text(x),
+                      "language": (x.prompt_spec or {}).get("lang") or "tr",
+                      "dialogue": [{"who": who or "a voice", "line": " ".join(line.split())}
+                                   for who, line in dialogue_of(s, x.id) if line.strip()],
+                      "in_frame": inside, "out_of_frame": [label(m) for m in members if label(m) not in inside],
+                      **({"director_note": x.director_note} if getattr(x, "director_note", None) else {})})
+    references = []
+    for r in refs:
+        row = by_name.get(r.name)
+        references.append({"number": r.number, "token": fal_plan.ref_token(engine, r.number), "kind": r.kind,
+                           "name": r.name, "description": r.description or "", "invariants": list(r.invariants),
+                           **({"real_size": row.scale} if getattr(row, "scale", None) else {})})
+    c = scene_constraints(style, part)
+    return {"_project": str(part[0].project_id),          # önbellek projeye özel; LLM'e gönderilmez ("_" önekli)
+            "engine": engine, "audio": bool(audio), "frame": bool(frame),
+            "frame_note": ("@Image1 is the last frame of the previous shot; the video starts exactly from it."
+                           if frame and engine == "seedance25" else
+                           "The video opens exactly on the provided first frame (the previous shot's last frame)."
+                           if frame else None),
+            "location_heading": (part[0].script_text or "").split("\n")[0],
+            "style": {"lighting": getattr(style, "lighting_prefix", "") or "", "motion": getattr(style, "motion_style", "")
+                      or "", "sentence": fal_plan.style_line(style)},
+            "cast": [label(m) for m in members], "references": references, "shots": shots,
+            "total_s": round(sum(float(x.duration_s or 5.0) for x in part), 3),
+            "constraints": [p for p in c.phrases if p != UNPOPULATED][:4]}
 
 
 # ---------- plan ----------
@@ -441,6 +524,10 @@ class PartPlan:
     draft: bool = False
     lint: list = field(default_factory=list)          # onay durumu eşiğin altında kalan varlıklar (lint)
     lint_blocks: bool = False
+    prompt_source: str = "rules"                      # rules | llm | override (prompt_writer.choose)
+    prompt_rules: str = ""                            # kurallar istemi (yönetmen istemi düzenlemesinin başlangıcı)
+    prompt_meta: dict = field(default_factory=dict)   # {"llm", "override", "estimate", "input_hash", "writer"}
+    writer_input: dict = field(default_factory=dict)
 
     @property
     def leader(self):
@@ -469,6 +556,8 @@ class PartPlan:
                 "blocked": bool(self.missing) or self.lint_blocks, "lint": self.lint, "draft": self.draft,
                 "prompt_chars": len(self.prompt),
                 "prompt_limit": PROMPT_LIMIT.get(self.engine),
+                "prompt_source": self.prompt_source, "prompt_source_label": SOURCE_LABEL[self.prompt_source],
+                "prompt_rules": self.prompt_rules, "prompt_writer": self.prompt_meta,
                 "notes": [w for w in self.warnings]}
 
 
@@ -557,11 +646,16 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
                         "önerilir.")
     if cont.get("transition") == "continuous" and cont.get("note") and not cont.get("frame_key"):
         warnings.append(cont["note"])                 # önceki klip henüz yok ya da kare verilmeyecek
-    prompt, unmapped = build_prompt(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")))
+    rules_prompt, unmapped = build_prompt(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")))
     warnings += [u[2:] for u in unmapped if u.startswith("! ")]           # uzunluk kısaltması
     unmapped = [u for u in unmapped if not u.startswith("! ")]
     total = round(sum(float(x.duration_s or 5.0) for x in part), 3)
     resolution, audio = fal_plan.resolution(engine, part[0], cfg), fal_plan.audio(engine, part[0])
+    from app.engine import prompt_writer
+    inp = writer_input(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")), audio)
+    chosen = prompt_writer.choose(s, inp, rules_prompt, override_of(part), [x.scene_code for x in part])
+    prompt = chosen["prompt"]
+    warnings += chosen["warnings"]
     draft = fal_plan.draft(engine, part[0], cfg)
     frame_local = fal_plan.local_url(cont["frame_key"]) if cont.get("frame_key") else \
         ("local:<önceki klibin son karesi>" if cont.get("expected") else None)
@@ -585,9 +679,37 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
                     cost=fal_plan.cost(engine, resolution, total, images, "ref", draft), plan_hash=plan_hash,
                     part_hash=part_hash,
                     seed=seed, warnings=warnings, draft=draft, lint=list(lint_missing.values()),
-                    lint_blocks=lint_blocks)
+                    lint_blocks=lint_blocks, prompt_source=chosen["source"], prompt_rules=rules_prompt,
+                    prompt_meta={k: chosen.get(k) for k in ("llm", "override", "estimate", "input_hash", "writer",
+                                                         "writing")},
+                    writer_input=inp)
     plan.uploads = uploads(plan, with_sha)
     return plan
+
+
+def override_of(part: list) -> dict | None:
+    """Parçanın yönetmen istemi: parçanın ilk çekiminin prompt_spec["override"] alanı (PATCH /scenes/{id}
+    prompt_override). Görsel özete girmez (core/hashing): kaydetmek yeniden üretim başlatmaz, planı ve onayı değiştirir."""
+    return (part[0].prompt_spec or {}).get("override") if part else None
+
+
+def save_override(s, sc, text: str | None) -> dict:
+    """Yönetmen istemini parçanın ilk çekimine kaydeder (boşsa siler). Referans yazımı olduğu gibi saklanır; gönderilirken
+    motora göre çevrilir. Girdi özeti ve çekimler "eski olabilir" uyarısı için saklanır."""
+    import time
+    from app.engine import prompt_writer
+    plan = plan_part(s, sc)
+    leader = plan.shots[0]
+    spec = dict(leader.prompt_spec or {})
+    if text and text.strip():
+        spec["override"] = {"text": text.strip(), "part": [x.scene_code for x in plan.shots],
+                            "input_hash": prompt_writer.input_hash(plan.writer_input), "saved_at": time.time()}
+    else:
+        spec.pop("override", None)
+    leader.prompt_spec = spec
+    s.flush()
+    return {"part": [x.scene_code for x in plan.shots], "leader": leader.scene_code,
+            "override": spec.get("override")}
 
 
 def uploads(plan: PartPlan, with_sha: bool) -> list[dict]:

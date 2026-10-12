@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesText, callAmountText, dispatchText, durText, eventText, stepDurations, impactText, measureText, passText, resultText, stagesText, stepValue, tileSpec, usdExact, whenText } from "@/lib/text";
+import { bytesText, callAmountText, dispatchText, durText, eventText, stepDurations, impactText, measureText, passText, promptSourceText, resultText, stagesText, stepValue, tileSpec, usdExact, whenText } from "@/lib/text";
 import type { Variation } from "@/lib/types";
 
 const v = (over: Partial<Variation> = {}): Variation => ({
@@ -160,5 +160,21 @@ describe("eventText: sahne sınırı bulguları", () => {
   it("stil değişikliği yalnızca işaretler", () => {
     expect(eventText({ kind: "style_activated", ts: 0, version: 3, affected: 2, stale: ["S001_SH01", "S002_SH01"] }, codes).t)
       .toBe("Stil kılavuzu sürüm 3 etkin (2 çekim etkilendi); eski stil olarak işaretlendi, yeniden üretilmedi: S001_SH01, S002_SH01");
+  });
+});
+
+describe("promptSourceText", () => {
+  it("LLM istemi: model, belirteç ve bedel", () => {
+    expect(promptSourceText({ prompt_source: "llm", prompt_source_label: "LLM istemi", prompt_chars: 1984,
+      prompt_writer: { llm: { ok: true, model: "claude-sonnet-5-5", input_tokens: 3000, output_tokens: 600, usd: 0.018 } } }))
+      .toBe("LLM istemi · 1.984 karakter · claude-sonnet-5-5, 3.000 + 600 belirteç, $0.018");
+  });
+  it("kurallar istemi: LLM yazım tahmini", () => {
+    expect(promptSourceText({ prompt_source: "rules", prompt_chars: 900, prompt_writer: { estimate: { usd: 0.0215 } } }))
+      .toBe("Kurallar istemi · 900 karakter · LLM ile yazım ~$0.0215");
+  });
+  it("yazılırken", () => {
+    expect(promptSourceText({ prompt_source: "rules", prompt_writer: { writing: true, estimate: { usd: 0.02 } } }))
+      .toBe("Kurallar istemi · LLM istemi yazılıyor…");
   });
 });

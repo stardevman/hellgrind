@@ -119,6 +119,20 @@ export interface UpgradePreview {
 export interface FalUpload { field: string; key: string; path?: string; upload?: string; sha256?: string }
 
 /** GET /scenes/{id}/fal-plan ve POST /scenes/{id}/render?dry_run=true: fal.ai'ye gidecek istek, gönderilmeden. */
+export type PromptSource = "llm" | "rules" | "override";
+/** Sahne istemi yazıcının (LLM) planla gelen durumu: önbellekteki yazım, yönetmen istemi, yazılmadıysa tahmin. */
+export interface PromptWriterMeta {
+  writer?: "llm" | "rules"; input_hash?: string; writing?: boolean;
+  llm?: { ok: boolean; errors: string[]; model: string; input_tokens: number; output_tokens: number; usd: number; attempts: number } | null;
+  override?: { saved_at?: number; stale: string[]; part?: string[] } | null;
+  estimate?: { input_tokens: number; output_tokens: number; usd: number } | null;
+}
+/** POST /scenes/{id}/prompt/write: LLM yazıcı kuyruğa verildi (ya da dry_run tahmini). */
+export interface PromptWriteResult {
+  dry_run?: boolean; queued?: boolean; note?: string; part: string[]; available: boolean; reason: string | null;
+  estimate: { input_tokens: number; output_tokens: number; usd: number }; remaining_usd: number;
+}
+
 export interface FalPlan {
   dry_run: boolean; scene_id?: string; scene_code: string; engine: string; engine_label: string; stages: string[];
   paid_mode: boolean; network: false;
@@ -138,6 +152,8 @@ export interface FalPlan {
   approval?: { required: boolean; approved: boolean; plan_hash: string };
   /** Seedance 2.5 taslağı (480p önizleme) ile mi üretilecek; istemin uzunluğu ve motorun sınırı (H3 Max 50000). */
   draft?: boolean; prompt_chars?: number; prompt_limit?: number | null;
+  /** İstemin kaynağı (yönetmen istemi > LLM istemi > kurallar istemi), kurallar istemi ve yazıcının durumu. */
+  prompt_source?: PromptSource; prompt_source_label?: string; prompt_rules?: string; prompt_writer?: PromptWriterMeta;
   /** 1080p'ye upscale tahmini (uç nokta başına), taslağı tamamlama tahmini ve çekimin taslağı (varsa). */
   upscale_estimate?: Record<string, UpscaleCost>; complete_estimate?: CompleteCost; seedance_draft?: DraftPreview;
   /** Referans modu: kazanan klibin bölünmesi ve karma üretim uyarısı. */
