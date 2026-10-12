@@ -83,7 +83,7 @@ def _dispatch_post(project_id: str, scene_ids: list[str]) -> None:
     for sid in scene_ids:
         try:
             with session_scope() as s:
-                plan_and_dispatch(s, s.get(Scene, sid))
+                plan_and_dispatch(s, s.get(Scene, sid), post_only=True)
         except Exception as e:                         # noqa: BLE001 — elle de başlatılabilir
             log.warning("ses/montaj kuyruğa verilemedi (%s): %s", sid, e)
 
@@ -356,9 +356,10 @@ def upscale_done(project_id: str, scene_id: str) -> bool:
         return False
     if r.scard(key) == 0:
         r.delete(key)
-        from app.worker.tasks import assemble_timeline
-        assemble_timeline.delay(project_id, "final")    # film birleşince süreklilik ve renk eşleme (upscale'den sonra)
         killswitch.event(project_id, "upscale_batch_done")
+        from app.worker.tasks import auto_assemble, maybe_rematch
+        if not maybe_rematch(project_id):              # eşleme turu varsa film tur bitince bir kez birleşir
+            auto_assemble(project_id, "final", "upscale")
         return True
     return False
 

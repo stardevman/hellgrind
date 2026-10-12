@@ -185,10 +185,14 @@ def mux_scene(self, project_id: str, scene_id: str):
         from app.post import pipeline
         return pipeline.mux_scene(scene_id)
     result = _guard(self, project_id, scene_id, work)
-    maybe_assemble_draft(project_id, scene_id)
-    from app.engine.finishing import upscale_done          # bütün film upscale'i: son çekimden sonra film birleşir
-    if not upscale_done(project_id, scene_id):
-        maybe_rematch(project_id)
+    step = round_step(project_id, scene_id)
+    if step is None:                                       # renk eşleme turunun çekimi değil
+        maybe_assemble_draft(project_id, scene_id)
+        from app.engine.finishing import upscale_done      # bütün film upscale'i: son çekimden sonra film birleşir
+        if not upscale_done(project_id, scene_id):
+            maybe_rematch(project_id)
+    elif step:                                             # turun son çekimi: tur biter, film bir kez birleşir
+        end_round(project_id)
     maybe_refresh_continuity(project_id, scene_id)
     killswitch.refreeze_after(project_id, scene_id)
     return result
@@ -204,7 +208,7 @@ def maybe_rematch(project_id: str) -> bool:
     palettedir). True: süreklilik + eşleme kuyruğa verildi."""
     from app.models import Scene as SceneRow
     from sqlalchemy import select
-    if settings.dry_run or killswitch.is_frozen(project_id):
+    if settings.dry_run or killswitch.is_frozen(project_id) or round_active(project_id):
         return False
     with session_scope() as s:
         rows = s.scalars(select(SceneRow).where(SceneRow.project_id == project_id)).all()
@@ -213,9 +217,69 @@ def maybe_rematch(project_id: str) -> bool:
             return False
         for r in pending:
             r.grade_auto = {k: v for k, v in (r.grade_auto or {}).items() if k != "pending"} or None
-    continuity.delay(project_id)                          # tam denetim: otomatik eşleme + yalnızca renk ve montaj
+    continuity.delay(project_id, None, True, True)      # tam denetim + tek tur eşleme; tur bitince film birleşir
     killswitch.event(project_id, "color_rematch", shots=len(pending))
     return True
+
+
+# ---------- otomatik renk eşleme turu ----------
+# Eşleme tek turda biter: turun GRADE + MUX işleri yeni bir eşleme ya da kaba kurgu tetiklemez; turun son montajından
+# sonra (bütün çekimler hazırsa) film bir kez birleşir ve bu birleşme eşlemeyi yeniden başlatmaz.
+
+ROUND = "hg:color_round:{}"
+ROUND_TTL_S = 2 * 3600                  # turun bir işi düşerse tur kendiliğinden kapanır
+
+
+def round_active(project_id: str) -> bool:
+    return bool(killswitch.r().exists(ROUND.format(project_id)))
+
+
+def _round_begin(project_id: str, scene_ids: list[str]) -> None:
+    r = killswitch.r()
+    key = ROUND.format(project_id)
+    r.delete(key)
+    if scene_ids:
+        r.sadd(key, *scene_ids)
+        r.expire(key, ROUND_TTL_S)
+
+
+def round_step(project_id: str, scene_id: str) -> bool | None:
+    """Turun bir çekiminin montajı bitti. None: çekim turda değil; True: turun son çekimi."""
+    r = killswitch.r()
+    key = ROUND.format(project_id)
+    if not r.srem(key, scene_id):
+        return None
+    if r.scard(key) == 0:
+        r.delete(key)
+        return True
+    return False
+
+
+def not_ready(project_id: str) -> list[str]:
+    """Bitmemiş çekimlerin kodları. Otomatik montaj (kaba kurgu, upscale sonrası, renk eşleme sonrası) yalnızca bütün
+    çekimler bitince yapılır; eksik montaj kendiliğinden üretilmez (elle birleştirme her zaman mümkün)."""
+    from sqlalchemy import select
+    from app.models import Scene as SceneRow
+    with session_scope() as s:
+        return [code for code, status in s.execute(select(SceneRow.scene_code, SceneRow.status)
+                                                   .where(SceneRow.project_id == project_id)
+                                                   .order_by(SceneRow.seq_order)) if status != "done"]
+
+
+def auto_assemble(project_id: str, kind: str = "final", reason: str = "") -> bool:
+    """Bütün çekimler hazırsa filmi birleştirir (bu birleşme renk eşlemeyi yeniden başlatmaz); değilse olay yazar."""
+    waiting = not_ready(project_id)
+    if waiting:
+        killswitch.event(project_id, "auto_assemble_skipped", cut=kind, reason=reason, waiting=waiting[:12],
+                         count=len(waiting))
+        return False
+    assemble_timeline.delay(project_id, kind, False)
+    return True
+
+
+def end_round(project_id: str) -> None:
+    killswitch.event(project_id, "color_round_done")
+    auto_assemble(project_id, "final", "renk eşleme")
 
 
 def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:
@@ -230,8 +294,10 @@ def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:
 
 
 @celery.task(name="hg.continuity")
-def continuity(project_id: str, scene_id: str | None = None):
-    """Süreklilik kontrolü (renk sıçramaları). scene_id verilirse yalnızca o çekimin komşu geçişleri yenilenir."""
+def continuity(project_id: str, scene_id: str | None = None, auto: bool = True, assemble: bool = False):
+    """Süreklilik kontrolü (renk sıçramaları). scene_id verilirse yalnızca o çekimin komşu geçişleri yenilenir.
+    auto: tam denetimde otomatik eşleme turu (ücretli modda); tur sürerken yeni tur açılmaz. assemble: eşleme hiçbir
+    çekimi değiştirmese de film birleştirilir (klipleri değişmiş, ör. upscale)."""
     from app.quality.consistency import auto_match_report, check_project
     report = check_project(project_id, only_scene=scene_id)
     killswitch.event(project_id, "continuity", jumps=sum(p["jump"] for p in report["pairs"]), pairs=len(report["pairs"]))
@@ -239,8 +305,12 @@ def continuity(project_id: str, scene_id: str | None = None):
     from app.config import settings
     # tam denetim: otomatik çekim eşleştirme (ücretli modda kendiliğinden; ücretsiz modun prosedürel çekimleri kasıtlı
     # olarak farklı palette, orada Renk sayfasındaki düğmeyle)
-    if scene_id is None and not settings.dry_run and not killswitch.is_frozen(project_id):
-        matched = apply_auto_match(project_id, auto_match_report(project_id))
+    if scene_id is None and auto and not settings.dry_run and not killswitch.is_frozen(project_id) \
+            and not round_active(project_id):
+        _clear_pending(project_id)                   # bu tur bekleyen bütün eşlemeleri kapsar (yeniden tetiklenmez)
+        matched = apply_auto_match(project_id, auto_match_report(project_id), assemble=assemble)
+    elif assemble:
+        auto_assemble(project_id, "final", "klipler değişti")
     return {"jumps": sum(p["jump"] for p in report["pairs"]), "matched": matched}
 
 
@@ -257,35 +327,69 @@ def auto_match_task(project_id: str):
     return {"matched": apply_auto_match(project_id, report)}
 
 
-def apply_auto_match(project_id: str, report: dict | list) -> list[str]:
-    """Otomatik eşleştirilen çekimlerde yalnızca GRADE + MUX çalışır; montaj bitince süreklilik yeniden ölçülür. Sonuç
-    (değişenler, atlananlar ve sebepleri, referans çekim) olaya yazılır; değişen yoksa da."""
+def _clear_pending(project_id: str) -> None:
+    from sqlalchemy import select
+    from app.models import Scene as SceneRow
+    with session_scope() as s:
+        for r in s.scalars(select(SceneRow).where(SceneRow.project_id == project_id)):
+            if (r.grade_auto or {}).get("pending"):
+                r.grade_auto = {k: v for k, v in r.grade_auto.items() if k != "pending"} or None
+
+
+def _failure_reason(e: Exception) -> str:
+    detail = getattr(e, "detail", None)
+    text = detail if isinstance(detail, str) and detail else str(e)
+    return (text or type(e).__name__)[:200]
+
+
+def _not_dispatched(result: dict) -> str:
+    """dispatch_result kuyruğa hiçbir şey vermediyse sebebi (Türkçe)."""
+    if result.get("blocked"):
+        return "eksik referans: " + ", ".join(m.get("name", "?") for m in result["blocked"].get("missing", [])) \
+            if isinstance(result["blocked"], dict) and result["blocked"].get("missing") else "çekim engelli"
+    if result.get("awaiting_plan"):
+        return "plan onayı bekliyor"
+    if result.get("awaiting_board"):
+        return "storyboard onayı bekliyor"
+    return "yalnızca renk ve montaj yetmiyor (önce ses ya da dudak senkronu gerekli)"
+
+
+def apply_auto_match(project_id: str, report: dict | list, assemble: bool = False) -> list[str]:
+    """Otomatik eşleştirilen çekimlerde yalnızca GRADE + MUX çalışır (görüntü asla). Kuyruğa verilen çekimler tek bir
+    turdur: turun montajları yeni eşleme ya da kaba kurgu tetiklemez, son montajdan sonra film bir kez birleşir. Sonuç
+    (değişenler, atlananlar ve sebepleri, referans çekim) olaya yazılır; değişen yoksa da. Uygulanamayan çekimin
+    sebebi color_auto_failed olayına yazılır."""
     if isinstance(report, list):
         report = {"changed": report, "skipped": [], "references": {}}
-    scene_ids = report["changed"]
-    if not scene_ids:
-        killswitch.event(project_id, "color_auto_matched", codes=[], skipped=report.get("skipped", []),
-                         references=report.get("references", {}))
-        return []
     from app.api.plan import dispatch_result
     from app.core.rerender import Stage
     from app.db import session_scope
-    codes = []
+    codes, queued = [], []
     with session_scope() as s:
-        for sid in scene_ids:
+        for sid in report["changed"]:
             sc = s.get(Scene, sid)
             try:
-                dispatch_result(s, sc, allowed=Stage.GRADE | Stage.MUX)
-                codes.append(sc.scene_code)
+                result = dispatch_result(s, sc, allowed=Stage.GRADE | Stage.MUX, post_only=True)
             except Exception as e:                      # noqa: BLE001 — meşgul ya da donmuş: ayar yazıldı, sonra uygulanır
-                killswitch.event(project_id, "color_auto_failed", scene_id=sid, error=str(e)[:200])
+                reason = _failure_reason(e)
+            else:
+                if result.get("stages"):
+                    codes.append(sc.scene_code)
+                    queued.append(str(sc.id))
+                    continue
+                reason = _not_dispatched(result)
+            killswitch.event(project_id, "color_auto_failed", scene_id=sid, code=sc.scene_code, error=reason)
+    _round_begin(project_id, queued)
     killswitch.event(project_id, "color_auto_matched", codes=codes, skipped=report.get("skipped", []),
-                     references=report.get("references", {}))
+                     references=report.get("references", {}), round=bool(queued))
+    if not queued and assemble:
+        auto_assemble(project_id, "final", "klipler değişti")
     return codes
 
 
 def maybe_assemble_draft(project_id: str, scene_id: str) -> None:
-    """Taslak geçişin son çekimi bitince kaba kurgu (animatik) kendiliğinden birleştirilir. Ücretsizdir."""
+    """Taslak geçişin son çekimi bitince kaba kurgu (animatik) kendiliğinden birleştirilir. Ücretsizdir. Yalnızca
+    bütün çekimler bitmişse: süren, başarısız ya da onay bekleyen çekim varken eksik kurgu üretilmez."""
     from sqlalchemy import func, select
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
@@ -293,12 +397,13 @@ def maybe_assemble_draft(project_id: str, scene_id: str) -> None:
             return
         busy = s.scalar(select(func.count()).select_from(Scene).where(Scene.project_id == project_id,
                                                                       Scene.status.in_(IN_FLIGHT)))
-    if not busy:
-        assemble_timeline.delay(project_id, "draft")
+    if not busy:                                     # son süren iş: bitmeyen (başarısız, onay bekleyen) varsa olay yazılır
+        auto_assemble(project_id, "draft", "kaba kurgu")
 
 
 @celery.task(name="hg.assemble_timeline")
-def assemble_timeline(project_id: str, kind: str = "final"):
+def assemble_timeline(project_id: str, kind: str = "final", rematch: bool = True):
+    """rematch=False: otomatik birleşme (renk eşleme turu sonrası); süreklilik ölçülür ama yeni eşleme turu açılmaz."""
     from app.post.timeline import assemble
     try:
         result = assemble(project_id, kind)
@@ -310,7 +415,7 @@ def assemble_timeline(project_id: str, kind: str = "final"):
     else:
         killswitch.event(project_id, "timeline", cut=kind, **{k: v for k, v in result.items() if k != "cutlist_key"})
         if kind == "final":                                # film birleşince süreklilik denetlenir
-            continuity.delay(project_id)
+            continuity.delay(project_id, None, rematch)
     return result
 
 

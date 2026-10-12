@@ -45,15 +45,17 @@ def board_stale(scene, fp: Fingerprints) -> bool:
     return getattr(scene, "board_key", None) is None or getattr(scene, "board_hash", None) != fp.visual
 
 
-def plan_rerender(scene, characters, tracks, assets=(), style_version=None, lut_hash=None) -> tuple[Stage, Fingerprints]:
+def plan_rerender(scene, characters, tracks, assets=(), style_version=None, lut_hash=None,
+                  keep_visual: bool = False) -> tuple[Stage, Fingerprints]:
     """Hangi aşamaların çalışacağını ve güncel özetleri döndürür (özetleri saklamak çağıranın işidir).
     STORYBOARD yalnızca görüntü yeniden üretilecekse ve kare eskiyse planlanır: bitmiş bir sahne için kare istenmez.
-    GRADE yalnızca etkisiz olmayan bir renk ayarı ya da LUT varsa planlanır; yalnızca renk değişince GRADE + MUX."""
+    GRADE yalnızca etkisiz olmayan bir renk ayarı ya da LUT varsa planlanır; yalnızca renk değişince GRADE + MUX.
+    keep_visual: mevcut klip korunur (seçim, ses, renk; eski stil): VISUAL planlanmaz (çağıran rafine #1'i denetler)."""
     fp = fingerprints(scene, characters, tracks, assets, style_version, lut_hash)
     grade = Stage.GRADE if fp.grade is not None else Stage.NONE
     external = (getattr(scene, "method", None) or "generate") == "external"
     # Dış çekim: storyboard ve görüntü üretimi yok; klip yüklenirken rafine #1 olarak kaydedilir (api/methods.py).
-    if not external and (scene.visual_hash is None or fp.visual != scene.visual_hash):
+    if not external and not keep_visual and (scene.visual_hash is None or fp.visual != scene.visual_hash):
         return (ALL if board_stale(scene, fp) else PRODUCTION) | grade, fp
     if scene.lipsync_video_key is None or fp.dialogue != scene.dialogue_hash:
         return Stage.LIPSYNC | grade | Stage.MUX, fp      # görüntü motoru çağrılmaz

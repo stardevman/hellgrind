@@ -475,6 +475,28 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
 - Karma ya da upscale'li kurguda klibi değişen her çekim (seçim, benimseme, upscale, tamamlama, yeniden üretim) "eşleme
   bekliyor" olur; montajdan sonra otomatik renk eşleme çalışır.
 
+### Sahne sınırı karma testi düzeltmeleri
+
+- **Montaj gerçek uzunluğu kullanır:** referans modu klipleri (parçadan kesilen segment, onun tamamlanmış ya da
+  upscale'li kopyası) dudak senkronu ve montajda kırpılmaz; `duration_s` yalnızca plandır (ör. 3,917 sn'lik segment
+  3,00'e inmez). Sahne müziği de gerçek uzunluğa göre üretilir. Kare yolu klipleri eskisi gibi hedef süreye kırpılır.
+- **Senaryoyu yeniden kaydetmek:** metni değişmeyen çekimlerin süresi, kamerası, duygusu ve motoru korunur (yanıtta
+  `unchanged`); yalnızca metni değişen çekim yeniden ayrıştırılır.
+- **Seçim asla görüntü üretmez:** "Bunu kullan", yönetmen seçimi (override), ses, renk, revizyon ve otomatik renk eşleme
+  yalnızca dudak senkronu, renk ve montaj çalıştırır (`post_only`). Plan `render=false` ile onaylanınca klibi olan çekim
+  bitmiş hâline döner.
+- **Stil değişikliği yalnızca işaretler:** `render:false` ile etkinleştirilen stil, tamamlanmış çekimleri "eski stil"
+  olarak işaretler (`scenes.style_stale`, denetçide uyarı). Toplu ve otomatik dağıtımlar (render-all, senaryo yükleme)
+  bu çekimleri yeniden üretmez; yönetmen sahne başına "Bu sahneyi baştan üret" ya da `render-all?restyle=true` ile ister.
+  Eski sürüme dönülürse işaret kalkar.
+- **Renk eşleme tek tur:** eşlemenin GRADE + MUX işleri yeni eşleme ya da kaba kurgu tetiklemez; turun son montajından
+  sonra film bir kez birleşir ve bu birleşme eşlemeyi yeniden başlatmaz. Uygulanamayan çekimin sebebi olay mesajında
+  (`color_auto_failed`: çekim + sebep). "Süreklilik kontrolü" düğmesi yalnızca ölçer.
+- **Eksik montaj yok:** kendiliğinden birleştirme (kaba kurgu, upscale sonrası, eşleme sonrası, müzik değişince) yalnızca
+  bütün çekimler bitmişken yapılır; değilse bekleyen çekimler olaya yazılır. Elle birleştirme her zaman mümkündür.
+- **"Bu çekimi ayrı üret" onayı** maliyet tahminiyle açılır (`/shot-engine?dry_run=true`: yeniden üretilecek parçalar,
+  toplam, kalan bütçe); onay gösterilen tutarla gider (`expected_usd`), bütçe kapısından geçer ve planı onaylar.
+
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
 `VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel

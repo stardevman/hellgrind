@@ -507,9 +507,11 @@ def check_fal(meta: dict) -> None:
     plan = c.get(f"/scenes/{first['id']}/fal-plan").json()
     ok = c.post(f"/scenes/{first['id']}/plan/approve", params={"render": "true"}, json={"plan_hash": plan["plan_hash"]})
     check(ok.status_code == 200 and ok.json()["part"] == plan["part"], f"plan onaylandı ve üretime verildi: {plan['part']}")
-    wait_scene(first["id"])
+    for x in [s for s in ov["scenes"] if s["scene_code"] in plan["part"]]:
+        wait_scene(x["id"])                     # parçanın her çekimi kendi ses/montaj zincirini bitirir
     done = [s for s in overview(gated)["scenes"] if s["scene_code"] in plan["part"]]
-    check(all(s["status"] == "done" for s in done), "onaylanan parçanın çekimleri bitti; diğerleri onay bekliyor")
+    check(all(s["status"] == "done" for s in done), "onaylanan parçanın çekimleri bitti; diğerleri onay bekliyor (" +
+          ", ".join(f"{s['scene_code']}:{s['status']}" for s in done) + ")")
 
 
 def check_history(pid: str) -> None:

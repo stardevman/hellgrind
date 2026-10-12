@@ -136,7 +136,8 @@ def mk_project(pg):
     yield make
 
     for pid in created:
-        ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
+        ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT,
+                                                "hg:color_round:{}")))
         with session_scope() as s:
             s.execute(text("DELETE FROM service_calls WHERE project_id = :p"), {"p": pid})
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})
@@ -270,7 +271,8 @@ def api_project(api, pg):
     yield make
 
     for pid in created:
-        ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT)))
+        ks.r().delete(*(k.format(pid) for k in (ks.FROZEN, ks.SOFT, ks.TASKS, ks.EVENTS, ks.RESUMED_AT,
+                                                "hg:color_round:{}")))
         with session_scope() as s:
             s.execute(text("DELETE FROM service_calls WHERE project_id = :p"), {"p": pid})
             s.execute(text("DELETE FROM projects WHERE id = :p"), {"p": pid})

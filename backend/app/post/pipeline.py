@@ -81,6 +81,27 @@ def _rank_one(scene_id: str) -> tuple[str, str] | None:
         return (f"{v.id}_r{rev.id}", rev.video_key) if rev else (str(v.id), v.video_key)
 
 
+def keeps_real_length(params: dict | None) -> bool:
+    """Referans modu klipleri (bütün sahne parçasından kesilen segment, onun tamamlanmış ya da büyütülmüş kopyası,
+    çekim başına referans isteği) gerçek uzunluğuyla montaja girer: duration_s yalnızca plandır, kırpılmaz."""
+    params = params or {}
+    return "segment" in params or params.get("input_mode") == "reference"
+
+
+def _real_length(scene: Scene) -> float | None:
+    """Rafine #1 bir referans modu kliğiyse gerçek uzunluğu (sn), değilse None."""
+    with session_scope() as s:
+        v = s.scalars(select(Variation).where(Variation.scene_id == scene.id, Variation.refined_rank == 1)).first()
+        if v is not None and keeps_real_length(v.params):
+            return float((v.params or {}).get("duration_s") or scene.duration_s or 0)
+    return None
+
+
+def trim_target(scene: Scene) -> float:
+    """Dudak senkronu öncesi kırpma hedefi; 0 = kırpma yok (referans modu klipleri, keeps_real_length)."""
+    return 0.0 if _real_length(scene) is not None else float(scene.duration_s or 0)
+
+
 def _set_track(track_id, **fields) -> None:
     with session_scope() as s:
         row = s.get(AudioTrack, track_id)
@@ -165,7 +186,7 @@ def ensure_bed_audio(t: AudioTrack, scene: Scene, tmp: str) -> str:
     path = os.path.join(tmp, f"{t.id}.wav")
     if t.source == "procedural":
         mood = (t.params or {}).get("mood") or t.emotion or scene.emotion
-        key, seconds = music_file(mood, scene.duration_s + 1, path)
+        key, seconds = music_file(mood, max(float(scene.duration_s or 0), _real_length(scene) or 0) + 1, path)
         if t.file_key != key:
             _set_track(t.id, file_key=key, duration_s=seconds)
         return path
@@ -197,11 +218,12 @@ def voice_and_lipsync(scene_id: str) -> str:
         sync = paid_lipsync(snap.cfg)
         unsynced = "" if settings.dry_run or sync else "_unsynced"
         keep_end = _continues(scene)
-        trim = f"_d{float(scene.duration_s or 0):g}{'e' if keep_end else 's'}"
+        target = trim_target(scene)
+        trim = f"_d{target:g}{'e' if keep_end else 's'}" if target else "_full"
         out_key = f"lipsync/{scene_id}/{variation_id}_{snap.fp.dialogue}{trim}{unsynced}.mp4"
         if not storage.exists(out_key):
             advance_scene(project_id, scene_id, status="lipsync")
-            _lipsync(scene, video_key, out_key, tmp, sync=sync, keep_end=keep_end)
+            _lipsync(scene, video_key, out_key, tmp, sync=sync, keep_end=keep_end, target=target)
     fields = dict(lipsync_video_key=out_key, dialogue_hash=snap.fp.dialogue)
     if scene.lipsync_video_key != out_key:     # kaynak video değişti: eski renk ve montaj geçersiz, plan yeniden yapsın
         fields.update(final_video_key=None, graded_video_key=None, grade_hash=None)
@@ -239,7 +261,8 @@ def trimmed(video: str, target: float, keep_end: bool, out: str) -> str:
     return out
 
 
-def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True, keep_end: bool = False) -> None:
+def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True, keep_end: bool = False,
+             target: float | None = None) -> None:
     """Ücretsiz modda, projede ücretli ses kapalıyken ya da senkronlanacak konuşma yoksa rafine video olduğu gibi
     kopyalanır; aksi halde fal'a gider. Klip hedef süreden uzunsa önce kesilir (trim_window)."""
     with session_scope() as s:                     # ses dosyaları az önce bağlandı: anlık görüntü bayat, yeniden oku
@@ -247,7 +270,8 @@ def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = 
                                                            AudioTrack.kind == "dialogue").order_by(AudioTrack.start_offset_s)))
         s.expunge_all()
     source = storage.download(video_key, os.path.join(tmp, "video.mp4"))
-    video = trimmed(source, float(scene.duration_s or 0), keep_end, os.path.join(tmp, "trimmed.mp4"))
+    target = float(scene.duration_s or 0) if target is None else target
+    video = trimmed(source, target, keep_end, os.path.join(tmp, "trimmed.mp4"))
     if settings.dry_run or not sync or not dialogue:
         if video == source:
             storage.copy(video_key, out_key)

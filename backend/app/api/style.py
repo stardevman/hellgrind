@@ -69,11 +69,15 @@ def activate_style(project_id: ProjectId, body: StyleActivateIn, s: Session = De
     if body.render:
         ensure_not_frozen(project_id)               # 423 dönen istek etkin sürümü değiştirmiş olmamalı
     impact = bible.impact(s, project_id, body.version)
+    previous = bible.active_version(s, project_id)
     bible.activate(s, project_id, body.version)
+    s.flush()
+    stale = bible.mark_stale(s, project_id, previous, body.version)   # tamamlanmış çekimler yalnızca işaretlenir
     s.commit()
-    killswitch.event(project_id, "style_activated", version=body.version, affected=len(impact["affected"]))
-    result = {"active_version": body.version, "impact": impact}
-    if body.render:
+    killswitch.event(project_id, "style_activated", version=body.version, affected=len(impact["affected"]),
+                     stale=stale)
+    result = {"active_version": body.version, "impact": impact, "style_stale": stale}
+    if body.render:                                 # yönetmenin açık isteği: eski stilli çekimler de yeniden üretilir
         s.expire_all()
-        result.update(dispatch_all(s, project_id))
+        result.update(dispatch_all(s, project_id, restyle=True))
     return result

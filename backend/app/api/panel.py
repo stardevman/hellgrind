@@ -159,10 +159,12 @@ def estimate(body: EstimateIn, s: Session = Depends(get_session)):
 
 @router.post("/projects/{project_id}/render-all")
 @curated("render_all")
-def render_all(project_id: ProjectId, s: Session = Depends(get_session)):
+def render_all(project_id: ProjectId, restyle: bool = False, s: Session = Depends(get_session)):
+    """restyle: "eski stil" işaretli çekimler de yeni stille yeniden üretilir (yönetmenin açık isteği); verilmezse
+    işaretli kalırlar."""
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
-    return dispatch_all(s, project_id)
+    return dispatch_all(s, project_id, restyle=restyle)
 
 
 def _media(key: str | None, version: str | None = None) -> str | None:
@@ -288,6 +290,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "engine_label": fal_plan.ENGINE_TR.get(sc.engine or "", sc.engine), "engine_disabled": h3_disabled(sc.engine),
         "video_opts": sc.video_opts or {}, "fal_request": fal_request_view(sc.fal_request),
         "plan_approval": sc.plan_approval,
+        "style_stale": bible.stale_view(sc),          # eski stil: yeniden üretim yönetmen isteyince
         "seedance_draft": finishing_view(sc.seedance_draft),
         "upgrade_available": fal_plan.is_fal(sc.engine) and sc.cut_tier == "draft"
                              and sc.engine != fal_plan.final_engine(cfg),

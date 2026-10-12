@@ -117,12 +117,15 @@ def _board_approval_default(s, project) -> None:
         project.settings = {**raw, "require_board_approval": True}
 
 
+PRESERVED_ON_SAME_TEXT = ("duration_s", "camera", "emotion", "action_complexity")
+
+
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     with session_scope() as s:
         known = list(s.scalars(select(Character.name).where(Character.project_id == project_id)))
     parsed = parse_script(text, project_id, known)     # DB işleminin dışında: LLM modunda uzun sürebilir
     lang = "tr" if rules.is_turkish_script(text) else "en"     # prompt çevirisi bunu esas alır (hermes/translate.py)
-    created, updated = [], []
+    created, updated, unchanged = [], [], []
     with session_scope() as s:
         # Aynı projeye eşzamanlı iki senaryo yüklemesi (project_id, scene_code) benzersizliğine çarpmasın.
         project = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
@@ -153,6 +156,12 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                 s.add(sc)
                 created.append(shot["scene_id"])
             else:
+                if sc.script_text == fields["script_text"]:
+                    # Metni değişmeyen çekim: yönetmenin panelde verdiği süre, kamera ve duygu korunur (motor zaten
+                    # route_engine ile korunur); senaryoyu yeniden kaydetmek planı sıfırlamaz.
+                    for key in PRESERVED_ON_SAME_TEXT:
+                        fields.pop(key)
+                    unchanged.append(shot["scene_id"])
                 for key, value in fields.items():
                     setattr(sc, key, value)
                 sc.prompt_spec = {**(sc.prompt_spec or {}), **prompt}    # düzeltme turlarının eklediği anahtarlar kalır
@@ -170,7 +179,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     if orphaned:
         log.warning("senaryoda artık olmayan sahneler korunuyor (silinmedi): %s", orphaned)
     return {"cast": parsed["cast"], "shots": len(parsed["shots"]), "created": created, "updated": updated,
-            "orphaned": orphaned, "assets_created": book.created,
+            "unchanged": unchanged, "orphaned": orphaned, "assets_created": book.created,
             "sequences": [{"code": q["code"], "title": q["title"],
                            "shots": sum(sh.get("sequence", DEFAULT_SEQUENCE["code"]) == q["code"] for sh in parsed["shots"])}
                           for q in parsed.get("sequences") or [DEFAULT_SEQUENCE]],

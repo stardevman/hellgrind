@@ -157,6 +157,7 @@ class Scene(Base):
     end_board_score: Mapped[float | None] = mapped_column(Float)
     end_board_note: Mapped[str | None] = mapped_column(Text)
     seedance_draft: Mapped[dict | None] = mapped_column(JSONB)             # Seedance 2.5 taslağı: draft_id, 7 gün geçerli
+    style_stale: Mapped[dict | None] = mapped_column(JSONB)                # eski stil işareti (style/bible.mark_stale)
     plan_approval: Mapped[dict | None] = mapped_column(JSONB)               # onaylanan kuru çalıştırma planı {"hash", "usd", "at"}
     fal_request: Mapped[dict | None] = mapped_column(JSONB)                 # fal kuyruğundaki iş (request_id; sürdürme)
     video_opts: Mapped[dict | None] = mapped_column(JSONB)                  # fal video: {"resolution", "audio"}; boşsa Ayarlar

@@ -64,6 +64,37 @@ def activate(s, project_id, version: int) -> None:
               .values(is_active=True))
 
 
+def mark_stale(s, project_id, previous: int | None, version: int) -> list[str]:
+    """Stil değişince tamamlanmış çekimler yeniden üretilmez, "eski stil" diye işaretlenir (scenes.style_stale). Yeni
+    stilde görsel özeti değişmeyen çekimlerin işareti kalkar (ör. eski sürüme dönüldü). Dönen: işaretli çekim kodları."""
+    marked = []
+    for sc in s.scalars(select(Scene).where(Scene.project_id == project_id, Scene.visual_hash.is_not(None))):
+        fresh = visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), version)
+        if fresh == sc.visual_hash:
+            sc.style_stale = None
+            continue
+        held = stale_view(sc)
+        sc.style_stale = {"version": held["version"] if held else previous, "visual_hash": sc.visual_hash,
+                          "fresh": fresh}
+        marked.append(sc.scene_code)
+    return marked
+
+
+def stale_view(sc) -> dict | None:
+    """Geçerli "eski stil" işareti ({"version": klibin stil sürümü}); çekim yeniden üretildiyse None."""
+    m = sc.style_stale or None
+    if not m or m.get("visual_hash") != sc.visual_hash:
+        return None
+    return {"version": m.get("version")}
+
+
+def style_held(sc, fresh: str) -> bool:
+    """Bu çekimin görsel özeti YALNIZCA stil yüzünden mi değişti (işaretten bu yana başka girdi değişmedi). Öyleyse
+    toplu ve otomatik dağıtımlar görüntüyü yeniden üretmez; yönetmen ayrıca ister (restyle)."""
+    m = sc.style_stale or None
+    return bool(m and m.get("visual_hash") == sc.visual_hash and m.get("fresh") == fresh)
+
+
 def effective_style(asset, bible) -> str:
     """Varlığın render stili: varlığa özel istisna, yoksa kılavuzun tür kuralı, o da yoksa varsayılan."""
     rules = (bible.rules if bible is not None else None) or {}

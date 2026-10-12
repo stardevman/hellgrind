@@ -199,13 +199,16 @@ def test_whole_film_upscale_reassembles_only_after_the_last_mux(seedance_draft, 
     from app.worker import tasks
     pid, ids = seedance_draft
     assembled = []
-    monkeypatch.setattr(tasks.assemble_timeline, "delay", lambda p, kind="final": assembled.append((p, kind)))
+    monkeypatch.setattr(tasks.assemble_timeline, "delay", lambda *a: assembled.append(a))
+    with session_scope() as s:                                  # otomatik montaj yalnızca bütün çekimler bitmişken
+        for sid in ids.values():
+            s.get(Scene, sid).status = "done"
     plan = api.post(f"/api/projects/{pid}/upscale?dry_run=true").json()
     assert len(plan["items"]) == 3
     finishing.start_batch(pid, [i["scene_id"] for i in plan["items"]])
     assert finishing.upscale_done(pid, ids["S001_SH01"]) is False and assembled == []
     assert finishing.upscale_done(pid, ids["S001_SH02"]) is False and assembled == []
-    assert finishing.upscale_done(pid, ids["S001_SH03"]) is True and assembled == [(pid, "final")]
+    assert finishing.upscale_done(pid, ids["S001_SH03"]) is True and assembled == [(pid, "final", False)]
 
 
 def test_upscale_is_refused_over_the_remaining_budget(seedance_draft, api):

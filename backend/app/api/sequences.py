@@ -82,10 +82,11 @@ def reassemble(project_id: str) -> list[str]:
         has_draft = s.get(Project, project_id).draft_timeline_key is not None
     if not done:
         return []
-    from app.worker.tasks import assemble_timeline         # tasks -> celery_app döngüsünü önlemek için geç import
-    assemble_timeline.delay(project_id)
+    from app.worker.tasks import auto_assemble             # tasks -> celery_app döngüsünü önlemek için geç import
+    if not auto_assemble(project_id, "final", "müzik"):   # bitmemiş çekim varken eksik montaj üretilmez
+        return []
     if has_draft:                                           # kaba kurgu da aynı müziği çalsın
-        assemble_timeline.delay(project_id, "draft")
+        auto_assemble(project_id, "draft", "müzik")
     return ["ASSEMBLE"]
 
 

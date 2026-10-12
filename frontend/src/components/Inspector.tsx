@@ -11,7 +11,7 @@ import { BOUNDARY_NOTE, SHOT_ONLY_LABEL, adoptText, boundarySources, cutsText, m
 import { usePanel } from "@/lib/panel";
 import { needsUpscale, resolutionBadge } from "@/lib/finishing";
 import { approveText, clock, gateLines, planWarnings, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdTr } from "@/lib/text";
-import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, SceneEnginePlan, SceneEngineResult, Sequence, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
+import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
@@ -193,6 +193,12 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Harcama</dt><dd className="mono">{usd(sc.spent_usd)}</dd>
       </dl>
       {engineAsk && <SceneEngineConfirm key={`${sc.id}:${engineAsk}`} sc={sc} engine={engineAsk} shotOnly onClose={() => setEngineAsk(null)} />}
+      {sc.style_stale && (
+        <p className="hint small" role="note">
+          <span className="warn">Eski stil</span>{sc.style_stale.version != null ? ` (sürüm ${sc.style_stale.version})` : ""}: bu klip etkin stil
+          kılavuzundan önce üretildi. Stil değişikliği çekimi yeniden üretmez; seçim, ses ve renk mevcut klip üzerinde çalışır.
+          Yeni stille üretmek için "Bu sahneyi baştan üret".</p>
+      )}
       <div className="row">
         <button className="btn" type="button" disabled={busy || frozen} onClick={() => regen()} title={frozen ? FROZEN_TITLE : undefined}>Bu sahneyi baştan üret</button>
         {frozen && (
@@ -234,12 +240,6 @@ function MixedBox({ sc }: { sc: Scene }) {
       note("inspector", e.message, "err");
     }
   }, "inspector");
-  const separate = (engine: string) => act(async () => {
-    const r = await api.post<ShotEngineResult>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}`);
-    setAsk(false);
-    setVar(null);
-    note("inspector", shotEngineText(r, ENGINE_TR[r.engine] ?? r.engine, sc.scene_code), "ok");
-  }, "inspector");
   return (
     <div className="hint stack" role="group" aria-label="Karma üretim">
       <span>{g.message}</span>
@@ -264,18 +264,10 @@ function MixedBox({ sc }: { sc: Scene }) {
           {rerender && <SceneEngineConfirm sc={sc} engine={g.engine} onClose={() => setRerender(false)} />}
         </div>
       )}
-      {ask && actions.some((a) => a.action === "shot") && (
-        <div className="stack" role="group" aria-label="Çekimi ayrı üretme onayı" style={{ gap: 4 }}>
-          <span className="small"><span className="mono">{sc.scene_code}</span> {name} ile ayrı üretilir: önceki çekimin gerçek son karesiyle başlar.
-            Sonraki çekim de bu çekimin son karesiyle yeniden bağlanır; ikisi yeniden üretilir (ücretli).</span>
-          <span className="faint small">{BOUNDARY_NOTE}</span>
-          <div className="row">
-            <button className="btn primary" type="button" disabled={busy || frozen}
-              onClick={() => { const a = actions.find((x) => x.action === "shot"); if (a?.action === "shot") void separate(a.engine); }}>Onayla ve ayrı üret</button>
-            <button className="btn ghost" type="button" onClick={() => setAsk(false)}>Vazgeç</button>
-          </div>
-        </div>
-      )}
+      {ask && (() => {
+        const a = actions.find((x) => x.action === "shot");
+        return a?.action === "shot" ? <ShotEngineConfirm sc={sc} engine={a.engine} onClose={() => setAsk(false)} /> : null;
+      })()}
     </div>
   );
 }
@@ -303,12 +295,7 @@ function SceneEngineConfirm({ sc, engine, onClose, shotOnly = false }: { sc: Sce
     setVar(null);
     note("inspector", sceneEngineText(r, ENGINE_TR[r.engine] ?? r.engine), "ok");
   }, "inspector");
-  const single = () => act(async () => {
-    const r = await api.post<ShotEngineResult>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}`);
-    onClose();
-    setVar(null);
-    note("inspector", shotEngineText(r, ENGINE_TR[r.engine] ?? r.engine, sc.scene_code), "ok");
-  }, "inspector");
+  const [single, setSingle] = useState(false);
   return (
     <div className="hint stack mt8" role="group" aria-label={`Sahnenin motorunu ${name} yapma onayı`} aria-busy={!plan && !err}>
       <span>Model değişimi bütün sahneye uygulanır: sahnenin çekimleri {name} ile yeniden üretilir.</span>
@@ -339,13 +326,73 @@ function SceneEngineConfirm({ sc, engine, onClose, shotOnly = false }: { sc: Sce
           title={frozen ? FROZEN_TITLE : undefined} onClick={confirm}>
           Onayla: bütün sahne {name}{plan ? ` (~${usdTr(plan.total_usd)})` : ""}</button>
         {shotOnly && (
-          <button className="btn" type="button" disabled={busy || frozen} onClick={single}
-            title="Bu çekim kendi parçası olur ve önceki çekimin son karesiyle başlar; sonraki çekim bu çekimin son karesiyle yeniden bağlanır (ikisi yeniden üretilir)">
+          <button className="btn" type="button" aria-expanded={single} disabled={busy || frozen} onClick={() => setSingle(!single)}
+            title="Bu çekim kendi parçası olur ve önceki çekimin son karesiyle başlar; sonraki çekim bu çekimin son karesiyle yeniden bağlanır (ikisi yeniden üretilir). Onaydan önce maliyet gösterilir">
             {SHOT_ONLY_LABEL}</button>
         )}
         <button className="btn ghost" type="button" onClick={onClose}>Vazgeç</button>
       </div>
-      {shotOnly && <span className="faint small">{BOUNDARY_NOTE}</span>}
+      {shotOnly && !single && <span className="faint small">{BOUNDARY_NOTE}</span>}
+      {shotOnly && single && <ShotEngineConfirm sc={sc} engine={engine} onClose={() => { setSingle(false); onClose(); }} />}
+    </div>
+  );
+}
+
+/** "Bu çekimi ayrı üret" onayı: açılınca kuru çalıştırma (shot-engine?dry_run=true; fal.ai'ye gidilmez) yeniden
+    üretilecek parçaları, toplamı ve kalan bütçeyi gösterir; onay gösterilen toplamla gider (tahmin yükselmişse arka uç
+    reddeder) ve parçaların planını da onaylar. */
+function ShotEngineConfirm({ sc, engine, onClose }: { sc: Scene; engine: string; onClose: () => void }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const [plan, setPlan] = useState<ShotEnginePlan | null>(null);
+  const [err, setErr] = useState("");
+  const name = ENGINE_TR[engine] ?? engine;
+  useEffect(() => {
+    let live = true;
+    setErr("");
+    api.post<ShotEnginePlan>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}&dry_run=true`)
+      .then((r) => { if (live) setPlan(r); })
+      .catch((e: Error) => { if (live) setErr(e.message); });
+    return () => { live = false; };
+  }, [sc.id, engine]);
+  const confirm = () => act(async () => {
+    if (!plan) return;
+    const r = await api.post<ShotEngineResult>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}&expected_usd=${plan.total_usd}`);
+    onClose();
+    setVar(null);
+    note("inspector", shotEngineText(r, ENGINE_TR[r.engine] ?? r.engine, sc.scene_code), "ok");
+  }, "inspector");
+  const others = plan ? plan.shots.filter((c) => c !== sc.scene_code) : [];
+  return (
+    <div className="stack" role="group" aria-label="Çekimi ayrı üretme onayı" aria-busy={!plan && !err} style={{ gap: 4 }}>
+      <span className="small"><span className="mono">{sc.scene_code}</span> {name} ile ayrı üretilir: önceki çekimin gerçek son karesiyle başlar.
+        Sonraki çekim de bu çekimin son karesiyle yeniden bağlanır (ücretli).</span>
+      <span className="faint small">{BOUNDARY_NOTE}</span>
+      {err && <p className="bad small">{err}</p>}
+      {!plan && !err && <span className="faint small">Tahmin hesaplanıyor…</span>}
+      {plan && (
+        <>
+          {others.length > 0 && <span className="small">Yeniden üretilecek diğer çekimler: <span className="mono">{others.join(", ")}</span></span>}
+          {plan.parts.length > 0 && (
+            <ul className="lines">
+              {plan.parts.map((x) => (
+                <li key={x.part.join("+")}><span className="mono">~{usdTr(x.usd)}</span> · <span className="mono">{x.part.join(" + ")}</span>
+                  <span className="faint"> · tek istek</span></li>
+              ))}
+            </ul>
+          )}
+          <dl className="kv">
+            <dt>Toplam</dt><dd className="mono">~{usdTr(plan.total_usd)}</dd>
+            <dt>Kalan bütçe</dt><dd className="mono">{usdTr(plan.remaining_usd)}</dd>
+          </dl>
+          {!plan.budget_ok && <p className="warn small">Bütçe yetmiyor: tahmini {usdTr(plan.total_usd)}, kalan {usdTr(plan.remaining_usd)}.</p>}
+        </>
+      )}
+      <div className="row">
+        <button className="btn primary" type="button" disabled={busy || frozen || !plan || !plan.budget_ok}
+          title={frozen ? FROZEN_TITLE : undefined} onClick={confirm}>
+          Onayla ve ayrı üret{plan ? ` (~${usdTr(plan.total_usd)})` : ""}</button>
+        <button className="btn ghost" type="button" onClick={onClose}>Vazgeç</button>
+      </div>
     </div>
   );
 }

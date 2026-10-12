@@ -390,6 +390,6 @@ def _finalize(project_id: str, plan, snap: dict, winners: dict[str, str], caller
         try:
             from app.api.plan import plan_and_dispatch
             with session_scope() as s:
-                plan_and_dispatch(s, s.get(Scene, sid))
+                plan_and_dispatch(s, s.get(Scene, sid), post_only=True)
         except Exception as e:                         # noqa: BLE001 — kardeşin sesi elle de başlatılabilir
             log.warning("kardeş çekimin ses/montajı kuyruğa verilemedi (%s): %s", sid, e)

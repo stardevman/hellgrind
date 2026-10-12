@@ -155,11 +155,11 @@ def test_changed_clips_trigger_colour_matching_after_the_last_mux(mk_project, mk
         s.get(Scene, sids[2]).status = "muxing"                     # biri hâlâ montajda
     monkeypatch.setattr(settings, "dry_run", False)
     queued = []
-    monkeypatch.setattr(tasks.continuity, "delay", lambda p, scene_id=None: queued.append((p, scene_id)))
+    monkeypatch.setattr(tasks.continuity, "delay", lambda *a: queued.append(a))
     assert tasks.maybe_rematch(pid) is False and queued == []
     with session_scope() as s:
         s.get(Scene, sids[2]).status = "done"
-    assert tasks.maybe_rematch(pid) is True and queued == [(pid, None)]          # tam denetim: otomatik eşleme
+    assert tasks.maybe_rematch(pid) is True and queued == [(pid, None, True, True)]   # tam denetim + tek tur eşleme
     with session_scope() as s:
         assert all(not (s.get(Scene, sid).grade_auto or {}).get("pending") for sid in sids)
 

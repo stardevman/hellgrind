@@ -271,11 +271,17 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
       const codes = (x.codes as string[] | undefined) ?? [];
       const skipped = ((x.skipped as { code: string; reason: string }[] | undefined) ?? []).map((s) => `${s.code}: ${s.reason}`);
       const refs = Object.values((x.references as Record<string, string> | undefined) ?? {});
-      const head = codes.length ? `Renk otomatik eşleştirildi: ${codes.join(", ")} (GRADE + MUX); filmi yeniden birleştirin`
+      const head = codes.length ? `Renk otomatik eşleştirildi: ${codes.join(", ")} (GRADE + MUX, tek tur); bitince film bir kez birleştirilir`
         : "Otomatik renk eşleştirme: hiçbir çekim değişmedi";
       return { t: `${head}${refs.length ? `; referans ${refs.join(", ")}` : ""}${skipped.length ? `. Atlananlar: ${skipped.join("; ")}` : ""}`, ...(codes.length ? { c: "good" } : {}) };
     }
-    case "color_auto_failed": return { t: `Otomatik renk eşleştirme uygulanamadı: ${x.error}`, c: "bad" };
+    case "color_auto_failed": return { t: `Otomatik renk eşleştirme uygulanamadı${x.code ? ` (${x.code})` : ""}: ${x.error || "sebep bildirilmedi"}`, c: "bad" };
+    case "color_round_done": return { t: "Otomatik renk eşleme turu bitti" };
+    case "auto_assemble_skipped": {
+      const waiting = (x.waiting as string[] | undefined) ?? [];
+      const more = Number(x.count ?? waiting.length) - waiting.length;
+      return { t: `${x.cut === "draft" ? "Kaba kurgu" : "Film"} kendiliğinden birleştirilmedi${x.reason ? ` (${x.reason})` : ""}: bitmeyen çekimler var: ${waiting.join(", ")}${more > 0 ? ` ve ${more} çekim daha` : ""}. Elle birleştirebilirsiniz.` };
+    }
     case "runpod_idle_changed": return { t: `RunPod boşta bekleme ${x.seconds} sn (storyboard şeridi incelemesi${Number(x.seconds) <= 120 ? " bitti" : ": art arda yeniden çizimler sıcak worker'a düşer"})` };
     case "runpod_idle_change_failed": return { t: `RunPod boşta bekleme süresi yazılamadı: ${x.error}`, c: "bad" };
     case "chain_stale_stop": return { t: `${where}üretim durdu: ${x.reason}; video eski kareden üretilmez`, c: "bad" };
@@ -310,7 +316,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     };
     case "grade_changed": return { t: `${x.code}: renk ayarı değişti` };
     case "lut_changed": return { t: x.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${x.name})` };
-    case "style_activated": return { t: `Stil kılavuzu sürüm ${x.version} etkin (${x.affected} çekim etkilendi)`, c: "good" };
+    case "style_activated": {
+      const stale = (x.stale as string[] | undefined) ?? [];
+      return { t: `Stil kılavuzu sürüm ${x.version} etkin (${x.affected} çekim etkilendi)${stale.length ? `; eski stil olarak işaretlendi, yeniden üretilmedi: ${stale.join(", ")}` : ""}`, c: "good" };
+    }
     case "asset_status": return { t: `${x.name}: ${ASTATUS_TR[x.status] || x.status}`, c: x.status === "locked" ? "good" : "" };
     default: return { t: e.kind };
   }

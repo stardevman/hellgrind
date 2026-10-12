@@ -82,7 +82,7 @@ def render(scene_id: SceneId, force_visual: bool = False, thaw: bool = False, dr
     if thaw:
         from app.budget import killswitch
         killswitch.thaw_for_scene(str(sc.project_id), scene_id)
-    return dispatch_result(s, sc, force_visual=force_visual)
+    return dispatch_result(s, sc, force_visual=force_visual, restyle=True)    # yönetmenin açık isteği
 
 
 def _content_hash(body: AudioIn, mood: str | None, emotion: str | None) -> str:
@@ -130,7 +130,7 @@ def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_ses
                        start_offset_s=body.start_offset_s, gain_db=body.gain_db, is_active=True, version=version)
     s.add(track)
     s.commit()
-    return {"version": version, "track_id": str(track.id), **dispatch_result(s, sc)}
+    return {"version": version, "track_id": str(track.id), **dispatch_result(s, sc, post_only=True)}
 
 
 @router.get("/scenes/{scene_id}/variations")
@@ -176,7 +176,7 @@ def promote(scene_id: SceneId, variation_id: VariationId, override: bool = False
         from app.engine.finishing import _reset_auto_grade
         _reset_auto_grade(s, sc)                    # klip değişti: renk eşleme montajdan sonra yeniden
         s.commit()
-    return {**dispatch_result(s, sc), **_mixed(s, sc)}
+    return {**dispatch_result(s, sc, post_only=True), **_mixed(s, sc)}     # seçim asla görüntü üretmez
 
 
 def _mixed(s: Session, sc: Scene) -> dict:
@@ -238,7 +238,10 @@ def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
     style = bible.active_version(s, sc.project_id)
     fp = visual_fingerprint(sc, load_characters(s, sc.id), load_assets(s, sc.id), style)
     cfg = project_settings(s.get(Project, sc.project_id).settings)
-    gate.promote_override(s, sc.id, v.id, {"status": "refined", "visual_hash": fp, "lipsync_video_key": None,
+    # "Eski stil" işaretli çekimde görsel özet korunur: seçim, klibi yeni stille üretilmiş saymaz.
+    held = sc.visual_hash if bible.stale_view(sc) else fp
+    gate.promote_override(s, sc.id, v.id, {"status": "refined", "visual_hash": held,
+                                           "lipsync_video_key": None,
                                            "final_video_key": None, "last_error": None},
                           int(cfg["refined_k"]), {"from": str(v.id), "was": v.status, "gate": v.anomalies or []})
     from app.engine.finishing import _reset_auto_grade
@@ -247,4 +250,4 @@ def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
     from app.budget import killswitch
     killswitch.event(str(sc.project_id), "director_override", scene_id=str(sc.id), code=sc.scene_code,
                      variation=str(v.id), full=False)
-    return {**dispatch_result(s, sc), "override": "promote", **_mixed(s, sc)}
+    return {**dispatch_result(s, sc, post_only=True), "override": "promote", **_mixed(s, sc)}

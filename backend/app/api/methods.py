@@ -233,7 +233,7 @@ def _after_revision(scene_id: str, rev: dict | None, winner: bool) -> dict:
     if not winner:
         return {"revision": rev, "stages": [], "hint": "Bu varyasyon rafine #1 değil; 'Bunu kullan' ile seçilince geçerli olur."}
     with session_scope() as s:
-        return {"revision": rev, **dispatch_result(s, s.get(Scene, scene_id))}
+        return {"revision": rev, **dispatch_result(s, s.get(Scene, scene_id), post_only=True)}
 
 
 @router.post("/variations/{variation_id}/revisions/active")

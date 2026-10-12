@@ -290,6 +290,8 @@ export interface Scene {
   edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
   /** Referans modu: onaylanan plan (özet, tahmin, zaman, parça, motor); plan değişince geçersizdir. */
   plan_approval?: { hash: string; usd: number; at: number; part: string[]; engine: string } | null;
+  /** Eski stil: klip etkin stil sürümünden önce üretildi; stil değişikliği yeniden üretmez, yönetmen ayrıca ister. */
+  style_stale?: { version: number | null } | null;
   /** Seedance 2.5 taslağı (draft_id, kalan süre); yoksa null. */
   seedance_draft?: SeedanceDraft | null;
 }
@@ -399,7 +401,9 @@ export interface SceneEnginePlan {
 /** POST /scenes/{id}/scene-engine?expected_usd=: bütün sahne o motorla yeniden üretiliyor. */
 export interface SceneEngineResult { engine: string; shots: string[]; total_usd: number; dispatched: Record<string, StageResult & { busy?: string }> }
 /** POST /scenes/{id}/shot-engine: çekim ayrı üretilir; sonraki çekim son kareyle yeniden bağlanır. */
-export interface ShotEngineResult { engine: string; relinked: string[]; dispatched: Record<string, StageResult & { busy?: string }>; note: string }
+export interface ShotEngineResult { engine: string; relinked: string[]; dispatched: Record<string, StageResult & { busy?: string }>; note: string; total_usd?: number }
+/** POST /scenes/{id}/shot-engine?dry_run=true: ayrı üretimin tahmini (yeniden üretilecek parçalar), kalan bütçe. */
+export interface ShotEnginePlan extends SceneEnginePlan { relinked: string[] }
 export interface DispatchAll {
   planned: Record<string, string[]>; busy: string[]; blocked: Record<string, unknown>;
   capped: string[]; awaiting_board?: string[]; frozen: boolean;

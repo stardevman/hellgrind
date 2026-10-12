@@ -208,9 +208,11 @@ def approve_plan(scene_id: SceneId, body: PlanApproveIn, render: bool = False, s
     if body.plan_hash and body.plan_hash != plan.plan_hash:
         raise HTTPException(409, "Plan değişti (istem, referans, süre ya da motor); planı yeniden inceleyin.")
     scene_parts.approve(s, sc, plan)
+    from app.api.plan import has_winner
     for x in plan.shots:
-        if x.status == "plan_review":
-            x.status, x.last_error = "pending", None
+        if x.status == "plan_review":                # klibi olan çekim bitmiş hâline döner (render=false yeniden üretmez)
+            x.status = ("done" if x.final_video_key else "refined") if has_winner(s, x) else "pending"
+            x.last_error = None
     s.commit()
     dispatched = {}
     if render:
@@ -366,24 +368,56 @@ def scene_engine(scene_id: SceneId, engine: str, expected_usd: float | None = No
 
 
 @router.post("/scenes/{scene_id}/shot-engine")
-@curated("shot_engine")
-def shot_engine(scene_id: SceneId, engine: str, s: Session = Depends(get_session)):
+@curated(lambda kw, r: None if kw.get("dry_run") else "shot_engine")
+def shot_engine(scene_id: SceneId, engine: str, expected_usd: float | None = None, dry_run: bool = False,
+                s: Session = Depends(get_session)):
     """"Bu çekimi ayrı üret": sahne içi model değişimi. Çekim kendi parçası olur (per_shot) ve önceki çekimin gerçek son
     karesiyle başlar; sonraki çekim de bu çekimin son karesiyle yeniden bağlanır (ikisi de yeniden üretilir). Model
-    değişimi varsayılan olarak yalnızca sahne sınırında önerilir."""
+    değişimi varsayılan olarak yalnızca sahne sınırında önerilir. dry_run: onay ekranının maliyet tahmini (yeniden
+    üretilecek parçalar, kalan bütçe); hiçbir şey yazılmaz. Onay, parçaların planını onaylanmış sayar; bütçe kapısı ve
+    tahmin denetimi (expected_usd) scene-engine ile aynıdır."""
     from app.api.plan import Busy, dispatch_result
     from app.core.chain import neighbours
     if engine not in fal_plan.FAL_ENGINES:
         raise HTTPException(422, f"Motor: {', '.join(fal_plan.FAL_ENGINES)}")
     sc = scene_or_404(s, scene_id)
     ensure_not_frozen(str(sc.project_id))
-    sc.engine, sc.visual_hash = engine, None
     _, nxt = neighbours(s, sc)
     relink = [sc]
     if nxt is not None and scene_parts.heading_key(nxt) == scene_parts.heading_key(sc) \
             and (nxt.method or "generate") == "generate" and scene_parts.active(nxt.engine):
-        nxt.visual_hash = None                        # sonraki çekim bu çekimin son karesiyle yeniden bağlanır
-        relink.append(nxt)
+        relink.append(nxt)                            # sonraki çekim bu çekimin son karesiyle yeniden bağlanır
+    nested = s.begin_nested()
+    try:
+        sc.engine = engine
+        for x in relink:
+            x.visual_hash = None
+        s.flush()
+        plans, seen = [], set()
+        for x in relink:
+            plan = scene_parts.plan_part(s, x)
+            if plan.part_hash not in seen:
+                seen.add(plan.part_hash)
+                plans.append(plan)
+        total = round(sum(p.cost["reserve_usd"] for p in plans), 4)
+    finally:
+        nested.rollback()
+    remaining = remaining_budget(s, sc.project_id)
+    if dry_run:                                       # onay ekranı: tahmin, parçalar, kalan bütçe
+        return {"dry_run": True, "engine": engine, "shots": sorted({y.scene_code for p in plans for y in p.shots}),
+                "relinked": [x.scene_code for x in relink], "total_usd": total,
+                "parts": [{"part": [y.scene_code for y in p.shots], "usd": p.cost["reserve_usd"], "endpoint": p.endpoint}
+                          for p in plans], "remaining_usd": remaining, "budget_ok": total <= remaining}
+    if expected_usd is not None and total > float(expected_usd) + 0.01:
+        raise HTTPException(409, f"Tahmin değişti: şimdi {_usd(total)} $ (onaylanan {_usd(float(expected_usd))} $).")
+    if total > remaining:
+        raise HTTPException(409, f"Bütçe yetmiyor: tahmini {_usd(total)} $, kalan {_usd(remaining)} $.")
+    sc.engine = engine
+    for x in relink:
+        x.visual_hash = None
+    s.flush()
+    for x in relink:
+        scene_parts.approve(s, x, scene_parts.plan_part(s, x))    # onay ekranı planı gösterdi: onaylanmış sayılır
     s.commit()
     dispatched = {}
     for x in relink:
@@ -391,5 +425,9 @@ def shot_engine(scene_id: SceneId, engine: str, s: Session = Depends(get_session
             dispatched[x.scene_code] = dispatch_result(s, x, rerun_visual=True)
         except Busy as e:
             dispatched[x.scene_code] = {"stages": [], "busy": e.detail}
-    return {"engine": engine, "relinked": [x.scene_code for x in relink], "dispatched": dispatched,
+    return {"engine": engine, "relinked": [x.scene_code for x in relink], "dispatched": dispatched, "total_usd": total,
             "note": "Sahne içi model değişimi: çekim ayrı üretilir ve önceki çekimin son karesiyle başlar."}
+
+
+def _usd(x: float) -> str:
+    return f"{x:.2f}".replace(".", ",")

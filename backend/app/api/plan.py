@@ -158,7 +158,8 @@ def model_group(sc: Scene, s: Session) -> tuple[str, str]:
 
 
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
-                      mode: str = "full", allowed: Stage | None = None, batch: Batch | None = None) -> list[str]:
+                      mode: str = "full", allowed: Stage | None = None, batch: Batch | None = None,
+                      post_only: bool = False, restyle: bool = False) -> list[str]:
     """Planlanan aşamaların adlarını döndürür ve zinciri kuyruğa verir; yapılacak iş yoksa [] döner.
 
     force_visual: görüntüyü baştan üretir. prompt_revision artar, böylece seed'ler (ve klipler) yenilenir; görsel özet
@@ -166,6 +167,10 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     rerun_visual: görsel aşamayı aynı seed'lerle yeniden çalıştırır (iyileştirme geçişi: taslağın test klipleri yeniden
     kullanılır, üstüne tam tur gelir). mode="draft": görsel aşama yalnızca test turunu çalıştırır.
     allowed: plan bu aşamaların dışına çıkıyorsa hiçbir şey kuyruğa verilmez (ör. LUT değişince yalnızca renk ve montaj).
+    post_only: mevcut klip korunur; görüntü hiçbir koşulda üretilmez (seçim, ses, renk, revizyon, otomatik renk eşleme).
+    Klibi olmayan (görsel özeti ve rafine #1'i yok) çekimde yapılacak iş yoktur.
+    restyle: "eski stil" işaretli çekim yeniden üretilir. Yönetmenin açık isteğidir (sahneyi üret, stil etkinleştir +
+    render); toplu ve otomatik dağıtımlar eski stilli çekimi yeniden üretmez, yalnızca işaretli bırakır.
     batch: çok sahneli dağıtım; zincir hemen kuyruğa verilmez, `batch.launch()` önce kareleri sonra videoları verir.
     Onay zorunluyken kare onaylı değilse görüntü üretilmez: gerekirse yalnızca kare çizilir ve AwaitingBoard fırlatılır."""
     pid = str(sc.project_id)
@@ -174,8 +179,17 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     mark_seam_outdated(s, sc)                # eski dikiş kuralıyla üretilmiş klip: görüntü yeniden planlanır
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
     project = s.get(Project, sc.project_id)
-    stages, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
-                               bible.active_version(s, sc.project_id), project.lut_hash)
+    if post_only:
+        if force_visual or rerun_visual:
+            raise ValueError("post_only görüntü üretimiyle birlikte istenemez")
+        if sc.visual_hash is None and not has_winner(s, sc):     # klibi yok: yalnızca ses/renk/montaj yapılamaz
+            return []
+    chars, assets, style = load_characters(s, sc.id), load_assets(s, sc.id), bible.active_version(s, sc.project_id)
+    stages, fp = plan_rerender(sc, chars, tracks, assets, style, project.lut_hash, keep_visual=post_only)
+    if Stage.VISUAL in stages and not (force_visual or rerun_visual or restyle) and bible.style_held(sc, fp.visual) \
+            and has_winner(s, sc):
+        # eski stil: yalnızca stil değişti; çekim işaretli kalır, görüntü yönetmen isteyince üretilir
+        stages, fp = plan_rerender(sc, chars, tracks, assets, style, project.lut_hash, keep_visual=True)
     if force_visual or rerun_visual:
         stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE) | \
             (Stage.GRADE if fp.grade is not None else Stage.NONE)
@@ -228,6 +242,12 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     return stage_names(stages)
 
 
+def has_winner(s: Session, sc: Scene) -> bool:
+    from app.models import Variation
+    return s.scalar(select(Variation.id).where(Variation.scene_id == sc.id, Variation.refined_rank == 1)
+                    .limit(1)) is not None
+
+
 def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
     """Uç noktaların ortak yanıtı: {"stages": [...]} ya da engellendiyse {"stages": [], "blocked": {...}}."""
     try:
@@ -240,7 +260,8 @@ def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
         return {"stages": [], "awaiting_plan": True, "plan": e.plan}
 
 
-def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage | None = None) -> dict:
+def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage | None = None,
+                 post_only: bool = False, restyle: bool = False) -> dict:
     """Projedeki her sahne için planı çıkarıp kuyruğa verir. İşlenmekte olan sahne atlanır (hata sayılmaz); eksik
     referanslı sahne `blocked` olur ve `blocked` altında eksikleriyle bildirilir; üretim sırasında proje donarsa (bütçe)
     kalan sahneler atlanır ve `frozen` bildirilir: yapılan iş geri alınmış gibi görünmesin. Bütçe tavanındaki sekansın
@@ -253,7 +274,8 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
     plans: list = []
     batch = Batch(project_id)
     try:
-        frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting, plans)
+        frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting, plans,
+                           post_only=post_only, restyle=restyle)
         batched = batch.launch()
         frozen = frozen or killswitch.is_frozen(project_id)    # kuyruğa verilen ilk işler bütçeyi bitirmiş olabilir
     except Exception:
@@ -266,14 +288,16 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
 
 
 def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, batch: Batch, planned: dict, busy: list,
-              blocked: dict, capped: list, awaiting: list, plans: list | None = None) -> bool:
+              blocked: dict, capped: list, awaiting: list, plans: list | None = None, post_only: bool = False,
+              restyle: bool = False) -> bool:
     frozen = False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
             frozen, planned[sc.scene_code] = True, []
             continue
         try:
-            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode, allowed=allowed, batch=batch)
+            planned[sc.scene_code] = plan_and_dispatch(s, sc, mode=mode, allowed=allowed, batch=batch,
+                                                       post_only=post_only, restyle=restyle)
         except AwaitingBoard as e:
             planned[sc.scene_code] = e.stages
             awaiting.append(sc.scene_code)

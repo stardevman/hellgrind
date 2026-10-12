@@ -145,3 +145,20 @@ describe("makine metinleri", () => {
       .toBeUndefined();
   });
 });
+
+describe("eventText: sahne sınırı bulguları", () => {
+  const codes = {};
+  it("renk eşleme hatası sebebini ve çekimi yazar", () => {
+    expect(eventText({ kind: "color_auto_failed", ts: 0, code: "S002_SH02", error: "S002_SH02 işleniyor (grading)" }, codes))
+      .toEqual({ t: "Otomatik renk eşleştirme uygulanamadı (S002_SH02): S002_SH02 işleniyor (grading)", c: "bad" });
+    expect(eventText({ kind: "color_auto_failed", ts: 0, error: "" }, codes).t).toBe("Otomatik renk eşleştirme uygulanamadı: sebep bildirilmedi");
+  });
+  it("eksik montaj kendiliğinden üretilmez", () => {
+    expect(eventText({ kind: "auto_assemble_skipped", ts: 0, cut: "draft", reason: "kaba kurgu", waiting: ["S001_SH03"], count: 1 }, codes).t)
+      .toBe("Kaba kurgu kendiliğinden birleştirilmedi (kaba kurgu): bitmeyen çekimler var: S001_SH03. Elle birleştirebilirsiniz.");
+  });
+  it("stil değişikliği yalnızca işaretler", () => {
+    expect(eventText({ kind: "style_activated", ts: 0, version: 3, affected: 2, stale: ["S001_SH01", "S002_SH01"] }, codes).t)
+      .toBe("Stil kılavuzu sürüm 3 etkin (2 çekim etkilendi); eski stil olarak işaretlendi, yeniden üretilmedi: S001_SH01, S002_SH01");
+  });
+});
