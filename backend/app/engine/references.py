@@ -241,6 +241,10 @@ def paid_reference(project_id: str, asset, style, lora: dict, out_dir: str, kind
     seed = seed_for(str(asset.id), asset.version, "reference", *([kind] if kind != "turnaround" else []))
     composed = reference_prompt(asset, style, kind)
     label, estimate = reference_estimate(asset.type, kind)
+    if kind != "turnaround" and settings.video_input_mode != "keyframe":
+        from app.live import PaidCallBlocked
+        raise PaidCallBlocked("Referans modunda görsel üretilmez: varlığın referans görselini (durağan görsel) "
+                              "Varlıklar sayfasından yükleyin.")
     if kind == "turnaround":
         provider = get_provider(default_engine())
         req = GenRequest(prompt=composed.prompt, negative=composed.negative, seed=seed, resolution=TURNAROUND_RESOLUTION,

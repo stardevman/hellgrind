@@ -31,6 +31,14 @@ def guard(key_name: str) -> str:
     return value
 
 
+def no_image_generation(what: str = "görsel") -> None:
+    """Referans modu (VIDEO_INPUT_MODE=reference): hiçbir kare ya da görsel üretim uç noktası çağrılmaz. Görsel üreten
+    her ücretli giriş noktası (fal Qwen ve Flux, RunPod/vast.ai kare iş akışları) önce bunu çağırır."""
+    if settings.video_input_mode != "keyframe":
+        raise PaidCallBlocked(f"Referans modunda {what} üretilmez (VIDEO_INPUT_MODE=reference): video yalnızca onaylı "
+                              "referans görselleri ve senaryodan üretilir; referans görselini yükleyin.")
+
+
 def optional(key_name: str) -> str:
     """İsteğe bağlı ikinci belirteç (ör. H3 portal belirteci): ücretsiz modda yine engellenir, boşsa boş döner. Çağrının
     kilidi asıl anahtarın guard()'ıdır."""

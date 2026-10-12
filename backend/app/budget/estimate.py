@@ -117,6 +117,26 @@ def from_script(text: str, cfg: dict) -> dict:
     edit = settings.keyframe_character_provider == "qwen_edit"
     shots = rules.parse(text)["shots"]
     engine = fal_plan.draft_engine(cfg)
+    from app.engine import scene_parts
+    if scene_parts.active(engine) and scene_parts.whole_scene():   # sahne başlığına göre parçalar, her biri tek istek
+        groups: dict = {}
+        for s_ in shots:
+            groups.setdefault((s_.get("sequence"), s_["scene_id"].split("_SH")[0]), []).append(s_)
+        rows = []
+        for group in groups.values():
+            chunk, total, cast = [], 0.0, set()
+            limit = scene_parts.LIMIT_S.get(engine, 15.0)
+            for s_ in group + [None]:
+                d = float(s_.get("duration_s") or 4.0) if s_ else 0.0
+                if chunk and (s_ is None or total + d > limit + 1e-6):
+                    rows.append({**fal_shot(cfg, "+".join(c["scene_id"] for c in chunk), total, engine, "ref", len(cast)),
+                                 "part": [c["scene_id"] for c in chunk]})
+                    chunk, total, cast = [], 0.0, set()
+                if s_ is not None:
+                    chunk.append(s_)
+                    total += d
+                    cast |= set(s_.get("characters") or []) | set(s_.get("carried") or [])
+        return summarize(rows)
     if fal_plan.is_fal(engine):                     # taslak fal motoru: referans görselleriyle (karakter başına bir)
         return summarize([fal_shot(cfg, s["scene_id"], float(s.get("duration_s") or 4.0), engine, "ref",
                                    len(set(s.get("characters") or []) | set(s.get("carried") or [])))
@@ -137,6 +157,7 @@ def from_project(s, project_id: str, cfg: dict) -> dict:
     from app.core.state import load_assets, load_characters
     from app.models import Scene
     out, previous = [], {}
+    parts_seen: set = set()
     plans = plans_for(s, project_id)
     angles_on = settings.qwen_edit_angles == "on" and bool(settings.qwen_edit_angles_lora)
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order, Scene.scene_code)):
@@ -144,7 +165,16 @@ def from_project(s, project_id: str, cfg: dict) -> dict:
         prev, previous[group] = previous.get(group), sc
         if (sc.method or "generate") == "external":
             continue
-        from app.engine import fal_plan
+        from app.engine import fal_plan, scene_parts
+        if scene_parts.active(sc.engine) and (sc.method or "generate") == "generate":   # referans: parça tek istek
+            plan = scene_parts.plan_part(s, sc)
+            if plan.part_hash not in parts_seen:
+                parts_seen.add(plan.part_hash)
+                images = len(plan.body.get("reference_image_urls") or plan.body.get("image_urls") or []) + \
+                    (1 if plan.body.get("image_url") else 0)
+                out.append({**fal_shot(cfg, "+".join(x.scene_code for x in plan.shots), plan.duration_s, plan.engine,
+                                       "ref", images), "part": [x.scene_code for x in plan.shots]})
+            continue
         if fal_plan.is_fal(sc.engine):              # fal.ai: kuru çalıştırmanın modu ve görsel sayısı
             out.append(fal_estimate(s, sc, cfg))
             continue

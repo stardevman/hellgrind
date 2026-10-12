@@ -39,6 +39,14 @@ class AwaitingBoard(Exception):
         self.scene_code, self.stages = scene_code, stages
 
 
+class AwaitingPlan(Exception):
+    """Referans modu: kuru çalıştırma planı onaylanmadı; görüntü üretimi başlamaz (sahne plan_review)."""
+
+    def __init__(self, scene_code: str, plan: dict):
+        super().__init__(f"{scene_code}: plan onayı bekliyor")
+        self.scene_code, self.plan = scene_code, plan
+
+
 class Blocked(Exception):
     """Üretim öncesi kontrol: çekimde onaylı referansı olmayan varlık var; sahne `blocked` oldu, hiçbir şey harcanmadı."""
 
@@ -68,6 +76,40 @@ def lint_gate(s: Session, sc: Scene) -> None:
     killswitch.event(pid, "lint_warning", scene_id=str(sc.id), missing=missing)
 
 
+class MissingReferences(Blocked):
+    """Referans modu: çekimde görseli olmayan karakter, nesne ya da mekân var; render engellenir."""
+
+    def __init__(self, scene_code: str, missing: list[dict], message: str):
+        Exception.__init__(self, message)
+        self.scene_code, self.missing, self.text = scene_code, missing, message
+
+    def payload(self) -> dict:
+        return {"message": self.text, "missing": [{"asset_id": m.get("asset_id"), "type": m["kind"], "name": m["name"],
+                                                   "status": "no_image"} for m in self.missing]}
+
+
+def reference_gate(s: Session, sc: Scene, cfg: dict) -> None:
+    """Referans modu, görüntü üretimi planlandı: eksik referans -> blocked; plan onayı gerekli ve yoksa -> plan_review."""
+    from app.engine import scene_parts
+    plan = scene_parts.plan_part(s, sc)
+    pid = str(sc.project_id)
+    if plan.missing:
+        message = ("Eksik referans: " + ", ".join(m["name"] for m in plan.missing) +
+                   ". Varlıklar sayfasından referans görselini yükleyin; görseli olmayan varlıkla video üretilmez.")
+        for x in plan.shots:
+            x.status, x.last_error = "blocked", message
+        s.commit()
+        killswitch.event(pid, "blocked", scene_id=str(sc.id), missing=[m["name"] for m in plan.missing])
+        raise MissingReferences(sc.scene_code, plan.missing, message)
+    if scene_parts.plan_required(cfg) and not plan.approved():
+        for x in plan.shots:
+            if x.status not in ACTIVE_STATUSES:
+                x.status, x.last_error = "plan_review", "Plan onayı bekliyor: kuru çalıştırma planını onaylayın."
+        s.commit()
+        raise AwaitingPlan(sc.scene_code, {"part": [x.scene_code for x in plan.shots], "plan_hash": plan.plan_hash,
+                                           "usd": plan.cost["reserve_usd"]})
+
+
 def ensure_idle(sc: Scene) -> None:
     """Sahne şu an işleniyorsa 409. Durum tek başına yetmez: çöken bir worker sahneyi sonsuza dek "işleniyor"
     bırakabilir; bu yüzden projede gerçekten çalışan bir görev de aranır."""
@@ -81,6 +123,9 @@ def board_upgrade(s: Session, sc: Scene) -> bool:
     from app.config import settings
     if sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance", "h3max", "seedance25") or not sc.board_key:
         return False
+    from app.engine.scene_parts import reference_mode
+    if reference_mode():
+        return False                                  # referans modu: hiçbir kare çizilmez
     if sc.engine in ("h3max", "seedance25") and sc.h3_mode != "fl2va":
         return False                                  # fal otomatik mod: kare yalnızca onaylanınca videoya gider
     from app.core.chain import parent_of, stale
@@ -131,7 +176,11 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     if force_visual or rerun_visual:
         stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE) | \
             (Stage.GRADE if fp.grade is not None else Stage.NONE)
-    if Stage.VISUAL in stages and Stage.STORYBOARD not in stages and board_upgrade(s, sc):
+    from app.engine import scene_parts
+    reference = (sc.method or "generate") == "generate" and scene_parts.active(sc.engine)
+    if reference:
+        stages &= ~Stage.STORYBOARD         # referans modu: storyboard karesi çizilmez
+    elif Stage.VISUAL in stages and Stage.STORYBOARD not in stages and board_upgrade(s, sc):
         stages |= Stage.STORYBOARD          # kare videodan önce, kare grubunda yeniden çizilsin (video kuyruğunun ortasında değil)
     if stages == Stage.NONE or (allowed is not None and stages & ~allowed):
         return []
@@ -143,7 +192,9 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     if Stage.VISUAL in stages:
         lint_gate(s, sc)                     # para harcanmadan önce: eksik referansla görüntü üretilmez
         cfg = project_settings(project.settings)
-        if cfg["require_board_approval"] and not board_ready(sc, fp.visual):
+        if reference:
+            reference_gate(s, sc, cfg)       # eksik referans ve plan onayı (kare onayının yerine)
+        elif cfg["require_board_approval"] and not board_ready(sc, fp.visual):
             stages, awaiting = (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE), True
             if stages == Stage.NONE:         # kare güncel ama onaysız: yalnızca onaya bırakılır
                 sc.status = "board_review"
@@ -182,6 +233,8 @@ def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
         return {"stages": [], "blocked": e.payload()}
     except AwaitingBoard as e:
         return {"stages": e.stages, "awaiting_board": True}
+    except AwaitingPlan as e:
+        return {"stages": [], "awaiting_plan": True, "plan": e.plan}
 
 
 def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage | None = None) -> dict:
@@ -194,9 +247,10 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
     Kuyruk sırası (toplu dağıtım): önce bütün storyboard kareleri, videolar son kare bitince (GPU'da model değişimi her
     çekimde değil, bir kez olur)."""
     planned, busy, blocked, capped, awaiting = {}, [], {}, [], []
+    plans: list = []
     batch = Batch(project_id)
     try:
-        frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting)
+        frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting, plans)
         batched = batch.launch()
         frozen = frozen or killswitch.is_frozen(project_id)    # kuyruğa verilen ilk işler bütçeyi bitirmiş olabilir
     except Exception:
@@ -205,11 +259,11 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
                 release_dispatch(sid)
         raise
     return {"planned": planned, "busy": busy, "blocked": blocked, "capped": capped, "awaiting_board": awaiting,
-            "frozen": frozen, "batched": batched is not None}
+            "awaiting_plan": plans, "frozen": frozen, "batched": batched is not None}
 
 
 def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, batch: Batch, planned: dict, busy: list,
-              blocked: dict, capped: list, awaiting: list) -> bool:
+              blocked: dict, capped: list, awaiting: list, plans: list | None = None) -> bool:
     frozen = False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
@@ -220,6 +274,10 @@ def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, bat
         except AwaitingBoard as e:
             planned[sc.scene_code] = e.stages
             awaiting.append(sc.scene_code)
+        except AwaitingPlan:
+            planned[sc.scene_code] = []
+            if plans is not None:
+                plans.append(sc.scene_code)
         except Busy:
             planned[sc.scene_code] = []
             busy.append(sc.scene_code)

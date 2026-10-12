@@ -1,6 +1,6 @@
 /* Panelde gösterilen metinleri üreten saf fonksiyonlar (DOM yok; tests/text.test.ts ile sınanır). */
 import { ANOMALY_TR, ALIGN_TR, ASTATUS_TR, BOARD_TR } from "./i18n";
-import type { Blocked, DispatchAll, Measure, PanelEvent, StageResult, StripApproval, StyleImpact, Variation } from "./types";
+import type { Blocked, DispatchAll, FalPlan, Measure, PanelEvent, PlanApproval, StageResult, StripApproval, StyleImpact, UpgradeFinal, Variation, VideoGates } from "./types";
 
 export const usd = (n: number | null | undefined) => "$" + Number(n || 0).toFixed(2);
 /** Kuruşun altını da gösteren tutar (tek çağrılar 0,035 USD gibi küçüktür): en az 2, en çok 4 ondalık. */
@@ -9,6 +9,8 @@ export const usdExact = (n: number | null | undefined) => "$" + Number(n || 0).t
 export const usdTr = (n: number | null | undefined) =>
   n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(Math.abs(n) >= 1 ? 2 : 3).replace(".", ",")} $`;
 export const num2 = (x: number) => x.toFixed(2).replace(".", ",");
+/** Saniye: "4,5" (tek ondalık). */
+export const sec1 = (x: number) => Number(x || 0).toFixed(1).replace(".", ",");
 export const clock = (ts: number) => new Date(ts * 1000).toLocaleTimeString("tr-TR", { hour12: false });
 export const pct = (x: number | null | undefined) => (x == null ? "—" : `%${Math.round(x * 100)}`);
 export const ratio = (x: number | null | undefined, unit = "") => (x == null ? "—" : `${String(x).replace(".", ",")}${unit}`);
@@ -93,10 +95,76 @@ export function stagesText(stages: string[]): string {
   return `Yalnızca ${joinTr(stages.map((s) => STAGE_TR[s]))}; görüntü motoru çağrılmadı.`;
 }
 
-export const blockedText = (b: Blocked) =>
-  `Engellendi: ${b.missing.map((m) => m.name).join(", ")} için onaylı referans yok. Varlıklar sekmesinden kilitle, sonra yeniden üret.`;
+export const blockedText = (b: Blocked) => b.missing.some((m) => m.status === "no_image")
+  ? `Engellendi: ${b.missing.map((m) => m.name).join(", ")} için referans görseli yok. Varlıklar sayfasından görsel yükleyin; görseli olmayan varlıkla video üretilmez.`
+  : `Engellendi: ${b.missing.map((m) => m.name).join(", ")} için onaylı referans yok. Varlıklar sekmesinden kilitle, sonra yeniden üret.`;
 
-export const resultText = (r: StageResult) => (r.blocked ? blockedText(r.blocked) : stagesText(r.stages));
+/** Referans modu: planı onay bekleyen çekimler (render, render-all, senaryo). */
+export const awaitingPlanText = (codes: string[], usd?: number) =>
+  `Plan onayı bekliyor: ${codes.join(", ")}${usd != null ? ` (tahmini ~${usdTr(usd)})` : ""}. Denetçideki fal.ai video bölümünden planı inceleyip onaylayın.`;
+
+export const resultText = (r: StageResult) => (r.blocked ? blockedText(r.blocked)
+  : r.awaiting_plan ? awaitingPlanText(r.plan?.part ?? [], r.plan?.usd) : stagesText(r.stages));
+
+/** Çekim başına sonuçların özeti (plan onayı ve yükseltme): üretime alınan, işlendiği için atlanan, engellenen. */
+function dispatchedText(d: Record<string, StageResult & { busy?: string }>): string {
+  const rows = Object.entries(d);
+  const started = rows.filter(([, r]) => r.stages.length && !r.blocked && !r.awaiting_plan).map(([c]) => c);
+  const busy = rows.filter(([, r]) => r.busy).map(([c]) => c);
+  const blocked = rows.filter(([, r]) => r.blocked).map(([c]) => c);
+  const waiting = rows.filter(([, r]) => r.awaiting_plan).map(([c]) => c);
+  return [started.length ? `Üretime alındı: ${started.join(", ")}.` : "",
+    busy.length ? `Şu an işlendiği için atlandı: ${busy.join(", ")}.` : "",
+    blocked.length ? `Eksik referans: ${blocked.join(", ")}.` : "",
+    waiting.length ? `Plan onayı bekliyor: ${waiting.join(", ")}.` : ""].filter(Boolean).join(" ");
+}
+
+/** "Planı onayla" / "Onayla ve üret" sonucu. */
+export function approveText(r: PlanApproval, render: boolean): string {
+  const head = `Plan onaylandı: ${r.part.join(" + ")} tek istekte (tahmini ~${usdTr(r.total_usd)}).`;
+  if (!render) return `${head} Üretim için "Onayla ve üret" ya da "Bu sahneyi baştan üret".`;
+  return `${head} ${dispatchedText(r.dispatched) || "Üretilecek aşama yok: girdiler değişmedi."}`;
+}
+
+/** "Seedance 2.5 ile yükselt" onayının sonucu. */
+export function upgradeText(r: UpgradeFinal, engineName: string, code: string): string {
+  const shots = r.shots?.length ? r.shots : [code];
+  const head = `${shots.join(", ")} ${engineName} ile yeniden üretiliyor${r.total_usd != null ? ` (tahmini ~${usdTr(r.total_usd)})` : ""}; taslak klipler varyasyon olarak kaldı (Bunu kullan ile dönülebilir).`;
+  if (r.dispatched) return `${head} ${dispatchedText(r.dispatched)}`.trim();
+  return `${head} ${r.awaiting_board ? "Kare onayı bekleniyor." : resultText(r)}`;
+}
+
+/** Planın uyarıları; eksik ve düşen referanslar ile süreklilik notu ayrı gösterildiği için tekrarlanmaz. */
+export function planWarnings(p: Pick<FalPlan, "warnings" | "missing" | "dropped" | "continuity">): string[] {
+  return (p.warnings ?? []).filter((w) => w !== p.continuity?.note
+    && !((p.missing?.length ?? 0) > 0 && w.startsWith("Eksik referans"))
+    && !((p.dropped?.length ?? 0) > 0 && w.startsWith("Referans sınırı")));
+}
+
+/** Klibin video kapıları, satır satır: örnekleme, kimlik, ölçek, yüz sayısı ve sonuç. bad: kapıyı düşüren satır. */
+export function gateLines(g: VideoGates): { t: string; bad?: boolean }[] {
+  const out: { t: string; bad?: boolean }[] = [];
+  out.push({ t: g.scorer === "dry" || g.frames == null
+    ? "Örnek kare yok: ücretsiz modun sahte skoru (kimlik ve ölçek ölçülmedi)"
+    : `${g.frames} örnek kare, ${sec1(g.step)} sn'de bir` });
+  const id = scores(g.identity?.identity), look = scores(g.identity?.look);
+  if (id) out.push({ t: `Kimlik: ${id}`, bad: g.anomalies.includes("low_identity") });
+  if (look) out.push({ t: `Benzerlik: ${look}`, bad: g.anomalies.includes("low_likeness") });
+  if (g.identity?.faces_seen === 0) out.push({ t: "Örnek karelerde yüz görünmedi", bad: g.anomalies.includes("no_face") });
+  for (const [name, s] of Object.entries(g.scale ?? {})) {
+    out.push(s.ok
+      ? { t: `Ölçek ${name}: tutuyor (tepe ${num2(s.peak)}, sınır ${num2(s.max)}; ${s.measured} karede ölçüldü)` }
+      : { t: `Ölçek ${name}: tutmuyor, ${s.over.map(sec1).join(", ")} sn'de büyük (tepe ${num2(s.peak)} > ${num2(s.max)})`, bad: true });
+  }
+  if (g.face_counts?.length) out.push({ t: `Yüz sayısı: en çok ${Math.max(...g.face_counts)}`, bad: g.anomalies.includes("duplicate_character") });
+  out.push(g.passed ? { t: "Video kapılarından geçti" }
+    : { t: `Video kapılarında kaldı${g.anomalies.length ? `: ${g.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ")}` : ""}`, bad: true });
+  return out;
+}
+
+/** Klibin parçadaki yeri: "S001_SH01 + S001_SH02 parçasından 4,0–8,5 sn". */
+export const segmentText = (v: Pick<Variation, "part" | "segment">) =>
+  v.part?.length && v.segment ? `${v.part.join(" + ")} parçasından ${sec1(v.segment[0])}–${sec1(v.segment[1])} sn` : "";
 
 export function measureText(m: Measure | null): string {
   if (!m) return "";
@@ -223,6 +291,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "board_attempt": return { t: `${where}${x.end ? "son kare" : "ilk kare"} ${x.attempt}/${x.of}: ${x.passed ? "geçti" : "kaldı"}${attemptText(x)}`, c: x.passed ? "good" : "bad" };
     case "end_board_ready": return { t: `${x.code}: ${x.passed ? "hazır; video bu karede biter" : "kapıdan geçemedi; video son karesiz üretilir"}${x.note && x.passed ? ` (${x.note})` : ""}`, c: x.passed ? (x.note ? "" : "good") : "bad" };
     case "board_strip_approved": return { t: `Storyboard şeridi onaylandı: ${(x.approved as string[]).length} kare${(x.review as string[]).length ? `; inceleme bekleyen: ${(x.review as string[]).join(", ")}` : ""}`, c: (x.review as string[]).length ? "bad" : "good" };
+    case "part_clip": return { t: `${(x.shots as string[] | undefined)?.join("+") ?? ""} parça klibi (${x.engine === "seedance25" ? "Seedance 2.5" : "H3 Max"}, deneme ${x.attempt}): ${x.passed ? "video kapılarından geçti" : "video kapılarında kaldı"}`, c: x.passed ? "good" : "bad" };
+    case "part_stopped": return { t: `${where}parça üretilmedi (${x.status === "plan_review" ? "plan onayı bekliyor" : x.status === "blocked" ? "eksik referans" : "inceleme"}): ${x.reason}`, c: "bad" };
     case "fal_clip": return { t: `${where}fal.ai klibi (${x.engine === "seedance25" ? "Seedance 2.5" : x.engine === "h3max" ? "H3 Max" : x.engine}, ${x.mode === "i2v" ? "image-to-video" : "reference-to-video"}, deneme ${x.attempt}): ${x.passed ? "kalite kapısından geçti" : "kalite kapısında kaldı"}`, c: x.passed ? "good" : "bad" };
     case "provider_rejected": return { t: `${where}fal.ai isteği reddetti (yeniden denenmedi): ${x.error}`, c: "bad" };
     case "engine_disabled": return { t: `${where}motor kapalı (MiniMax H3 · RunPod): H3 Max'e geçin`, c: "bad" };
@@ -247,6 +317,7 @@ export function passText(r: DispatchAll, kind: string): string {
   const started = Object.entries(r.planned).filter(([, st]) => st.includes("VISUAL")).map(([code]) => code);
   const parts = [started.length ? `${kind}: ${started.join(", ")}.` : `${kind} için üretilecek çekim yok.`];
   if (r.awaiting_board?.length) parts.push(`Kare onayı bekleyen: ${r.awaiting_board.join(", ")}.`);
+  if (r.awaiting_plan?.length) parts.push(`Plan onayı bekliyor: ${r.awaiting_plan.join(", ")}.`);
   if (r.blocked && Object.keys(r.blocked).length) parts.push(`Eksik referans: ${Object.keys(r.blocked).join(", ")}.`);
   if (r.capped?.length) parts.push(`Sekans tavanında: ${r.capped.join(", ")}.`);
   return parts.join(" ");
@@ -268,6 +339,7 @@ export function dispatchText(r: DispatchAll): { text: string; bad: boolean } {
   const still = Object.keys(r.blocked);
   const text = (started.length ? `Üretime alındı: ${started.join(", ")}.` : "Üretime alınan çekim yok.")
     + (still.length ? ` Hâlâ engelli: ${still.join(", ")}.` : "")
+    + (r.awaiting_plan?.length ? ` Plan onayı bekliyor: ${r.awaiting_plan.join(", ")}.` : "")
     + (r.capped.length ? ` Sekans tavanında: ${r.capped.join(", ")}.` : "");
   return { text, bad: Boolean(still.length || r.capped.length) };
 }

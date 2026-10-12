@@ -46,7 +46,7 @@ import httpx
 API = os.environ.get("SMOKE_API", "http://localhost:8000/api")
 c = httpx.Client(base_url=API, timeout=60)
 FAILS: list[str] = []
-TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked", "board_review"}
+TERMINAL = {"done", "needs_review", "failed", "frozen", "blocked", "board_review", "plan_review"}
 CODES = ["S001_SH01", "S001_SH02", "S002_SH01", "S002_SH02"]
 BUDGET = 200.0       # film + stil değişikliğiyle yeniden üretim ~50 sanal USD; hız bekçisi bütçenin yarısı
 
@@ -398,32 +398,55 @@ def main() -> int:
     return 0
 
 
+def give_references(pid: str) -> None:
+    """Projenin bütün varlıklarına yerel taslak referans (yönetmenin görsel yüklemesi yerine; ücretsiz)."""
+    for a in c.get(f"/projects/{pid}/assets").json():
+        c.post(f"/assets/{a['id']}/references/placeholder").raise_for_status()
+
+
 def check_fal(meta: dict) -> None:
     """fal.ai varsayılanları ücretsiz modda: yeni çekimler taslak motoruna (H3 Max) gider, çekim başına tek klip; kuru
     çalıştırma fal'e gitmeden şemaya uygun gövde verir; "Seedance 2.5 ile yükselt" aynı çekimi final motoruyla üretir,
     eski klip varyasyon olarak kalır."""
-    print("V) fal.ai motorları: taslak MiniMax H3 Max, Seedance 2.5 ile yükselt (sanal)")
+    print("V) fal.ai motorları: referans + senaryo, tüm sahne tek istekte; taslak H3 Max, Seedance 2.5 ile yükselt (sanal)")
     check(meta["h3_platform"] == "kapali" and meta["video"]["draft_engine"] == "h3max"
           and meta["video"]["final_engine"] == "seedance25", "RunPod kapalı; taslak h3max, final seedance25")
+    check(meta["video_input_mode"] == "reference" and meta["scene_render_mode"] == "whole_scene",
+          "varsayılan: referans modu (kare üretimi yok), tüm sahne tek istekte")
     pid = new_project("duman-testi-fal", 100.0, lint_strictness="off", draft_engine=None, fal_clip_attempts=3)
-    c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]}).raise_for_status()
+    r = c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"]})
+    r.raise_for_status()
+    check(sorted(r.json()["blocked"]) == CODES, "referans görseli olmayan varlıklarla hiçbir çekim üretilmez (eksik referans)")
+    give_references(pid)
+    c.post(f"/projects/{pid}/render-all").raise_for_status()
     ov = wait_scenes(pid)
     check({s["engine"] for s in ov["scenes"]} == {"h3max"}, "yeni çekimler H3 Max'e yönlendi")
     check(all(s["status"] == "done" and s["cut_tier"] == "draft" for s in ov["scenes"]),
           "dört çekim taslak olarak bitti: " + " ".join(f"{s['scene_code']}:{s['status']}" for s in ov["scenes"]))
     check(all(len([v for v in s["variations"] if v["rank"]]) == 1 for s in ov["scenes"]), "çekim başına tek klip havuzda")
+    check(all(s["board_url"] is None for s in ov["scenes"]), "hiçbir storyboard karesi çizilmedi (referans modu)")
+    parts = {tuple(v["part"] or ()) for s in ov["scenes"] for v in s["variations"] if v["rank"]}
+    check(len(parts) < len(ov["scenes"]) and all(len(p) >= 1 for p in parts),
+          f"sahnenin çekimleri tek istekte üretilip kesildi: {sorted(parts)}")
+    check(all((v.get("gates") or {}).get("step") == 0.5 for s in ov["scenes"] for v in s["variations"] if v["rank"]),
+          "her klipte video kapıları 0,5 sn'de bir örnekle kayıtlı")
     plan = c.get(f"/projects/{pid}/render-plan", params={"dry_run": "true"}).json()
     rows = plan["scenes"]
     check(plan["network"] is False and all(r["endpoint"].startswith("minimax/h3-max/") for r in rows),
           f"kuru çalıştırma: {len(rows)} çekim H3 Max uç noktasına, ağ yok")
     check(all(isinstance(r["body"]["duration"], (int, float)) and r["body"]["prompt_expansion_mode"] == "disabled"
               for r in rows), "H3 Max gövdesi: süre sayı, prompt_expansion_mode zorunlu alan dolu")
-    check(plan["upgrade_total_usd"] > plan["total_usd"] > 0,
-          f"tahmin: taslak {plan['total_usd']:.2f} $, yükseltme {plan['upgrade_total_usd']:.2f} $")
+    check(plan["upgrade_total_usd"] > plan["total_usd"] > 0 and plan["requests"] == len(parts),
+          f"tahmin: {plan['requests']} istek, taslak {plan['total_usd']:.2f} $, yükseltme {plan['upgrade_total_usd']:.2f} $")
     sc = ov["scenes"][0]
     before, draft_id = spent(pid), next(v["id"] for v in sc["variations"] if v["rank"] == 1)
     previous_final = c.get(f"/scenes/{sc['id']}").json()["final_video_key"]
-    r = c.post(f"/scenes/{sc['id']}/upgrade-final")
+    up = c.get(f"/scenes/{sc['id']}/fal-plan").json()["upgrade"]
+    check(up["available"] and up["scope"] == "scene" and up["budget_ok"],
+          f"yükseltme önizlemesi: sahne {up.get('shots')}, toplam {up.get('total_usd', 0):.2f} $")
+    stale = c.post(f"/scenes/{sc['id']}/upgrade-final", params={"expected_usd": 0.01})
+    check(stale.status_code == 409, "tahmin onaylanandan yüksekse yükseltme reddedilir")
+    r = c.post(f"/scenes/{sc['id']}/upgrade-final", params={"expected_usd": up["total_usd"]})
     check(r.status_code == 200 and r.json()["engine"] == "seedance25", f"Seedance 2.5 ile yükselt ({r.status_code})")
     wait_scene(sc["id"], changed_from=previous_final, timeout=600)
     after = next(s for s in overview(pid)["scenes"] if s["id"] == sc["id"])
@@ -436,6 +459,26 @@ def check_fal(meta: dict) -> None:
     dry = c.post(f"/scenes/{sc['id']}/render", params={"dry_run": "true"}).json()
     check(dry["dry_run"] and dry["endpoint"].startswith("bytedance/seedance-2.5/") and isinstance(dry["body"]["duration"], str),
           "kuru çalıştırma: Seedance 2.5 gövdesinde süre metin")
+
+    print("W) Plan onayı: onaysız render yok, onaylanınca parça üretilir")
+    gated = new_project("duman-testi-plan", 50.0, lint_strictness="off", draft_engine=None, require_plan_approval=True,
+                        fal_clip_attempts=3)
+    c.post(f"/projects/{gated}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
+    give_references(gated)
+    before = spent(gated)                       # yer tutucu referansların sanal bedeli
+    r = c.post(f"/projects/{gated}/render-all")
+    check(r.status_code == 200 and sorted(r.json()["awaiting_plan"]) == CODES, f"4 çekim plan onayı bekliyor: {r.json().get('awaiting_plan')}")
+    time.sleep(2)
+    ov = overview(gated)
+    check(all(s["status"] == "plan_review" for s in ov["scenes"]) and spent(gated) == before,
+          "plan_review; onaysız video harcaması yok")
+    first = ov["scenes"][0]
+    plan = c.get(f"/scenes/{first['id']}/fal-plan").json()
+    ok = c.post(f"/scenes/{first['id']}/plan/approve", params={"render": "true"}, json={"plan_hash": plan["plan_hash"]})
+    check(ok.status_code == 200 and ok.json()["part"] == plan["part"], f"plan onaylandı ve üretime verildi: {plan['part']}")
+    wait_scene(first["id"])
+    done = [s for s in overview(gated)["scenes"] if s["scene_code"] in plan["part"]]
+    check(all(s["status"] == "done" for s in done), "onaylanan parçanın çekimleri bitti; diğerleri onay bekliyor")
 
 
 def check_history(pid: str) -> None:

@@ -101,6 +101,7 @@ def fal_request_view(req: dict | None) -> dict | None:
 def meta():
     return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
             "h3_platform": settings.h3_platform, "keyframe_platform": settings.keyframe_platform,
+            "video_input_mode": settings.video_input_mode, "scene_render_mode": settings.scene_render_mode,
             "video": {"draft_engine": settings.video_draft_engine, "final_engine": settings.video_final_engine,
                       "engines": [{"id": e, "label": fal_plan.ENGINE_TR[e], "disabled": h3_disabled(e)}
                                   for e in ("h3max", "seedance25", "seedance", "h3")],
@@ -272,6 +273,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
         "engine_label": fal_plan.ENGINE_TR.get(sc.engine or "", sc.engine), "engine_disabled": h3_disabled(sc.engine),
         "video_opts": sc.video_opts or {}, "fal_request": fal_request_view(sc.fal_request),
+        "plan_approval": sc.plan_approval,
         "upgrade_available": fal_plan.is_fal(sc.engine) and sc.cut_tier == "draft"
                              and sc.engine != fal_plan.final_engine(cfg),
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
@@ -322,7 +324,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "reason": (v.params or {}).get("purge_reason"), "stage": (v.params or {}).get("stage"),
             "stale": (v.params or {}).get("stale_keyframe"),                       # eski kareden üretildi
             "overridable": bool(v.refined_rank is None and not (v.params or {}).get("stale_keyframe")
-                                and (v.params or {}).get("cond")                 # koşul kaydı olan (bu turdan) aday
+                                and ((v.params or {}).get("cond")                # koşul kaydı olan (bu turdan) aday
+                                     or (v.params or {}).get("part"))            # ya da referans modunun parça kesimi
                                 and v.status in ("passed", "purged", "generated")
                                 and (v.video_key or (v.params or {}).get("quarantine_key"))),   # yönetmen seçebilir
             "override": bool((v.params or {}).get("director_override")),
@@ -330,6 +333,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "arrival": ((v.params or {}).get("score_detail") or {}).get("arrival"),  # son kare hedefe ne kadar vardı
             "last_frame_kind": (v.params or {}).get("last_frame_kind"),
             "measure": measure_of(v.params),
+            "gates": ((v.params or {}).get("score_detail") or {}).get("video_gates"),   # referans modu: video kapıları
+            "part": (v.params or {}).get("part_codes"), "segment": (v.params or {}).get("segment"),
             "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
             "source": (v.params or {}).get("source", "generate"), "revisions": len(revisions[v.id]),

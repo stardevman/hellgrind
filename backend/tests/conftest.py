@@ -34,7 +34,8 @@ for _f in _rc.FIELDS:
 # H3 (RunPod) dönemi testleri: video fal.ai'ye taşınmadan önceki davranışı sınar (motor h3, kareler RunPod'da, platform
 # runpod). Kod yolu duruyor ve seçilebilir; fal.ai varsayılanlarını (H3 Max taslak, Seedance 2.5 final, kareler fal'de,
 # RunPod kapalı) `fal_defaults` fikstürü açar (tests/test_fal_engines.py).
-LEGACY_VIDEO = {"h3_platform": "runpod", "keyframe_platform": "runpod", "video_draft_engine": "h3"}
+LEGACY_VIDEO = {"h3_platform": "runpod", "keyframe_platform": "runpod", "video_draft_engine": "h3",
+                "video_input_mode": "keyframe", "scene_render_mode": "per_shot"}
 for _name, _value in LEGACY_VIDEO.items():
     setattr(settings, _name, _value)
 # Prompt çevirisi testlerde kapalı: ücretli modu sahteyle açan testler yerel çeviri modelini yüklemesin (CI'da model yok).

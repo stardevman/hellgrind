@@ -42,8 +42,9 @@ class Restricted:
 
 
 def _real_h3():
-    # MiniMax H3 (kendi barındırdığımız) ve H3 Max (fal.ai'de barındırılan): tutucu davranılır, ikisi de eğitim dışı
-    return Variation.engine.in_(("h3", "h3max")) & Variation.external_request_id.is_not(None) \
+    # Yalnızca kendi barındırdığımız MiniMax H3 (Community License). fal.ai'deki H3 Max "Commercial use" etiketlidir:
+    # kısıt yok (yönetmenin kararı, 2026-10-12).
+    return (Variation.engine == "h3") & Variation.external_request_id.is_not(None) \
         & ~Variation.external_request_id.startswith("local-")
 
 

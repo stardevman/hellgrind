@@ -62,6 +62,7 @@ SETTING_RULES = {
                      "h3max, seedance25, seedance, h3 ya da boş"),
     "final_engine": (lambda v: v in (None, "seedance25", "h3max", "seedance"), "seedance25, h3max, seedance ya da boş"),
     "fal_clip_attempts": (_int(1, 5), "1 ile 5 arasında tam sayı"),
+    "require_plan_approval": (lambda v: v is None or type(v) is bool, "true, false ya da boş (ücretli modda açık)"),
 }
 
 

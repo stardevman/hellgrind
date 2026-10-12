@@ -24,6 +24,10 @@ export interface Meta {
   defaults: Record<string, number | string | boolean> & { probe_n: number; full_n: number };
   sample_script: string;
   trial_script?: string;
+  /** Video girdisi: reference (varsayılan; kare üretilmez, sahne referanslarla tek istekte) ya da keyframe. */
+  video_input_mode?: "reference" | "keyframe";
+  /** Referans modunda sahnenin üretimi: whole_scene (aynı kodlu çekimler tek parça) ya da per_shot. */
+  scene_render_mode?: "whole_scene" | "per_shot";
 }
 
 export type H3Platform = "runpod" | "vast" | "kapali";
@@ -49,6 +53,20 @@ export interface FalRequest {
 export interface FalCost { usd?: number; reserve_usd: number; base_usd?: number; [key: string]: unknown }
 
 export interface FalReference { image: number; token: string; kind: string; name: string; key: string; description: string }
+/** Referans modunda görseli olmayan varlık (video üretilemez) ve referans sınırında düşen. */
+export interface PlanMissing { kind: string; name: string; asset_id: string | null }
+/** Parçanın ilk çekiminin geçişi ve önceki klibin son karesi (yalnızca "continuous" geçişte verilir). */
+export interface PartContinuity {
+  transition: string; previous: string | null; frame_key: string | null; expected: boolean; winner_id: string | null; note: string | null;
+}
+/** Yükseltmenin bir parçası (tek istek): çekimleri, süresi ve tahmini. */
+export interface UpgradePart { part: string[]; duration_s: number; usd: number; endpoint: string; plan_hash?: string }
+/** "Seedance 2.5 ile yükselt"in tahmini (yazılmaz): referans modunda bütün sahne. */
+export interface UpgradePreview {
+  available: boolean; reason: string | null; engine: string; engine_label: string;
+  scope?: "scene" | "shot"; shots?: string[]; parts?: UpgradePart[]; total_usd?: number; cost?: FalCost;
+  remaining_usd?: number; budget_ok?: boolean; mode?: string; endpoint?: string;
+}
 export interface FalUpload { field: string; key: string; path?: string; upload?: string; sha256?: string }
 
 /** GET /scenes/{id}/fal-plan ve POST /scenes/{id}/render?dry_run=true: fal.ai'ye gidecek istek, gönderilmeden. */
@@ -59,19 +77,37 @@ export interface FalPlan {
   body?: Record<string, unknown>; uploads?: FalUpload[]; references?: FalReference[];
   resolution?: string; audio?: boolean; duration?: number; cost?: FalCost;
   unmapped_negatives?: string[]; notes?: string[];
-  upgrade?: { available: boolean; reason: string | null; engine: string; engine_label: string; mode: string; endpoint: string; cost: FalCost };
+  upgrade?: UpgradePreview;
   disabled?: boolean; message?: string; suggest?: string; note?: string;
+  /** Referans modu: sahnenin parçası (tek istek), zaman çizelgesi, referanslar ve onay. */
+  input_mode?: "reference" | "keyframe"; render_mode?: "whole_scene" | "per_shot";
+  part?: string[]; part_ids?: string[]; timeline?: { code: string; start: number; end: number }[];
+  dropped?: { kind: string; name: string }[]; missing?: PlanMissing[]; continuity?: PartContinuity;
+  duration_s?: number; warnings?: string[]; plan_hash?: string; part_hash?: string; approved?: boolean; seed?: number;
+  /** Eksik referans var: plan onaylanamaz, video üretilemez. */
+  blocked?: boolean;
+  approval?: { required: boolean; approved: boolean; plan_hash: string };
+}
+
+/** POST /scenes/{id}/plan/approve: parçanın planı onaylandı (render=true ise çekimler üretime verildi). */
+export interface PlanApproval {
+  approved: boolean; plan_hash: string; part: string[]; total_usd: number;
+  dispatched: Record<string, StageResult & { busy?: string }>;
 }
 
 /** GET /projects/{id}/render-plan?dry_run=true: her çekimin kuru planı ve toplamlar. */
 export interface RenderPlan {
   dry_run: boolean; network: false; paid_mode: boolean; scenes: FalPlan[];
   total_usd: number; upgrade_total_usd: number; engines: { draft: string; final: string };
+  /** Ayrı istek sayısı (referans modunda bir parça bir istektir) ve kalan bütçe. */
+  requests?: number; remaining_usd?: number; input_mode?: string; render_mode?: string;
 }
 
 /** POST /scenes/{id}/upgrade-final: "Seedance 2.5 ile yükselt". */
 export interface UpgradeFinal extends StageResult {
   engine: string; from_engine: string | null; draft_variation_id: string; awaiting_board?: boolean;
+  /** Yükseltilen çekimler (referans modunda bütün sahne), parçalar, toplam ve çekim başına sonuç. */
+  shots?: string[]; parts?: UpgradePart[]; total_usd?: number; dispatched?: Record<string, StageResult & { busy?: string }>;
 }
 
 export interface ProjectListItem {
@@ -107,6 +143,15 @@ export interface Project {
 
 export interface Measure { alignment: Record<string, number>; identity: Record<string, number>; faces_seen: number }
 
+/** Referans modunun video kapıları (params.score_detail.video_gates): 0,5 sn'de bir örnek karede kimlik, ölçek ve yüz
+    sayısı. scorer "dry": ücretsiz modun sahte skoru (kare ölçülmedi). */
+export interface VideoGates {
+  step: number; frames?: number; scorer?: string;
+  identity?: { identity?: Record<string, number>; look?: Record<string, number>; look_dino?: Record<string, number>; faces_seen?: number; [key: string]: unknown };
+  scale?: Record<string, { max: number; measured: number; over: number[]; peak: number; ok: boolean }>;
+  face_counts?: number[] | null; passed: boolean; anomalies: string[];
+}
+
 export interface Variation {
   id: string; tier: "probe" | "full"; wave_no: number; status: string; seed: number;
   score: number | null; rank: number | null; cost_usd: number; anomalies: string[];
@@ -118,6 +163,8 @@ export interface Variation {
   source: string; revisions: number; revision: number | null;
   /** Yönetmen seçimi: kapıdan kalmış olsa da eski olmayan aday seçilebilir; override: seçilmiş aday. */
   overridable?: boolean; override?: boolean;
+  /** Referans modu: klibin video kapıları, parçanın çekimleri ve parça klibindeki yeri (sn). */
+  gates?: VideoGates | null; part?: string[] | null; segment?: [number, number] | null;
 }
 
 export interface Track {
@@ -180,6 +227,8 @@ export interface Scene {
   /** Çekim sonu karesi (Kn_end): sonraki çekim kesmeyle geliyorsa video bu karede biter. */
   end_board_url?: string | null; end_board_note?: string | null; end_board_score?: number | null; end_board_current?: boolean;
   edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
+  /** Referans modu: onaylanan plan (özet, tahmin, zaman, parça, motor); plan değişince geçersizdir. */
+  plan_approval?: { hash: string; usd: number; at: number; part: string[]; engine: string } | null;
 }
 
 export interface TimelineTrack {
@@ -268,11 +317,18 @@ export interface RevisionList { variation_id: string; active: string | null; ran
 
 /* ---------- eylem yanıtları ---------- */
 
-export interface Blocked { missing: { name: string }[] }
-export interface StageResult { stages: string[]; blocked?: Blocked | null; hint?: string }
+/** Eksik referans: lint (onaysız varlık) ya da referans modu (status "no_image": görseli yok). */
+export interface Blocked { missing: { name: string; asset_id?: string | null; type?: string; status?: string | null }[]; message?: string }
+export interface StageResult {
+  stages: string[]; blocked?: Blocked | null; hint?: string; awaiting_board?: boolean;
+  /** Referans modu: plan onaylanmadı; çekim plan_review'da bekler. */
+  awaiting_plan?: boolean; plan?: { part: string[]; plan_hash: string; usd: number };
+}
 export interface DispatchAll {
   planned: Record<string, string[]>; busy: string[]; blocked: Record<string, unknown>;
   capped: string[]; awaiting_board?: string[]; frozen: boolean;
+  /** Referans modu: planı onay bekleyen çekimler. */
+  awaiting_plan?: string[];
 }
 
 /** "Kareleri hazırla"nın planı (GET /projects/{id}/storyboard/plan): onaydan önce gösterilir. */

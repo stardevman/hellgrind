@@ -8,6 +8,7 @@ import { engineChoices } from "@/lib/engines";
 import { ENGINE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 import { clipCost } from "@/lib/pricing";
+import { awaitingPlanText } from "@/lib/text";
 import type { CostEstimate, DispatchAll, PricingTable } from "@/lib/types";
 import { NoteBox, Panel } from "./ui";
 
@@ -72,11 +73,13 @@ export function ScriptPage() {
         selectProject(id);
         setPage("edit");
         if (r.busy?.length) note("inspector", `${r.busy.join(", ")} şu an işlendiği için atlandı.`);
+        else if (r.awaiting_plan?.length) note("inspector", awaitingPlanText(r.awaiting_plan));
       } else {
         const started = Object.entries(r.planned).filter(([, st]) => st.length).map(([code]) => code);
         // "updated" arka uçta yeniden yazılan (upsert) çekimlerdir; gerçekten değişenleri planlayıcı söyler.
         note("start", `${r.shots} çekim ayrıştırıldı${r.created.length ? `, ${r.created.length} yeni` : ""}.`
           + (started.length ? ` Üretime alındı: ${started.join(", ")}.` : " Değişen girdi yok; hiçbir çekim yeniden üretilmedi.")
+          + (r.awaiting_plan?.length ? ` ${awaitingPlanText(r.awaiting_plan)}` : "")
           + (r.orphaned.length ? ` Senaryoda artık olmayan çekimler silinmedi: ${r.orphaned.join(", ")}.` : ""), "ok");
         setScript(null);
         void mutate(`/projects/${id}`);

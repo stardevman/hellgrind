@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     h3max_prompt_expansion: str = "disabled"   # disabled | balanced | quality (zorunlu alan)
     seedance25_resolution: str = "720p"        # 480p | 720p | 1080p
     seedance25_audio: bool = False             # modelin ürettiği ses: filmde kullanılmaz; fiyatı değiştirmez
+    # fal.ai videosunun girdisi: reference (varsayılan) = yalnızca varlıkların onaylı referans görselleri + senaryo; hiçbir
+    # kare ya da görsel üretilmez (storyboard çizimi ve kare kapıları atlanır). keyframe = storyboard karesinden (Qwen).
+    video_input_mode: str = "reference"
+    # Sahnenin üretimi: whole_scene (varsayılan) = sahnenin bütün çekimleri tek istekte ("Shot 1 (0-3s) …"), motor
+    # sınırını (H3 Max 15 sn, Seedance 2.5 30 sn) aşan sahne çekim sınırlarından parçalara bölünür | per_shot = her çekim ayrı
+    scene_render_mode: str = "whole_scene"
     # Kare çizimi (storyboard ilk karesi, zincir, kesme, referans görselleri): fal (varsayılan; RunPod silindi) | runpod
     keyframe_platform: str = "fal"
     fal_qwen_image_endpoint: str = "fal-ai/qwen-image-2512"                  # metinden kare (Qwen-Image-2512)
@@ -177,6 +183,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "paid_audio": True,            # false: ücretli modda da ses yereldir (espeak) ve dudak senkronu çağrılmaz
     "draft_engine": None,          # taslak video motoru: None = Ayarlar'daki VIDEO_DRAFT_ENGINE (h3max)
     "final_engine": None,          # final video motoru ("yükselt"): None = Ayarlar'daki VIDEO_FINAL_ENGINE (seedance25)
+    "require_plan_approval": None, # render'dan önce kuru çalıştırma planı onaylanmalı mı; None = ücretli modda evet
     "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
                                    # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }

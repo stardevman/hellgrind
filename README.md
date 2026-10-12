@@ -412,7 +412,36 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
   uzaklık" biçiminde). Hazır `fal-ai/qwen-image-edit-2511-multiple-angles` uç noktası açıyı sayıyla ister ve "<sks>" metnini
   almaz, bu yüzden kullanılmaz. Kapılar (kimlik, kopya, ölçek, renk, çerçeve, sıçrama) değişmedi. Lightning'in fal karşılığı
   yok: `lightning` = 10 adım + `acceleration: high` (fiyat adımdan bağımsız).
-- **Lisans:** MiniMax H3 Max çıktılarından türeyen kürasyon kararları da (H3 gibi) eğitim dışa aktarımına girmez.
+- **Lisans:** fal.ai'deki MiniMax H3 Max "Commercial use" etiketlidir: çıktılarına lisans ya da bölge kısıtı uygulanmaz
+  (yalnızca kendi barındırdığımız MiniMax H3'ün kısıtları sürer).
+
+### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
+
+`VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel
+üretilmez (Qwen, Flux, storyboard ve şerit çizimi yok; kare kapıları devreye girmez). Video yalnızca varlıkların onaylı
+referans görselleri ve senaryodan üretilir.
+
+- **Tüm sahne tek istekte** (`SCENE_RENDER_MODE=whole_scene`, varsayılan): aynı sahne başlığının çekimleri (S001_SH01,
+  S001_SH02 …) tek istekte, çekim listesi biçimli istemle ("Shot 1 (0-3s), medium shot, static camera: … Nora says: "…".
+  Mood: fear."). Toplam süre H3 Max'te 15, Seedance 2.5'te 30 saniyeyi aşarsa sahne çekim sınırlarından parçalara bölünür.
+  Üretilen parça klibi çekim sınırlarından kesilir; her çekim kendi klibini alır (ses, renk, montaj ve kurgu değişmez).
+  `per_shot`: her çekim ayrı istek.
+- **Referanslar:** karakterler → nesneler → mekân, sabit sırayla numaralı (H3 Max "… is Image 1", Seedance "… is @Image1");
+  gerçek boyut istemde ("Pip is tiny, palm-sized; much smaller than a hen."). Sınır: H3 Max 9 referans görseli (şema; toplam
+  12 dosya), Seedance 30 (toplam 50); aşarsa çekim metinlerinde en az geçen mekân/nesne düşer, planda uyarı çıkar. Görseli
+  olmayan varlık "eksik referans": render engellenir.
+- **Süreklilik:** parçanın ilk çekimi `continuous` ise önceki klibin son karesi ffmpeg ile çıkarılır (üretim değil): H3
+  Max'te `image_url`, referanslar `reference_image_urls`'te; Seedance'ta kare `image_urls`'ün başına konur, istem "the shot
+  starts exactly from @Image1" der ve referans numaraları bir kayar. Kesmelerde kare verilmez. Önceki parça henüz
+  üretilmediyse önce o üretilir.
+- **Plan onayı** (`require_plan_approval`; boşsa ücretli modda açık): render'dan önce denetçideki kuru çalıştırma planı
+  (motor, referanslar ve numaraları, istem, süre, maliyet) onaylanır (`POST /api/scenes/{id}/plan/approve`). Onay planın
+  özetine bağlıdır: istem, referans, süre ya da motor değişince yeniden istenir.
+- **Video kapıları:** üretilen klipten 0,5 sn'de bir örnek kare: kimlik (insan SFace, diğerleri OpenCLIP), kopya karakter
+  sayımı, ölçek (gerçek boyut); kalırsa `fal_clip_attempts` kadar yeniden üretilir, sonra yönetmene kalır. Sonuçlar klip
+  başına denetçide. Renk sürekliliği ve otomatik renk eşleme montajdan sonra.
+- **Seedance 2.5 ile yükselt:** tek adımlı onay (tahmini toplam gösterilir); referans modunda bütün sahne yükseltilir, bu
+  onay final planlarının onayıdır. Tahmin kalan bütçeyi aşarsa reddedilir.
 
 ## Video motoru: MiniMax H3 (RunPod Serverless) — kapalı
 

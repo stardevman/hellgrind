@@ -35,7 +35,7 @@ export function statusTone(status: string): string {
   if (WORKING.has(status)) return "work";
   if (status === "done") return "ok";
   if (status === "refined") return "info";
-  if (status === "board_review" || status === "pending" || status === "parsed") return "warn";
+  if (status === "board_review" || status === "plan_review" || status === "pending" || status === "parsed") return "warn";
   if (["failed", "needs_review", "frozen", "blocked"].includes(status)) return "bad";
   return "";
 }

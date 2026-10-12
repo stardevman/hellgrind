@@ -677,7 +677,9 @@ def seam_frame(winner) -> str:
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
         video = storage.download(winner.video_key, os.path.join(tmp, "clip.mp4"))
         out = os.path.join(tmp, "last.jpg")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-0.1", "-i", video, "-frames:v", "1", "-q:v", "2", out],
+        # son saniyenin karelerini sırayla aynı dosyaya yazar: geriye kalan, klibin gerçek son karesidir (düşük fps'li
+        # kısa kesimlerde -sseof -0.1 hiç kare bulamayabiliyordu)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-sseof", "-1", "-i", video, "-update", "1", "-q:v", "2", out],
                        check=True, capture_output=True)
         storage.put_file(out, key, "image/jpeg")
     return key
@@ -753,6 +755,9 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         scene = s.get(Scene, scene_id)
         chars, assets = load_characters(s, scene_id), load_assets(s, scene_id)
         engine = scene.engine or "h3"
+        from app.engine.scene_parts import active, reference_mode
+        if active(engine) or reference_mode():
+            return False                                  # referans modu: hiçbir kare çizilmez
         if engine not in ("h3", "seedance", "h3max", "seedance25") or (scene.method or "generate") != "generate" \
                 or (engine == "h3" and effective_mode(scene, chars, assets) == "ref2va"):
             return False                                  # Ref2VA ilk kareyi kullanmaz: kare çizilmez
@@ -828,6 +833,19 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
     Dönen değer: "refined", "needs_review", "blocked" ya da "board_review"."""
     if lint_blocks(project_id, scene_id):
         return "blocked"
+    from app.engine import scene_parts
+    with session_scope() as s:
+        sc = s.get(Scene, scene_id)
+        engine, method = sc.engine, sc.method or "generate"
+    if method == "generate" and scene_parts.active(engine):   # referans + senaryo: kare yok, parça tek istekte
+        gate.ensure_scorer()
+        from app.engine.part_render import render_shot
+        return render_shot(project_id, scene_id)
+    if method == "generate" and engine == "seedance" and scene_parts.reference_mode() and not settings.dry_run:
+        advance_scene(project_id, scene_id, status="needs_review",
+                      last_error="Seedance 2.0 fast referans modunda kullanılamaz: ilk kare görsel üretimi ister. "
+                                 "Seedance 2.5 ya da H3 Max seçin (ya da VIDEO_INPUT_MODE=keyframe).")
+        return "needs_review"
     if board_blocks(project_id, scene_id):
         return "board_review"
     with session_scope() as s:

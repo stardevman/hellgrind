@@ -77,13 +77,21 @@ function PlanTotal({ projectId }: { projectId: string }) {
       .catch((e: Error) => setState(e.message));
   };
   const off = plan ? plan.scenes.filter((r) => r.disabled).length : 0;
+  const requests = plan ? plan.requests ?? plan.scenes.filter((r) => r.cost).length : null;
+  const over = plan?.remaining_usd != null && plan.total_usd > plan.remaining_usd;
   return (
     <div className="pad stack" style={{ borderBottom: "1px solid var(--line)", gap: 4 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <span className="small">Tahmini toplam (taslak) <b className="mono">{plan ? usdTr(plan.total_usd) : "—"}</b></span>
+        <span className="small">Tahmini toplam (taslak{requests != null ? `, ${requests} istek` : ""}) <b className="mono">{plan ? usdTr(plan.total_usd) : "—"}</b></span>
         <button className="btn ghost" type="button" disabled={state === "busy"} onClick={run}
-          title="Her çekimin fal.ai isteği gönderilmeden hesaplanır (kuru çalıştırma)">{state === "busy" ? "Hesaplanıyor…" : "Hesapla"}</button>
+          title={plan?.input_mode === "reference"
+            ? "Her sahnenin fal.ai isteği gönderilmeden hesaplanır (kuru çalıştırma); bir parça (aynı sahnenin çekimleri) tek istektir"
+            : "Her çekimin fal.ai isteği gönderilmeden hesaplanır (kuru çalıştırma)"}>{state === "busy" ? "Hesaplanıyor…" : plan ? "Yeniden hesapla" : "Hesapla"}</button>
       </div>
+      {plan?.remaining_usd != null && (
+        <span className={`small ${over ? "warn" : "dim"}`}>Kalan bütçe <b className="mono">{usdTr(plan.remaining_usd)}</b>
+          {over && " · taslak tahmini kalan bütçeyi aşıyor"}</span>
+      )}
       {plan && (
         <span className="small dim">Final'e yükseltme <b className="mono">{usdTr(plan.upgrade_total_usd)}</b>
           <span className="faint"> · {ENGINE_TR[plan.engines.draft] ?? plan.engines.draft} → {ENGINE_TR[plan.engines.final] ?? plan.engines.final}</span></span>

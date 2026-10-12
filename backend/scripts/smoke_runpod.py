@@ -17,7 +17,7 @@ import time
 
 # sahte RunPod "test-runpod_api_key" anahtarını bekler
 FAKE_SETTINGS = dict(dry_run=False, runpod_api_key="test-runpod_api_key", h3_platform="runpod", runpod_endpoint_id="ep123",
-                     keyframe_platform="runpod", video_draft_engine="h3",
+                     keyframe_platform="runpod", video_draft_engine="h3", video_input_mode="keyframe",
                      runpod_datacenter="CA-MTL-1", runpod_network_volume_id="vol1",
                      runpod_gpu_types="RTX 5090,RTX PRO 6000", runpod_min_balance_usd=10.0, h3_allow_nordic=False)
 

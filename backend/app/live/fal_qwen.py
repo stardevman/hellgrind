@@ -24,7 +24,7 @@ import math
 from app.budget import pricing
 from app.config import settings
 from app.engine.providers import GenResult
-from app.live import PaidCallBlocked, guard
+from app.live import PaidCallBlocked, guard, no_image_generation
 from app.live import fal_queue
 
 log = logging.getLogger("hellgrind.live.fal_qwen")
@@ -89,6 +89,7 @@ def keyframe_image(prompt: str, seed: int, project_id: str | None = None, width:
                    height: int | None = None, negative: str = "") -> GenResult:
     """Metinden kare (storyboard ilk karesi ya da varlık referansı). Çağıran `cost("qwen_image", w, h)` kadar
     rezervasyon almış olmalı."""
+    no_image_generation("kare")
     guard("fal_key")
     endpoint, args = qwen_image_body(prompt, seed, width, height, negative)
     return _image(endpoint, args, project_id, "qwen_image")
@@ -99,6 +100,7 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
                         noted: dict | None = None) -> GenResult:
     """runpod_h3.edit_keyframe_image ile aynı arayüz: references [{"name", "key"}] (image 1..3), mode full | medium |
     lightning, angles {"lora", "strength"}. Görseller fal deposuna SHA önbellekli yüklenir."""
+    no_image_generation("kare")
     guard("fal_key")
     if not references:
         raise PaidCallBlocked("Qwen-Image-Edit karesi için karakterin onaylı referans görseli yok.")

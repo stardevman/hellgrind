@@ -918,6 +918,8 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
 
 
 def _image(job: vast_h3.Job, project_id: str | None, noted: dict | None = None) -> GenResult:
+    from app.live import no_image_generation
+    no_image_generation("kare")
     key = guard(KEY)
     preflight(key)
     kind, jkey = job.task, job.key()

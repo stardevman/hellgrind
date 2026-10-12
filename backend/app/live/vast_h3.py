@@ -816,6 +816,8 @@ class H3Provider:
 def keyframe_image(prompt: str, seed: int, project_id: str | None = None) -> GenResult:
     """Storyboard ilk karesi, H3 makinesindeki ComfyUI görsel iş akışıyla (keyframe.json). Bu kare H3 çıktısı değildir:
     iş akışındaki görsel modelin çıktısıdır. Çağıran `pricing.estimate_keyframe()` kadar rezervasyon almış olmalı."""
+    from app.live import no_image_generation
+    no_image_generation("kare")
     guard(KEY)
     token = optional("h3_api_key")
     width, height = SIZES["720p"]

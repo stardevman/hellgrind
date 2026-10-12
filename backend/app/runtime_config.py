@@ -129,6 +129,12 @@ FIELDS: tuple[Field, ...] = (
           "varsayılan false)", ("false", "true")),
     Field("FAL_FLUX_ENDPOINT", "fal_flux_endpoint", "model", "fal", "İlk kare ve storyboard (Flux LoRA)", url="https://fal.ai/models/{}"),
     Field("FAL_WAN_ENDPOINT", "fal_wan_endpoint", "model", "fal", "Video: Wan 2.2 (yalnızca eski çekimler)", url="https://fal.ai/models/{}"),
+    Field("VIDEO_INPUT_MODE", "video_input_mode", "choice", "fal",
+          "Video girdisi: reference (yalnızca onaylı referans görselleri + senaryo; hiçbir kare ya da görsel üretilmez) ya da "
+          "keyframe (storyboard karesinden; Qwen)", ("reference", "keyframe")),
+    Field("SCENE_RENDER_MODE", "scene_render_mode", "choice", "fal",
+          "Sahne üretimi: whole_scene (bütün çekimler tek istekte; H3 Max 15 sn, Seedance 2.5 30 sn sınırında parçalara "
+          "bölünür) ya da per_shot (her çekim ayrı istek)", ("whole_scene", "per_shot")),
     Field("VIDEO_DRAFT_ENGINE", "video_draft_engine", "choice", "fal",
           "Taslak video motoru (yeni çekimler; proje ayarı önce gelir)", ("h3max", "seedance25", "seedance", "h3")),
     Field("VIDEO_FINAL_ENGINE", "video_final_engine", "choice", "fal",

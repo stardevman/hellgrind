@@ -204,16 +204,61 @@ def rank_score(composite: float | None, arrival: dict | None) -> float:
     return round(base * (1 - ARRIVAL_WEIGHT) + float(arrival["score"]) * ARRIVAL_WEIGHT, 4)
 
 
-def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
+VIDEO_STEP_S = 0.5             # referans modunun video kapıları: her 0,5 saniyede bir örnek kare
+VIDEO_MAX_FRAMES = 40          # en çok bu kadar örnek (30 sn'lik Seedance klibinde 1,5 sn'de bir)
+
+
+def video_gates(path: str, target, cfg: dict, scales: list | None, anomalies: list) -> dict:
+    """Kare kapılarının yerine videonun kendisi (referans modu): örnek karelerde kimlik (insan SFace, diğerleri
+    OpenCLIP; scorer.score_images), kopya karakter sayımı (face_counts, score_video'da) ve ölçek (gerçek boyutu yazılı
+    karakterin boyu / insan yüz boyu; scale_expectations). Ölçek en az DUPLICATE_FRAMES örnekte aşılırsa klip elenir."""
+    from app.quality import scorer
+    frames = scorer.frames_every(path, VIDEO_STEP_S, VIDEO_MAX_FRAMES)
+    out = {"step": VIDEO_STEP_S, "frames": len(frames)}
+    if not frames:
+        return out
+    measured = scorer.score_images([im for _, im in frames], target or scorer.Target())
+    out["identity"] = {k: v for k, v in (measured.detail or {}).items() if k in ("identity", "look", "look_dino",
+                                                                                   "faces_seen", "face_instances")}
+    out["alignment"] = (measured.detail or {}).get("alignment")
+    sizes = {}
+    for expect in scales or []:
+        ratios = [(at, scorer.size_ratio_image(im, target or scorer.Target(), expect["name"])) for at, im in frames]
+        ratios = [(at, r) for at, r in ratios if r is not None]
+        if not ratios:
+            continue
+        over = [at for at, r in ratios if r > expect["max_faces"]]
+        sizes[expect["name"]] = {"max": expect["max_faces"], "measured": len(ratios), "over": over,
+                                 "peak": round(max(r for _, r in ratios), 2), "ok": len(over) < DUPLICATE_FRAMES}
+    if sizes:
+        out["scale"] = sizes
+        bad = [n for n, v in sizes.items() if not v["ok"]]
+        if bad:
+            anomalies.append({"type": "scale_mismatch", "characters": bad,
+                              "seconds": sorted({at for n in bad for at in sizes[n]["over"]})})
+    out["measured"] = measured
+    return out
+
+
+def score_video(path: str, seed: int, cfg: dict, target=None, video_gates_on: bool = False,
+                scales: list | None = None) -> Score:
     """target: scorer.Target (stil metni, çekim tarifi, karakter referansları); yalnızca gerçek skorda kullanılır.
     FL2VA last_frame (target.next_frame): klibin son karesi hedefe (K(n+1) ya da Kn_end) ne kadar vardı: varış skoru =
     DINOv2 tam kare benzerliği + son karedeki kimlik/benzerlik. Kaydedilir, sıralamaya girer; sonraki çekime devam eden
-    (continuous) klipte transition_threshold'un altı elenir, varış eşiğinin altı "inceleme önerilir"."""
+    (continuous) klipte transition_threshold'un altı elenir, varış eşiğinin altı "inceleme önerilir".
+    video_gates_on: referans modu (kare yok): kimlik ve ölçek 0,5 sn'de bir örnek karede (video_gates); scales: ölçek
+    beklentileri (storyboard.scale_expectations). Sonuç detail.video_gates'te (klip başına, denetçide)."""
     anomalies = detect_anomalies(path)
     measured = None
-    if scorer_mode() == "real":
+    gates = None
+    if scorer_mode() == "real" and video_gates_on:      # referans modu: kimlik ve ölçek 0,5 sn'de bir örnekte
+        gates = video_gates(path, target, cfg, scales, anomalies)
+        measured = gates.pop("measured", None)
+    elif scorer_mode() == "real":
         from app.quality import scorer
         measured = scorer.score_video(path, target or scorer.Target())
+    if scorer_mode() == "real":
+        from app.quality import scorer
         if measured is not None and getattr(target, "next_frame", None):
             arrival = scorer.arrival(path, target.next_frame, target)
             if arrival is not None:
@@ -244,6 +289,12 @@ def score_video(path: str, seed: int, cfg: dict, target=None) -> Score:
         if motion is not None:
             measured.detail["camera_motion"] = motion
     score = _judge(measured, seed, anomalies, cfg, target, check_identity=True)
+    if video_gates_on:                                   # klip başına kapı sonuçları (denetçide görünür)
+        summary = gates or {"step": VIDEO_STEP_S, "scorer": "dry"}
+        summary = {**summary, "face_counts": (score.detail or {}).get("face_counts"),
+                   "passed": score.passed, "anomalies": sorted({a["type"] for a in score.anomalies})}
+        score = Score(score.clip, score.face, score.composite, score.anomalies, score.passed,
+                      {**score.detail, "video_gates": summary})
     motion = score.detail.get("camera_motion") or {}
     if score.passed and motion.get("seen") is False:
         score = Score(score.clip, score.face, score.composite, score.anomalies, score.passed,

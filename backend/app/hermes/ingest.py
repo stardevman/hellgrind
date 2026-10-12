@@ -16,7 +16,7 @@ import uuid
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.config import settings
+from app.config import project_settings, settings
 from app.core.chain import sync_seams
 from app.core.hashing import stable_hash
 from app.db import session_scope
@@ -108,6 +108,9 @@ def _board_approval_default(s, project) -> None:
     raw = dict(project.settings or {})
     if "require_board_approval" in raw or settings.dry_run or not chain_enabled():
         return
+    from app.engine import fal_plan, scene_parts
+    if scene_parts.reference_mode() and fal_plan.is_fal(fal_plan.draft_engine(project_settings(raw))):
+        return                                  # referans modu: kare yok; onay planın kendisidir (require_plan_approval)
     chained = s.scalar(select(Scene.id).where(Scene.project_id == project.id,
                                               Scene.transition_auto.in_(("continuous", "cut"))).limit(1))
     if chained is not None:

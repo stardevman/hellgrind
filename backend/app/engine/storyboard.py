@@ -932,7 +932,10 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
     explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; ücretli kare yeni
     seed'lerle yeniden çizilir.
     Anahtar kare zinciri (core/chain.py): bir sekansın kareleri tek kilitle sırayla çizilir; çekim zincirdeyse (geçişi
-    continuous ya da cut) önceki kareler eksik ya da eskiyse önce onlar çizilir (K(n-1) çizilmeden Kn çizilmez)."""
+    continuous ya da cut) önceki kareler eksik ya da eskiyse önce onlar çizilir (K(n-1) çizilmeden Kn çizilmez).
+    Referans modunda (VIDEO_INPUT_MODE=reference, fal.ai motoru) hiçbir kare çizilmez."""
+    if reference_skip(scene_id):
+        return "skip (referans modu: kare çizilmez)"
     from app.core.chain import ancestors, parent_of
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
@@ -1272,11 +1275,21 @@ def end_usable(scene, fp: str) -> bool:
     return end_fresh(scene, fp) and not (scene.end_board_note or "").startswith(END_FAIL)
 
 
+def reference_skip(scene_id: str) -> bool:
+    """Referans modu: fal.ai motorlu çekimde storyboard, zincir ve son kare çizilmez (görsel üretimi yok)."""
+    from app.engine.scene_parts import active
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        return scene is not None and active(scene.engine)
+
+
 def make_end_board(project_id: str, scene_id: str, redraw: bool = False) -> str | None:
     """Kn_end: Kn'den Qwen-Image-Edit Lightning ile, çekimin kendi eylemi tamamlanmış hâli (ör. SH05: Bolt'un gözleri
     yanmış). Kimlik ve değişmez kapılarından (benzerlik) ve Kn ile süreklilikten geçer; geçemezse video son karesiz
     üretilir (not düşülür). Ücretsiz modda yerel kare, Lightning fiyatıyla sanal. Değişirse çekimin klipleri "eski kareden"
     işaretlenir."""
+    if reference_skip(scene_id):
+        return None
     import time
     from app.core.h3mode import edit_references, strict_refs
     from app.engine.iteration import compose_for_scene

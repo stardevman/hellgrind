@@ -47,7 +47,7 @@ from app.budget import history, pricing
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.engine.providers import GenRequest, GenResult, TransientError
-from app.live import PaidCallBlocked, guard
+from app.live import PaidCallBlocked, guard, no_image_generation
 
 log = logging.getLogger("hellgrind.live.fal")
 
@@ -219,6 +219,7 @@ def reference_url(client, key: str) -> str:
 def _frame(client, prompt: str, seed: int, loras=None, triggers=None, reference: dict | None = None,
            image_size: str = "landscape_16_9") -> tuple[dict, str]:
     """Tek kare isteği: karakter referansı varsa Kontext (görselden), yoksa Flux LoRA (metinden)."""
+    no_image_generation("kare")
     if reference:
         image_url = reference_url(client, reference["key"])
         return _run(client, settings.fal_kontext_endpoint, kontext_arguments(prompt, image_url, seed, reference["name"]))

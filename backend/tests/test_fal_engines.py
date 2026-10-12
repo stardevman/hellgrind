@@ -29,10 +29,13 @@ URLS = REQUESTS["seedance25_reference"]["body"]["image_urls"]
 
 @pytest.fixture
 def fal_defaults(monkeypatch):
-    """Uygulamanın gerçek varsayılanları: taslak H3 Max, final Seedance 2.5, kareler fal.ai'de, RunPod kapalı
-    (conftest eski testler için H3/RunPod'u sabitler)."""
+    """fal.ai motorlarının varsayılanları (taslak H3 Max, final Seedance 2.5, kareler fal.ai'de, RunPod kapalı), ama
+    kare yolu: VIDEO_INPUT_MODE=keyframe, SCENE_RENDER_MODE=per_shot (bu dosya o yolu sınar; referans modu ve tüm sahne
+    tests/test_reference_mode.py'de). conftest eski testler için H3/RunPod'u sabitler."""
     for name in ("h3_platform", "keyframe_platform", "video_draft_engine", "video_final_engine"):
         monkeypatch.setattr(settings, name, type(settings).model_fields[name].default)
+    monkeypatch.setattr(settings, "video_input_mode", "keyframe")
+    monkeypatch.setattr(settings, "scene_render_mode", "per_shot")
 
 
 # ---------- referanslar, istem ve gövde (veritabanı yok) ----------
@@ -471,14 +474,14 @@ def test_dry_run_returns_the_full_body_without_calling_fal_or_queueing(fal_defau
     assert [x["token"] for x in plan["references"]] == [f"Image {i}" for i in range(1, len(urls) + 1)]
     assert all(len(u["sha256"]) == 64 and u["upload"].startswith("yüklenmedi") for u in plan["uploads"])
     assert plan["cost"]["usd"] > 0 and plan["upgrade"]["engine"] == "seedance25"
-    assert plan["upgrade"]["endpoint"] == "bytedance/seedance-2.5/reference-to-video"
+    assert plan["upgrade"]["available"] is False and "taslak" in plan["upgrade"]["reason"]   # önce taslak üretilmeli
     with session_scope() as s:
         events = s.execute(text("SELECT COUNT(*) FROM curation_events WHERE scene_id = :s"), {"s": sid}).scalar()
     assert events == 0                                                    # kuru çalıştırma karar değildir
     whole = api.get(f"/api/projects/{pid}/render-plan?dry_run=true").json()
     assert len(whole["scenes"]) == 4 and whole["total_usd"] == pytest.approx(
         sum(x["cost"]["reserve_usd"] for x in whole["scenes"]), abs=1e-3)
-    assert whole["upgrade_total_usd"] > whole["total_usd"] and whole["engines"] == {"draft": "h3max", "final": "seedance25"}
+    assert whole["engines"] == {"draft": "h3max", "final": "seedance25"} and whole["requests"] == 4
 
 
 def test_an_approved_board_switches_the_dry_run_to_image_to_video_with_an_end_frame_field(fal_defaults, mk_project,

@@ -913,6 +913,41 @@ def size_ratio(path: str, target: Target, name: str) -> float | None:
     return (box["box"][3] - box["box"][1]) / max(1.0, face_h)
 
 
+def frames_every(path: str, step: float = 0.5, limit: int = 40) -> list[tuple[float, Image.Image]]:
+    """[(saniye, kare)] videonun her `step` saniyesinde (en çok `limit`; uzun klipte aralık genişler), tam çözünürlükte."""
+    from app.quality.anomaly import probe_duration
+    duration = probe_duration(path) or 0.0
+    if not duration:
+        return []
+    step = max(step, duration / max(1, limit))
+    out = []
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        at = step / 2
+        while at < duration and len(out) < limit:
+            frame = os.path.join(tmp, f"{len(out)}.png")
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{at:.3f}", "-i", path, "-frames:v", "1", frame],
+                           capture_output=True)
+            if os.path.exists(frame):
+                with Image.open(frame) as im:
+                    out.append((round(at, 2), im.convert("RGB")))
+            at += step
+    return out
+
+
+def size_ratio_image(image: Image.Image, target: Target, name: str) -> float | None:
+    """size_ratio'nun bellekteki kare için karşılığı (video kapıları)."""
+    keys = dict(target.looks).get(name)
+    if not keys:
+        return None
+    m = models()
+    faces = face_boxes(m, image)
+    box = mask_box(patch_mask(m, image, keys[0], short=448), *image.size)
+    if not faces or box is None:
+        return None
+    return (box["box"][3] - box["box"][1]) / max(1.0, max(f[3] for f in faces))
+
+
 COUNT_STEP_S = 0.5             # videoda örnek sayımı: her 0,5 saniyede bir kare
 
 
