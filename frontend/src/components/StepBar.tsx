@@ -1,9 +1,9 @@
 "use client";
-/* Alt çubuk: sekiz sayfa, üretim sırasını izleyen dört adım altında gruplanır (Hazırlık, Onay, Üretim, Bitirme). Her
-   adımın başlığında durum noktası; sağda "Sıradaki" bağlantısı ilk eksik işe götürür. Shift+1…8 sayfalar arasında geçer. */
+/* Alt ray: yalnızca dört üretim adımı (numara, ad, durum noktası) ve sağda "Sıradaki" bağlantısı; 30 px. Adımın sayfaları
+   ve eksik işleri çalışma alanının üstündeki şeritte (StepHeader) durur. Shift+1…8 sayfalar arasında geçer. */
 import { useMemo } from "react";
-import { NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
-import { nextTodo, STEPS, stepReadiness, type StepStatus } from "@/lib/steps";
+import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
+import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, type StepStatus } from "@/lib/steps";
 import { Icon } from "./icons";
 
 export const PAGE_LABEL: Record<Page, string> = {
@@ -20,59 +20,27 @@ function stepTitle(st: StepStatus, hint: string): string {
 }
 
 export function StepBar({ hasShots }: { hasShots: boolean }) {
-  const { page, setPage, ov, advanced } = usePanel();
+  const { page, setPage, ov } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);
   const next = nextTodo(status);
-  const scenes = ov?.scenes ?? [];
-  const c = ov?.project.asset_counts ?? {};
-  const assetsTotal = Object.values(c).reduce((x, y) => x + y, 0);
-  const blocked = scenes.filter((s) => s.status === "blocked").length;
-  const jumps = ov?.project.continuity?.pairs.filter((x) => x.jump).length ?? 0;
-  const badge: Partial<Record<Page, { text: string; tone?: string; title: string }>> = {};
-  if (ov?.project.style_version) badge.style = { text: `s${ov.project.style_version}`, title: `Etkin stil sürümü ${ov.project.style_version}` };
-  if (assetsTotal) badge.assets = { text: `${c.locked || 0}/${assetsTotal}`, tone: c.locked === assetsTotal ? "ok" : blocked ? "bad" : "", title: "Kilitli varlıklar" };
-  if (scenes.length) {
-    const approved = scenes.filter((s) => s.board_status === "approved").length;
-    badge.board = { text: `${approved}/${scenes.length}`, tone: approved === scenes.length ? "ok" : "", title: "Onaylı storyboard kareleri" };
-    const done = scenes.filter((s) => s.status === "done").length;
-    badge.edit = blocked ? { text: String(blocked), tone: "bad", title: `${blocked} çekim engelli` }
-      : { text: `${done}/${scenes.length}`, tone: done === scenes.length ? "ok" : "", title: "Hazır çekimler" };
-  }
-  if (jumps) badge.color = { text: String(jumps), tone: "bad", title: `${jumps} renk sıçraması` };
-  if (ov?.timeline) badge.deliver = { text: "film", tone: "ok", title: "Birleştirilmiş film hazır" };
-
+  const current = isExtraPage(page) ? null : stepOf(page).id;
   return (
     <nav className="stepbar" aria-label="Üretim adımları" data-tour="steps">
       <ol className="stp-list">
         {STEPS.map((s, i) => {
           const st = status[i];
-          const active = (s.pages as readonly string[]).includes(page);
+          const first = s.pages.find((x) => !NEEDS_SHOTS.has(x) || hasShots) ?? s.pages[0];
           return (
-            <li key={s.id} className={`stp ${st.state}${active ? " on" : ""}`} title={stepTitle(st, s.hint)}>
-              <div className="stp-h">
-                <span className="stp-n">{i + 1}</span>
-                <span className="stp-l">{s.label}</span>
-                <span className={`stp-dot ${st.state}`} aria-label={STATE_TR[st.state]} />
-              </div>
-              <div className="stp-pages">
-                {s.pages.map((x) => {
-                  if (!advanced && ADVANCED_PAGES.has(x)) return null;
-                  const Ico = Icon[x];
-                  const b = badge[x];
-                  const k = PAGES.indexOf(x) + 1;
-                  return (
-                    <button key={x} type="button" aria-current={page === x ? "page" : undefined} disabled={NEEDS_SHOTS.has(x) && !hasShots}
-                      title={`${PAGE_LABEL[x]} (Shift+${k})`} onClick={() => setPage(x)} data-tour={`page-${x}`}>
-                      <Ico />{PAGE_LABEL[x]}
-                      {b && <span className={`badge ${b.tone || ""}`} title={b.title}>{b.text}</span>}
-                    </button>
-                  );
-                })}
-              </div>
+            <li key={s.id} className={`stp ${st.state}${current === s.id ? " on" : ""}`}>
+              <button type="button" aria-current={current === s.id ? "step" : undefined} disabled={NEEDS_SHOTS.has(first) && !hasShots}
+                title={stepTitle(st, s.hint)} onClick={() => setPage(first)}>
+                <span className="stp-n">{i + 1}</span><span className="stp-l">{s.label}</span><span className={`stp-dot ${st.state}`} aria-label={STATE_TR[st.state]} />
+              </button>
             </li>
           );
         })}
       </ol>
+      <span className="grow" />
       <div className="nextup" aria-live="polite">
         {next ? (
           <button type="button" className={`nx ${next.todo.tone || ""}`} onClick={() => setPage(next.todo.page)}
@@ -82,5 +50,43 @@ export function StepBar({ hasShots }: { hasShots: boolean }) {
         ) : ov ? <span className="nx done"><Icon.check />Tüm adımlar tamamlandı</span> : null}
       </div>
     </nav>
+  );
+}
+
+/** Çalışma alanının üstündeki şerit: adımın adı, sayfaları (sekme) ve bu adımın eksik işleri (tıklanınca ilgili sayfa). */
+export function StepHeader({ hasShots }: { hasShots: boolean }) {
+  const { page, setPage, ov, advanced } = usePanel();
+  const status = useMemo(() => stepReadiness(ov), [ov]);
+  const badge = useMemo(() => pageBadges(ov), [ov]);
+  if (isExtraPage(page)) return null;
+  const step = stepOf(page);
+  const i = STEPS.indexOf(step);
+  const st = status[i];
+  return (
+    <div className="stephead" data-tour="stephead">
+      <span className="sh-step"><span className="stp-n">{i + 1}</span>{step.label}</span>
+      <div className="sh-tabs" role="tablist" aria-label={`${step.label} sayfaları`}>
+        {step.pages.map((x) => {
+          if (!advanced && ADVANCED_PAGES.has(x)) return null;
+          const Ico = Icon[x];
+          const b = badge[x];
+          return (
+            <button key={x} type="button" role="tab" aria-selected={page === x} disabled={NEEDS_SHOTS.has(x) && !hasShots}
+              title={`${PAGE_LABEL[x]} (Shift+${PAGES.indexOf(x) + 1})`} onClick={() => setPage(x)}>
+              <Ico />{PAGE_LABEL[x]}{b && <span className={`badge ${b.tone || ""}`} title={b.title}>{b.text}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <span className="grow" />
+      <div className="sh-todos" aria-label="Bu adımda eksikler">
+        {st.state === "done" && ov ? <span className="todo ok"><Icon.check />Bu adım tamam</span>
+          : st.todos.map((t) => (
+            <button key={t.text} type="button" className={`todo ${t.tone || ""}`} onClick={() => setPage(t.page)} title={`${PAGE_LABEL[t.page]} sayfasına git`}>
+              {t.text}
+            </button>
+          ))}
+      </div>
+    </div>
   );
 }

@@ -16,7 +16,7 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { StepBar } from "./StepBar";
+import { StepBar, StepHeader } from "./StepBar";
 import { StylePage } from "./StylePage";
 import { Tour } from "./Tour";
 import { shortcutTarget } from "./ui";
@@ -26,23 +26,49 @@ const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
 };
 
-function Budget() {
-  const { ov } = usePanel();
+function BudgetChip() {
+  const { ov, meta } = usePanel();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
   if (!ov) return null;
   const p = ov.project, limit = p.budget_limit_usd || 1;
   const left = Math.max(0, limit - p.spent_usd - p.reserved_usd);
   const pct = (x: number) => `${Math.min(100, (x / limit) * 100).toFixed(2)}%`;
+  const used = Math.round(((p.spent_usd + p.reserved_usd) / limit) * 100);
   return (
-    <div className="budget" aria-label="Bütçe" data-tour="budget">
-      <div className="meter" role="img" aria-label={`Bütçenin yüzde ${Math.round((p.spent_usd / limit) * 100)} kadarı harcandı`}>
-        <i className="spent" style={{ width: pct(p.spent_usd) }} />
-        <i className="reserved" style={{ left: pct(p.spent_usd), width: pct(p.reserved_usd) }} />
-        <i className="soft" style={{ left: `${(p.settings.soft_budget_ratio * 100).toFixed(1)}%` }} title="Yumuşak limit" />
-      </div>
-      <div className="fig"><b>{usd(p.spent_usd)}</b><span>harcanan{p.dry_run ? " (sanal)" : ""}</span></div>
-      <div className="fig opt"><b>{usd(p.reserved_usd)}</b><span>ayrılan</span></div>
-      <div className="fig opt"><b>{usd(left)}</b><span>kalan</span></div>
-      <div className="fig"><b>{usd(p.budget_limit_usd)}</b><span>limit</span></div>
+    <div className="budget-wrap" ref={box} data-tour="budget">
+      <button type="button" className={`budget-chip${p.soft_limited ? " soft" : ""}${p.frozen ? " frozen" : ""}`} aria-haspopup="dialog" aria-expanded={open}
+        onClick={() => setOpen((v) => !v)} title={`Bütçenin yüzde ${used} kadarı harcandı ya da ayrıldı${p.dry_run ? " (sanal)" : ""}`}>
+        <span className="meter" role="img" aria-label={`Bütçenin yüzde ${used} kadarı kullanıldı`}>
+          <i className="spent" style={{ width: pct(p.spent_usd) }} />
+          <i className="reserved" style={{ left: pct(p.spent_usd), width: pct(p.reserved_usd) }} />
+          <i className="soft" style={{ left: `${(p.settings.soft_budget_ratio * 100).toFixed(1)}%` }} />
+        </span>
+        <span className="mono"><b>{usd(p.spent_usd)}</b> / {usd(p.budget_limit_usd)}</span>
+      </button>
+      {open && (
+        <div className="menu budget-pop" role="dialog" aria-label="Bütçe">
+          <dl className="kv">
+            <dt>Harcanan</dt><dd className="mono">{usd(p.spent_usd)}{p.dry_run ? " (sanal)" : ""}</dd>
+            <dt>Ayrılan</dt><dd className="mono">{usd(p.reserved_usd)}</dd>
+            <dt>Kalan</dt><dd className="mono">{usd(left)}</dd>
+            <dt>Limit</dt><dd className="mono">{usd(p.budget_limit_usd)}</dd>
+            <dt>Yumuşak sınır</dt><dd className="mono">{usd(limit * p.settings.soft_budget_ratio)}</dd>
+          </dl>
+          <p className="faint small mt8">
+            {meta?.dry_run === false ? "Ücretli mod: gerçek harcama; limitte üretim durur." : "Ücretsiz mod: harcama sanaldır, gerçek sağlayıcı fiyatlarıyla hesaplanır."}
+            {" "}Yumuşak sınırdan sonra yeni tam dalga başlamaz.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -116,6 +142,7 @@ function TopBar() {
             {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
           </span>
         )}
+        <BudgetChip />
         <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
           title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
           onClick={() => setPage("settings")}>
@@ -141,7 +168,6 @@ function TopBar() {
           </button>
         )}
       </div>
-      {ov && <Budget />}
     </header>
   );
 }
@@ -191,6 +217,7 @@ export function AppFrame() {
     <div className="app">
       <TopBar />
       <Alerts />
+      <StepHeader hasShots={hasShots} />
       <main className="workspace">
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}

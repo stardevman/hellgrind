@@ -80,3 +80,27 @@ export function nextTodo(status: StepStatus[]): { step: Step; todo: Todo } | nul
   }
   return null;
 }
+
+export interface PageBadge { text: string; tone?: "ok" | "bad" | ""; title: string }
+/** Sayfa düğmelerindeki rozetler: kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk sıçraması, film. */
+export function pageBadges(ov: Overview | undefined): Partial<Record<StepPage, PageBadge>> {
+  const badge: Partial<Record<StepPage, PageBadge>> = {};
+  if (!ov) return badge;
+  const scenes = ov.scenes;
+  const c = ov.project.asset_counts ?? {};
+  const assetsTotal = Object.values(c).reduce((x, y) => x + y, 0);
+  const blocked = scenes.filter((s) => s.status === "blocked").length;
+  const jumps = ov.project.continuity?.pairs.filter((x) => x.jump).length ?? 0;
+  if (ov.project.style_version) badge.style = { text: `s${ov.project.style_version}`, title: `Etkin stil sürümü ${ov.project.style_version}` };
+  if (assetsTotal) badge.assets = { text: `${c.locked || 0}/${assetsTotal}`, tone: c.locked === assetsTotal ? "ok" : blocked ? "bad" : "", title: "Kilitli varlıklar" };
+  if (scenes.length) {
+    const approved = scenes.filter((s) => s.board_status === "approved").length;
+    badge.board = { text: `${approved}/${scenes.length}`, tone: approved === scenes.length ? "ok" : "", title: "Onaylı storyboard kareleri" };
+    const done = scenes.filter((s) => s.status === "done").length;
+    badge.edit = blocked ? { text: String(blocked), tone: "bad", title: `${blocked} çekim engelli` }
+      : { text: `${done}/${scenes.length}`, tone: done === scenes.length ? "ok" : "", title: "Hazır çekimler" };
+  }
+  if (jumps) badge.color = { text: String(jumps), tone: "bad", title: `${jumps} renk sıçraması` };
+  if (ov.timeline) badge.deliver = { text: "film", tone: "ok", title: "Birleştirilmiş film hazır" };
+  return badge;
+}

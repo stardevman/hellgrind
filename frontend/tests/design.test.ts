@@ -44,7 +44,7 @@ describe("design contract", () => {
   });
 
   it("styles the step bar, the next-up link, the view-mode switch and the tour", () => {
-    for (const sel of [".stepbar", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-advanced="0"] .adv', ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-advanced="0"] .adv', ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
   });
 });
 

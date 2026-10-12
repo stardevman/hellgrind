@@ -257,7 +257,9 @@ geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşın
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Sekiz sayfa dört **adım** altında gruplanır (Hazırlık: Senaryo,
 Stil, Varlıklar; Onay: Storyboard; Üretim: Kurgu, Karşılaştır; Bitirme: Renk, Teslim; `lib/steps.ts`): her adımın durumu ve
-eksikleri overview'dan hesaplanır, çubuğun sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Üst bantta **Basit /
+eksikleri overview'dan hesaplanır. Altta yalnızca adımları taşıyan 30 px'lik ray ve **Sıradaki** bağlantısı; çalışma
+alanının üstündeki şeritte (StepHeader) adımın sayfa sekmeleri ve tıklanabilir eksikler. Üst bant tek satırdır; bütçe rayı
+açılır pencereli bir çipe indirildi. Üst bantta **Basit /
 Gelişmiş** görünüm anahtarı (basit görünümde yalnızca ana eylemler; motor ve plan ayrıntıları, tamamlama ve upscale, elle
 düzeltme ve Karşılaştır sayfası gelişmişte) ve **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
 bağlı tur (`lib/tour.ts`, `components/Tour.tsx`). Denetçi üç sekmedir: Çekim, Ses, Üretim. İşlevler ve metinler aşağıdaki

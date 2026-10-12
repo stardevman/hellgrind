@@ -62,8 +62,10 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 
 ## Kullanım
 
-Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte proje, sanal bütçe ve **Üretimi durdur** (Kill-Switch); altta, üretim
-sırasını izleyen dört **adım** ve her adımın sayfaları (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>):
+Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte tek satırda proje, bütçe göstergesi (tıklayınca harcanan, ayrılan,
+kalan ve yumuşak sınır), görünüm anahtarı, **Rehber** ve **Üretimi durdur** (Kill-Switch); altta üretim sırasını izleyen dört
+**adımı** taşıyan ince bir ray; çalışma alanının üstündeki şeritte bulunulan adımın sayfaları
+(<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>) ve o adımda eksik olanlar:
 
 | Adım | Sayfalar | Bir sonraki adıma geçmek için |
 | --- | --- | --- |
@@ -72,9 +74,10 @@ sırasını izleyen dört **adım** ve her adımın sayfaları (<kbd>Shift</kbd>
 | 3 Üretim | Kurgu, Karşılaştır | engelli, plan onayı ya da inceleme bekleyen çekim yok, hepsi hazır |
 | 4 Bitirme | Renk, Teslim | renk sıçraması kalmamış, film birleştirilmiş |
 
-Her adımın başlığındaki nokta durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli); üzerine gelince eksikler
-listelenir. Çubuğun sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Sayfa düğmelerindeki rozetler durumu özetler
-(kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk sıçraması, film).
+Raydaki her adımın noktası durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli); rayın sağındaki **Sıradaki**
+bağlantısı ilk eksik işe götürür. Şeritteki eksikler tıklanınca onları çözecek sayfa açılır; adım tamamlanınca "Bu adım
+tamam" görünür. Sayfa sekmelerindeki rozetler durumu özetler (kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk
+sıçraması, film).
 
 Üst banttaki **Basit / Gelişmiş** anahtarı görünümü seçer: basit görünümde yalnızca ana eylemler kalır; motor ve plan
 ayrıntıları, Seedance tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası Gelişmiş görünümde açılır (tarayıcıda
