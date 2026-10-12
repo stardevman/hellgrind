@@ -434,7 +434,7 @@ def write_prompt(project_id: str, scene_id: str, force: bool = False):
     try:
         w = prompt_writer.write(project_id, inp, force=force)
     except Exception as e:                              # noqa: BLE001 — kurallar istemiyle kalır, iz olay olarak
-        killswitch.event(project_id, "prompt_write_failed", part=codes, error=f"{type(e).__name__}: {str(e)[:200]}")
+        killswitch.event(project_id, "prompt_write_failed", part=codes, error=prompt_writer.full_error(e))
         return {"ok": False}
     finally:
         killswitch.r().delete(prompt_writer.WRITING.format(ih))

@@ -51,6 +51,7 @@ ACTIONS_TR = {
     "generation_adopt": "Bütün sahne tek üretime geçirildi", "scene_engine": "Sahnenin motoru değişti (yeniden üretim)",
     "shot_engine": "Çekim ayrı üretildi (sahne içi model değişimi)",
     "prompt_override": "Yönetmen istemi kaydedildi", "prompt_write": "Sahne istemi LLM ile yazdırıldı",
+    "prompt_rerender": "Parça yönetmen istemiyle yeniden üretildi (onaylı)",
 }
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
 QUERY_FIELDS = ("kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")

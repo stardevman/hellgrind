@@ -125,8 +125,8 @@ def _transient(exc: BaseException) -> bool:
 
 
 def make_llm(api_key: str):
-    from langchain_anthropic import ChatAnthropic            # ücretli paket: yalnızca fonksiyon içinde
-    return ChatAnthropic(model=settings.hermes_model, api_key=api_key, max_tokens=MAX_OUTPUT_TOKENS, temperature=0, max_retries=2)
+    from app.live.anthropic_client import make             # örnekleme parametresi gönderilmez
+    return make(settings.hermes_model, api_key, MAX_OUTPUT_TOKENS)
 
 
 def _ask(llm, project_id: str, prompt: str) -> SceneDraft | None:

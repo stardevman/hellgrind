@@ -50,6 +50,9 @@ def test_tts_is_billed_per_character(prices):
     assert estimate_tts("", prices) == 0 and estimate_tts(None, prices) == 0
 
 
-def test_llm_is_billed_per_token(prices):
-    assert estimate_llm(1_000_000, 0, prices) == 3.0 and estimate_llm(0, 1_000_000, prices) == 15.0
-    assert estimate_llm(2000, 1000, prices) == 0.021
+def test_llm_is_billed_per_token_at_the_models_price(prices):
+    # Hermes modeli (claude-sonnet-5-5): $2 / $10 (1M belirteç); tabloda olmayan model yedek fiyatla ($3 / $15)
+    assert estimate_llm(1_000_000, 0, prices) == 2.0 and estimate_llm(0, 1_000_000, prices) == 10.0
+    assert estimate_llm(2000, 1000, prices) == 0.014
+    assert estimate_llm(2000, 1000, prices, model="claude-opus-5-5") == 0.028
+    assert estimate_llm(1_000_000, 0, prices, model="eski-model") == 3.0

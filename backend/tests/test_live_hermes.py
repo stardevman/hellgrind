@@ -363,7 +363,20 @@ def test_the_real_chat_model_is_built_with_the_configured_model_and_key(monkeypa
     """Gerçek ChatAnthropic yalnızca kurulur (ağ çağrısı yok); paket kurulu değilse atlanır."""
     pytest.importorskip("langchain_anthropic")
     model = hermes_llm.make_llm("test-anahtar")
-    assert model.model == settings.hermes_model and model.max_tokens == hermes_llm.MAX_OUTPUT_TOKENS and model.temperature == 0
+    assert model.model == settings.hermes_model and model.max_tokens == hermes_llm.MAX_OUTPUT_TOKENS
+    # örnekleme parametreleri hiçbir modelde gönderilmez (Opus 5.5: "`temperature` is deprecated for this model")
+    assert model.temperature is None and getattr(model, "top_p", None) is None and getattr(model, "top_k", None) is None
+
+
+def test_no_anthropic_request_body_carries_sampling_parameters():
+    """İstek gövdesi ağa gitmeden kurulur: temperature, top_p, top_k yok (Hermes ve istem yazıcı, her model)."""
+    pytest.importorskip("langchain_anthropic")
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from app.live.anthropic_client import make
+    for name in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"):
+        payload = make(name, "test-anahtar", 1400)._get_request_payload([SystemMessage("s"), HumanMessage("u")])
+        assert payload["model"] == name and payload["max_tokens"] == 1400
+        assert not {"temperature", "top_p", "top_k"} & payload.keys(), payload
 
 
 # ---------- sahne bölme ----------

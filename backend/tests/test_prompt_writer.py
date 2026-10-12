@@ -96,13 +96,17 @@ def test_a_director_style_prompt_passes_and_its_faults_are_named(ref_defaults, m
     assert any("mekân bakış kuralı" in e for e in prompt_writer.validate(no_view, inp)[0])
 
 
-def test_the_example_and_system_prompt_use_the_engines_reference_format():
-    assert "@Image1" in prompt_writer.system_prompt("seedance25", True) and "[Image" not in \
-        prompt_writer.system_prompt("seedance25", True)
+def test_both_director_examples_are_given_in_the_engines_reference_format():
+    sd = prompt_writer.system_prompt("seedance25", True)
+    assert "@Image1" in sd and "[Image" not in sd and "Image 1" not in sd.replace("@Image1", "")
     h3 = prompt_writer.system_prompt("h3max", True)
-    assert "Image 1" in h3 and "@Image" not in h3 and "Shot 3 (7-10s)" in h3
-    assert "Sound:" not in prompt_writer.example("h3max", audio=False)
-    assert 1500 <= len(prompt_writer.example("h3max", True)) <= 2600            # örnek ~2.000 karakter
+    assert "Image 1" in h3 and "@Image" not in h3 and "[Image" not in h3
+    assert "Example 1 (Passport Rush" in h3 and "Example 2 (Taxi" in h3
+    assert '"Passport, please."' in h3 and "Shot 3 (5-10s), wide low tracking shot" in h3          # yönetmenin istemi
+    assert '"Please, as fast as you can!"' in h3 and "vaults straight over it into the back seat" in h3
+    assert "Sound:" in prompt_writer.example("h3max", True) and "Sound:" not in prompt_writer.example("h3max", False)
+    for name, _ in prompt_writer.EXAMPLES:
+        assert 1500 <= len(prompt_writer.example("h3max", True, name)) <= 2600             # ~2.000 karakter
 
 
 # ---------- yazım, motor biçimi, önbellek ----------
@@ -263,3 +267,111 @@ def test_a_server_approved_switch_writes_the_llm_prompt_first(ref_defaults, mk_p
     assert len(llm.calls) == 1 and "@Image1" in llm.calls[0]["system"]
     after = plan_for(ids["S001_SH01"])
     assert after["prompt_source"] == "llm" and after["approved"] and "Nora @Image1 moves" in after["body"]["prompt"]
+
+
+
+# ---------- istem yazıcı düzeltmeleri (fc12a8f sonrası) ----------
+
+@pytest.fixture
+def fake_anthropic(monkeypatch):
+    """langchain_anthropic yerine sahte modül: kurulum ve çağrı parametrelerini kaydeder (ağ yok)."""
+    import sys
+    import types
+    seen = {"init": [], "invoke": []}
+
+    class Raw:
+        content = [{"type": "text", "text": "ok"}]
+        usage_metadata = {"input_tokens": 1000, "output_tokens": 200}
+        response_metadata = {"model": "claude-opus-5-5"}
+        id = "msg_test"
+
+    class ChatAnthropic:
+        def __init__(self, **kwargs):
+            seen["init"].append(kwargs)
+
+        def invoke(self, messages, **kwargs):
+            seen["invoke"].append(kwargs)
+            return Raw()
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", types.SimpleNamespace(ChatAnthropic=ChatAnthropic))
+    return seen
+
+
+def test_no_sampling_parameters_are_sent_to_any_anthropic_model(fake_anthropic, monkeypatch, mk_project):
+    from app.live import anthropic_client, hermes_llm, prompt_llm
+    for model in ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"):
+        kwargs = anthropic_client.client_kwargs(model, "k", 1000)
+        assert not {"temperature", "top_p", "top_k"} & kwargs.keys() and kwargs["model"] == model
+    hermes_llm.make_llm("k")
+    monkeypatch.setattr(prompt_llm, "guard", lambda key: "k")               # anahtar varmış gibi; istemci sahte
+    monkeypatch.setattr(settings, "prompt_writer_model", "claude-opus-5-5")
+    answer = prompt_llm.ask(mk_project(), "system", "user")
+    assert answer["text"] == "ok" and answer["model"] == "claude-opus-5-5"
+    assert answer["usd"] == pytest.approx((1000 * 4 + 200 * 20) / 1e6)       # Opus fiyatı
+    for kwargs in fake_anthropic["init"] + fake_anthropic["invoke"]:
+        assert not {"temperature", "top_p", "top_k"} & kwargs.keys()
+    assert fake_anthropic["init"][-1]["model"] == "claude-opus-5-5"
+
+
+def test_writer_model_and_per_model_prices(monkeypatch):
+    from app.budget import pricing
+    monkeypatch.setattr(settings, "prompt_writer_model", "claude-opus-5-5")
+    assert prompt_writer.writer_model() == "claude-opus-5-5"
+    monkeypatch.setattr(settings, "prompt_writer_model", "")
+    assert prompt_writer.writer_model() == settings.hermes_model
+    assert pricing.estimate_llm(1_000_000, 1_000_000, model="claude-opus-5-5") == 24.0
+    assert pricing.estimate_llm(1_000_000, 1_000_000, model="claude-sonnet-5-5") == 12.0
+    assert pricing.estimate_llm(100_000, 1_000_000, model="claude-haiku-5-5") == pytest.approx(0.01 + 0.5)
+    assert pricing.estimate_llm(200_000, 1_000_000, model="claude-haiku-5-5") == pytest.approx(0.1 + 2.5)   # >100k
+    assert pricing.estimate_llm(1_000_000, 0, model="bilinmeyen") == 3.0                                  # yedek
+
+
+def test_the_writer_estimate_uses_the_opus_price(ref_defaults, mk_project, s3, monkeypatch):
+    monkeypatch.setattr(settings, "prompt_writer_model", "claude-opus-5-5")
+    pid, ids = nora(mk_project)
+    est = plan_for(ids["S001_SH01"])["prompt_writer"]["estimate"]
+    assert est["usd"] == pytest.approx((est["input_tokens"] * 4 + est["output_tokens"] * 20) / 1e6, abs=1e-6)
+
+
+def test_a_failed_call_is_kept_whole_and_shown_on_the_plan(ref_defaults, mk_project, s3, llm, monkeypatch):
+    import json as _json
+    from app.budget import killswitch
+    from app.worker import tasks
+    message = ("BadRequestError: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+               "'message': '`temperature` is deprecated for this model.'}} " + "x" * 300)
+    pid, ids = nora(mk_project)
+
+    def boom(*a):
+        raise RuntimeError(message)
+    monkeypatch.setattr(prompt_writer, "ASK", boom)
+    assert tasks.write_prompt(pid, ids["S001_SH01"]) == {"ok": False}
+    event = next(e for e in map(_json.loads, killswitch.r().lrange(killswitch.EVENTS.format(pid), 0, -1))
+                 if e["kind"] == "prompt_write_failed")
+    assert message in event["error"]                                          # tam mesaj (kırpılmadı)
+    plan = plan_for(ids["S001_SH01"])
+    assert plan["prompt_source"] == "rules" and plan["prompt_writer"]["llm"]["failed"] == "call"
+    warning = next(w for w in plan["warnings"] if w.startswith("LLM yazımı başarısız: "))
+    assert "`temperature` is deprecated for this model." in warning and warning.endswith("— kurallar istemi kullanıldı.")
+    monkeypatch.setattr(prompt_writer, "ASK", llm)                          # elle yeniden yazım çağrıyı tekrarlar
+    assert tasks.write_prompt(pid, ids["S001_SH01"])["ok"] is True and len(llm.calls) == 1
+    assert plan_for(ids["S001_SH01"])["prompt_source"] == "llm"
+
+
+def test_rerender_with_the_director_prompt_is_a_confirmed_whole_part_regeneration(ref_defaults, mk_project, fast,
+                                                                                  api, dispatched):
+    from app.engine.iteration import run_tiered_generation
+    pid, ids = nora(mk_project)
+    for sid in ids.values():
+        assert run_tiered_generation(pid, sid) == "refined"
+    r = api.patch(f"/api/scenes/{ids['S001_SH02']}", json={"prompt_override": "Shot 1 (0-3s): Nora [Image1] waves."})
+    assert "Bu istemle yeniden üret" in r.json()["hint"]
+    assert dispatched == []                                                   # kaydetmek üretmez
+    plan = api.post(f"/api/scenes/{ids['S001_SH02']}/prompt/rerender?dry_run=true").json()
+    assert plan["dry_run"] and plan["part"] == list(ids) and plan["source"] == "override" and plan["total_usd"] > 0
+    assert dispatched == []
+    r = api.post(f"/api/scenes/{ids['S001_SH02']}/prompt/rerender?expected_usd={plan['total_usd'] / 3:.4f}")
+    assert r.status_code == 409 and "Tahmin değişti" in r.json()["detail"]
+    r = api.post(f"/api/scenes/{ids['S001_SH02']}/prompt/rerender?expected_usd={plan['total_usd']}")
+    assert r.status_code == 200, r.text
+    assert [(sid, stages) for _, sid, stages in dispatched] and all("VISUAL" in st for _, _, st in dispatched)
+    assert dispatched[0][1] == ids["S001_SH01"]                               # parçanın ilk çekimi: bütün parça
+    assert plan_for(ids["S001_SH01"])["approved"] is True

@@ -75,7 +75,8 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
     s.commit()
     if saved is not None:
         return {"ok": True, "prompt_override": saved,
-                "hint": ("Yönetmen istemi kaydedildi: plan değişti, yeniden onaylayın. Mevcut klip yeniden üretilmedi."
+                "hint": ("Yönetmen istemi kaydedildi: plan değişti. Mevcut klip yeniden üretilmedi; bu istemle üretmek için "
+                          "\"Bu istemle yeniden üret\"."
                          if saved["override"] else "Yönetmen istemi silindi: plan otomatik isteme döndü.")}
     return {"ok": True, "hint": "Değişikliği uygulamak için sahneyi yeniden üret."}
 

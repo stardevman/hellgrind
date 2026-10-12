@@ -177,6 +177,8 @@ def prompt_write(scene_id: SceneId, force: bool = False, dry_run: bool = False, 
     if reason:
         raise HTTPException(409, reason)
     ensure_not_frozen(str(sc.project_id))
+    if meta.get("llm") and not meta["llm"].get("ok"):
+        force = True                                  # önceki yazım başarısız: elle istek yeniden yazdırır
     if meta.get("llm") and meta["llm"].get("ok") and not force:
         return {**view, "queued": False, "note": "LLM istemi zaten yazılı (yeniden yazdırmak için force=true)."}
     if usd > view["remaining_usd"]:
@@ -184,6 +186,44 @@ def prompt_write(scene_id: SceneId, force: bool = False, dry_run: bool = False, 
     queued = prompt_writer.queue(str(sc.project_id), scene_id, plan, force=force)
     return {**view, "queued": queued,
             "note": "LLM istemi yazılıyor; bitince plan güncellenir." if queued else "Bu istem zaten yazılıyor."}
+
+
+@router.post("/scenes/{scene_id}/prompt/rerender")
+@curated(lambda kw, r: None if kw.get("dry_run") else "prompt_rerender")
+def prompt_rerender(scene_id: SceneId, expected_usd: float | None = None, dry_run: bool = False,
+                    s: Session = Depends(get_session)):
+    """"Bu istemle yeniden üret": parçanın şu anki istemiyle (çoğunlukla yönetmen istemi) bütün parça yeniden üretilir.
+    Yönetmen istemini kaydetmek bitmiş çekimi kendiliğinden yeniden üretmez; bu onay ister. dry_run: parça, tahmin ve
+    kalan bütçe. Onay planı da onaylar (gösterilen istem ve tutar); tahmin yükselmişse (expected_usd) ya da bütçe
+    yetmiyorsa 409."""
+    from app.api.plan import Busy, dispatch_result
+    sc = scene_or_404(s, scene_id)
+    if not scene_parts.active(sc.engine):
+        raise HTTPException(409, "Yalnızca referans modunda (H3 Max / Seedance 2.5) kullanılır.")
+    plan = scene_parts.plan_part(s, sc)
+    total, remaining = round(float(plan.cost["reserve_usd"]), 4), remaining_budget(s, sc.project_id)
+    view = {"part": [x.scene_code for x in plan.shots], "engine": plan.engine, "source": plan.prompt_source,
+            "source_label": scene_parts.SOURCE_LABEL[plan.prompt_source], "prompt_chars": len(plan.prompt),
+            "total_usd": total, "remaining_usd": remaining, "budget_ok": total <= remaining,
+            "blocked": bool(plan.missing) or plan.lint_blocks}
+    if dry_run:
+        return {"dry_run": True, **view}
+    ensure_not_frozen(str(sc.project_id))
+    if view["blocked"]:
+        raise HTTPException(409, "Eksik ya da onaysız referans var: önce varlıkları tamamlayın.")
+    if expected_usd is not None and total > float(expected_usd) + 0.01:
+        raise HTTPException(409, f"Tahmin değişti: şimdi {_usd(total)} $ (onaylanan {_usd(float(expected_usd))} $).")
+    if total > remaining:
+        raise HTTPException(409, f"Bütçe yetmiyor: tahmini {_usd(total)} $, kalan {_usd(remaining)} $.")
+    for x in plan.shots:
+        scene_parts.approve(s, x, plan)               # onay ekranı istemi ve tutarı gösterdi
+    s.commit()
+    leader = plan.shots[0]
+    try:                                              # yeni revizyon: parçanın özeti değişir, bütün parça yeniden üretilir
+        dispatched = dispatch_result(s, leader, force_visual=True)
+    except Busy as e:
+        raise HTTPException(409, e.detail)
+    return {**view, "dispatched": {leader.scene_code: dispatched}}
 
 
 @router.get("/projects/{project_id}/render-plan")
@@ -474,7 +514,7 @@ def _llm_plan(s: Session, x):
     except Exception as e:                            # noqa: BLE001 — kurallar istemiyle devam, iz olay olarak
         from app.budget import killswitch
         killswitch.event(str(x.project_id), "prompt_write_failed", part=[y.scene_code for y in plan.shots],
-                         error=str(e)[:200])
+                         error=prompt_writer.full_error(e))
         return plan
     return scene_parts.plan_part(s, x)
 

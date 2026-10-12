@@ -101,6 +101,15 @@ image_per_image:
 lipsync_per_minute: 5.0
 # Aşağıdaki iki kalem brifingdeki fal.ai fiyatları gibi doğrulanmış DEĞİL; ücretli moda geçmeden önce kendi planına göre güncelle.
 tts_per_1k_chars: 0.30         # ElevenLabs, tahmini (plana göre değişir)
-llm_per_million_tokens:        # Claude (Hermes LLM modu), tahmini
+llm_per_million_tokens:        # Claude, tabloda olmayan model için yedek (tahmini)
   input: 3.0
   output: 15.0
+llm_models:                    # Anthropic, USD / 1M belirteç (girdi / çıktı), Ekim 2026
+  claude-opus-5-5: {input: 4.0, output: 20.0}
+  claude-sonnet-5-5: {input: 2.0, output: 10.0}
+  claude-haiku-5-5:            # istem 100k belirteci aşarsa yüksek kademe
+    input: 0.10
+    output: 0.50
+    long_threshold: 100000
+    long_input: 0.50
+    long_output: 2.50

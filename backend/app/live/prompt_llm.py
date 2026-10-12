@@ -4,7 +4,6 @@ langchain_anthropic yalnızca fonksiyon içinde yüklenir. Girdi ve doğrulama `
 import logging
 
 from app.budget import history, killswitch, pricing
-from app.config import settings
 from app.engine.providers import TransientError
 from app.live import guard
 
@@ -29,20 +28,22 @@ def _text(content) -> str:
 def ask(project_id: str, system: str, user: str) -> dict:
     """Bir yazım. {"text", "model", "input_tokens", "output_tokens", "usd"}."""
     api_key = guard("anthropic_api_key")
-    from langchain_anthropic import ChatAnthropic            # ücretli paket: yalnızca fonksiyon içinde
-    llm = ChatAnthropic(model=settings.hermes_model, api_key=api_key, max_tokens=MAX_OUTPUT_TOKENS, temperature=0.4,
-                        max_retries=2)
-    estimate = pricing.estimate_llm((len(system) + len(user)) // CHARS_PER_TOKEN, MAX_OUTPUT_TOKENS)
+    from app.engine.prompt_writer import writer_model
+    from app.live.anthropic_client import make             # örnekleme parametresi (temperature …) gönderilmez
+    model_id = writer_model()
+    llm = make(model_id, api_key, MAX_OUTPUT_TOKENS)
+    estimate = pricing.estimate_llm((len(system) + len(user)) // CHARS_PER_TOKEN, MAX_OUTPUT_TOKENS, model=model_id)
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             with killswitch.spend(project_id, estimate, "anthropic") as charge:
                 raw = llm.invoke([("system", system), ("human", user)])
                 usage = getattr(raw, "usage_metadata", None) or {}
                 meta = getattr(raw, "response_metadata", None) or {}
-                model = meta.get("model_name") or meta.get("model") or settings.hermes_model
+                model = meta.get("model_name") or meta.get("model") or model_id
                 history.step(model, getattr(raw, "id", None) or meta.get("id"), input_tokens=usage.get("input_tokens"),
                              output_tokens=usage.get("output_tokens"), purpose="scene_prompt")
-                usd = (pricing.estimate_llm(usage["input_tokens"], usage["output_tokens"]) if usage else estimate)
+                usd = (pricing.estimate_llm(usage["input_tokens"], usage["output_tokens"], model=model_id)
+                       if usage else estimate)
                 charge.actual = usd
             return {"text": _text(raw.content), "model": model, "input_tokens": usage.get("input_tokens") or 0,
                     "output_tokens": usage.get("output_tokens") or 0, "usd": float(usd)}

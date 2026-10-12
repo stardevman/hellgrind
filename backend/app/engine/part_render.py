@@ -157,7 +157,7 @@ def _write_prompt(project_id: str, plan) -> None:
         raise
     except Exception as e:                             # noqa: BLE001 — kurallar istemiyle devam
         killswitch.event(project_id, "prompt_write_failed", part=[x.scene_code for x in plan.shots],
-                         error=str(e)[:200])
+                         error=prompt_writer.full_error(e))
 
 
 def _already_final(winners: dict[str, str]) -> bool:

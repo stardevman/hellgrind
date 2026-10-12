@@ -127,6 +127,12 @@ export interface PromptWriterMeta {
   override?: { saved_at?: number; stale: string[]; part?: string[] } | null;
   estimate?: { input_tokens: number; output_tokens: number; usd: number } | null;
 }
+/** POST /scenes/{id}/prompt/rerender: parçanın şu anki istemiyle (yönetmen istemi) yeniden üretim; dry_run tahmin. */
+export interface PromptRerender {
+  dry_run?: boolean; part: string[]; engine: string; source: PromptSource; source_label: string; prompt_chars: number;
+  total_usd: number; remaining_usd: number; budget_ok: boolean; blocked: boolean;
+  dispatched?: Record<string, StageResult & { busy?: string }>;
+}
 /** POST /scenes/{id}/prompt/write: LLM yazıcı kuyruğa verildi (ya da dry_run tahmini). */
 export interface PromptWriteResult {
   dry_run?: boolean; queued?: boolean; note?: string; part: string[]; available: boolean; reason: string | null;

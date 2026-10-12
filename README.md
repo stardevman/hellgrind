@@ -507,17 +507,22 @@ kaynaktan birinden gelir; plan hangisinin kullanıldığını gösterir (önceli
    boş metin siler). Parçanın ilk çekiminin `prompt_spec.override` alanına kaydedilir ve **olduğu gibi** gönderilir;
    yalnızca referans yazımı motora göre çevrilir (`[Image1]` / `@Image1` / `Image 1`). Kaydetmek planı ve onayı değiştirir,
    klibi yeniden üretmez (görsel özete girmez). Senaryo, stil ya da parça değişince silinmez; "eski olabilir" uyarısı çıkar.
-2. **LLM istemi** (`PROMPT_WRITER=llm`, varsayılan): Hermes modeli (`HERMES_MODEL`, `ANTHROPIC_API_KEY`) parçanın istemini
-   yazar. Girdi: senaryo paragrafları (mekân başlığı tekrarı olmadan), çekimlerin kamera/yükseklik/süre/duygu alanları,
+   Kaydedince denetçide **"Bu istemle yeniden üret (≈$X)"** çıkar (`POST /api/scenes/{id}/prompt/rerender`, `dry_run=true`
+   tahmin): tahminli onay planı onaylar ve bütün parçayı yeniden üretir; tahmin yükselmişse ya da bütçe yetmezse reddedilir.
+2. **LLM istemi** (`PROMPT_WRITER=llm`, varsayılan): `PROMPT_WRITER_MODEL` (varsayılan `claude-opus-5-5`; boşsa
+   `HERMES_MODEL`) parçanın istemini yazar (`ANTHROPIC_API_KEY`). Anthropic isteklerine örnekleme parametresi
+   (temperature, top_p, top_k) hiçbir modelde gönderilmez (Opus 5.5 reddediyor). Girdi: senaryo paragrafları (mekân başlığı tekrarı olmadan), çekimlerin kamera/yükseklik/süre/duygu alanları,
    diyalog, kadro (kadrajda olan/olmayan), varlık tarifleri ve değişmezleri, referans numaraları (motorun biçiminde),
    stil (ışık, hareket), motor ve ses. Sistem istemi biçimi tarif eder (stil cümlesi + referans tanımları, "Shot k (a-bs),
    ölçek, kamera:" ve somut sahneleme, her eylemde referans etiketi, sonda animasyon + ses + en çok iki kısıt) ve
-   Passport Rush örneğini verir (`backend/app/engine/prompt_examples/passport_rush.txt`; yönetmenin playground istemiyle
-   değiştirilebilir). Doğrulama: çekim sayısı, sırası ve zamanları planla birebir, her referans en az bir çekimde eylem
+   yönetmenin iyi sonuç veren iki istemini örnek verir (`backend/app/engine/prompt_examples/`: `passport_rush.txt` fal
+   playground istemi, `taxi_director.txt` taksi S001 yönetmen istemi). Doğrulama: çekim sayısı, sırası ve zamanları planla birebir, her referans en az bir çekimde eylem
    içinde, mekân bakış kuralı, "Mood:" ve "Visual constraints" yok, uzunluk 700–4.000 (hedef 1.500–2.500). Geçmezse bir
    kez hatalarla yeniden yazdırılır, yine geçmezse kurallar istemine düşülür ve uyarı verilir. Yazım `prompt_cache`
    tablosunda saklanır: girdi özeti değişmedikçe yeniden yazılmaz. Planda model, belirteç ve bedel görünür; yazılmadıysa
-   tahmini bedel. Yazım zamanı: parça plan onayına düşünce arka planda (`hg.write_prompt`), onay gerekmiyorsa üretimden
+   tahmini bedel (`pricing.yaml › llm_models`: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0,10/$0,50; 100k belirteci
+   aşan istemde $0,50/$2,50, 1M belirteç başına). Çağrı hata verirse olayda tam mesaj, planda "LLM yazımı başarısız:
+   <mesaj> — kurallar istemi kullanıldı" görünür; 10 dakika sonra ya da "İstemi LLM ile yaz" ile yeniden denenir. Yazım zamanı: parça plan onayına düşünce arka planda (`hg.write_prompt`), onay gerekmiyorsa üretimden
    hemen önce, ya da denetçide "İstemi LLM ile yaz" (`POST /api/scenes/{id}/prompt/write`, `dry_run=true` tahmin,
    `force=true` yeniden yaz). Ücretsiz modda ya da anahtar yokken çağrılmaz; kurallar istemi kullanılır, planda uyarı.
 3. **Kurallar istemi** (LLM yokken): çekim satırlarında mekân başlığı ve "Mood:" yok; referans adları eylemde ilk
@@ -1052,6 +1057,7 @@ Bilinmesi gerekenler:
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
+| `PROMPT_WRITER_MODEL` | `claude-opus-5-5` | İstem yazıcının modeli (boşsa `HERMES_MODEL`) |
 | `PROMPT_WRITER` | `llm` | Sahne istemi: `llm` (Hermes modeli yönetmen tarzı istem yazar; ücretli, anahtar yoksa ya da ücretsiz modda kurallara düşer) ya da `rules` |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 

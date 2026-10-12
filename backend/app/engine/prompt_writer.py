@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.core.hashing import stable_hash
@@ -20,13 +20,17 @@ from app.engine import fal_plan
 
 log = logging.getLogger("hellgrind.prompt_writer")
 
-WRITER_VERSION = 1                      # sistem istemi ya da girdi biçimi değişince artar (önbellek yenilenir)
+WRITER_VERSION = 2                      # sistem istemi ya da girdi biçimi değişince artar (önbellek yenilenir)
 TARGET_CHARS = (1500, 2500)             # hedef uzunluk (dışı yalnızca uyarı)
 HARD_CHARS = (700, 4000)                # dışı doğrulama hatası
 MAX_ATTEMPTS = 2                        # bir yazım + bir yeniden yazım; sonra kurallar istemi
 OUTPUT_TOKENS = 1400                    # rezervasyon tahmini (yanıt üst sınırı)
 CHARS_PER_TOKEN = 4
-EXAMPLE = os.path.join(os.path.dirname(__file__), "prompt_examples", "passport_rush.txt")
+EXAMPLES = (("passport_rush.txt", "Passport Rush: airport check-in to police motorcycle, 3 shots"),
+            ("taxi_director.txt", "Taxi: a country road and an open-top taxi, 3 shots"))   # yönetmenin iyi sonuç veren istemleri
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "prompt_examples")
+CALL_FAILED = "LLM çağrısı: "           # errors[0] bu önekle başlıyorsa çağrı hata verdi (doğrulama değil)
+CALL_RETRY_S = 600                      # başarısız çağrı bu süreden sonra kendiliğinden yeniden denenebilir
 
 SHOT_HEAD = re.compile(r"Shot\s+(\d+)\s*\(\s*(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)\s*s\s*\)", re.I)
 FORBIDDEN = (("Mood:", "\"Mood:\" etiketi kullanılmamalı"),
@@ -53,19 +57,29 @@ def unavailable() -> str | None:
     return None
 
 
+def writer_model() -> str:
+    """İstem yazıcının modeli: PROMPT_WRITER_MODEL, boşsa HERMES_MODEL."""
+    return (settings.prompt_writer_model or "").strip() or settings.hermes_model
+
+
 def input_hash(inp: dict) -> str:
-    return stable_hash([WRITER_VERSION, settings.hermes_model, inp])
+    return stable_hash([WRITER_VERSION, writer_model(), inp])
 
 
 # ---------- sistem istemi ----------
 
-def example(engine: str, audio: bool) -> str:
-    """Few-shot örneği (Passport Rush: havalimanı → polis motoru, 3 çekim) motorun referans biçiminde."""
-    with open(EXAMPLE, encoding="utf-8") as f:
+def example(engine: str, audio: bool, name: str = "passport_rush.txt") -> str:
+    """Bir few-shot örneği (yönetmenin playground'da iyi sonuç veren istemi) motorun referans biçiminde."""
+    with open(os.path.join(EXAMPLE_DIR, name), encoding="utf-8") as f:
         text = f.read().strip()
     if not audio:                                       # sesi kapalı motor: ses cümlesi örnekte de yok
         text = re.sub(r" Sound: [^;]*(?:;[^.]*)?\.", "", text)
     return fal_plan.normalize_refs(engine, text)
+
+
+def examples(engine: str, audio: bool) -> str:
+    return "\n\n".join(f"Example {i} ({about}):\n\n{example(engine, audio, name)}"
+                       for i, (name, about) in enumerate(EXAMPLES, start=1))
 
 
 def system_prompt(engine: str, audio: bool) -> str:
@@ -102,9 +116,10 @@ they enter from, which side the camera is on) in a sensible way, consistent acro
 - Only the listed cast appears; no extra people, animals or figures.
 - Target length 1,500-2,500 characters. Write in English. Output only the prompt text, no headings, no markdown.
 
-Example of the expected style (another film; follow its form, not its content):
+Examples of the expected style (other scenes; follow their form, not their content). Keep the rules above even where \
+an example phrases something differently (e.g. always write the location rule and tag every reference in a shot):
 
-{example(engine, audio)}"""
+{examples(engine, audio)}"""
 
 
 def user_prompt(inp: dict, errors: list[str] | None = None) -> str:
@@ -120,7 +135,7 @@ def estimate_usd(engine: str, inp: dict) -> tuple[int, int, float]:
     """(girdi belirteci, çıktı belirteci, $) — bir yazım için tahmin (rezervasyon da bununla yapılır)."""
     from app.budget import pricing
     tokens_in = (len(system_prompt(engine, bool(inp.get("audio")))) + len(user_prompt(inp))) // CHARS_PER_TOKEN
-    return tokens_in, OUTPUT_TOKENS, round(pricing.estimate_llm(tokens_in, OUTPUT_TOKENS), 6)
+    return tokens_in, OUTPUT_TOKENS, round(pricing.estimate_llm(tokens_in, OUTPUT_TOKENS, model=writer_model()), 6)
 
 
 # ---------- doğrulama ----------
@@ -201,11 +216,17 @@ class Written:
     output_tokens: int = 0
     usd: float = 0.0
     attempts: int = 0
+    at: float = 0.0
+
+    @property
+    def call_failed(self) -> bool:
+        return self.prompt is None and bool(self.errors) and str(self.errors[0]).startswith(CALL_FAILED)
 
     def view(self) -> dict:
         return {"input_hash": self.input_hash, "ok": self.prompt is not None, "errors": self.errors, "model": self.model,
                 "input_tokens": self.input_tokens, "output_tokens": self.output_tokens, "usd": round(self.usd, 6),
-                "attempts": self.attempts}
+                "attempts": self.attempts, "failed": "call" if self.call_failed else "validation" if self.prompt is None
+                else None, "at": self.at}
 
 
 def cached(s, ih: str) -> Written | None:
@@ -214,7 +235,7 @@ def cached(s, ih: str) -> Written | None:
     if row is None:
         return None
     return Written(ih, row.prompt, list(row.errors or []), [], row.model, row.input_tokens, row.output_tokens,
-                   float(row.usd or 0), row.attempts)
+                   float(row.usd or 0), row.attempts, row.created_at.timestamp() if row.created_at else 0.0)
 
 
 def _store(project_id, inp: dict, w: Written) -> None:
@@ -222,9 +243,10 @@ def _store(project_id, inp: dict, w: Written) -> None:
     from app.models import PromptCache
     with session_scope() as s:
         row = s.get(PromptCache, w.input_hash) or PromptCache(input_hash=w.input_hash)
-        row.project_id, row.engine, row.model = project_id, inp["engine"], w.model or settings.hermes_model
+        row.project_id, row.engine, row.model = project_id, inp["engine"], w.model or writer_model()
         row.prompt, row.errors, row.attempts = w.prompt, w.errors, w.attempts
         row.input_tokens, row.output_tokens, row.usd = w.input_tokens, w.output_tokens, Decimal(str(round(w.usd, 6)))
+        row.created_at = func.now()
         s.merge(row)
 
 
@@ -246,13 +268,22 @@ def write(project_id: str, inp: dict, force: bool = False) -> Written:
     if not force:
         with session_scope() as s:
             hit = cached(s, ih)
-        if hit is not None:
+        if hit is not None and not hit.call_failed:   # başarısız çağrı önbellek sayılmaz (yeniden denenir)
             return hit
     system = system_prompt(inp["engine"], bool(inp.get("audio")))
-    w = Written(ih, None, model=settings.hermes_model)
+    w = Written(ih, None, model=writer_model())
     errors: list[str] | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        answer = ASK(project_id, system, user_prompt(inp, errors))
+        try:
+            answer = ASK(project_id, system, user_prompt(inp, errors))
+        except Exception as e:
+            from app.budget import killswitch
+            if killswitch.ProjectFrozen in type(e).__mro__:
+                raise
+            from app.live import redact
+            w.prompt, w.errors = None, [CALL_FAILED + redact(f"{type(e).__name__}: {e}")[:1000]]
+            _store(project_id, inp, w)                 # plan "LLM yazımı başarısız: …" gösterir; çağıran olaya yazar
+            raise
         w.attempts = attempt
         w.model = answer.get("model") or w.model
         w.input_tokens += int(answer.get("input_tokens") or 0)
@@ -297,6 +328,9 @@ def choose(s, inp: dict, rules_prompt: str, override: dict | None, part_codes: l
             n = len(hit.prompt)
             if not TARGET_CHARS[0] <= n <= TARGET_CHARS[1]:
                 out["warnings"].append(f"LLM istemi {n} karakter (hedef {TARGET_CHARS[0]}–{TARGET_CHARS[1]}).")
+        elif hit.call_failed:
+            out["warnings"].append(f"LLM yazımı başarısız: {hit.errors[0][len(CALL_FAILED):]} — kurallar istemi "
+                                   "kullanıldı.")
         else:
             out["warnings"].append("LLM istemi iki denemede doğrulamadan geçmedi; kurallar istemi kullanılıyor (" +
                                    "; ".join(hit.errors[:4]) + ").")
@@ -324,8 +358,11 @@ def writing(ih: str) -> bool:
 
 def needed(plan) -> bool:
     """Plan kurallar istemiyle ve LLM istemi hiç yazılmamış (önbellekte yok), yazıcı çağrılabilir."""
+    import time
     meta = plan.prompt_meta or {}
-    return plan.prompt_source == "rules" and mode() == "llm" and unavailable() is None and not meta.get("llm")
+    llm = meta.get("llm")
+    retry = bool(llm and llm.get("failed") == "call" and time.time() - float(llm.get("at") or 0) > CALL_RETRY_S)
+    return plan.prompt_source == "rules" and mode() == "llm" and unavailable() is None and (not llm or retry)
 
 
 def queue(project_id: str, scene_id: str, plan, force: bool = False) -> bool:
@@ -337,3 +374,9 @@ def queue(project_id: str, scene_id: str, plan, force: bool = False) -> bool:
     from app.worker.tasks import write_prompt
     write_prompt.delay(project_id, scene_id, force)
     return True
+
+
+def full_error(e: BaseException) -> str:
+    """Olay için hatanın tam metni (anahtarlar maskeli)."""
+    from app.live import redact
+    return redact(f"{type(e).__name__}: {e}")[:2000]

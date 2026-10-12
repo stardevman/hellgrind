@@ -265,8 +265,21 @@ def estimate_tts(text: str, prices: dict | None = None) -> float:
     return round(len(text or "") / 1000.0 * (prices or table())["tts_per_1k_chars"], 4)
 
 
-def estimate_llm(input_tokens: int, output_tokens: int, prices: dict | None = None) -> float:
-    rate = (prices or table())["llm_per_million_tokens"]
+def llm_rate(model: str | None = None, input_tokens: int = 0, prices: dict | None = None) -> dict:
+    """Modelin 1M belirteç fiyatı ({"input", "output"}): llm_models tablosu (uzun istem kademesiyle), yoksa
+    llm_per_million_tokens yedeği. model verilmezse Hermes modeli."""
+    from app.config import settings
+    prices = prices or table()
+    row = (prices.get("llm_models") or {}).get(model or settings.hermes_model)
+    if not row:
+        return prices["llm_per_million_tokens"]
+    if row.get("long_threshold") and input_tokens > row["long_threshold"]:
+        return {"input": row.get("long_input", row["input"]), "output": row.get("long_output", row["output"])}
+    return {"input": row["input"], "output": row["output"]}
+
+
+def estimate_llm(input_tokens: int, output_tokens: int, prices: dict | None = None, model: str | None = None) -> float:
+    rate = llm_rate(model, input_tokens, prices)
     return round((input_tokens * rate["input"] + output_tokens * rate["output"]) / 1_000_000, 6)
 
 
@@ -366,6 +379,9 @@ def validate_table(text: str) -> dict:
     llm = data.get("llm_per_million_tokens") or {}
     _positive(llm.get("input"), "llm_per_million_tokens.input")
     _positive(llm.get("output"), "llm_per_million_tokens.output")
+    for name, row in (data.get("llm_models") or {}).items():
+        for part in ("input", "output", *(("long_input", "long_output") if (row or {}).get("long_threshold") else ())):
+            _positive((row or {}).get(part), f"llm_models.{name}.{part}")
     return data
 
 

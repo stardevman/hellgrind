@@ -10,8 +10,8 @@ import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENG
 import { BOUNDARY_NOTE, SHOT_ONLY_LABEL, adoptText, boundarySources, cutsText, mixActions, promoteText, sceneEngineText, shotBoundaries, shotEngineText, wholeSceneSwitch } from "@/lib/mixing";
 import { usePanel } from "@/lib/panel";
 import { needsUpscale, resolutionBadge } from "@/lib/finishing";
-import { approveText, clock, gateLines, planWarnings, promptSourceText, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdExact, usdTr } from "@/lib/text";
-import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, PromptWriteResult, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
+import { approveText, clock, dispatchedText, gateLines, planWarnings, promptSourceText, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdExact, usdTr } from "@/lib/text";
+import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, PromptRerender, PromptWriteResult, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
@@ -815,6 +815,7 @@ function PromptBox({ sc, plan, prompt }: { sc: Scene; plan: FalPlan; prompt: str
   const { busy, frozen, act, note } = usePanel();
   const { mutate } = useSWRConfig();
   const [edit, setEdit] = useState<string | null>(null);
+  const [rerender, setRerender] = useState(false);
   const key = `/scenes/${sc.id}/fal-plan`;
   const w = plan.prompt_writer;
   const source = plan.prompt_source ?? "rules";
@@ -858,6 +859,11 @@ function PromptBox({ sc, plan, prompt }: { sc: Scene; plan: FalPlan; prompt: str
           <button className="btn" type="button" disabled={busy} onClick={() => setEdit(prompt)}
             title="Gösterilen istemi düzenleyip bu parçanın istemi olarak kaydedin">Yönetmen istemi yaz</button>
           {source === "override" && (
+            <button className="btn primary" type="button" aria-expanded={rerender} disabled={busy || frozen} onClick={() => setRerender(!rerender)}
+              title={frozen ? FROZEN_TITLE : "Bütün parça bu istemle yeniden üretilir; onaydan önce tahmin ve kalan bütçe gösterilir"}>
+              Bu istemle yeniden üret{plan.cost ? ` (≈${usdTr(plan.cost.reserve_usd)})` : ""}</button>
+          )}
+          {source === "override" && (
             <button className="btn ghost" type="button" disabled={busy} onClick={() => save("")}
               title="Yönetmen istemi silinir; plan LLM ya da kurallar istemine döner">Otomatik isteme dön</button>
           )}
@@ -872,6 +878,53 @@ function PromptBox({ sc, plan, prompt }: { sc: Scene; plan: FalPlan; prompt: str
           {plan.prompt_rules && <button className="btn ghost" type="button" onClick={() => setEdit(plan.prompt_rules!)}
             title="Düzenlemeye kurallar isteminden başlayın">Kurallar isteminden başla</button>}
         </>}
+      </div>
+      {rerender && <PromptRerenderConfirm sc={sc} onClose={() => setRerender(false)} />}
+    </div>
+  );
+}
+
+/** "Bu istemle yeniden üret" onayı: açılınca kuru çalıştırma (prompt/rerender?dry_run=true) parçayı, istemin kaynağını,
+    tahmini ve kalan bütçeyi gösterir; onay gösterilen tutarla gider (tahmin yükselmişse arka uç reddeder), planı onaylar
+    ve bütün parçayı yeniden üretir. */
+function PromptRerenderConfirm({ sc, onClose }: { sc: Scene; onClose: () => void }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const { mutate } = useSWRConfig();
+  const [plan, setPlan] = useState<PromptRerender | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let live = true;
+    api.post<PromptRerender>(`/scenes/${sc.id}/prompt/rerender?dry_run=true`)
+      .then((r) => { if (live) setPlan(r); })
+      .catch((e: Error) => { if (live) setErr(e.message); });
+    return () => { live = false; };
+  }, [sc.id]);
+  const confirm = () => act(async () => {
+    if (!plan) return;
+    const r = await api.post<PromptRerender>(`/scenes/${sc.id}/prompt/rerender?expected_usd=${plan.total_usd}`);
+    onClose();
+    setVar(null);
+    note("inspector", `${r.part.join(", ")} ${r.source_label.toLocaleLowerCase("tr")} ile yeniden üretiliyor (tahmini ~${usdTr(r.total_usd)}). ${dispatchedText(r.dispatched ?? {})}`.trim(), "ok");
+    await mutate(`/scenes/${sc.id}/fal-plan`);
+  }, "inspector");
+  return (
+    <div className="hint stack" role="group" aria-label="Bu istemle yeniden üretme onayı" aria-busy={!plan && !err}>
+      {err && <p className="bad small">{err}</p>}
+      {!plan && !err && <span className="faint small">Tahmin hesaplanıyor…</span>}
+      {plan && <>
+        <span className="small">Bütün parça yeniden üretilir: <span className="mono">{plan.part.join(" + ")}</span> ({plan.source_label}, {plan.prompt_chars.toLocaleString("tr-TR")} karakter). Eski klipler varyasyon olarak kalır.</span>
+        <dl className="kv">
+          <dt>Tahmin</dt><dd className="mono">~{usdTr(plan.total_usd)}</dd>
+          <dt>Kalan bütçe</dt><dd className="mono">{usdTr(plan.remaining_usd)}</dd>
+        </dl>
+        {plan.blocked && <p className="warn small">Eksik ya da onaysız referans var: önce varlıkları tamamlayın.</p>}
+        {!plan.budget_ok && <p className="warn small">Bütçe yetmiyor: tahmini {usdTr(plan.total_usd)}, kalan {usdTr(plan.remaining_usd)}.</p>}
+      </>}
+      <div className="row">
+        <button className="btn primary" type="button" disabled={busy || frozen || !plan || !plan.budget_ok || plan.blocked}
+          title={frozen ? FROZEN_TITLE : undefined} onClick={confirm}>
+          Onayla ve yeniden üret{plan ? ` (~${usdTr(plan.total_usd)})` : ""}</button>
+        <button className="btn ghost" type="button" onClick={onClose}>Vazgeç</button>
       </div>
     </div>
   );

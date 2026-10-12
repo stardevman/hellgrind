@@ -186,6 +186,7 @@ FIELDS: tuple[Field, ...] = (
     Field("HERMES_MODEL", "hermes_model", "model", "anthropic", "Hermes modeli"),
     Field("HERMES_MODE", "hermes_mode", "choice", "anthropic", "Senaryo ayrıştırma", ("rules", "llm")),
     Field("PROMPT_WRITER", "prompt_writer", "choice", "anthropic", "Sahne istemi yazıcı", ("llm", "rules")),
+    Field("PROMPT_WRITER_MODEL", "prompt_writer_model", "model", "anthropic", "İstem yazıcı modeli (boşsa Hermes modeli)"),
 )
 BY_ENV = {f.env: f for f in FIELDS}
 _BOOL = TypeAdapter(bool)
