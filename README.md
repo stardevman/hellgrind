@@ -114,11 +114,14 @@ aynı görünüm açılır.
    - Ortada **izleyici**: zaman kodu (24 kare/sn), kare kare ilerleme, döngü; *Çekim*, *Film* ve *Kaba kurgu* kaynakları.
      Kısayollar: <kbd>Boşluk</kbd>/<kbd>K</kbd> oynat-duraklat, <kbd>J</kbd>/<kbd>L</kbd> bir saniye, <kbd>←</kbd>/<kbd>→</kbd>
      bir kare, <kbd>↑</kbd>/<kbd>↓</kbd> önceki/sonraki çekim.
-   - İzleyicinin altında seçili çekimin **adayları**: yeşil çerçeveli ve numaralı rafine havuzda; gri ve kırmızı çapraz çizgili
-     kalite kontrolünde elendi; soluk havuza giremedi; mor ve nefes alan üretiliyor. Tıklanan aday (karantinadakiler dahil)
-     izleyicide önizlenir.
-   - Altta **zaman çizelgesi**: sekans bandı, görüntü izi (çekimler süreleri kadar, duygu renginde), diyalog, müzik ve efekt
-     izleri. Cetvele tıklamak filmi oraya sarar; film oynarken oynatma kafası çekimler üzerinde ilerler ve denetçi o çekime geçer.
+   - İzleyicinin altında seçili çekimin **adayları**: aynı çekim için üretilen klipler; filmde yalnızca biri oynar ve
+     **filmde** etiketiyle yeşil çerçevelidir. Bir adaya tıklayınca izleyicide oynar ve **Bu adayı filmde kullan** düğmesi
+     çıkar (yalnızca ses ve montaj yeniden çalışır); aday zaman çizelgesindeki çekimin üstüne de sürüklenebilir. Basit
+     görünümde elenenler gizlidir (**N elenen adayı göster** açar); Gelişmiş görünümde hepsi görünür: gri ve kırmızı çapraz
+     çizgili kalite kontrolünde elendi, soluk havuza giremedi, mor ve nefes alan üretiliyor. Kazanan klibin parça bölme
+     ayrıntısı ve havuzdaki taslak toplamı da Gelişmiş görünümdedir.
+   - Altta **zaman çizelgesi**: sekans bandı, görüntü izi (her çekim filmde kullanılan klibiyle, süresi kadar, duygu
+     renginde), diyalog, müzik ve efekt izleri. Bir adayı çekimin üstüne bırakmak filmdeki klibi değiştirir. Cetvele tıklamak filmi oraya sarar; film oynarken oynatma kafası çekimler üzerinde ilerler ve denetçi o çekime geçer.
    - Sağda **denetçi**, üç sekmede: **Çekim**: çekim bilgisi, **Bu sahneyi baştan üret**, **İyileştir**, **Varlıklar** ve
      **Nesne bağla**, rafine havuz ve **Bunu kullan** (yalnızca ses ve montaj yeniden çalışır), renk bağlantısı. **Ses**:
      diyalog ve **Müziği değiştir** (*Sekansın tamamı* sekans müziğini değiştirir, hiçbir çekim yeniden üretilmez; *Yalnızca bu

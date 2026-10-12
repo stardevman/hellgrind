@@ -2,16 +2,17 @@
 /* Kurgu sayfası (kurgu yazılımı düzeni): solda çekim havuzu ve olaylar, ortada zaman kodlu izleyici ve çekimin
    adayları, sağda denetçi, altta görüntü/diyalog/müzik izleriyle zaman çizelgesi. İzleyici ve oynatma kafası
    birbirine bağlıdır: filmde oynarken kafa çekimler üzerinde ilerler, cetvele tıklamak filmi oraya sarar. */
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { api } from "@/lib/api";
 import { parseIds, playable, toggle } from "@/lib/compare";
+import { promoteText } from "@/lib/mixing";
 import { EMOTION_COLOR, ENGINE_TR, WORKING } from "@/lib/i18n";
 import { resolutionBadge } from "@/lib/finishing";
 import { pickMedia, posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
 import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
-import type { DispatchAll, RenderPlan, Scene, Variation } from "@/lib/types";
+import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
 import { UpscaleConfirm } from "./Finishing";
 import { Inspector, SplitView, useFalPlan } from "./Inspector";
@@ -140,7 +141,7 @@ function ShotBin() {
           </ol>
         ) : (
           <>
-            {projectId && <PlanTotal key={projectId} projectId={projectId} />}
+            {projectId && <div className="adv"><PlanTotal key={projectId} projectId={projectId} /></div>}
             {blocked > 0 && (
               <div className="pad" style={{ borderBottom: "1px solid var(--line)" }}>
                 <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry}>Engellenen çekimleri yeniden dene ({blocked})</button>
@@ -232,30 +233,51 @@ function Viewer({ mode, setMode, player, src, poster, label, right }: {
 
 /* ---------- çekimin adayları ---------- */
 
-const Tile = memo(function Tile({ v, prev, selected, picked, onPick }: {
-  v: Variation; prev?: Variation; selected: boolean; picked: boolean; onPick: (v: Variation, e: MouseEvent) => void;
+/** Aday filme konabilir mi: havuzdaysa doğrudan, kapıdan geçememişse yönetmen kararıyla (override). */
+const usable = (v: Variation) => playable(v) && v.rank !== 1 && Boolean(v.rank || v.overridable);
+
+const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId }: {
+  v: Variation; prev?: Variation; selected: boolean; picked: boolean; onPick: (v: Variation, e: MouseEvent) => void; sceneId: string;
 }) {
   const t = tileSpec(v, prev);
   const badge = resolutionBadge(v);
   const cls = ["tile", t.state === "passed" ? "" : t.state, selected ? "selected" : "", picked ? "compare-pick" : ""].filter(Boolean).join(" ");
-  const label = t.label + (badge ? ` · ${badge.long}` : "") + (picked ? " · karşılaştırmada" : "");
+  const label = t.label + (badge ? ` · ${badge.long}` : "") + (picked ? " · karşılaştırmada" : "") + (usable(v) ? " · zaman çizelgesine sürükleyerek filme koy" : "");
+  const drag = (e: DragEvent<HTMLButtonElement>) => {
+    e.dataTransfer.setData("text/x-hg-variation", JSON.stringify({ scene: sceneId, variation: v.id }));
+    e.dataTransfer.effectAllowed = "move";
+  };
   return (
     <>
       {t.tierStart && <span className="gap" aria-hidden="true" title="Tam tur" />}
-      <button type="button" className={cls} aria-pressed={selected} aria-label={label} title={label} onClick={(e) => onPick(v, e)}>
+      <button type="button" className={cls} aria-pressed={selected} aria-label={label} title={label} onClick={(e) => onPick(v, e)}
+        draggable={usable(v)} onDragStart={usable(v) ? drag : undefined}>
         {v.thumb_url && <img src={v.thumb_url} alt="" loading="lazy" decoding="async" />}
         {v.score != null && <span className="sc">{v.score.toFixed(3)}</span>}
         {v.revision ? <span className="rev">R{v.revision}</span> : null}
         {badge ? <span className="res" aria-hidden="true">{badge.short}</span> : null}
         {picked ? <span className="cmp">K</span> : null}
-        {v.rank ? <span className="rank">{v.rank}</span> : null}
+        {v.rank ? <span className="rank">{v.rank === 1 ? "filmde" : v.rank}</span> : null}
       </button>
     </>
   );
 });
 
+/** Adayı filme koyar: havuzdaysa promote, kapıyı geçememişse yönetmen kararıyla (override). Yalnızca ses ve montaj yeniden çalışır. */
+function usePromote(sc: Scene) {
+  const { act, note, setVar } = usePanel();
+  return useCallback((v: Variation) => act(async () => {
+    const r = await api.post<PromoteResult>(`/scenes/${sc.id}/promote/${v.id}${v.rank ? "" : "?override=true"}`);
+    setVar(null);
+    const x = promoteText(r, v.rank ? "" : "Kapının kararı geçersiz kılındı. ");
+    note("inspector", x.text, x.kind);
+  }, "inspector"), [act, note, setVar, sc.id]);
+}
+
 function Takes({ onPick }: { onPick: () => void }) {
-  const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare } = usePanel();
+  const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare, advanced, busy } = usePanel();
+  const [showAll, setShowAll] = useState(false);
+  const promote = usePromote(sc ?? ({ id: "" } as Scene));
   if (!sc) return null;
   const picked = parseIds(compareRaw, sc);
   const pick = (v: Variation, e: MouseEvent) => {
@@ -264,23 +286,38 @@ function Takes({ onPick }: { onPick: () => void }) {
     onPick();
   };
   const probe = sc.variations.filter((v) => v.tier === "probe").length;
+  const winner = sc.variations.find((v) => v.rank === 1);
+  const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
+  const hidden = advanced || showAll ? [] : sc.variations.filter((v) => !playable(v) && !["queued", "running", "generated"].includes(v.status));
+  const shown = hidden.length ? sc.variations.filter((v) => !hidden.includes(v)) : sc.variations;
   return (
     <Panel className="takes" title={`Adaylar · ${sc.scene_code}`}
-      meta={`${probe} test + ${sc.variations.length - probe} tam tur`}
+      meta={winner ? `filmde #1 oynuyor · ${sc.variations.filter(playable).length} izlenebilir aday` : `${probe} test + ${sc.variations.length - probe} tam tur`}
       tools={<>
-        <span className="legend" aria-label="Aday göstergeleri">
+        <span className="legend adv" aria-label="Aday göstergeleri">
           <span><i className="refined" />havuzda</span><span><i className="rejected" />elendi</span>
           <span><i className="retired" />havuz dışı</span><span><i className="working" />üretiliyor</span>
           <span><kbd>Shift</kbd>+tık: karşılaştırmaya ekle</span>
         </span>
         {picked.length >= 2 && <button className="btn" type="button" onClick={() => openCompare(sc.id, picked)}>Seçilen {picked.length} klibi karşılaştır</button>}
       </>}>
+      <div className="takes-bar">
+        {chosen ? (
+          chosen.rank === 1 ? <span className="tag ok">Filmde bu klip oynuyor</span>
+            : usable(chosen) ? <button className="btn primary" type="button" disabled={busy} onClick={() => promote(chosen)}
+              title="Bu adayı çekimin filmdeki klibi yapar; görüntü motoru çağrılmaz, yalnızca ses ve montaj yeniden çalışır">Bu adayı filmde kullan</button>
+              : <span className="faint small">{playable(chosen) ? "Bu aday filme konamaz (kapıdan geçmedi ve karar değiştirilemez)." : "Bu adayın izlenebilir videosu yok."}</span>
+        ) : <span className="faint small">Aynı çekim için üretilen klipler. Birine tıkla: izleyicide oynar. Beğenirsen <b>Bu adayı filmde kullan</b> ya da zaman çizelgesindeki çekimin üstüne sürükle.</span>}
+        <span className="grow" />
+        {hidden.length > 0 && <button className="btn ghost" type="button" onClick={() => setShowAll(true)}>{hidden.length} elenen adayı göster</button>}
+        {!advanced && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
+      </div>
       <div className="strip" aria-label={`${sc.scene_code} adayları`}>
-        {sc.variations.length
-          ? sc.variations.map((v, i) => <Tile key={v.id} v={v} prev={sc.variations[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} />)
+        {shown.length
+          ? shown.map((v, i) => <Tile key={v.id} v={v} prev={shown[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} sceneId={sc.id} />)
           : <span className="faint">Henüz klip yok</span>}
       </div>
-      <ClipSplit sc={sc} />
+      <div className="adv"><ClipSplit sc={sc} /></div>
     </Panel>
   );
 }
@@ -306,8 +343,24 @@ function ClipSplit({ sc }: { sc: Scene }) {
 function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
   lay: Layout; pos: number | null; onRuler: (sec: number) => void; onClip: (sc: Scene) => void; filmLabel: string;
 }) {
-  const { ov, scene, projectId, busy, act, note, setAssembling } = usePanel();
+  const { ov, scene, projectId, busy, act, note, setAssembling, setVar } = usePanel();
   const scroller = useRef<HTMLDivElement>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const readDrag = (e: DragEvent) => { try { return JSON.parse(e.dataTransfer.getData("text/x-hg-variation") || "null") as { scene: string; variation: string } | null; } catch { return null; } };
+  const drop = (sc: Scene, e: DragEvent) => {
+    e.preventDefault(); setDropOn(null);
+    const d = readDrag(e);
+    if (!d) return;
+    if (d.scene !== sc.id) { note("inspector", `Aday yalnızca kendi çekiminin (${ov?.scenes.find((x) => x.id === d.scene)?.scene_code ?? "?"}) üstüne bırakılabilir.`, "err"); return; }
+    const v = sc.variations.find((x) => x.id === d.variation);
+    if (!v) return;
+    void act(async () => {
+      const r = await api.post<PromoteResult>(`/scenes/${sc.id}/promote/${v.id}${v.rank ? "" : "?override=true"}`);
+      setVar(null);
+      const x = promoteText(r, v.rank ? "" : "Kapının kararı geçersiz kılındı. ");
+      note("inspector", x.text, x.kind);
+    }, "inspector");
+  };
   const [width, setWidth] = useState(800);
   const [zoom, setZoom] = useState(1);
   useLayoutEffect(() => {
@@ -350,7 +403,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
     <section className="pnl tl" aria-label="Zaman çizelgesi">
       <header className="pnl-h">
         <h2>Zaman çizelgesi</h2>
-        <span className="meta">{ov.sequences.length} sekans · {ov.scenes.length} çekim · {filmLabel}</span>
+        <span className="meta" title="Her çekim filmde kullanılan klibiyle, süresi kadar yer tutar. Bir adayı çekimin üstüne sürükleyerek filmdeki klibi değiştirebilirsin.">{ov.sequences.length} sekans · {ov.scenes.length} çekim · {filmLabel}</span>
         <span className="grow" />
         <div className="tl-tools">
           <span className="tc" title="Oynatma kafası">{timecode(pos ?? 0)}</span>
@@ -365,7 +418,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
         <div className="tl-heads" aria-hidden="true">
           <div className="h-ruler" />
           <div className="h-seq"><b>SQ</b>Sekans</div>
-          <div className="h-vid"><b>V1</b>Görüntü</div>
+          <div className="h-vid" title="Her çekimin filmde kullanılan klibi"><b>V1</b>Görüntü</div>
           <div className="h-aud"><b>A1</b>Diyalog</div>
           <div className="h-aud"><b>A2</b>Müzik</div>
           {hasFx && <div className="h-aud"><b>A3</b>Efekt</div>}
@@ -381,12 +434,14 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
             <div className="trk vid">
               {lay.shots.map(({ scene: sc, start, end }) => {
                 const th = posterOf(sc);
-                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : "", sc.generation ? "mixed" : ""].filter(Boolean).join(" ");
+                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : "", sc.generation ? "mixed" : "", dropOn === sc.id ? "drop" : ""].filter(Boolean).join(" ");
                 const extra = [sc.generation ? "karma üretim" : "", sc.split?.warning ?? ""].filter(Boolean).join(" · ");
                 return (
                   <button key={sc.id} type="button" className={cls} aria-current={scene?.id === sc.id}
                     style={{ left: x(start), width: Math.max(4, x(end - start) - 2), ["--clip" as string]: EMOTION_COLOR[sc.emotion] || "#6b6f78" }}
-                    title={`${sc.scene_code} · ${sc.description ?? ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}>
+                    title={`${sc.scene_code} · ${sc.description ?? ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}
+                    onDragOver={(e) => { if (e.dataTransfer.types.includes("text/x-hg-variation")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropOn !== sc.id) setDropOn(sc.id); } }}
+                    onDragLeave={() => { if (dropOn === sc.id) setDropOn(null); }} onDrop={(e) => drop(sc, e)}>
                     {th && <img src={th} alt="" loading="lazy" />}
                     <span className="lbl"><b>{sc.scene_code}</b><span>{sc.description}</span></span>
                   </button>
