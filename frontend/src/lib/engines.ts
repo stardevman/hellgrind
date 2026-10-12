@@ -9,7 +9,7 @@ export const isFal = (engine: string | null | undefined) => (FAL_ENGINES as read
 
 /** Ayarlar'da tanımlı değilse kullanılan çözünürlükler (fal_plan.H3_RESOLUTIONS, SEEDANCE_RESOLUTIONS). */
 const RESOLUTIONS: Record<string, string[]> = { h3max: ["480P", "768P", "1080P"], seedance25: ["480p", "720p", "1080p"] };
-const DEFAULT_RESOLUTION: Record<string, string> = { h3max: "768P", seedance25: "720p" };
+const DEFAULT_RESOLUTION: Record<string, string> = { h3max: "480P", seedance25: "720p" };
 
 export interface EngineChoice { id: string; label: string; disabled: boolean }
 

@@ -89,6 +89,11 @@ def measure_of(params: dict | None) -> dict | None:
     return {"alignment": detail["alignment"], "identity": detail.get("identity", {}), "faces_seen": detail.get("faces_seen", 0)}
 
 
+def finishing_view(info):
+    from app.engine.finishing import draft_view
+    return draft_view(info)
+
+
 def fal_request_view(req: dict | None) -> dict | None:
     """Çekimin fal.ai işi (bekleyen ya da son): kimlik, uç nokta, durum, hata ve sonucun özeti."""
     if not req:
@@ -109,7 +114,11 @@ def meta():
                       "seedance25_resolutions": list(fal_plan.SEEDANCE_RESOLUTIONS),
                       "h3max_resolution": settings.h3max_resolution,
                       "seedance25_resolution": settings.seedance25_resolution,
-                      "seedance25_audio": settings.seedance25_audio},
+                      "seedance25_audio": settings.seedance25_audio, "seedance25_draft": settings.seedance25_draft,
+                      "upscale_endpoint": settings.upscale_endpoint,
+                      "upscale_endpoints": ["fal-ai/bytedance-upscaler/upscale/video", "fal-ai/kandinsky6-vsr",
+                                            "fal-ai/seedvr/upscale/video", "fal-ai/flashvsr/upscale/video",
+                                            "blackforestlabs/flux-video-upscale"]},
             "quality": quality_meta(), "presets": PRESETS, "defaults": DEFAULT_PROJECT_SETTINGS,
             "sample_script": SAMPLE_SCRIPT, "trial_script": TRIAL_SCRIPT}
 
@@ -274,6 +283,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "engine_label": fal_plan.ENGINE_TR.get(sc.engine or "", sc.engine), "engine_disabled": h3_disabled(sc.engine),
         "video_opts": sc.video_opts or {}, "fal_request": fal_request_view(sc.fal_request),
         "plan_approval": sc.plan_approval,
+        "seedance_draft": finishing_view(sc.seedance_draft),
         "upgrade_available": fal_plan.is_fal(sc.engine) and sc.cut_tier == "draft"
                              and sc.engine != fal_plan.final_engine(cfg),
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
@@ -335,6 +345,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
             "measure": measure_of(v.params),
             "gates": ((v.params or {}).get("score_detail") or {}).get("video_gates"),   # referans modu: video kapıları
             "part": (v.params or {}).get("part_codes"), "segment": (v.params or {}).get("segment"),
+            "resolution": (v.params or {}).get("resolution"), "upscaled_from": (v.params or {}).get("upscaled_from"),
+            "completed_from": (v.params or {}).get("completed_from"),
             "thumb_url": _media(v.keyframe_key),
             "video_url": _media(v.video_key or (v.params or {}).get("quarantine_key")),   # karantinadakiler de önizlenir
             "source": (v.params or {}).get("source", "generate"), "revisions": len(revisions[v.id]),

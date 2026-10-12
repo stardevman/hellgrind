@@ -75,7 +75,7 @@ def visual_cost(cfg: dict, engine: str, duration: float) -> tuple[float, float]:
     En kötü: tüm düzeltme turları ve `full_n` tam varyasyon."""
     from app.engine.fal_plan import is_fal, resolution
     if is_fal(engine):                           # fal: çekim başına tek klip (kalite kapısından kalırsa fal_clip_attempts)
-        clip = pricing.estimate_video(engine, resolution(engine), duration)
+        clip = pricing.estimate_video(engine, resolution(engine, None, cfg), duration)
         return round(clip, 4), round(clip * max(1, int(cfg.get("fal_clip_attempts", 2))), 4)
     probe = pricing.estimate_video(engine, cfg["probe_resolution"], duration)
     full = pricing.estimate_video(engine, cfg["full_resolution"], duration)

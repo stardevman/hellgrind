@@ -8,8 +8,10 @@ import { candidates, defaultSelection, parseIds } from "@/lib/compare";
 import { audioValue, defaultResolution, engineChoices, engineShort, isFal, modeValue, parseDuration, resolutionValue, resolutionsFor } from "@/lib/engines";
 import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_TR, FAL_MODE_CHOICES, FAL_MODE_TR, FAL_STATUS_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
+import { needsUpscale, resolutionBadge } from "@/lib/finishing";
 import { approveText, clock, gateLines, planWarnings, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdTr } from "@/lib/text";
 import type { FalPlan, PlanApproval, RevisionList, Scene, SceneAssetRef, Sequence, StageResult, UpgradeFinal, Variation } from "@/lib/types";
+import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
 export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
@@ -404,7 +406,7 @@ function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
 /** fal.ai video (H3 Max, Seedance 2.5): koşul (image-to-video / reference-to-video), çözünürlük, süre, model sesi,
     tahmini maliyet, referans numaralandırması, bekleyen iş ve kuru çalıştırma (istek gövdesi; fal.ai'ye gidilmez). */
 function FalVideo({ sc }: { sc: Scene }) {
-  const { busy, frozen, act, note, meta } = usePanel();
+  const { busy, frozen, act, note, meta, ov } = usePanel();
   const plan = useFalPlan(sc);
   const refMode = useRefMode(sc);
   const engine = sc.engine ?? "h3max";
@@ -426,6 +428,10 @@ function FalVideo({ sc }: { sc: Scene }) {
     setDry(await api.post<FalPlan>(`/scenes/${sc.id}/render?dry_run=true`));
   }, "inspector");
   const res = resolutionsFor(engine, meta?.video);
+  const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
+  const draftOn = engine === "seedance25" && Boolean(plan?.draft ?? (cfg.seedance25_draft as boolean | null | undefined) ?? meta?.video?.seedance25_draft);
+  const projectRes = (engine === "h3max" ? cfg.h3max_resolution : engine === "seedance25" ? cfg.seedance25_resolution : null) as string | null | undefined;
+  const autoRes = draftOn ? "taslak 480p" : projectRes || defaultResolution(engine, meta?.video);
   const mode = plan?.mode ? FAL_MODE_TR[plan.mode] : "…";
   const req = sc.fal_request;
   const refs = plan?.references ?? [];
@@ -443,7 +449,7 @@ function FalVideo({ sc }: { sc: Scene }) {
         <label className="field">Çözünürlük
           <select value={resolutionValue(sc)} disabled={busy || frozen} aria-label="Video çözünürlüğü"
             onChange={(e) => patch({ video_resolution: e.target.value }, e.target.value === "auto" ? "çözünürlük Ayarlar'daki gibi" : `çözünürlük ${e.target.value}`)}>
-            <option value="auto">Otomatik ({defaultResolution(engine, meta?.video)})</option>
+            <option value="auto">Otomatik ({autoRes})</option>
             {res.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </label>
@@ -462,12 +468,14 @@ function FalVideo({ sc }: { sc: Scene }) {
           </select>
         </label>
       </div>
+      {draftOn && <p className="faint small">Seedance 2.5 taslağı açık: 480p önizleme üretilir (çözünürlük seçimi uygulanmaz); 7 gün içinde Bitirme bölümünden 1080p'ye tamamlanır ya da upscale edilir.</p>}
       {refMode && <PartPlan sc={sc} plan={plan} />}
       <dl className="kv">
         {!refMode && <>
           <dt>Tahmini maliyet</dt>
           <dd>{plan?.cost ? <><span className="mono">~{usdTr(plan.cost.reserve_usd)}</span><span className="faint small"> klip başına (bütçe kapısı bunu ayırır)</span></> : plan?.note || plan?.message || "hesaplanıyor…"}</dd>
           {plan?.endpoint && <><dt>Uç nokta</dt><dd className="mono small" style={{ overflowWrap: "anywhere" }}>{plan.endpoint}</dd></>}
+          {plan && <PlanFinishing plan={plan} />}
         </>}
         {req && <>
           <dt>fal.ai işi</dt>
@@ -547,6 +555,7 @@ function PartPlan({ sc, plan }: { sc: Scene; plan: FalPlan | undefined }) {
         <dt>Tahmini maliyet</dt>
         <dd>{plan.cost ? <><span className="mono">~{usdTr(plan.cost.reserve_usd)}</span><span className="faint small"> tek istek (bütçe kapısı bunu ayırır)</span></> : "—"}</dd>
         {plan.endpoint && <><dt>Uç nokta</dt><dd className="mono small" style={{ overflowWrap: "anywhere" }}>{plan.endpoint}</dd></>}
+        <PlanFinishing plan={plan} />
         <dt>Onay</dt>
         <dd>
           {approved ? <><span className="tag ok">Onaylı</span>{given && <span className="faint small"> {clock(given.at)} · ~{usdTr(given.usd)}</span>}</>
@@ -608,6 +617,7 @@ function DryRun({ r }: { r: FalPlan }) {
         {r.part && <><dt>Parça</dt><dd className="mono small">{r.part.join(" + ")}{r.plan_hash && <div className="faint" title="Plan özeti: onay bu özete bağlıdır">plan {r.plan_hash.slice(0, 12)}</div>}</dd></>}
         {r.cost && <><dt>Tahmini maliyet</dt><dd className="mono">~{usdTr(r.cost.reserve_usd)}</dd></>}
         {(r.resolution || r.duration != null || r.duration_s != null) && <><dt>Video</dt><dd className="mono">{[r.resolution, r.duration_s != null ? `${sec1(r.duration_s)} sn` : r.duration != null ? `${r.duration} sn` : "", r.audio ? "sesli" : "sessiz"].filter(Boolean).join(" · ")}</dd></>}
+        <PlanFinishing plan={r} />
         <dt>Aşamalar</dt><dd className="small">{stagesText(r.stages)}</dd>
       </dl>
       {(r.references?.length ?? 0) > 0 && (
@@ -668,7 +678,8 @@ function Override({ sc, v }: { sc: Scene; v: Variation }) {
 }
 
 function Pool({ sc }: { sc: Scene }) {
-  const { busy, act, note, setVar, compareRaw, openCompare } = usePanel();
+  const { busy, frozen, act, note, setVar, compareRaw, openCompare } = usePanel();
+  const [upFor, setUpFor] = useState<string | null>(null);
   const pool = sc.variations.filter((v) => v.rank).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
   const picked = parseIds(compareRaw, sc);
   const n = candidates(sc).length;
@@ -681,18 +692,30 @@ function Pool({ sc }: { sc: Scene }) {
     <Section title="Rafine havuz" meta={`${pool.length} aday`}>
       {pool.length ? (
         <ul className="lines">
-          {pool.map((v) => (
+          {pool.map((v) => {
+            const badge = resolutionBadge(v);
+            return (
             <li key={v.id} style={{ display: "grid", gridTemplateColumns: "56px 1fr auto", gap: 8, alignItems: "center" }}>
               {v.thumb_url ? <img src={v.thumb_url} alt="" loading="lazy" style={{ width: 56, height: 32, objectFit: "cover", borderRadius: 2 }} /> : <span />}
               <div style={{ minWidth: 0 }}><b className="mono">#{v.rank}</b> <span className="dim mono">skor {v.score != null ? v.score.toFixed(3) : "—"}</span>
                 {v.stale && <small className="warn"> · eski kareden ({v.stale}); kurguda kullanılmaz</small>}
                 {v.arrival && <small className="dim mono" title={`Son kare ${v.arrival.target === "end" ? "çekimin son karesine" : "sonraki çekimin karesine"} ne kadar vardı (DINOv2 ${v.arrival.dino.toFixed(2)}${v.arrival.identity != null ? `, kimlik ${v.arrival.identity.toFixed(2)}` : ""})`}> · varış {v.arrival.score.toFixed(2)}</small>}
                 {!v.stale && v.review?.length ? <small className="warn"> · inceleme önerilir: {v.review.join("; ")}</small> : null}
+                {badge ? <> <span className="tag info" title={badge.title}>{badge.long}</span></> : v.resolution ? <small className="faint mono"> · {v.resolution}</small> : null}
                 <Gates v={v} /></div>
-              {v.rank === 1 ? <span className="tag ok">Kullanımda</span>
-                : <button type="button" className="btn" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}
+              <div className="stack" style={{ gap: 4, justifyItems: "end" }}>
+                {v.rank === 1 ? <span className="tag ok">Kullanımda</span>
+                  : <button type="button" className="btn" disabled={busy} onClick={() => promote(v)}>Bunu kullan</button>}
+                {needsUpscale(v) && v.video_url && (
+                  <button type="button" className="btn ghost" aria-expanded={upFor === v.id} disabled={busy || frozen}
+                    title={frozen ? FROZEN_TITLE : "Bu klibi 1080p'ye çıkar: uç nokta, tahmin ve kalan bütçe gösterilir; orijinal varyasyon olarak kalır"}
+                    onClick={() => setUpFor(upFor === v.id ? null : v.id)}>Upscale (1080p)</button>
+                )}
+              </div>
+              {upFor === v.id && <div style={{ gridColumn: "1 / -1" }}><UpscaleConfirm scope="variation" id={v.id} onClose={() => setUpFor(null)} /></div>}
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : <p className="faint">Henüz rafine havuz yok.</p>}
       {n >= 2 && (
@@ -967,7 +990,8 @@ export function Inspector({ className = "" }: { className?: string }) {
         {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
         {isFal(sc.engine) && meta?.video_input_mode !== "reference" && <H3 key={`hf${sc.id}`} sc={sc} fal />}
         {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
-        <Pool sc={sc} />
+        <Pool key={`p${sc.id}`} sc={sc} />
+        <Finishing key={`fin${sc.id}`} sc={sc} />
         <Sound key={`s${sc.id}`} sc={sc} q={q} />
         {q && <SequenceBox q={q} />}
         <Assets key={`a${sc.id}`} sc={sc} />

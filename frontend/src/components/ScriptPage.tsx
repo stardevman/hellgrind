@@ -208,6 +208,8 @@ export function ScriptPage() {
 
 
 const RESOLUTIONS = ["480p", "720p"];
+const H3MAX_RESOLUTIONS = ["480P", "768P", "1080P"];
+const SEEDANCE25_RESOLUTIONS = ["480p", "720p", "1080p"];
 const EDIT_TR: Record<string, string> = { full: "tam", medium: "orta", lightning: "Lightning" };
 
 /** Proje yoğunluğu: test ve tam tur aday sayısı, çözünürlükler ve kimlik eşiği (proje ayarları; PATCH /projects). */
@@ -215,9 +217,12 @@ function Intensity() {
   const { ov, busy, act, note, meta } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam" | "engine"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam" | "engine" | "h3res" | "sdraft" | "sres"; min?: number; max?: number; step?: string }[] = [
     { key: "draft_engine", label: "Taslak motoru (yeni çekimler)", kind: "engine" },
     { key: "final_engine", label: "Final motoru (yükseltme)", kind: "engine" },
+    { key: "h3max_resolution", label: "H3 Max çözünürlüğü", kind: "h3res" },
+    { key: "seedance25_draft", label: "Seedance 2.5 taslağı (480p önizleme; 7 gün içinde 1080p'ye tamamlanır)", kind: "sdraft" },
+    { key: "seedance25_resolution", label: "Seedance 2.5 çözünürlüğü (yalnızca taslak kapalıyken)", kind: "sres" },
     { key: "fal_clip_attempts", label: "fal.ai klip denemesi (kalite kapısından kalırsa)", kind: "int", min: 1, max: 5 },
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
@@ -245,7 +250,8 @@ function Intensity() {
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
     const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" || f.kind === "seam" ? value(f.key)
-      : f.kind === "bool" ? value(f.key) === "true" : f.kind === "edit" || f.kind === "engine" ? (value(f.key) || null) : Number(value(f.key))]));
+      : f.kind === "bool" ? value(f.key) === "true" : f.kind === "sdraft" ? (value(f.key) === "" ? null : value(f.key) === "true")
+      : f.kind === "edit" || f.kind === "engine" || f.kind === "h3res" || f.kind === "sres" ? (value(f.key) || null) : Number(value(f.key))]));
     await api.patch(`/projects/${ov!.project.id}`, { settings, ...(budgetDirty ? { budget_limit_usd: Number(budget) } : {}) });
     setDraft({});
     note("script", budgetDirty ? `Kaydedildi; bütçe $${Number(budget).toFixed(2)}.` : "Yoğunluk kaydedildi; sonraki üretimlerde geçerli.", "ok");
@@ -272,6 +278,17 @@ function Intensity() {
                       {engineChoices(meta?.video, String(cfg[f.key] ?? "") || null).map((e) => (
                         <option key={e.id} value={e.id} disabled={e.disabled && e.id !== cfg[f.key]}>{e.label}</option>
                       ))}
+                    </select>
+                  ) : f.kind === "h3res" || f.kind === "sres" ? (
+                    <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="">Ayarlar'daki varsayılan ({(f.kind === "h3res" ? meta?.video?.h3max_resolution : meta?.video?.seedance25_resolution) ?? "—"})</option>
+                      {(f.kind === "h3res" ? meta?.video?.h3max_resolutions ?? H3MAX_RESOLUTIONS : meta?.video?.seedance25_resolutions ?? SEEDANCE25_RESOLUTIONS).map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  ) : f.kind === "sdraft" ? (
+                    <select value={value(f.key)} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="">Ayarlar'daki varsayılan ({meta?.video?.seedance25_draft == null ? "—" : meta.video.seedance25_draft ? "açık" : "kapalı"})</option>
+                      <option value="true">Açık: 480p önizleme + draft_id (en ucuz)</option>
+                      <option value="false">Kapalı: seçili çözünürlükte doğrudan</option>
                     </select>
                   ) : f.kind === "bool" ? (
                     <select value={value(f.key) || "true"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
@@ -311,7 +328,9 @@ function Intensity() {
           </tbody>
         </table>
         <p className="faint small">Taslak motoru yeni çekimlerin motorudur (kaba kurgu); final motoru çekimin denetçisindeki
-          "ile yükselt" düğmesinin motorudur. Var olan çekimlerin motoru denetçiden değişir.</p>
+          "ile yükselt" düğmesinin motorudur. Var olan çekimlerin motoru denetçiden değişir. Varsayılanlar en ucuzudur: H3 Max
+          480P ve Seedance 2.5 taslağı (480p önizleme); seçilen çekimler sonra denetçinin Bitirme bölümünden 1080p'ye tamamlanır
+          ya da upscale edilir. Seedance 2.5 çözünürlüğü yalnızca taslak kapalıyken kullanılır.</p>
         <p className="faint small">Kimlik eşiği: insan karakterde yüz kimliği (0-1) bunun altında kalan ya da yüzü hiç görünmeyen aday rafine
           havuza giremez; küçük yüzde kimlik ölçülmez, eleme olmaz. Benzerlik eşiği: robot, hayvan gibi karakterlerde kare ile
           referans arasındaki görsel benzerlik. Tam tur için 720p önerilir; test turu 480p'de ucuzdur. Varış: klibin son karesinin

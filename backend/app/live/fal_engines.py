@@ -65,7 +65,8 @@ class FalVideoProvider:
         return refs + int(bool(req.image_url)) + int(bool(req.extra.get("last_frame")))
 
     def estimate(self, req: GenRequest) -> float:
-        return fal_plan.cost(self.engine, self.resolution(req.resolution), req.duration_s, self.images(req))["reserve_usd"]
+        return fal_plan.cost(self.engine, self.resolution(req.resolution), req.duration_s, self.images(req), self.mode(req),
+                             bool(req.extra.get("fal_draft")))["reserve_usd"]
 
     def upload(self, path: str) -> str:
         guard("fal_key")
@@ -79,7 +80,8 @@ class FalVideoProvider:
         return fal_plan.body(self.engine, mode, prompt=req.prompt, duration_s=req.duration_s,
                              resolution_=self.resolution(req.resolution),
                              audio_=bool(req.extra.get("fal_audio", settings.seedance25_audio)), seed=req.seed,
-                             image_url=req.image_url, end_image_url=req.extra.get("last_frame"), reference_urls=refs)
+                             image_url=req.image_url, end_image_url=req.extra.get("last_frame"), reference_urls=refs,
+                             draft_=bool(req.extra.get("fal_draft")))
 
     def billed(self, req: GenRequest, args: dict, measured: dict) -> dict:
         """İşlenen tutar ve tahmini faturalanan birimler."""
@@ -87,10 +89,11 @@ class FalVideoProvider:
         if self.engine == "seedance25":
             size = (measured["width"], measured["height"]) if measured.get("width") else None
             seconds = measured.get("duration_s") or fal_plan.billed_seconds(self.engine, req.duration_s)
-            c = pricing.seedance25_cost(res, seconds, size=size, measured=True)
+            c = pricing.seedance25_cost("480p" if args.get("draft") else res, seconds, size=size, measured=True)
             return {"usd": c["usd"], "tokens": c["billed_tokens"], "measured_tokens": c["tokens"],
                     "per_1k_tokens_usd": c["per_1k_tokens_usd"]}
-        c = pricing.h3max_cost(res, fal_plan.billed_seconds(self.engine, req.duration_s), fal_plan.images_in(args))
+        c = pricing.h3max_cost(res, fal_plan.billed_seconds(self.engine, req.duration_s), fal_plan.images_in(args),
+                               mode=self.mode(req))
         return {"usd": c["usd"], "units": c["units"], "reference_tokens": c["reference_tokens"]}
 
     def generate(self, req: GenRequest) -> GenResult:

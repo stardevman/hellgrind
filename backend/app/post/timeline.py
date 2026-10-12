@@ -46,12 +46,13 @@ def video_duration(path: str) -> float:
         return probe_duration(path)
 
 
-def normalize(src: str, dst: str) -> str:
+def normalize(src: str, dst: str, size: tuple[int, int] | None = None) -> str:
     """Klibi ortak biçime çevirir. Ses, görüntü süresine eşitlenir: kısaysa sessizlikle tamamlanır, uzunsa kesilir.
     Eşitleme -t ile yapılır; -shortest kare hassasiyetli değildir (ses görüntüden yarım saniye uzun çıkabilir) ve
     concat -c copy her dosyayı süresi kadar ileri taşıdığından, her klipte ses biraz daha kayardı."""
-    video = (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
-             f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,fps={FPS},format=yuv420p")
+    width, height = size or (WIDTH, HEIGHT)
+    video = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={FPS},format=yuv420p")
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src]
     if has_audio(src):
         cmd += ["-vf", video, "-af", "apad", "-map", "0:v", "-map", "0:a"]
@@ -197,9 +198,12 @@ def assemble(project_id: str, kind: str = "final") -> dict:
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as work:
             normalized, durations = [], []
-            for i, (code, video_key, description, emotion, seq) in enumerate(items):
-                src = storage.download(video_key, os.path.join(work, f"src{i}.mp4"))
-                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4")))
+            sources = [storage.download(video_key, os.path.join(work, f"src{i}.mp4"))
+                       for i, (code, video_key, description, emotion, seq) in enumerate(items)]
+            from app.engine.finishing import film_size
+            size = film_size(sources)          # bütün klipler upscale edildiyse film 1080p, değilse 720p
+            for i, src in enumerate(sources):
+                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4"), size))
                 durations.append(probe_duration(normalized[-1]))
             if fade:                                                    # continuous dikişlerde kısa geçiş
                 starts = crossfade_join(normalized, durations, seams, fade, os.path.join(work, "cut.mp4"))

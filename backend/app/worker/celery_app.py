@@ -20,6 +20,8 @@ celery.conf.update(
         "hg.motion_test": {"queue": "gen"},
         "hg.storyboard_scene": {"queue": "gen"},
         "hg.end_board_scene": {"queue": "gen"},
+        "hg.complete_draft": {"queue": "gen"},      # Seedance taslağını 1080p'ye tamamlama (ücretli)
+        "hg.upscale_clip": {"queue": "gen"},        # upscale (ücretli)
         "hg.lipsync_scene": {"queue": "post"},
         "hg.grade_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},

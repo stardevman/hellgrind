@@ -1,0 +1,284 @@
+{
+ "components": {
+  "schemas": {
+   "File": {
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The mime type of the file.",
+      "examples": [
+       "image/png"
+      ],
+      "title": "Content Type"
+     },
+     "file_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name of the file. It will be auto-generated if not provided.",
+      "examples": [
+       "z9RV14K95DvU.png"
+      ],
+      "title": "File Name"
+     },
+     "file_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the file in bytes.",
+      "examples": [
+       4404019
+      ],
+      "title": "File Size"
+     },
+     "url": {
+      "description": "The URL where the file can be downloaded from.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "File",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "content_type",
+     "file_name",
+     "file_size"
+    ]
+   },
+   "FlashvsrUpscaleVideoInput": {
+    "properties": {
+     "acceleration": {
+      "default": "regular",
+      "description": "Acceleration mode for VAE decoding. Options: regular (best quality), high (balanced), full (fastest). More accerleation means longer duration videos can be processed too.",
+      "enum": [
+       "regular",
+       "high",
+       "full"
+      ],
+      "title": "Acceleration",
+      "type": "string"
+     },
+     "color_fix": {
+      "default": true,
+      "description": "Color correction enabled.",
+      "title": "Color Fix",
+      "type": "boolean"
+     },
+     "enable_safety_checker": {
+      "default": true,
+      "description": "Authorized callers may set false to request relaxed screening.",
+      "title": "Enable Safety Checker",
+      "type": "boolean"
+     },
+     "output_format": {
+      "default": "X264 (.mp4)",
+      "description": "The format of the output video.",
+      "enum": [
+       "X264 (.mp4)",
+       "VP9 (.webm)",
+       "PRORES4444 (.mov)",
+       "GIF (.gif)"
+      ],
+      "title": "Output Format",
+      "type": "string"
+     },
+     "output_quality": {
+      "default": "high",
+      "description": "The quality of the output video.",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "maximum"
+      ],
+      "title": "Output Quality",
+      "type": "string"
+     },
+     "output_write_mode": {
+      "default": "balanced",
+      "description": "The write mode of the output video.",
+      "enum": [
+       "fast",
+       "balanced",
+       "small"
+      ],
+      "title": "Output Write Mode",
+      "type": "string"
+     },
+     "preserve_audio": {
+      "default": false,
+      "description": "Copy the original audio tracks into the upscaled video using FFmpeg when possible.",
+      "title": "Preserve Audio",
+      "type": "boolean"
+     },
+     "quality": {
+      "default": 70,
+      "description": "Quality level for tile blending (0-100). Controls overlap between tiles to prevent grid artifacts. Higher values provide better quality with more overlap. Recommended: 70-85 for high-res videos, 50-70 for faster processing.",
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Quality",
+      "type": "integer"
+     },
+     "seed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The random seed used for the generation process.",
+      "title": "Seed"
+     },
+     "sync_mode": {
+      "default": false,
+      "description": "If `True`, the media will be returned inline and not stored in history.",
+      "title": "Sync Mode",
+      "type": "boolean"
+     },
+     "upscale_factor": {
+      "default": 2,
+      "description": "Upscaling factor to be used.",
+      "maximum": 4,
+      "minimum": 1,
+      "title": "Upscale Factor",
+      "type": "number"
+     },
+     "video_url": {
+      "_fal_ui_field": "video",
+      "description": "The input video to be upscaled",
+      "examples": [
+       "https://v3b.fal.media/files/b/0a959993/ev11uf0rrsKkBafCw9QKe_video.mp4"
+      ],
+      "title": "Video Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "video_url"
+    ],
+    "title": "FlashVSRPlusVideoInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "upscale_factor",
+     "seed",
+     "sync_mode",
+     "video_url",
+     "acceleration",
+     "color_fix",
+     "quality",
+     "preserve_audio",
+     "output_format",
+     "output_quality",
+     "output_write_mode",
+     "enable_safety_checker"
+    ]
+   },
+   "FlashvsrUpscaleVideoOutput": {
+    "properties": {
+     "seed": {
+      "description": "The random seed used for the generation process.",
+      "title": "Seed",
+      "type": "integer"
+     },
+     "video": {
+      "$ref": "#/components/schemas/File",
+      "description": "Upscaled video file after processing"
+     }
+    },
+    "required": [
+     "video",
+     "seed"
+    ],
+    "title": "FlashVSRPlusVideoOutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video",
+     "seed"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/flashvsr/upscale/video",
+  "title": "Queue OpenAPI for fal-ai/flashvsr/upscale/video",
+  "x-fal-metadata": {
+   "about": "Upscale Video Full",
+   "category": "video-to-video",
+   "documentationUrl": "https://fal.ai/models/fal-ai/flashvsr/upscale/video/api",
+   "endpointId": "fal-ai/flashvsr/upscale/video",
+   "playgroundUrl": "https://fal.ai/models/fal-ai/flashvsr/upscale/video",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/zebra/bj0FLRnM-ZgEQvTLXgax5_2c719e57677a4a05992eb71173b5d28f.jpg"
+  }
+ }
+}

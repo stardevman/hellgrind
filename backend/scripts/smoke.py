@@ -398,6 +398,15 @@ def main() -> int:
     return 0
 
 
+def wait_for(pid: str, cond, timeout: float = 300) -> bool:
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if cond(overview(pid)):
+            return True
+        time.sleep(2)
+    return False
+
+
 def give_references(pid: str) -> None:
     """Projenin bütün varlıklarına yerel taslak referans (yönetmenin görsel yüklemesi yerine; ücretsiz)."""
     for a in c.get(f"/projects/{pid}/assets").json():
@@ -435,7 +444,8 @@ def check_fal(meta: dict) -> None:
     check(plan["network"] is False and all(r["endpoint"].startswith("minimax/h3-max/") for r in rows),
           f"kuru çalıştırma: {len(rows)} çekim H3 Max uç noktasına, ağ yok")
     check(all(isinstance(r["body"]["duration"], (int, float)) and r["body"]["prompt_expansion_mode"] == "disabled"
-              for r in rows), "H3 Max gövdesi: süre sayı, prompt_expansion_mode zorunlu alan dolu")
+              and r["body"]["resolution"] == "480P" for r in rows),
+          "H3 Max gövdesi: 480P (en ucuz), süre sayı, prompt_expansion_mode zorunlu alan dolu")
     check(plan["upgrade_total_usd"] > plan["total_usd"] > 0 and plan["requests"] == len(parts),
           f"tahmin: {plan['requests']} istek, taslak {plan['total_usd']:.2f} $, yükseltme {plan['upgrade_total_usd']:.2f} $")
     sc = ov["scenes"][0]
@@ -457,8 +467,29 @@ def check_fal(meta: dict) -> None:
     check(old is not None and old["status"] == "passed", "taslak klip varyasyon olarak kaldı")
     check(spent(pid) > before, f"yükseltme sanal olarak ücretlendi ({spent(pid) - before:.2f} $)")
     dry = c.post(f"/scenes/{sc['id']}/render", params={"dry_run": "true"}).json()
-    check(dry["dry_run"] and dry["endpoint"].startswith("bytedance/seedance-2.5/") and isinstance(dry["body"]["duration"], str),
-          "kuru çalıştırma: Seedance 2.5 gövdesinde süre metin")
+    check(dry["dry_run"] and dry["endpoint"].startswith("bytedance/seedance-2.5/") and isinstance(dry["body"]["duration"], str)
+          and dry["body"].get("draft") is True, "kuru çalıştırma: Seedance 2.5 taslağı (draft), süre metin")
+
+    print("X) Taslağı 1080p'ye tamamlama ve upscale")
+    d = c.get(f"/scenes/{sc['id']}/draft").json()
+    check(d.get("available") and d["label"].startswith("≈") and d["cheaper"]["label"].startswith("Upscale ile 1080p")
+          and 0 < d["draft"]["remaining_s"] <= 7 * 24 * 3600,
+          f"taslak: {d.get('label')}, daha ucuz: {d.get('cheaper', {}).get('label')}, kalan süre {d.get('draft', {}).get('remaining_s')} sn")
+    r = c.post(f"/scenes/{sc['id']}/seedance/complete", params={"expected_usd": d["cost"]["usd"]})
+    check(r.status_code == 200, f"taslak tamamlama kuyruğa verildi ({r.status_code})")
+    done = wait_for(pid, lambda ov: all(next((v for v in s["variations"] if v["rank"] == 1), {}).get("resolution") == "1080p"
+                                        and s["status"] == "done" for s in ov["scenes"] if s["scene_code"] in d["part"]))
+    check(done, "tamamlanan parçanın çekimleri 1080p kazananla bitti; taslak kesimleri varyasyon olarak kaldı")
+    other = next(s for s in overview(pid)["scenes"] if s["scene_code"] not in d["part"])
+    plan = c.post(f"/scenes/{other['id']}/upscale", params={"dry_run": "true"}).json()
+    check(plan["items"] and plan["total_usd"] > 0 and len(plan["alternatives"]) == 5,
+          f"upscale planı: {plan['endpoint']} {plan['total_usd']:.3f} $ (5 seçenek)")
+    r = c.post(f"/scenes/{other['id']}/upscale", params={"expected_usd": plan["total_usd"]})
+    check(r.status_code == 200, "upscale kuyruğa verildi")
+    up = wait_for(pid, lambda ov: any(v.get("upscaled_from") and v["rank"] == 1 for s in ov["scenes"]
+                                      if s["id"] == other["id"] for v in s["variations"])
+                  and next(s for s in ov["scenes"] if s["id"] == other["id"])["status"] == "done")
+    check(up, "upscale edilen klip kazanan, orijinal varyasyon olarak kaldı, montaj yeniden yapıldı")
 
     print("W) Plan onayı: onaysız render yok, onaylanınca parça üretilir")
     gated = new_project("duman-testi-plan", 50.0, lint_strictness="off", draft_engine=None, require_plan_approval=True,

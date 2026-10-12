@@ -77,19 +77,19 @@ def fal_video(engine: str, prices: dict | None = None) -> dict | None:
     return ((prices or table()).get("fal_video") or {}).get(engine)
 
 
-def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict | None = None) -> dict:
+def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict | None = None, mode: str = "ref") -> dict:
     """MiniMax H3 Max: istenen süre × saniye ücreti (480P 0,05 / 768P 0,08 / 1080P 0,16) + referans token fazlası (her
     girdi görseli 1.024 token; 4.096 token dahil, fazlası 0,02 $ / 1000), × billing_factor (ölçülen fatura). Bilinmeyen
     çözünürlük: en pahalısı."""
     row = fal_video("h3max", prices)
-    rates = row["per_second"]
+    rates = row.get("per_second_i2v") if mode == "i2v" and row.get("per_second_i2v") else row["per_second"]
     rate = float(rates.get(resolution, max(rates.values())))
-    tokens = int(images) * int(row.get("image_tokens", 1024))
+    tokens = int(images) * int(row.get("image_tokens", 1024)) if mode != "i2v" else 0   # token fazlası: reference-to-video
     extra_tokens = max(0, tokens - int(row.get("included_reference_tokens", 4096)))
     base = rate * float(duration_s) + extra_tokens / 1000.0 * float(row.get("extra_per_1k_tokens", 0.02))
     factor = float(row.get("billing_factor", 1.0))
     usd = round(base * factor, 4)
-    return {"engine": "h3max", "resolution": resolution, "duration_s": float(duration_s), "per_second_usd": rate,
+    return {"engine": "h3max", "mode": mode, "resolution": resolution, "duration_s": float(duration_s), "per_second_usd": rate,
             "images": int(images), "reference_tokens": tokens, "extra_tokens": extra_tokens, "base_usd": round(base, 4),
             "billing_factor": factor, "usd": usd, "reserve_usd": usd, "units": round(usd / 0.05, 2)}
 
@@ -122,14 +122,57 @@ def seedance25_cost(resolution: str, out_seconds: float, in_video_seconds: float
             "billed_tokens": round(tokens * factor) if measured else None}
 
 
+def seedance25_complete_cost(out_seconds: float, prices: dict | None = None) -> dict:
+    """draft/complete: taslağın YALNIZCA 1080p tamamlanması, 0,0234 $ / 1000 token (≈ 1,164 $/sn), tahmine %20 pay."""
+    row = (fal_video("seedance25", prices) or {}).get("complete") or {}
+    width, height = row.get("size") or (1920, 1104)
+    tokens = height * width * float(out_seconds) * 24 / 1024
+    base = tokens / 1000.0 * float(row.get("per_1k_tokens", 0.0234))
+    margin = float(row.get("margin", 0.2))
+    return {"engine": "seedance25", "resolution": "1080p", "duration_s": float(out_seconds), "tokens": round(tokens),
+            "per_1k_tokens_usd": float(row.get("per_1k_tokens", 0.0234)), "base_usd": round(base, 4), "margin": margin,
+            "usd": round(base, 4), "reserve_usd": round(base * (1 + margin), 4)}
+
+
 def fal_video_cost(engine: str, resolution: str, duration_s: float, images: int = 0, in_video_seconds: float = 0.0,
-                   prices: dict | None = None) -> dict:
-    """Çağrıdan önceki tahmin (bütçe kapısı): {"usd", "reserve_usd", ...}."""
+                   prices: dict | None = None, mode: str = "ref", draft: bool = False) -> dict:
+    """Çağrıdan önceki tahmin (bütçe kapısı): {"usd", "reserve_usd", ...}. mode: H3 Max uç noktası (i2v | ref);
+    draft: Seedance 2.5 taslağı (480p fiyatı)."""
     if engine == "h3max":
-        return h3max_cost(resolution, duration_s, images, prices)
+        return h3max_cost(resolution, duration_s, images, prices, mode)
     if engine == "seedance25":
-        return seedance25_cost(resolution, duration_s, in_video_seconds, prices)
+        if draft:
+            resolution = (fal_video("seedance25", prices) or {}).get("draft_resolution", "480p")
+        return {**seedance25_cost(resolution, duration_s, in_video_seconds, prices), "draft": draft}
     raise KeyError(engine)
+
+
+UPSCALE_SIZE = (1920, 1080)
+
+
+def upscale_cost(endpoint: str, seconds: float, fps: float = 24.0, target: str = "1080p", tier: str = "standard",
+                 prices: dict | None = None) -> dict:
+    """Upscale tahmini (çıktı 1920x1080, kaynak fps). Bilinmeyen uç nokta: KeyError."""
+    rows = (prices or table()).get("upscale") or {}
+    row = rows[endpoint]
+    mp = UPSCALE_SIZE[0] * UPSCALE_SIZE[1] / 1_000_000
+    frames = float(seconds) * float(fps)
+    if "per_second" in row:
+        rate = float(row["per_second"].get(target, max(row["per_second"].values())))
+        if fps > 30:
+            rate *= float(row.get("high_fps_factor", 2))
+        if tier == "pro":
+            rate *= float(row.get("pro_factor", 10))
+        usd = rate * float(seconds)
+    elif "per_mp_frame" in row:
+        usd = float(row["per_mp_frame"]) * mp * frames
+    else:
+        usd = float(row["per_mp"]) * mp * frames
+    out = {"endpoint": endpoint, "seconds": float(seconds), "fps": float(fps), "target": target, "tier": tier,
+           "usd": round(usd, 4), "reserve_usd": round(usd, 4)}
+    if row.get("max_seconds") and seconds > float(row["max_seconds"]) + 1e-6:
+        out["warning"] = f"{endpoint} en çok {row['max_seconds']} sn işler (klip {seconds:g} sn)"
+    return out
 
 
 def estimate_fal_image(model: str, width: int = 1280, height: int = 704, prices: dict | None = None) -> float:

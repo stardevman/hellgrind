@@ -262,6 +262,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .tile .rank { position: absolute; right: 0; top: 0; min-width: 16px; padding: 0 4px; font-family: var(--mono); font-size: 10.5px; font-weight: 700; line-height: 16px; text-align: center; background: var(--ok); color: #06251a; }
 .tile .rev { position: absolute; left: 0; top: 0; padding: 0 4px; font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 14px; background: var(--accent); color: #fff; }
 .tile .cmp { position: absolute; right: 0; bottom: 0; padding: 0 4px; font-size: 10px; font-weight: 700; line-height: 14px; background: var(--warn); color: #2a1d00; }
+.tile .res { position: absolute; right: 0; top: 16px; padding: 0 4px; font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 14px; background: var(--work); color: #1a1030; }
 .tile.refined { border: 2px solid var(--ok); }
 .tile.rejected img { filter: grayscale(1) brightness(.6); }
 .tile.rejected::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 1px), var(--bad) calc(50% - 1px), var(--bad) calc(50% + 1px), transparent calc(50% + 1px)); }

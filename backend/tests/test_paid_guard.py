@@ -82,8 +82,11 @@ def test_free_mode_is_the_default_and_paid_keys_default_to_empty(monkeypatch):
     assert defaults.h3_endpoint_url == ""
     assert (defaults.video_draft_engine, defaults.video_final_engine, defaults.keyframe_platform) == \
         ("h3max", "seedance25", "fal")
+    # test aşaması: en ucuz varsayılanlar (H3 Max 480P, Seedance taslağı 480p; 720p yalnızca taslak kapalıyken)
     assert (defaults.h3max_resolution, defaults.h3max_prompt_expansion, defaults.seedance25_resolution,
-            defaults.seedance25_audio) == ("768P", "disabled", "720p", False)
+            defaults.seedance25_audio, defaults.seedance25_draft) == ("480P", "disabled", "720p", False, True)
+    assert (defaults.video_input_mode, defaults.scene_render_mode, defaults.upscale_endpoint) == \
+        ("reference", "whole_scene", "fal-ai/bytedance-upscaler/upscale/video")
 
 
 def test_the_test_run_itself_is_in_free_mode():

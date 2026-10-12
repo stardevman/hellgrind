@@ -415,6 +415,30 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
 - **Lisans:** fal.ai'deki MiniMax H3 Max "Commercial use" etiketlidir: çıktılarına lisans ya da bölge kısıtı uygulanmaz
   (yalnızca kendi barındırdığımız MiniMax H3'ün kısıtları sürer).
 
+### En düşük maliyet, taslak tamamlama ve upscale
+
+- **Varsayılanlar en ucuz** (test aşaması; proje ayarlarından yükseltilir): H3 Max 480P; Seedance 2.5 taslak (`draft:
+  true`, 480p önizleme + `draft_id`). `SEEDANCE25_RESOLUTION` yalnızca taslak kapalıyken kullanılır.
+- **Fiyatlar uç noktaya göre:** H3 Max image-to-video 0,03 / 0,048 / 0,096 $/sn (480P / 768P / 1080P), reference-to-video
+  0,05 / 0,08 / 0,16 $/sn + 4.096 token'ı aşan referans için 0,02 $ / 1000 token. Seedance taslağı 480p token fiyatıyla
+  (0,0214 $ / 1000 token). draft/complete yalnızca 1080p, 0,0234 $ / 1000 token (≈ 1,164 $/sn; 10 sn ≈ 11,6 $), tahmine
+  %20 pay.
+- **Taslağı 1080p'ye tamamla:** taslağın `draft_id`'si ve 7 günlük geçerliliği sahneye yazılır, panelde kalan süre görünür.
+  Onay ekranı tahmini (ör. "≈ 11,6 $") ve daha ucuz seçeneği ("Upscale ile 1080p (≈ 0,07 $)") gösterir; bütçeyi aşan ya da
+  süresi dolmuş tamamlama reddedilir. Tamamlanan parça klibi yeniden çekimlere kesilir; taslak kesimleri varyasyon kalır.
+- **Upscale (1080p):** klip, çekim ya da son montajdan önce bütün film; `UPSCALE_ENDPOINT` (varsayılan
+  `fal-ai/bytedance-upscaler/upscale/video`: 30 fps'e kadar 1080p 0,0072 $/sn, 2K 0,0144, 4K 0,0288; 60 fps'te 2 kat, pro 10
+  kat). Seçenekler: `fal-ai/kandinsky6-vsr` (0,00036 $ / çıktı MP / kare; en çok ~5 sn), `fal-ai/seedvr/upscale/video`
+  (0,001 $ / MP), `fal-ai/flashvsr/upscale/video` (0,0005 $ / MP), `blackforestlabs/flux-video-upscale` (precise 1080p
+  0,14 $/sn; en çok 20 sn). Upscale edilmiş klip ayrı varyasyondur (orijinal korunur), hedef fps kaynakla aynıdır (24).
+  Upscale edilen çekimin otomatik renk eşlemesi sıfırlanır: eşleme upscale'den SONRA (film birleşince) yeniden yapılır;
+  bütün film upscale'i son çekimin montajından sonra filmi yeniden birleştirir. Bütün klipler 1080p ise film de 1080p'dir.
+- **İstem:** sahne kadrosu nesne olarak tanımlı canlıları da kapsar ("The cast of this scene: Nora, Pip and the Hens");
+  çekime özel kadro yalnızca kendi satırında ("Only Nora and Pip in frame; the Hens are out of frame."); kamera dereceleri
+  sade dile çevrilir ("from the left side", "low at ground level"); kamera cümlesi tekrar etmez. H3 Max istemi en çok 50.000
+  karakter (şema), Seedance'ta sınır yok; aşılırsa önce tekrarlar, sonra görsel kısıtlar kısaltılır; planda karakter
+  sayısı görünür.
+
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
 `VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel

@@ -144,6 +144,25 @@ def override_full(self, project_id: str, scene_id: str, variation_id: str):
     return _guard(self, project_id, scene_id, work)
 
 
+@celery.task(bind=True, name="hg.complete_draft")
+def complete_draft(self, project_id: str, scene_id: str):
+    """Seedance 2.5 taslağını 1080p'ye tamamlar (engine/finishing.run_complete)."""
+    def work():
+        from app.engine.finishing import run_complete
+        return run_complete(project_id, scene_id)
+    return _guard(self, project_id, scene_id, work)
+
+
+@celery.task(bind=True, name="hg.upscale_clip")
+def upscale_clip(self, project_id: str, scene_id: str, variation_id: str, endpoint: str | None = None,
+                 batch: bool = False):
+    """Klibi 1080p'ye çıkarır (engine/finishing.run_upscale); orijinal varyasyon olarak kalır."""
+    def work():
+        from app.engine.finishing import run_upscale
+        return run_upscale(project_id, variation_id, endpoint, batch)
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.lipsync_scene")
 def lipsync_scene(self, project_id: str, scene_id: str):
     def work():
@@ -167,6 +186,8 @@ def mux_scene(self, project_id: str, scene_id: str):
         return pipeline.mux_scene(scene_id)
     result = _guard(self, project_id, scene_id, work)
     maybe_assemble_draft(project_id, scene_id)
+    from app.engine.finishing import upscale_done          # bütün film upscale'i: son çekimden sonra film birleşir
+    upscale_done(project_id, scene_id)
     maybe_refresh_continuity(project_id, scene_id)
     killswitch.refreeze_after(project_id, scene_id)
     return result

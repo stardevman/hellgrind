@@ -1,0 +1,266 @@
+{
+ "components": {
+  "schemas": {
+   "BytedanceUpscalerUpscaleVideoInput": {
+    "properties": {
+     "bit_depth": {
+      "default": 8,
+      "description": "The color bit depth of the output video. 10-bit and 12-bit output require the Pro enhancement tier.",
+      "enum": [
+       8,
+       10,
+       12
+      ],
+      "title": "Bit Depth",
+      "type": "integer"
+     },
+     "enhancement_preset": {
+      "default": "general",
+      "description": "The enhancement preset optimized for specific video scenarios. 'general' is a general-purpose template, 'ugc' targets user-generated short videos, 'short_series' is for short dramas, 'aigc' is for AI-generated content, and 'old_film' is for classic film restoration.",
+      "enum": [
+       "general",
+       "ugc",
+       "short_series",
+       "aigc",
+       "old_film"
+      ],
+      "title": "Enhancement Preset",
+      "type": "string"
+     },
+     "enhancement_tier": {
+      "default": "standard",
+      "description": "The enhancement quality tier. 'fast' provides essential upscaling with good speed, 'standard' uses adaptive algorithms for better visual texture, 'pro' uses large-model restoration for cinematic quality (longer processing time), and 10 times the cost of `standard` and `fast`.",
+      "enum": [
+       "fast",
+       "standard",
+       "pro"
+      ],
+      "title": "Enhancement Tier",
+      "type": "string"
+     },
+     "fidelity": {
+      "default": "high",
+      "description": "The enhancement intensity. 'high' applies mild enhancement while keeping visual texture close to the source video. 'medium' provides a balanced image quality enhancement.",
+      "enum": [
+       "high",
+       "medium"
+      ],
+      "title": "Fidelity",
+      "type": "string"
+     },
+     "scale_ratio": {
+      "anyOf": [
+       {
+        "maximum": 10,
+        "minimum": 1.1,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The scaling ratio for the output video resolution. When set, overrides target_resolution and scales the input resolution by this factor (e.g., 2.0 doubles the resolution). Range: 1.1 to 10.0. Please note that this is valid only up to 4k resolution, and trying to scale beyond 4k will result in an error. (4k is defined as having atotal pixel count of 3840x2160).",
+      "title": "Scale Ratio"
+     },
+     "target_fps": {
+      "default": 30,
+      "description": "The target frame rate of the enhanced video in frames per second.",
+      "maximum": 120,
+      "minimum": 24,
+      "title": "Target Fps",
+      "type": "number"
+     },
+     "target_resolution": {
+      "default": "1080p",
+      "description": "The target resolution of the video to upscale.",
+      "enum": [
+       "1080p",
+       "2k",
+       "4k",
+       "6k",
+       "8k"
+      ],
+      "title": "Target Resolution",
+      "type": "string"
+     },
+     "video_url": {
+      "description": "The URL of the video to upscale.",
+      "examples": [
+       "https://storage.googleapis.com/falserverless/example_inputs/bytedance_video_upscaler_input.mp4"
+      ],
+      "title": "Video Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "video_url"
+    ],
+    "title": "UpscaleInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video_url",
+     "target_resolution",
+     "target_fps",
+     "enhancement_preset",
+     "enhancement_tier",
+     "scale_ratio",
+     "fidelity",
+     "bit_depth"
+    ]
+   },
+   "BytedanceUpscalerUpscaleVideoOutput": {
+    "properties": {
+     "duration": {
+      "description": "Duration of audio input/video output as used for billing.",
+      "title": "Duration",
+      "type": "number"
+     },
+     "video": {
+      "$ref": "#/components/schemas/File",
+      "description": "Generated video file",
+      "examples": [
+       {
+        "url": "https://storage.googleapis.com/falserverless/example_outputs/bytedance_video_upscaler_output.mp4"
+       }
+      ]
+     }
+    },
+    "required": [
+     "video",
+     "duration"
+    ],
+    "title": "UpscaleOutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video",
+     "duration"
+    ]
+   },
+   "File": {
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The mime type of the file.",
+      "examples": [
+       "image/png"
+      ],
+      "title": "Content Type"
+     },
+     "file_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name of the file. It will be auto-generated if not provided.",
+      "examples": [
+       "z9RV14K95DvU.png"
+      ],
+      "title": "File Name"
+     },
+     "file_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the file in bytes.",
+      "examples": [
+       4404019
+      ],
+      "title": "File Size"
+     },
+     "url": {
+      "description": "The URL where the file can be downloaded from.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "File",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "content_type",
+     "file_name",
+     "file_size"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/bytedance-upscaler/upscale/video",
+  "title": "Queue OpenAPI for fal-ai/bytedance-upscaler/upscale/video",
+  "x-fal-metadata": {
+   "about": "Enhance and upscale a video using BytePlus VOD.",
+   "category": "video-to-video",
+   "documentationUrl": "https://fal.ai/models/fal-ai/bytedance-upscaler/upscale/video/api",
+   "endpointId": "fal-ai/bytedance-upscaler/upscale/video",
+   "playgroundUrl": "https://fal.ai/models/fal-ai/bytedance-upscaler/upscale/video",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/kangaroo/LorVpq4fAORdnn1YHRM-A_d801feeaa1764cefb7de0c3381ecaf84.jpg"
+  }
+ }
+}

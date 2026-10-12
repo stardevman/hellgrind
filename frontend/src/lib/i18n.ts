@@ -119,6 +119,12 @@ export const COMFY_KIND_TR: Record<string, string> = {
 };
 
 /** Yönetmenin çekim başına seçebildiği motorlar (ilki varsayılan). */
+/** Upscale (1080p) uç noktalarının kısa adları (engine/finishing.UPSCALE_ENDPOINTS). */
+export const UPSCALE_TR: Record<string, string> = {
+  "fal-ai/bytedance-upscaler/upscale/video": "ByteDance Upscaler", "fal-ai/kandinsky6-vsr": "Kandinsky 6 VSR",
+  "fal-ai/seedvr/upscale/video": "SeedVR2", "fal-ai/flashvsr/upscale/video": "FlashVSR",
+  "blackforestlabs/flux-video-upscale": "FLUX Video Upscale",
+};
 export const ENGINE_CHOICES = ["h3max", "seedance25", "seedance", "h3"] as const;
 
 export const KIND_TR: Record<string, string> = {

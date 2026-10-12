@@ -48,9 +48,14 @@ class Settings(BaseSettings):
     fal_seedance25_draft_complete_endpoint: str = "bytedance/seedance-2.5/draft/complete"
     video_draft_engine: str = "h3max"          # taslak: yeni çekimlerin motoru (proje ayarı draft_engine önce gelir)
     video_final_engine: str = "seedance25"     # final: "Seedance 2.5 ile yükselt" (proje ayarı final_engine önce gelir)
-    h3max_resolution: str = "768P"             # 480P | 768P | 1080P
+    h3max_resolution: str = "480P"             # 480P (varsayılan, test aşaması: en ucuz) | 768P | 1080P
     h3max_prompt_expansion: str = "disabled"   # disabled | balanced | quality (zorunlu alan)
-    seedance25_resolution: str = "720p"        # 480p | 720p | 1080p
+    seedance25_draft: bool = True              # taslak (draft: true): 480p önizleme + draft_id, 7 gün içinde 1080p'ye tamamlanır
+    seedance25_resolution: str = "720p"        # 480p | 720p | 1080p; yalnızca taslak kapalıyken kullanılır
+    # Upscale (onaylanmış klipleri 1080p'ye çıkaran ayrı adım; kaynak fps korunur)
+    upscale_endpoint: str = "fal-ai/bytedance-upscaler/upscale/video"
+    upscale_target: str = "1080p"
+    upscale_tier: str = "standard"             # bytedance: fast | standard | pro (pro 10 kat fiyat)
     seedance25_audio: bool = False             # modelin ürettiği ses: filmde kullanılmaz; fiyatı değiştirmez
     # fal.ai videosunun girdisi: reference (varsayılan) = yalnızca varlıkların onaylı referans görselleri + senaryo; hiçbir
     # kare ya da görsel üretilmez (storyboard çizimi ve kare kapıları atlanır). keyframe = storyboard karesinden (Qwen).
@@ -184,6 +189,9 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "draft_engine": None,          # taslak video motoru: None = Ayarlar'daki VIDEO_DRAFT_ENGINE (h3max)
     "final_engine": None,          # final video motoru ("yükselt"): None = Ayarlar'daki VIDEO_FINAL_ENGINE (seedance25)
     "require_plan_approval": None, # render'dan önce kuru çalıştırma planı onaylanmalı mı; None = ücretli modda evet
+    "h3max_resolution": None,      # proje: H3 Max çözünürlüğü; None = Ayarlar'daki H3MAX_RESOLUTION (480P)
+    "seedance25_draft": None,      # proje: Seedance 2.5 taslak (480p); None = Ayarlar'daki SEEDANCE25_DRAFT (açık)
+    "seedance25_resolution": None, # proje: taslak kapalıyken Seedance çözünürlüğü; None = Ayarlar'daki SEEDANCE25_RESOLUTION
     "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
                                    # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }

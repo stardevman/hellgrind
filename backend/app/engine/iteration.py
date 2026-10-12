@@ -410,7 +410,8 @@ def fal_setup(s, ctx: Ctx, scene, chars, assets, style, composed, cfg: dict) -> 
     ctx.render.update(h3_mode="fl2va" if mode == "i2v" else "ref2va", fal_mode=mode, fal_reason=reason,
                       fal_refs=[r.key for r in refs] if mode == "ref" else [], fal_ref_names=[r.name for r in refs],
                       fal_images=images, fal_audio=fal_plan.audio(engine, scene),
-                      fal_resolution=fal_plan.resolution(engine, scene), fal_unmapped=unmapped)
+                      fal_resolution=fal_plan.resolution(engine, scene, cfg), fal_unmapped=unmapped,
+                      fal_draft=fal_plan.draft(engine, scene, cfg))
     return frame_key, last_key, last_kind
 
 
@@ -916,6 +917,13 @@ def _fal_clip(ctx: Ctx, project_id: str, scene_id: str) -> str:
     gate.set_single_winner(scene_id, winner.id, {
         "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
         "last_error": None, "cut_tier": "final" if tier == "full" else "draft", "upgrade_requested": False})
+    if ctx.render.get("fal_draft"):                       # Seedance taslağı: draft_id ve 7 günlük geçerlilik
+        from app.engine.finishing import remember_draft
+        if settings.dry_run:
+            _merge_params(winner.id, draft_id=f"local-draft-{winner.id}")
+        with session_scope() as s:
+            code = s.get(Scene, scene_id).scene_code
+        remember_draft([str(scene_id)], [code], {str(scene_id): winner.id}, ctx.visual_hash, ctx.duration)
     killswitch.event(project_id, "refined", scene_id=scene_id, pool=1, engine=engine, tier=tier)
     invalidate_next_seam(project_id, scene_id)
     return "refined"

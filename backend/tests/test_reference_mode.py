@@ -108,8 +108,9 @@ def test_noras_three_shots_are_one_h3max_request_of_ten_seconds(ref_defaults, mk
     assert prompt.index("Shot 1") < prompt.index("Shot 2") < prompt.index("Shot 3")
     assert "Nora (a slim teenage girl" in prompt and "is Image 1." in prompt and "The prop Hens" in prompt
     assert "Pip is tiny, palm-sized; much smaller than a hen." in prompt               # gerçek boyut
-    assert "Only the listed characters appear: Nora, Pip." in prompt and "@Image" not in prompt
-    assert plan["cost"]["usd"] == pytest.approx(10 * 0.08 * 1.05, abs=1e-3)           # 4 görsel: token dahil
+    assert "The cast of this scene: Nora, Pip and the Hens." in prompt and "@Image" not in prompt
+    assert body["resolution"] == "480P"                                                  # en ucuz varsayılan
+    assert plan["cost"]["usd"] == pytest.approx(10 * 0.05 * 1.05, abs=1e-3)           # 4 görsel: token dahil
     assert plan["continuity"]["transition"] == "new_scene" and "image_url" not in body
 
 
@@ -347,11 +348,12 @@ def test_upgrade_shows_the_whole_scene_total_and_respects_the_budget(ref_default
     assert up["available"] and up["scope"] == "scene" and up["shots"] == list(ids)
     assert up["parts"] == [{"part": list(ids), "duration_s": 10.0, "usd": up["total_usd"],
                             "endpoint": "bytedance/seedance-2.5/reference-to-video", "plan_hash": up["parts"][0]["plan_hash"]}]
-    assert up["total_usd"] == pytest.approx(216000 / 1000 * 0.0214 * 1.25, abs=1e-3) and up["budget_ok"]
+    # Seedance taslağı (draft: 480p): 864 × 480 × 10 × 24 / 1024 = 97.200 token × 0,0214 $ + %25
+    assert up["total_usd"] == pytest.approx(97200 / 1000 * 0.0214 * 1.25, abs=1e-3) and up["budget_ok"]
     stale = api.post(f"/api/scenes/{ids['S001_SH02']}/upgrade-final?expected_usd=1.0")
     assert stale.status_code == 409 and "Tahmin değişti" in stale.json()["detail"]
     with session_scope() as s:
-        s.execute(text("UPDATE projects SET budget_limit_usd = 3 WHERE id = :p"), {"p": pid})
+        s.execute(text("UPDATE projects SET budget_limit_usd = 1 WHERE id = :p"), {"p": pid})
     poor = api.post(f"/api/scenes/{ids['S001_SH02']}/upgrade-final?expected_usd={up['total_usd']}")
     assert poor.status_code == 409 and "Bütçe yetmiyor" in poor.json()["detail"]
     with session_scope() as s:

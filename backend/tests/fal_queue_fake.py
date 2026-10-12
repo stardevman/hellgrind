@@ -19,6 +19,11 @@ FILES = {
     "fal-ai/qwen-image-edit-2511": "fal-ai_qwen-image-edit-2511.json",
     "fal-ai/qwen-image-edit-2511/lora": "fal-ai_qwen-image-edit-2511_lora.json",
     "fal-ai/qwen-image-edit-2511-multiple-angles": "fal-ai_qwen-image-edit-2511-multiple-angles.json",
+    "fal-ai/bytedance-upscaler/upscale/video": "fal-ai_bytedance-upscaler_upscale_video.json",
+    "fal-ai/kandinsky6-vsr": "fal-ai_kandinsky6-vsr.json",
+    "fal-ai/seedvr/upscale/video": "fal-ai_seedvr_upscale_video.json",
+    "fal-ai/flashvsr/upscale/video": "fal-ai_flashvsr_upscale_video.json",
+    "blackforestlabs/flux-video-upscale": "blackforestlabs_flux-video-upscale.json",
 }
 TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 

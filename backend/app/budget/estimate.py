@@ -84,7 +84,8 @@ def fal_shot(cfg: dict, code: str, duration_s: float, engine: str, mode: str = "
     """fal.ai motoru (H3 Max / Seedance 2.5): çekim başına tek klip, motorun çözünürlüğünde; kalite kapısından kalırsa
     en çok fal_clip_attempts klip (en çok). frame_usd: açık image-to-video'da önce çizilecek kare (fal.ai Qwen)."""
     from app.engine import fal_plan
-    clip = fal_plan.cost(engine, fal_plan.resolution(engine), duration_s, images)
+    clip = fal_plan.cost(engine, fal_plan.resolution(engine, None, cfg), duration_s, images, mode,
+                         fal_plan.draft(engine, None, cfg))
     attempts = max(1, int(cfg.get("fal_clip_attempts", 2)))
     return {"code": code, "duration_s": duration_s, "billed_seconds": fal_plan.billed_seconds(engine, duration_s),
             "engine": engine, "mode": mode, "frame": "qwen_edit" if frame_usd else None, "frame_usd": round(frame_usd, 4),

@@ -236,7 +236,8 @@ def _request(plan, snap: dict, seed: int, provider) -> GenRequest:
                       image_url=image_url,
                       extra={**snap["render"], "label": f"{'+'.join(snap['codes'])}  {plan.engine}",
                              "fal_mode": "ref", "fal_refs": refs, "fal_ref_names": [r.name for r in plan.refs],
-                             "fal_images": images, "fal_audio": plan.audio, "scene_id": snap["leader"],
+                             "fal_images": images, "fal_audio": plan.audio, "fal_draft": plan.draft,
+                             "scene_id": snap["leader"],
                              "project_id": str(plan.leader.project_id)})
 
 
@@ -264,6 +265,9 @@ def _cut(path: str, plan, snap: dict, seed: int, attempt: int, clip_key: str, sc
                       "references": [{"image": r.number, "name": r.name, "kind": r.kind} for r in plan.refs],
                       "continuity": {k: plan.continuity.get(k) for k in ("transition", "previous", "frame_key")},
                       "part_cost_usd": float(result.cost_usd), "provider_meta": result.meta,
+                      **({"draft_id": (result.meta or {}).get("draft_id") or
+                          (f"local-draft-{plan.part_hash[:12]}-{attempt}" if settings.dry_run else None)}
+                         if plan.draft else {}),
                       **({"score_detail": score.detail} if score.detail else {})}
             if not score.passed:
                 params.update(purge_reason="quality_gate", quarantine_key=storage.purge(key))
@@ -291,6 +295,9 @@ def _finalize(project_id: str, plan, snap: dict, winners: dict[str, str], caller
         gate.set_single_winner(sid, vid, {
             "status": "refined", "visual_hash": snap["fps"][sid], "lipsync_video_key": None, "final_video_key": None,
             "last_error": None, "cut_tier": "final" if snap["tier"] == "full" else "draft", "upgrade_requested": False})
+    if plan.draft:                                     # Seedance taslağı: draft_id ve 7 günlük geçerlilik sahnelere
+        from app.engine.finishing import remember_draft
+        remember_draft(snap["ids"], snap["codes"], winners, plan.part_hash, plan.duration_s)
     killswitch.event(project_id, "refined", scene_id=caller, pool=1, engine=plan.engine, part=snap["codes"])
     working = ("pending", "storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
     for sid in snap["ids"]:

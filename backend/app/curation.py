@@ -47,6 +47,7 @@ ACTIONS_TR = {
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "keyframe_upload": "İlk kare yüklendi (H3)", "keyframe_clear": "Yüklenen ilk kare kaldırıldı (H3)",
     "plan_approve": "Kuru çalıştırma planı onaylandı", "upgrade_final": "Final motoruyla yükseltme onaylandı",
+    "draft_complete": "Seedance taslağı 1080p'ye tamamlandı (onaylı)", "upscale": "Upscale (1080p) onaylandı",
 }
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
 QUERY_FIELDS = ("kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")

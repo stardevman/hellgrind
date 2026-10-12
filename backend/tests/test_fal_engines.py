@@ -60,8 +60,9 @@ def _plan(engine):
                                "attendant reaches out a hand.", negative="blurry, extra people", prefix="")
     style = SimpleNamespace(lighting_prefix="Late-afternoon golden-hour lighting", motion_style="cartoony motion")
     prompt, _ = fal_plan.build_prompt(engine, "ref", composed, refs, style, [c.name for c in chars])
+    # ücretli karşılaştırma testindeki ayarlar (768P / 720p, taslak kapalı); varsayılanlar artık en ucuz (480P, taslak)
     endpoint, body = fal_plan.body(engine, "ref", prompt=prompt, duration_s=10.0,
-                                   resolution_=fal_plan.resolution(engine), audio_=True, seed=7,
+                                   resolution_={"h3max": "768P", "seedance25": "720p"}[engine], audio_=True, seed=7,
                                    reference_urls=URLS)
     return refs, endpoint, body
 
@@ -507,13 +508,13 @@ def test_free_mode_draft_and_upgrade_with_the_default_engines(fal_defaults, mk_p
     assert engine == "h3max"
     assert run_tiered_generation(pid, sid, "draft") == "refined"
     [draft] = _variations(sid)
-    assert draft.engine == "h3max" and draft.params["resolution"] == "768P"
+    assert draft.engine == "h3max" and draft.params["resolution"] == "480P"              # en ucuz varsayılan
     # sanal bedel: aynı isteğin fal tahmini (referans görselleri dahil)
-    assert float(draft.cost_usd) == fal_plan.cost("h3max", "768P", draft.params["duration_s"], _images(sid))["reserve_usd"]
+    assert float(draft.cost_usd) == fal_plan.cost("h3max", "480P", draft.params["duration_s"], _images(sid))["reserve_usd"]
     assert api.post(f"/api/scenes/{sid}/upgrade-final").status_code == 200
     assert run_tiered_generation(pid, sid, "full") == "refined"
     old, new = _variations(sid)
-    assert (old.status, new.engine, new.params["resolution"], new.refined_rank) == ("passed", "seedance25", "720p", 1)
+    assert (old.status, new.engine, new.params["resolution"], new.refined_rank) == ("passed", "seedance25", "480p", 1)
 
 
 def _images(sid) -> int:

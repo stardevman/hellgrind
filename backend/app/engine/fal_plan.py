@@ -38,7 +38,7 @@ STYLE_SENTENCE = "Render every environment in the same 3D animated style as the 
 H3_SECONDS = (0.92, 15.0)
 SEEDANCE_SECONDS = (4, 30)
 H3_MAX_REFERENCES = 9                 # reference_image_urls (görsel + video + ses toplam en çok 12)
-SEEDANCE_MAX_REFERENCES = 9           # şema 30'a izin verir; numaralı tarifler istemi uzatmasın
+SEEDANCE_MAX_REFERENCES = 30          # şema: image_urls en çok 30 (görsel + video + ses toplam 50)
 H3_RESOLUTIONS = ("480P", "768P", "1080P")
 SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
 TIMEOUT_S = {"h3max": 360, "seedance25": 600}     # kuyruk + üretim; aşılınca bir kez daha beklenir
@@ -62,18 +62,32 @@ def final_engine(cfg: dict | None = None) -> str:
     return (cfg or {}).get("final_engine") or settings.video_final_engine or "seedance25"
 
 
-def resolution(engine: str, scene=None) -> str:
-    """Çekimin çözünürlüğü: çekimin kendi ayarı (video_opts), yoksa Ayarlar'daki varsayılan; motorun yazımıyla."""
+def draft(engine: str, scene=None, cfg: dict | None = None) -> bool:
+    """Seedance 2.5 taslağı (draft: true, 480p + draft_id): çekimin ayarı, projenin ayarı, Ayarlar (varsayılan açık)."""
+    if engine != "seedance25":
+        return False
+    value = (getattr(scene, "video_opts", None) or {}).get("draft")
+    if value is None:
+        value = (cfg or {}).get("seedance25_draft")
+    return bool(settings.seedance25_draft) if value is None else bool(value)
+
+
+def resolution(engine: str, scene=None, cfg: dict | None = None) -> str:
+    """Çekimin çözünürlüğü: çekimin kendi ayarı (video_opts), projenin ayarı, Ayarlar'daki varsayılan (en ucuz: H3 Max
+    480P); motorun yazımıyla. Seedance taslağı her zaman 480p (SEEDANCE25_RESOLUTION yalnızca taslak kapalıyken)."""
     raw = ((getattr(scene, "video_opts", None) or {}).get("resolution") or "").strip()
+    cfg = cfg or {}
     if engine == "h3max":
-        raw = raw.upper()
-        return raw if raw in H3_RESOLUTIONS else (settings.h3max_resolution.upper()
-                                                  if settings.h3max_resolution.upper() in H3_RESOLUTIONS else "768P")
-    raw = raw.lower()
-    if raw in SEEDANCE_RESOLUTIONS:
-        return raw
-    default = settings.seedance25_resolution.lower()
-    return default if default in SEEDANCE_RESOLUTIONS else "720p"
+        for value in (raw, cfg.get("h3max_resolution") or "", settings.h3max_resolution or ""):
+            if value.upper() in H3_RESOLUTIONS:
+                return value.upper()
+        return "480P"
+    if draft(engine, scene, cfg):
+        return "480p"
+    for value in (raw, cfg.get("seedance25_resolution") or "", settings.seedance25_resolution or ""):
+        if value.lower() in SEEDANCE_RESOLUTIONS:
+            return value.lower()
+    return "720p"
 
 
 def audio(engine: str, scene=None) -> bool:
@@ -251,7 +265,8 @@ def build_prompt(engine: str, mode: str, composed, refs: list[Ref], style, names
 
 
 def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_: str, audio_: bool, seed: int | None,
-         image_url: str | None = None, end_image_url: str | None = None, reference_urls=()) -> tuple[str, dict]:
+         image_url: str | None = None, end_image_url: str | None = None, reference_urls=(),
+         draft_: bool = False) -> tuple[str, dict]:
     """(uç nokta, istek gövdesi). Tipler şemaya uyar (testler OpenAPI tanımıyla doğrular)."""
     seconds = request_seconds(engine, duration_s)
     refs = list(reference_urls)
@@ -277,6 +292,8 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
     if engine != "seedance25":
         raise ValueError(f"fal planı yalnızca {', '.join(FAL_ENGINES)} içindir: {engine}")
     args = {"prompt": prompt, "duration": seconds, "resolution": resolution_, "generate_audio": bool(audio_)}
+    if draft_:                                          # 480p önizleme + draft_id (7 gün içinde 1080p'ye tamamlanır)
+        args.update(draft=True, resolution="480p")
     if mode == "i2v":
         endpoint = settings.fal_seedance25_i2v_endpoint
         args.update(image_url=image_url, aspect_ratio="auto")          # image-to-video'da her zaman "auto"
@@ -298,9 +315,11 @@ def images_in(args: dict) -> int:
         sum(1 for k in ("image_url", "end_image_url", "middle_image_url") if args.get(k))
 
 
-def cost(engine: str, resolution_: str, duration_s: float, images: int = 0) -> dict:
+def cost(engine: str, resolution_: str, duration_s: float, images: int = 0, mode: str = "ref",
+         draft_: bool = False) -> dict:
+    """Uç noktaya göre tahmin: H3 Max image-to-video ve reference-to-video ayrı fiyatlı; Seedance taslağı 480p."""
     return pricing.fal_video_cost(engine, norm_resolution(engine, resolution_), billed_seconds(engine, duration_s),
-                                  images=images)
+                                  images=images, mode=mode, draft=draft_)
 
 
 def sha256_of(path: str) -> str:
@@ -378,14 +397,14 @@ def scene_plan(s, scene, engine: str | None = None, seed: int | None = None, wit
     composed = compose_for_scene(scene, chars, assets, style, entering=walk_in)
     names = [ch.name for ch in chars] + [a.name for a in assets if a.type == "character"]
     prompt, unmapped = build_prompt(engine, mode, composed, refs, style, names)
-    res, snd = resolution(engine, scene), audio(engine, scene)
+    res, snd, drf = resolution(engine, scene, cfg), audio(engine, scene), draft(engine, scene, cfg)
     if seed is None:                                           # üretimin ilk klibinin tohumu (iteration.run_one)
         seed = seed_for(str(scene.id), fp, tier_of(engine, cfg), 0, 0,
                         *([scene.prompt_revision] if scene.prompt_revision else []))
     endpoint, args = body(engine, mode, prompt=prompt, duration_s=scene.duration_s, resolution_=res, audio_=snd,
                           seed=seed, image_url=local_url(frame_key) if frame_key else None,
                           end_image_url=local_url(end_key) if end_key else None,
-                          reference_urls=[local_url(r.key) for r in refs] if mode == "ref" else ())
+                          reference_urls=[local_url(r.key) for r in refs] if mode == "ref" else (), draft_=drf)
     uploads = []
     for name, key in (("image_url", frame_key), ("end_image_url", end_key)):
         if key and args.get(name):
@@ -397,7 +416,7 @@ def scene_plan(s, scene, engine: str | None = None, seed: int | None = None, wit
         notes.append("Seedance image-to-video başlangıç karesi ister (image_url zorunlu).")
     return ScenePlan(engine=engine, mode=mode, reason=reason, endpoint=endpoint, body=args, uploads=uploads, refs=refs,
                      frame_key=frame_key, end_key=end_key, resolution=res, audio=snd,
-                     cost=cost(engine, res, scene.duration_s, images_in(args)), unmapped=unmapped, notes=notes)
+                     cost=cost(engine, res, scene.duration_s, images_in(args), mode, drf), unmapped=unmapped, notes=notes)
 
 
 def _upload_row(field_name: str, key: str, with_sha: bool) -> dict:

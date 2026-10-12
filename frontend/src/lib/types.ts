@@ -39,6 +39,41 @@ export interface VideoMeta {
   draft_engine: string; final_engine: string; engines: VideoEngine[];
   h3max_resolutions: string[]; seedance25_resolutions: string[];
   h3max_resolution: string; seedance25_resolution: string; seedance25_audio: boolean;
+  /** Seedance 2.5 taslağı (draft: true, 480p önizleme; 7 gün içinde 1080p'ye tamamlanabilir) Ayarlar'da açık mı. */
+  seedance25_draft?: boolean;
+  /** Upscale (1080p) uç noktası (Ayarlar'daki varsayılan) ve seçilebilir uç noktalar. */
+  upscale_endpoint?: string; upscale_endpoints?: string[];
+}
+
+/* ---------- bitirme: Seedance taslağını tamamlama ve upscale ---------- */
+
+/** Çekimin Seedance 2.5 taslağı (overview): draft_id 7 gün geçerlidir; remaining_s ve expired okuma anında hesaplanır. */
+export interface SeedanceDraft {
+  draft_id: string; created_at: number; expires_at: number; part: string[]; part_hash: string;
+  variations: Record<string, string>; duration_s: number; local: boolean; completed_at?: number | null;
+  remaining_s: number; expired: boolean;
+}
+/** Upscale tahmini (pricing.upscale_cost): çıktı 1920x1080, kaynak fps; warning: uç noktanın süre sınırı. */
+export interface UpscaleCost {
+  endpoint: string; usd: number; reserve_usd: number; seconds: number; fps: number; target: string; tier: string; warning?: string;
+}
+/** Taslağı 1080p'ye tamamlamanın tahmini (pricing.seedance25_complete_cost): reserve_usd %20 paylıdır. */
+export interface CompleteCost { usd: number; reserve_usd: number; tokens: number; duration_s?: number; margin?: number; [key: string]: unknown }
+/** GET /scenes/{id}/draft: tamamlamanın uygunluğu, tahmini ve daha ucuz seçenek (upscale). */
+export interface DraftPreview {
+  available: boolean; reason: string | null; draft?: SeedanceDraft; part?: string[] | null; seconds?: number;
+  cost?: CompleteCost; label?: string; remaining_usd?: number; budget_ok?: boolean;
+  cheaper?: { kind: "upscale"; endpoint: string; cost: UpscaleCost; label: string };
+}
+/** POST /scenes/{id}/seedance/complete. */
+export interface CompleteResult { queued: boolean; part: string[]; total_usd: number; reserve_usd: number; draft_id: string }
+export type UpscaleScope = "variation" | "scene" | "project";
+export interface UpscaleItem { variation_id: string; scene_id: string; scene_code: string; seconds: number; fps: number; from: string | null; cost: UpscaleCost }
+/** POST …/upscale (kuru ya da onaylı): klip başına ve toplam tahmin, diğer uç noktaların toplamı, kalan bütçe. */
+export interface UpscalePlan {
+  scope: UpscaleScope; endpoint: string; target: string; fps: string | number; items: UpscaleItem[]; total_usd: number;
+  alternatives: Record<string, number>; body: Record<string, unknown> | null; remaining_usd: number | null; budget_ok: boolean;
+  warnings: string[]; queued?: number; network?: false;
 }
 
 /** Çekimin fal.ai işi (bekleyen ya da son): kimlik, uç nokta, durum, hata ve sonucun özeti. */
@@ -87,6 +122,10 @@ export interface FalPlan {
   /** Eksik referans var: plan onaylanamaz, video üretilemez. */
   blocked?: boolean;
   approval?: { required: boolean; approved: boolean; plan_hash: string };
+  /** Seedance 2.5 taslağı (480p önizleme) ile mi üretilecek; istemin uzunluğu ve motorun sınırı (H3 Max 50000). */
+  draft?: boolean; prompt_chars?: number; prompt_limit?: number | null;
+  /** 1080p'ye upscale tahmini (uç nokta başına), taslağı tamamlama tahmini ve çekimin taslağı (varsa). */
+  upscale_estimate?: Record<string, UpscaleCost>; complete_estimate?: CompleteCost; seedance_draft?: DraftPreview;
 }
 
 /** POST /scenes/{id}/plan/approve: parçanın planı onaylandı (render=true ise çekimler üretime verildi). */
@@ -165,6 +204,8 @@ export interface Variation {
   overridable?: boolean; override?: boolean;
   /** Referans modu: klibin video kapıları, parçanın çekimleri ve parça klibindeki yeri (sn). */
   gates?: VideoGates | null; part?: string[] | null; segment?: [number, number] | null;
+  /** Klibin çözünürlüğü ("480P", "720p", "1080p"); upscale edilmiş ya da taslaktan tamamlanmışsa kaynak varyasyon. */
+  resolution?: string | null; upscaled_from?: string | null; completed_from?: string | null;
 }
 
 export interface Track {
@@ -229,6 +270,8 @@ export interface Scene {
   edit_refs?: { name: string; kind: "character" | "location"; url: string | null }[];
   /** Referans modu: onaylanan plan (özet, tahmin, zaman, parça, motor); plan değişince geçersizdir. */
   plan_approval?: { hash: string; usd: number; at: number; part: string[]; engine: string } | null;
+  /** Seedance 2.5 taslağı (draft_id, kalan süre); yoksa null. */
+  seedance_draft?: SeedanceDraft | null;
 }
 
 export interface TimelineTrack {

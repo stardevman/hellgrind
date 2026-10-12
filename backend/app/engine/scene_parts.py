@@ -19,6 +19,7 @@ sabit sırayla) ve senaryodan üretilir. Süreklilik için yalnızca önceki kli
   (toplam 50). Aşarsa en az önemli (çekim metinlerinde en az geçen) mekân ya da nesne düşer ve planda uyarı çıkar.
   Görseli olmayan varlık "eksik referans" olur ve render engellenir.
 """
+import re
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -200,43 +201,188 @@ def scale_lines(chars, assets) -> list[str]:
 
 # ---------- istem ----------
 
-def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[str]) -> str:
+PROMPT_LIMIT = {"h3max": 50000, "seedance25": None}     # şemadaki prompt maxLength (Seedance'ta sınır yok)
+CAMERA_WORDS = ("extreme wide", "wide shot", "medium shot", "close-up", "close up", "closeup", "full shot", "long shot",
+                "over-the-shoulder", "over the shoulder", "point-of-view", "ground-level", "ground level", "two-shot")
+SHOT_PLAIN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "point-of-view shot",
+              "medium": "medium shot", "over_shoulder": "over-the-shoulder shot", "close_up": "close-up",
+              "extreme_close_up": "extreme close-up"}
+MOVE_PLAIN = {"static": "static camera", "dolly_in": "slow push in", "dolly_out": "slow pull back", "pan": "slow pan",
+              "tilt": "slow tilt", "crane": "crane move", "orbit": "slow orbit", "tracking": "tracking camera",
+              "handheld": "handheld camera"}
+UNPOPULATED = "only the listed characters are present and the surroundings are otherwise unpopulated"
+
+
+def plain_camera(camera: dict | None) -> str:
+    """Kamera, modellerin anladığı sade dille: derece yerine "from the left side", "low at ground level"."""
+    camera = camera or {}
+    shot = camera.get("shot")
+    parts = [SHOT_PLAIN.get(shot), MOVE_PLAIN.get(camera.get("movement"))]
+    angle = camera.get("angle")
+    if angle == "low":
+        parts.append("low at ground level" if shot in ("close_up", "extreme_close_up") else "low angle")
+    elif angle == "high":
+        parts.append("high angle")
+    side = int(camera.get("side") or 0)
+    if abs(side) >= 135:
+        parts.append("from behind")
+    elif abs(side) >= 60:
+        parts.append(f"from the {'left' if side < 0 else 'right'} side")
+    elif abs(side) >= 10:
+        parts.append(f"from slightly {'left' if side < 0 else 'right'}")
+    if camera.get("lens_mm"):
+        parts.append(f"{camera['lens_mm']} mm lens")
+    return ", ".join(p for p in parts if p)
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-zçğıöşü]+", (text or "").lower()))
+
+
+def head_noun(description: str | None) -> str | None:
+    """Tarifin baş adı ("a tiny round fluffy baby chick with …" -> chick; "a small flock of … hens with …" -> hens)."""
+    first = re.split(r",|;|:| with | who | that | in | on ", " ".join((description or "").split()).lower(), maxsplit=1)[0]
+    words = re.findall(r"[a-zçğıöşü]+", first)
+    return words[-1] if words else None
+
+
+def _forms(word: str) -> set[str]:
+    word = word.lower()
+    return {word, word.rstrip("s"), word + "s"} if word else set()
+
+
+def roster(chars, assets) -> list[tuple[str, str, str | None]]:
+    """Sahnenin oyuncuları: karakterler ve nesneler (nesne olarak tanımlı canlılar dahil, ör. Hens). [(ad, tür, baş ad)]."""
+    by_id = {a.id: a for a in assets}
+
+    def head(name, *texts):
+        for text in texts:                          # "Pip, a tiny round fluffy baby chick …": baştaki ad atılır
+            if text:
+                return head_noun(fal_plan.short_description(name, text))
+        return None
+    out = [(ch.name, "character", head(ch.name, getattr(ch, "description", None),
+                                       getattr(by_id.get(getattr(ch, "asset_id", None)), "description", None)))
+           for ch in chars]
+    out += [(a.name, "prop", head(a.name, a.description)) for a in assets if a.type == "prop"]
+    return out
+
+
+def present(shot, member, linked: set[str]) -> bool:
+    """Oyuncu bu çekimde görünüyor mu: çekime bağlı, adı çekim tarifinde geçiyor ya da tarifin baş adı geçiyor (Nora
+    SH01: "a tiny fluffy yellow chick" -> Pip). Yönetmen notu sayılmaz ("Do not show Nora")."""
+    name, _, head = member
+    if name in linked:
+        return True
+    text = _words(str((shot.prompt_spec or {}).get("prompt") or shot.description or ""))
+    name_words = set().union(*(_forms(w) for w in re.findall(r"[a-zçğıöşü]+", name.lower()))) if name else set()
+    return bool(text & name_words) or bool(head and text & _forms(head))
+
+
+def label(member) -> str:
+    name, kind, _ = member
+    return f"the {name}" if kind == "prop" else name
+
+
+def join_names(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
+
+
+def frame_line(shot, members: list, linked: set[str]) -> str:
+    """Çekime özel kadro: "only Nora and Pip in frame; the Hens are out of frame." (yalnızca bu çekimin satırında)."""
+    inside = [m for m in members if present(shot, m, linked)]
+    outside = [m for m in members if m not in inside]
+    if not outside or not inside:
+        return ""
+    verb = "are" if len(outside) > 1 or outside[0][0].lower().endswith("s") else "is"
+    return f"Only {join_names([label(m) for m in inside])} in frame; {join_names([label(m) for m in outside])} {verb} " \
+           "out of frame."
+
+
+def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[str], members: list | None = None,
+              linked: set[str] | None = None) -> str:
     from app.core.chain import camera_of
     from app.hermes import translate
-    from app.style.composer import camera_text, sentence
+    from app.style.composer import sentence
     spec = x.prompt_spec or {}
     action = translate.to_english(str(spec.get("prompt") or x.description or ""), names, spec.get("lang"))
-    # yalnızca kamera cümlesi ("Camera: wide shot, slow dolly in, …"); hareket cümlesi çekimin kendi tarifinde
-    camera = camera_text(camera_of(x)).removeprefix("Camera: ").split(". ")[0].rstrip(" .")
+    first = re.split(r"(?<=[.!?])\s", action.strip(), maxsplit=1)[0].lower()
+    # çekim tarifi kendi kamera cümlesiyle başlıyorsa (Nora: "Wide shot, 28 mm, slow gentle dolly-in.") başlık tekrar etmez
+    camera = "" if any(w in first for w in CAMERA_WORDS) else plain_camera(camera_of(x))
     parts = [f"Shot {i} ({seconds_label(start)}-{seconds_label(end)}s)" + (f", {camera}" if camera else "") + ":",
              sentence(action)]
+    if members:
+        parts.append(frame_line(x, members, linked or set()))
     for who, line in dialogue:
         if line.strip():
             parts.append(f'{who or "A voice"} says: "{" ".join(line.split())}".')
     if x.emotion and x.emotion != "neutral":
         parts.append(f"Mood: {x.emotion}.")
-    if getattr(x, "director_note", None):
+    if getattr(x, "director_note", None):                 # yalnızca kendi çekiminde
         parts.append(sentence("Director note: " + translate.to_english(x.director_note, names, spec.get("lang"))))
     return " ".join(p for p in parts if p)
 
 
+def fit_length(engine: str, head: list[str], shots: list[str], tail: list[str], constraints: list[str]) -> tuple[str, list]:
+    """Uç noktanın prompt sınırı (şema maxLength) aşılırsa önce tekrar eden cümleler, sonra "Visual constraints" listesi
+    kısaltılır; çekim tariflerine dokunulmaz. (istem, uyarılar)."""
+    limit = PROMPT_LIMIT.get(engine)
+
+    def build(h, c):
+        text = " ".join(x for x in (*h, *shots, *tail) if x)
+        return f"{text} Visual constraints: {'; '.join(c)}." if c else text
+    prompt = build(head, constraints)
+    if not limit or len(prompt) <= limit:
+        return prompt, []
+    notes = []
+    seen, dedup = set(), []
+    for line in head:
+        key = " ".join(line.lower().split())
+        if key not in seen:
+            seen.add(key)
+            dedup.append(line)
+    head = dedup
+    prompt = build(head, constraints)
+    while len(prompt) > limit and constraints:
+        constraints = constraints[:-1]
+        prompt = build(head, constraints)
+    notes.append(f"İstem {limit} karakter sınırına göre kısaltıldı (tekrarlar ve görsel kısıtlar; çekim tarifleri aynen).")
+    if len(prompt) > limit:
+        notes.append(f"İstem hâlâ sınırın üstünde ({len(prompt)} > {limit}): çekim tariflerini kısaltın.")
+    return prompt, notes
+
+
 def build_prompt(s, engine: str, part: list, refs: list, chars, assets, style, frame: bool) -> tuple[str, list[str]]:
+    """İstem: stil, (süreklilik), numaralı referanslar, gerçek boyutlar, sahne kadrosu (karakterler ve nesne olarak
+    tanımlı canlılar), çekim listesi (çekime özel kadro yalnızca kendi satırında), görsel kısıtlar."""
+    from app.core.state import load_assets, load_characters
     from app.engine.storyboard import dialogue_of
     from app.hermes import lint, translate
-    from app.style.constraints import constrained_prompt
+    from app.style.constraints import positive_constraints
     names = [ch.name for ch in chars]
-    lines = [fal_plan.style_line(style)]
+    members = roster(chars, assets)
+    cast = join_names([label(m) for m in members])
+    head = [fal_plan.style_line(style)]
     if frame:
-        lines.append(CONTINUOUS_SEEDANCE if engine == "seedance25" else CONTINUOUS_H3)
-    lines += [fal_plan.reference_sentence(engine, r, names) for r in refs]
-    lines += scale_lines(chars, assets)
-    lines += [shot_line(i, x, a, b, dialogue_of(s, x.id), names) for i, (x, a, b) in enumerate(timeline(part), start=1)]
-    lines.append(lint.cast_constraint(names))
+        head.append(CONTINUOUS_SEEDANCE if engine == "seedance25" else CONTINUOUS_H3)
+    head += [fal_plan.reference_sentence(engine, r, names) for r in refs]
+    head += scale_lines(chars, assets)
+    if members:
+        head.append(f"The cast of this scene: {cast}. No other people, animals or figures appear.")
+    else:
+        head.append(lint.cast_constraint([]))
+    shots = []
+    for i, (x, a, b) in enumerate(timeline(part), start=1):
+        linked = {ch.name for ch in load_characters(s, x.id)} | {a_.name for a_ in load_assets(s, x.id) if a_.type == "prop"}
+        shots.append(shot_line(i, x, a, b, dialogue_of(s, x.id), names, members, linked))
     negatives = ", ".join(n for n in (translate.to_english(style.negative or "") if style else "",
                                       *[str((x.prompt_spec or {}).get("negative") or "") for x in part],
                                       lint.CAST_NEGATIVE) if n)
-    prompt, c = constrained_prompt(" ".join(x for x in lines if x), negatives)
-    return fal_plan.normalize_refs(engine, prompt), list(c.unmapped)
+    c = positive_constraints(negatives)
+    # sahne düzeyi kısıt bütün kadroyu kapsar (tavuk sürüsü "unpopulated" diye bastırılmasın)
+    phrases = [f"only this scene's cast ({cast}) is present; no other people, animals or figures" if p == UNPOPULATED
+               and members else p for p in c.phrases]
+    prompt, notes = fit_length(engine, head, shots, [], phrases)
+    return fal_plan.normalize_refs(engine, prompt), list(c.unmapped) + [f"! {n}" for n in notes]
 
 
 # ---------- plan ----------
@@ -263,6 +409,7 @@ class PartPlan:
     seed: int
     warnings: list = field(default_factory=list)
     uploads: list = field(default_factory=list)
+    draft: bool = False
 
     @property
     def leader(self):
@@ -288,7 +435,8 @@ class PartPlan:
                 "duration": self.body.get("duration"), "duration_s": self.duration_s, "cost": self.cost,
                 "unmapped_negatives": self.unmapped, "warnings": self.warnings, "plan_hash": self.plan_hash,
                 "part_hash": self.part_hash, "approved": self.approved(), "seed": self.seed,
-                "blocked": bool(self.missing),
+                "blocked": bool(self.missing), "draft": self.draft, "prompt_chars": len(self.prompt),
+                "prompt_limit": PROMPT_LIMIT.get(self.engine),
                 "notes": [w for w in self.warnings]}
 
 
@@ -357,20 +505,23 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     if cont.get("transition") == "continuous" and cont.get("note") and not cont.get("frame_key"):
         warnings.append(cont["note"])                 # önceki klip henüz yok ya da kare verilmeyecek
     prompt, unmapped = build_prompt(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")))
+    warnings += [u[2:] for u in unmapped if u.startswith("! ")]           # uzunluk kısaltması
+    unmapped = [u for u in unmapped if not u.startswith("! ")]
     total = round(sum(float(x.duration_s or 5.0) for x in part), 3)
-    resolution, audio = fal_plan.resolution(engine, part[0]), fal_plan.audio(engine, part[0])
+    resolution, audio = fal_plan.resolution(engine, part[0], cfg), fal_plan.audio(engine, part[0])
+    draft = fal_plan.draft(engine, part[0], cfg)
     frame_local = fal_plan.local_url(cont["frame_key"]) if cont.get("frame_key") else \
         ("local:<önceki klibin son karesi>" if cont.get("expected") else None)
     ref_urls = [fal_plan.local_url(r.key) for r in refs]
     if seed_frame:
         ref_urls = [frame_local, *ref_urls]
     plan_hash = stable_hash([engine, resolution, audio, prompt, total, [r.key for r in refs], bool(cont.get("expected")),
-                             [x.scene_code for x in part]])
+                             [x.scene_code for x in part], *(["draft"] if draft else [])])
     part_hash = stable_hash([plan_hash, cont.get("frame_key"), [x.prompt_revision for x in part]])
     seed = seed_for(part_hash, "part", 0)
     endpoint, body = fal_plan.body(engine, "ref", prompt=prompt, duration_s=total, resolution_=resolution, audio_=audio,
                                    seed=seed, image_url=frame_local if engine == "h3max" else None,
-                                   reference_urls=ref_urls)
+                                   reference_urls=ref_urls, draft_=draft)
     files = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0)
     if files > MAX_FILES[engine]:
         warnings.append(f"Dosya sınırı aşıldı ({files} > {MAX_FILES[engine]}).")
@@ -378,8 +529,9 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     plan = PartPlan(engine=engine, shots=part, timeline=[(x.scene_code, a, b) for x, a, b in timeline(part)], refs=refs,
                     dropped=dropped, missing=missing, continuity=cont, prompt=prompt, unmapped=unmapped,
                     endpoint=endpoint, body=body, resolution=resolution, audio=audio, duration_s=total,
-                    cost=fal_plan.cost(engine, resolution, total, images), plan_hash=plan_hash, part_hash=part_hash,
-                    seed=seed, warnings=warnings)
+                    cost=fal_plan.cost(engine, resolution, total, images, "ref", draft), plan_hash=plan_hash,
+                    part_hash=part_hash,
+                    seed=seed, warnings=warnings, draft=draft)
     plan.uploads = uploads(plan, with_sha)
     return plan
 

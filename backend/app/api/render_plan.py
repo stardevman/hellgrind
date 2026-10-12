@@ -125,6 +125,15 @@ def scene_dry_run(s: Session, sc: Scene, force_visual: bool = False, with_sha: b
     else:
         plan = fal_plan.scene_plan(s, sc, engine, with_sha=with_sha)
         out.update(plan.as_dict())
+    from app.budget import pricing
+    from app.engine import finishing
+    seconds = float(out.get("duration_s") or sc.duration_s or 5.0)
+    out["upscale_estimate"] = {e: pricing.upscale_cost(e, seconds, 24.0, settings.upscale_target, settings.upscale_tier)
+                               for e in finishing.UPSCALE_ENDPOINTS}            # 1080p'ye çıkarma, kaynak fps
+    if out.get("draft") or (engine == "seedance25" and fal_plan.draft(engine, sc, cfg)):
+        out["complete_estimate"] = pricing.seedance25_complete_cost(seconds)      # taslağı 1080p'ye tamamlama
+    if sc.seedance_draft:
+        out["seedance_draft"] = finishing.complete_preview(s, sc)
     up = upgrade_state(sc, cfg)
     if up["available"] or engine == fal_plan.draft_engine(cfg):
         out["upgrade"] = upgrade_preview(s, sc, cfg) if up["available"] else \

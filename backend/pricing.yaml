@@ -40,8 +40,9 @@ serverless:
 
 # fal.ai video motorları (Ekim 2026; model sayfaları ve yönetmenin ücretli karşılaştırma testi, aynı 5 referans, 10 sn 16:9).
 fal_video:
-  h3max:              # MiniMax H3 Max: istenen süre × saniye ücreti + referans token fazlası (minimax/h3-max/*)
-    per_second: {"480P": 0.05, "768P": 0.08, "1080P": 0.16}
+  h3max:              # MiniMax H3 Max: istenen süre × saniye ücreti (uç noktaya göre) + referans token fazlası
+    per_second: {"480P": 0.05, "768P": 0.08, "1080P": 0.16}           # reference-to-video
+    per_second_i2v: {"480P": 0.03, "768P": 0.048, "1080P": 0.096}     # image-to-video
     included_reference_tokens: 4096   # her istekte dahil (4 görsel)
     image_tokens: 1024                # her girdi görseli (referans, ilk ve son kare) bu kadar token sayılır
     extra_per_1k_tokens: 0.02         # dahil olanın üstü
@@ -55,6 +56,27 @@ fal_video:
     video_reference_factor: 0.6       # video referansı varsa; görsel ve ses referansı ücretsiz
     margin: 0.25                      # rezervasyon payı (test: formül 216 bin token, faturalanan 260,28 bin = 5,57 $)
     billing_factor: 1.2               # işlenen tutar: çıktının ölçülen token'ı × bu çarpan (217,7 bin ölçülen -> 260,3 bin)
+    draft_resolution: "480p"          # draft: true -> 480p önizleme (480p token fiyatı) + draft_id (7 gün)
+    complete:                         # draft/complete: YALNIZCA 1080p, ≈ 1,164 $/sn (10 sn ≈ 11,6 $)
+      per_1k_tokens: 0.0234
+      size: [1920, 1104]
+      margin: 0.20
+# Upscale (onaylanmış klipleri 1080p'ye çıkarma; ayrı adım). Çıktı karesi 1920x1080 = 2,07 MP, kaynak fps (24).
+upscale:
+  fal-ai/bytedance-upscaler/upscale/video:     # 30 fps'e kadar saniye başına; 60 fps'te 2 kat, "pro" 10 kat
+    per_second: {"1080p": 0.0072, "2k": 0.0144, "4k": 0.0288}
+    high_fps_factor: 2
+    pro_factor: 10
+  fal-ai/kandinsky6-vsr:                        # çıktı megapikseli × kare başına; en çok ~5 sn (121 kare)
+    per_mp_frame: 0.00036
+    max_seconds: 5
+  fal-ai/seedvr/upscale/video:                  # video verisinin megapikseli başına (kare × MP)
+    per_mp: 0.001
+  fal-ai/flashvsr/upscale/video:
+    per_mp: 0.0005
+  blackforestlabs/flux-video-upscale:           # precise (creativity 0), 1080p; en çok 20 sn
+    per_second: {"1080p": 0.14}
+    max_seconds: 20
 fal_image:            # fal.ai görsel modelleri, megapiksel başına (yukarı yuvarlanır); kare 1280x704 = 1 MP
   qwen_image: 0.02          # fal-ai/qwen-image-2512
   qwen_edit: 0.03           # fal-ai/qwen-image-edit-2511

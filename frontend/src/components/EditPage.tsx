@@ -6,12 +6,14 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { api } from "@/lib/api";
 import { parseIds, playable, toggle } from "@/lib/compare";
 import { EMOTION_COLOR, ENGINE_TR, WORKING } from "@/lib/i18n";
+import { resolutionBadge } from "@/lib/finishing";
 import { pickMedia, posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
 import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
 import type { DispatchAll, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
+import { UpscaleConfirm } from "./Finishing";
 import { Inspector } from "./Inspector";
 import { Panel, StatusDot, shortcutTarget } from "./ui";
 
@@ -68,7 +70,9 @@ type Player = ReturnType<typeof usePlayer>;
 /** Projenin kuru çalıştırma toplamı (GET render-plan?dry_run=true): taslak motoruyla bütün çekimler ve final motoruna
     yükseltme. Yüklenecek dosyaların SHA-256'sını hesapladığı için yoklanmaz; "Hesapla" ile elle okunur. */
 function PlanTotal({ projectId }: { projectId: string }) {
+  const { busy, frozen } = usePanel();
   const [plan, setPlan] = useState<RenderPlan | null>(null);
+  const [up, setUp] = useState(false);
   const [state, setState] = useState<"" | "busy" | string>("");
   const run = () => {
     setState("busy");
@@ -97,6 +101,10 @@ function PlanTotal({ projectId }: { projectId: string }) {
           <span className="faint"> · {ENGINE_TR[plan.engines.draft] ?? plan.engines.draft} → {ENGINE_TR[plan.engines.final] ?? plan.engines.final}</span></span>
       )}
       {off > 0 && <span className="warn small">{off} çekim kapalı motorda (RunPod): denetçiden H3 Max'e geçin.</span>}
+      <button className="btn" type="button" aria-expanded={up} disabled={busy || frozen}
+        title={frozen ? "Üretim durduruldu, önce Üretime devam et" : "1080p altındaki bütün kazanan klipler; uç nokta, klip başına tahmin, toplam ve kalan bütçe gösterilir"}
+        onClick={() => setUp(!up)}>Bütün filmi 1080p'ye upscale et (son montajdan önce)</button>
+      {up && <UpscaleConfirm scope="project" id={projectId} onClose={() => setUp(false)} />}
       {state && state !== "busy" && <span className="bad small">{state}</span>}
     </div>
   );
@@ -227,8 +235,9 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick }: {
   v: Variation; prev?: Variation; selected: boolean; picked: boolean; onPick: (v: Variation, e: MouseEvent) => void;
 }) {
   const t = tileSpec(v, prev);
+  const badge = resolutionBadge(v);
   const cls = ["tile", t.state === "passed" ? "" : t.state, selected ? "selected" : "", picked ? "compare-pick" : ""].filter(Boolean).join(" ");
-  const label = t.label + (picked ? " · karşılaştırmada" : "");
+  const label = t.label + (badge ? ` · ${badge.long}` : "") + (picked ? " · karşılaştırmada" : "");
   return (
     <>
       {t.tierStart && <span className="gap" aria-hidden="true" title="Tam tur" />}
@@ -236,6 +245,7 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick }: {
         {v.thumb_url && <img src={v.thumb_url} alt="" loading="lazy" decoding="async" />}
         {v.score != null && <span className="sc">{v.score.toFixed(3)}</span>}
         {v.revision ? <span className="rev">R{v.revision}</span> : null}
+        {badge ? <span className="res" aria-hidden="true">{badge.short}</span> : null}
         {picked ? <span className="cmp">K</span> : null}
         {v.rank ? <span className="rank">{v.rank}</span> : null}
       </button>

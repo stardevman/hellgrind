@@ -1,0 +1,221 @@
+{
+ "components": {
+  "schemas": {
+   "File": {
+    "properties": {
+     "content_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The mime type of the file.",
+      "examples": [
+       "image/png"
+      ],
+      "title": "Content Type"
+     },
+     "file_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name of the file. It will be auto-generated if not provided.",
+      "examples": [
+       "z9RV14K95DvU.png"
+      ],
+      "title": "File Name"
+     },
+     "file_size": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The size of the file in bytes.",
+      "examples": [
+       4404019
+      ],
+      "title": "File Size"
+     },
+     "url": {
+      "description": "The URL where the file can be downloaded from.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "File",
+    "type": "object",
+    "x-fal-order-properties": [
+     "url",
+     "content_type",
+     "file_name",
+     "file_size"
+    ]
+   },
+   "Kandinsky6VsrInput": {
+    "properties": {
+     "num_inference_steps": {
+      "default": 5,
+      "description": "The number of denoising steps used for each tile.",
+      "maximum": 50,
+      "minimum": 2,
+      "title": "Num Inference Steps",
+      "type": "integer"
+     },
+     "seed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The random seed used for the generation process.",
+      "title": "Seed"
+     },
+     "sync_mode": {
+      "default": false,
+      "description": "If `True`, the media will be returned as a data URI and the output data won't be available in the request history.",
+      "title": "Sync Mode",
+      "type": "boolean"
+     },
+     "upscale_factor": {
+      "default": 2.25,
+      "description": "Total upscale factor applied to the input resolution. One of 2, 2.25 or 4.",
+      "enum": [
+       2,
+       2.25,
+       4
+      ],
+      "title": "Upscale Factor",
+      "type": "number"
+     },
+     "video_url": {
+      "description": "The input video to upscale. Clips are resampled to 24fps and capped at 121 frames (~5s).",
+      "examples": [
+       "https://storage.googleapis.com/falserverless/example_inputs/seedvr-input.mp4"
+      ],
+      "title": "Video Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "video_url"
+    ],
+    "title": "Kandinsky6VSRInput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video_url",
+     "upscale_factor",
+     "num_inference_steps",
+     "seed",
+     "sync_mode"
+    ]
+   },
+   "Kandinsky6VsrOutput": {
+    "properties": {
+     "seed": {
+      "description": "The random seed used for the generation process.",
+      "title": "Seed",
+      "type": "integer"
+     },
+     "video": {
+      "$ref": "#/components/schemas/File",
+      "description": "Upscaled video file after processing",
+      "examples": [
+       {
+        "content_type": "video/mp4",
+        "url": "https://storage.googleapis.com/falserverless/example_outputs/seedvr-output.mp4"
+       }
+      ]
+     }
+    },
+    "required": [
+     "video",
+     "seed"
+    ],
+    "title": "Kandinsky6VSROutput",
+    "type": "object",
+    "x-fal-order-properties": [
+     "video",
+     "seed"
+    ]
+   },
+   "QueueStatus": {
+    "properties": {
+     "cancel_url": {
+      "description": "The cancel url.",
+      "type": "string"
+     },
+     "logs": {
+      "additionalProperties": true,
+      "description": "The logs.",
+      "type": "object"
+     },
+     "metrics": {
+      "additionalProperties": true,
+      "description": "The metrics.",
+      "type": "object"
+     },
+     "queue_position": {
+      "description": "The queue position.",
+      "type": "integer"
+     },
+     "request_id": {
+      "description": "The request id.",
+      "type": "string"
+     },
+     "response_url": {
+      "description": "The response url.",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "IN_QUEUE",
+       "IN_PROGRESS",
+       "COMPLETED"
+      ],
+      "type": "string"
+     },
+     "status_url": {
+      "description": "The status url.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "request_id"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "fetched": "2026-10-12",
+  "source": "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/kandinsky6-vsr",
+  "title": "Queue OpenAPI for fal-ai/kandinsky6-vsr",
+  "x-fal-metadata": {
+   "about": "Upscale",
+   "category": "video-to-video",
+   "documentationUrl": "https://fal.ai/models/fal-ai/kandinsky6-vsr/api",
+   "endpointId": "fal-ai/kandinsky6-vsr",
+   "playgroundUrl": "https://fal.ai/models/fal-ai/kandinsky6-vsr",
+   "thumbnailUrl": "https://v3b.fal.media/files/b/0aac3fba/vaoMsI4kVX1dEpryoFSID.jpg"
+  }
+ }
+}
