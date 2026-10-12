@@ -15,7 +15,7 @@ import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type 
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
 import { UpscaleConfirm } from "./Finishing";
-import { Inspector, SplitView, useFalPlan } from "./Inspector";
+import { Inspector } from "./Inspector";
 import { Panel, StatusDot, shortcutTarget } from "./ui";
 
 type Mode = "shot" | "film";
@@ -236,8 +236,9 @@ function Viewer({ mode, setMode, player, src, poster, label, right }: {
 /** Aday filme konabilir mi: havuzdaysa doğrudan, kapıdan geçememişse yönetmen kararıyla (override). */
 const usable = (v: Variation) => playable(v) && v.rank !== 1 && Boolean(v.rank || v.overridable);
 
-const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId }: {
+const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId, onHover }: {
   v: Variation; prev?: Variation; selected: boolean; picked: boolean; onPick: (v: Variation, e: MouseEvent) => void; sceneId: string;
+  onHover: (v: Variation | null, el: HTMLElement | null) => void;
 }) {
   const t = tileSpec(v, prev);
   const badge = resolutionBadge(v);
@@ -250,8 +251,10 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId }: 
   return (
     <>
       {t.tierStart && <span className="gap" aria-hidden="true" title="Tam tur" />}
-      <button type="button" className={cls} aria-pressed={selected} aria-label={label} title={label} onClick={(e) => onPick(v, e)}
-        draggable={usable(v)} onDragStart={usable(v) ? drag : undefined}>
+      <button type="button" className={cls} aria-pressed={selected} aria-label={label} onClick={(e) => onPick(v, e)}
+        draggable={usable(v)} onDragStart={usable(v) ? drag : undefined}
+        onMouseEnter={(e) => onHover(v, e.currentTarget)} onMouseLeave={() => onHover(null, null)}
+        onFocus={(e) => onHover(v, e.currentTarget)} onBlur={() => onHover(null, null)}>
         {v.thumb_url && <img src={v.thumb_url} alt="" loading="lazy" decoding="async" />}
         {v.score != null && <span className="sc">{v.score.toFixed(3)}</span>}
         {v.revision ? <span className="rev">R{v.revision}</span> : null}
@@ -262,6 +265,23 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId }: 
     </>
   );
 });
+
+/** Üzerine gelinen adayın büyük önizlemesi ve ayrıntısı: sütunun dışında, izleyicinin üstünde açılır (kırpılmaz). */
+function TakePop({ v, prev, top, right }: { v: Variation; prev?: Variation; top: number; right: number }) {
+  const t = tileSpec(v, prev);
+  const badge = resolutionBadge(v);
+  return (
+    <div className="take-pop" style={{ top, right }} role="tooltip">
+      {v.thumb_url ? <img src={v.thumb_url} alt="" /> : <span className="ph" />}
+      <div className="tp-body">
+        <b>{v.rank === 1 ? "Filmde bu klip oynuyor" : t.label}</b>
+        {!t.label.includes(t.fate) && <span className="dim">{t.fate}</span>}
+        <span className="mono tiny dim">{v.score != null ? `skor ${v.score.toFixed(3)}` : "skor yok"}{badge ? ` · ${badge.long}` : v.resolution ? ` · ${v.resolution}` : ""}{v.seed != null ? ` · seed ${v.seed}` : ""}</span>
+        {v.anomalies?.length ? <span className="warn tiny">{v.anomalies.join(", ")}</span> : null}
+      </div>
+    </div>
+  );
+}
 
 /** Adayı filme koyar: havuzdaysa promote, kapıyı geçememişse yönetmen kararıyla (override). Yalnızca ses ve montaj yeniden çalışır. */
 function usePromote(sc: Scene) {
@@ -277,6 +297,12 @@ function usePromote(sc: Scene) {
 function Takes({ onPick }: { onPick: () => void }) {
   const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare, advanced, busy } = usePanel();
   const [showAll, setShowAll] = useState(false);
+  const [hover, setHover] = useState<{ v: Variation; top: number; right: number } | null>(null);
+  const onHover = useCallback((v: Variation | null, el: HTMLElement | null) => {
+    if (!v || !el) { setHover(null); return; }
+    const r = el.getBoundingClientRect();
+    setHover({ v, top: Math.max(8, Math.min(window.innerHeight - 220, r.top - 20)), right: window.innerWidth - r.left + 8 });
+  }, []);
   const promote = usePromote(sc ?? ({ id: "" } as Scene));
   if (!sc) return null;
   const picked = parseIds(compareRaw, sc);
@@ -291,50 +317,33 @@ function Takes({ onPick }: { onPick: () => void }) {
   const hidden = advanced || showAll ? [] : sc.variations.filter((v) => !playable(v) && !["queued", "running", "generated"].includes(v.status));
   const shown = hidden.length ? sc.variations.filter((v) => !hidden.includes(v)) : sc.variations;
   return (
-    <Panel className="takes" title={`Adaylar · ${sc.scene_code}`}
-      meta={winner ? `filmde #1 oynuyor · ${sc.variations.filter(playable).length} izlenebilir aday` : `${probe} test + ${sc.variations.length - probe} tam tur`}
-      tools={<>
-        <span className="legend adv" aria-label="Aday göstergeleri">
-          <span><i className="refined" />havuzda</span><span><i className="rejected" />elendi</span>
-          <span><i className="retired" />havuz dışı</span><span><i className="working" />üretiliyor</span>
-          <span><kbd>Shift</kbd>+tık: karşılaştırmaya ekle</span>
-        </span>
-        {picked.length >= 2 && <button className="btn" type="button" onClick={() => openCompare(sc.id, picked)}>Seçilen {picked.length} klibi karşılaştır</button>}
-      </>}>
+    <Panel className="takes" title="Adaylar"
+      meta={winner ? `${sc.variations.filter(playable).length} izlenebilir` : `${probe} test + ${sc.variations.length - probe} tam`}>
       <div className="takes-bar">
         {chosen ? (
-          chosen.rank === 1 ? <span className="tag ok">Filmde bu klip oynuyor</span>
+          chosen.rank === 1 ? <span className="tag ok">Filmde bu oynuyor</span>
             : usable(chosen) ? <button className="btn primary" type="button" disabled={busy} onClick={() => promote(chosen)}
-              title="Bu adayı çekimin filmdeki klibi yapar; görüntü motoru çağrılmaz, yalnızca ses ve montaj yeniden çalışır">Bu adayı filmde kullan</button>
-              : <span className="faint small">{playable(chosen) ? "Bu aday filme konamaz (kapıdan geçmedi ve karar değiştirilemez)." : "Bu adayın izlenebilir videosu yok."}</span>
-        ) : <span className="faint small">Aynı çekim için üretilen klipler. Birine tıkla: izleyicide oynar. Beğenirsen <b>Bu adayı filmde kullan</b> ya da zaman çizelgesindeki çekimin üstüne sürükle.</span>}
-        <span className="grow" />
-        {hidden.length > 0 && <button className="btn ghost" type="button" onClick={() => setShowAll(true)}>{hidden.length} elenen adayı göster</button>}
-        {!advanced && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
+              title="Bu adayı çekimin filmdeki klibi yapar; görüntü motoru çağrılmaz, yalnızca ses ve montaj yeniden çalışır">Filmde kullan</button>
+              : <span className="faint tiny">{playable(chosen) ? "Filme konamaz: kapıdan geçmedi, karar değiştirilemez." : "İzlenebilir videosu yok."}</span>
+        ) : <span className="faint tiny">Aynı çekimin klipleri. Tıkla: izle. Beğenirsen <b>Filmde kullan</b> ya da zaman çizelgesine sürükle.</span>}
       </div>
       <div className="strip" aria-label={`${sc.scene_code} adayları`}>
         {shown.length
-          ? shown.map((v, i) => <Tile key={v.id} v={v} prev={shown[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} sceneId={sc.id} />)
+          ? shown.map((v, i) => <Tile key={v.id} v={v} prev={shown[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} sceneId={sc.id} onHover={onHover} />)
           : <span className="faint">Henüz klip yok</span>}
       </div>
-      <div className="adv"><ClipSplit sc={sc} /></div>
+      {hover && <TakePop v={hover.v} prev={sc.variations[sc.variations.indexOf(hover.v) - 1]} top={hover.top} right={hover.right} />}
+      <div className="takes-foot">
+        {hidden.length > 0 && <button className="btn ghost" type="button" onClick={() => setShowAll(true)}>{hidden.length} elenen adayı göster</button>}
+        {!advanced && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
+        {picked.length >= 2 && <button className="btn" type="button" onClick={() => openCompare(sc.id, picked)}>Seçilen {picked.length} klibi karşılaştır</button>}
+        <span className="legend adv" aria-label="Aday göstergeleri">
+          <span><i className="refined" />havuzda</span><span><i className="rejected" />elendi</span>
+          <span><i className="retired" />havuz dışı</span><span><i className="working" />üretiliyor</span>
+          <span><kbd>Shift</kbd>+tık: karşılaştır</span>
+        </span>
+      </div>
     </Panel>
-  );
-}
-
-/** Kazanan parça klibinin bu çekime düşen kesimi: gerçek segment ile planlı segment, sınır kaynakları ve bölme uyarısı.
-    Planlı segment fal-plan'dan (denetçiyle aynı SWR anahtarı; ayrıca istek yok), yoksa yalnızca gerçek segment. */
-function ClipSplit({ sc }: { sc: Scene }) {
-  const plan = useFalPlan(sc);
-  const win = sc.variations.find((v) => v.rank === 1);
-  const split = sc.split ?? plan?.split ?? null;
-  if (!split || !win?.segment) return null;
-  const planned = plan?.split?.segment_planned
-    ?? (() => { const x = plan?.timeline?.find((y) => y.code === sc.scene_code); return x ? [x.start, x.end] as [number, number] : null; })();
-  return (
-    <div className="pad" style={{ borderTop: "1px solid var(--line)", paddingTop: 6, paddingBottom: 6 }}>
-      <SplitView split={split} codes={win.part ?? plan?.part} code={sc.scene_code} segment={win.segment} planned={planned} />
-    </div>
   );
 }
 

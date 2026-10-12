@@ -1323,6 +1323,23 @@ const TAB_TR: Record<InspTab, string> = { shot: "Çekim", sound: "Ses", gen: "Ü
 
 /** Denetçi: seçili çekimin bölümleri üç sekmede. Çekim (durum, varlıklar, adaylar), Ses (replikler, sekans), Üretim
     (motor ve plan, yöntem; Gelişmiş görünümde yükseltme ve elle düzeltme de). */
+/** Kazanan parça klibinin bu çekime düşen kesimi: gerçek segment ile planlı segment, sınır kaynakları ve bölme uyarısı.
+    Planlı segment fal-plan'dan (denetçiyle aynı SWR anahtarı; ayrıca istek yok), yoksa yalnızca gerçek segment. */
+export function ClipSplit({ sc }: { sc: Scene }) {
+  const plan = useFalPlan(sc);
+  const win = sc.variations.find((v) => v.rank === 1);
+  const split = sc.split ?? plan?.split ?? null;
+  if (!split || !win?.segment) return null;
+  const planned = plan?.split?.segment_planned
+    ?? (() => { const x = plan?.timeline?.find((y) => y.code === sc.scene_code); return x ? [x.start, x.end] as [number, number] : null; })();
+  return (
+    <Section title="Kazanan klibin kesimi" meta={`${win.segment[0].toFixed(1)}–${win.segment[1].toFixed(1)} sn`} open={false}>
+      <SplitView split={split} codes={win.part ?? plan?.part} code={sc.scene_code} segment={win.segment} planned={planned} />
+    </Section>
+  );
+}
+
+
 export function Inspector({ className = "" }: { className?: string }) {
   const { scene: sc, sequence: q, varId, meta, advanced } = usePanel();
   const [tab, setTab] = useState<InspTab>("shot");
@@ -1368,6 +1385,7 @@ export function Inspector({ className = "" }: { className?: string }) {
             <Method key={`m${sc.id}`} sc={sc} />
             {advanced ? (
               <>
+                <ClipSplit key={`cs${sc.id}`} sc={sc} />
                 <Finishing key={`fin${sc.id}`} sc={sc} />
                 <Revisions key={revTarget?.id ?? sc.id} target={revTarget} />
               </>

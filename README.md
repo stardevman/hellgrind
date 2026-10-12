@@ -114,9 +114,10 @@ aynı görünüm açılır.
    - Ortada **izleyici**: zaman kodu (24 kare/sn), kare kare ilerleme, döngü; *Çekim*, *Film* ve *Kaba kurgu* kaynakları.
      Kısayollar: <kbd>Boşluk</kbd>/<kbd>K</kbd> oynat-duraklat, <kbd>J</kbd>/<kbd>L</kbd> bir saniye, <kbd>←</kbd>/<kbd>→</kbd>
      bir kare, <kbd>↑</kbd>/<kbd>↓</kbd> önceki/sonraki çekim.
-   - İzleyicinin altında seçili çekimin **adayları**: aynı çekim için üretilen klipler; filmde yalnızca biri oynar ve
-     **filmde** etiketiyle yeşil çerçevelidir. Bir adaya tıklayınca izleyicide oynar ve **Bu adayı filmde kullan** düğmesi
-     çıkar (yalnızca ses ve montaj yeniden çalışır); aday zaman çizelgesindeki çekimin üstüne de sürüklenebilir. Basit
+   - İzleyicinin sağında dar bir sütunda seçili çekimin **adayları**: aynı çekim için üretilen klipler; filmde yalnızca
+     biri oynar ve **filmde** etiketiyle yeşil çerçevelidir. Üzerine gelince izleyicinin üstünde büyük önizleme ve ayrıntı
+     (sıra, skor, çözünürlük, seed) açılır. Bir adaya tıklayınca izleyicide oynar ve **Filmde kullan** düğmesi çıkar
+     (yalnızca ses ve montaj yeniden çalışır); aday zaman çizelgesindeki çekimin üstüne de sürüklenebilir. Basit
      görünümde elenenler gizlidir (**N elenen adayı göster** açar); Gelişmiş görünümde hepsi görünür: gri ve kırmızı çapraz
      çizgili kalite kontrolünde elendi, soluk havuza giremedi, mor ve nefes alan üretiliyor. Kazanan klibin parça bölme
      ayrıntısı ve havuzdaki taslak toplamı da Gelişmiş görünümdedir.
