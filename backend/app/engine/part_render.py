@@ -33,6 +33,8 @@ from app.models import Project, Scene, Variation
 log = logging.getLogger("hellgrind.part_render")
 
 LOCK = "hg:part_lock:{}"
+FAILED = "hg:part_failed:{}"   # planın özeti -> 4xx mesajı: kilidi bekleyen kardeş görevler parçayı yeniden üretmez
+FAILED_TTL_S = 24 * 3600
 LOCK_TTL_S = 3 * 3600
 LOCAL_RETRIES = 3              # yerel/geçici hata: aynı deneme yeniden (fal kuyruğu kendi yeniden denemesini yapar)
 MAX_DEPTH = 20                 # önceki parçaların zinciri
@@ -56,10 +58,15 @@ def render_shot(project_id: str, scene_id: str) -> str:
         killswitch.event(project_id, "part_stopped", scene_id=scene_id, status=e.status, reason=e.reason[:200])
         return e.status
     except ProviderError as e:                         # ör. fal.ai 422: yeniden denenmez, mesaj olduğu gibi
-        advance_scene(project_id, scene_id, status="needs_review", last_error=str(e))
+        advance_scene(project_id, scene_id, status="failed", last_error=str(e))
         killswitch.event(project_id, "provider_rejected", scene_id=scene_id, error=str(e)[:300])
-        return "needs_review"
+        return "failed"
     return "refined" if ok else "needs_review"
+
+
+def clear_failure(plan_hash: str) -> None:
+    """Yönetmen yeniden üretim istedi: parçanın 4xx işareti kalkar (aynı plan yeniden denenebilir)."""
+    killswitch.r().delete(FAILED.format(plan_hash))
 
 
 def _checks(s, sc, plan, cfg) -> None:
@@ -106,9 +113,12 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
     if not lock.acquire():
         raise PartStop("needs_review", "Parça kilidi alınamadı (başka bir görev üretiyor olabilir); yeniden deneyin.")
     try:
+        failed = killswitch.r().get(FAILED.format(plan.plan_hash))
+        if failed:                                     # başka bir çekimin görevi 4xx aldı: yeniden deneme yok
+            raise PartStop("failed", failed.decode() if isinstance(failed, bytes) else failed)
         winners = _passed(plan.part_hash)
         if not winners:
-            winners = _generate(project_id, plan, snapshot, cfg)
+            winners = _generate(project_id, plan, snapshot, cfg, caller)
     finally:
         try:
             lock.release()
@@ -175,7 +185,7 @@ def _tried(part_hash: str) -> set[int]:
             Variation.params["part"].astext == part_hash))}
 
 
-def _generate(project_id: str, plan, snap: dict, cfg: dict) -> dict[str, str]:
+def _generate(project_id: str, plan, snap: dict, cfg: dict, caller: str | None = None) -> dict[str, str]:
     """Parçayı en çok `attempts` kez üretir; her denemenin klibi çekimlere kesilir ve kaydedilir. Geçen ilk denemenin
     kesimleri döner."""
     from app.quality import gate
@@ -186,8 +196,7 @@ def _generate(project_id: str, plan, snap: dict, cfg: dict) -> dict[str, str]:
             continue
         if killswitch.is_frozen(project_id):
             raise killswitch.ProjectFrozen(project_id)
-        for sid in snap["ids"]:
-            advance_scene(project_id, sid, status="generating")
+        advance_scene(project_id, caller or snap["leader"], status="generating")   # kardeşler kendi durumunda kalır
         seed = seed_for(plan.part_hash, attempt)
         req = _request(plan, snap, seed, provider)
         result = None
@@ -201,6 +210,11 @@ def _generate(project_id: str, plan, snap: dict, cfg: dict) -> dict[str, str]:
                 break
             except TransientError as e:
                 log.warning("parça geçici hata (deneme %d, %d/%d): %s", attempt, retry, LOCAL_RETRIES, e)
+            except ProviderError as e:                 # 4xx: parçanın bütün çekimleri hemen failed, yeniden deneme yok
+                killswitch.r().set(FAILED.format(plan.plan_hash), str(e), ex=FAILED_TTL_S)
+                for sid in snap["ids"]:
+                    advance_scene(project_id, sid, status="failed", last_error=str(e))
+                raise
         if result is None:
             continue
         clip_key = f"parts/{plan.part_hash}/{attempt}.mp4"
@@ -288,6 +302,8 @@ def _finalize(project_id: str, plan, snap: dict, winners: dict[str, str], caller
     """Parçanın bütün çekimlerine kendi kesimini kazanan yazar; görevi olmayan (bitmiş) kardeşlerin ses ve montajı
     kuyruğa verilir."""
     from app.quality import gate
+    with session_scope() as s:                        # kazanan yazılmadan önceki durum: kuyrukta kendi görevi olan
+        current = {sid: s.get(Scene, sid).status for sid in snap["ids"]}   # kardeş "pending"dir
     for sid in snap["ids"]:
         vid = winners.get(sid)
         if vid is None:
@@ -298,10 +314,14 @@ def _finalize(project_id: str, plan, snap: dict, winners: dict[str, str], caller
     if plan.draft:                                     # Seedance taslağı: draft_id ve 7 günlük geçerlilik sahnelere
         from app.engine.finishing import remember_draft
         remember_draft(snap["ids"], snap["codes"], winners, plan.part_hash, plan.duration_s)
+    from app.engine.finishing import _reset_auto_grade
+    with session_scope() as s:                        # yeni klipler: renk eşlemesi montajdan sonra yeniden
+        for sid in winners:
+            _reset_auto_grade(s, s.get(Scene, sid))
     killswitch.event(project_id, "refined", scene_id=caller, pool=1, engine=plan.engine, part=snap["codes"])
     working = ("pending", "storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
     for sid in snap["ids"]:
-        if sid == caller or snap["statuses"].get(sid) in working:
+        if sid == caller or current.get(sid) in working:
             continue                                   # kendi görevi zinciri sürdürür
         try:
             from app.api.plan import plan_and_dispatch

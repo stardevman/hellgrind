@@ -34,6 +34,16 @@ def probe(path: str) -> dict:
             "duration_s": round(float((data.get("format") or {}).get("duration") or 0.0), 3)}
 
 
+def strip_audio(path: str) -> str:
+    """Klibin ses akışını yerinde siler (görüntü kopyalanır). Filmin sesi Hell Grind'den gelir."""
+    import os
+    tmp = path + ".noaudio.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-map", "0:v", "-c:v", "copy", "-an", "-movflags",
+                    "+faststart", tmp], check=True, capture_output=True)
+    os.replace(tmp, path)
+    return path
+
+
 class FalVideoProvider:
     """Yerel sağlayıcıyla aynı arayüz: `engine`, `estimate(req)`, `generate(req)`, `upload(path)`. Video kendisi
     puanlanır (önce görsel yok); bütün yeniden denemeler kuyruk katmanındadır (`whole_wave` yok, tek klip)."""
@@ -106,6 +116,8 @@ class FalVideoProvider:
         if not video.get("url"):
             raise fal_queue.FalError(f"fal.ai yanıtında video yok ({out.request_id}): {list(out.result)}")
         path = fal_queue.download(video["url"], ".mp4", video.get("file_size"))
+        if not req.extra.get("fal_audio"):             # modelin sesi istenmedi (ör. taslakta zorla açıldı): atılır
+            strip_audio(path)
         measured = probe(path)
         billed = self.billed(req, args, measured)
         meta = {"endpoint": endpoint, "mode": self.mode(req), "request_id": out.request_id, "resumed": out.resumed,

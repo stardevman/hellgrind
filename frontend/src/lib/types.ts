@@ -222,6 +222,8 @@ export interface Scene {
   id: string; scene_code: string; status: string; engine: string | null; sequence_id: string | null;
   /** Motorun Türkçe adı; engine_disabled: motor h3 ve RunPod kapalı (üretilemez). */
   engine_label?: string | null; engine_disabled?: boolean;
+  /** Kazanan (rank 1) klibin motoru; çekimin motorundan farklıysa yükseltme bu çekimde tamamlanmamıştır. */
+  winner_engine?: string | null;
   /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
   video_opts?: { resolution?: string; audio?: boolean };
   fal_request?: FalRequest | null;

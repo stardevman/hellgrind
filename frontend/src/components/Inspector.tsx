@@ -99,6 +99,12 @@ function Shot({ sc }: { sc: Scene }) {
           </div>
         </div>
       )}
+      {sc.winner_engine && sc.engine && sc.winner_engine !== sc.engine && !busy && (
+        <p className="warn small">
+          Kazanan klip {ENGINE_TR[sc.winner_engine] ?? sc.winner_engine} ile üretilmiş; çekimin motoru {ENGINE_TR[sc.engine] ?? sc.engine}.
+          Bu çekimde yükseltme tamamlanmadı: yeniden üretin ya da adaylardan birini seçin.
+        </p>
+      )}
       {sc.status === "blocked" && sc.missing.length > 0 && (
         <p className="small"><span className="warn">Eksik referans:</span> <MissingLinks list={sc.missing} /></p>
       )}

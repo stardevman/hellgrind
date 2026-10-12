@@ -49,6 +49,14 @@ def whole_scene() -> bool:
     return settings.scene_render_mode != "per_shot"
 
 
+def lint_cfg(cfg: dict, engine: str | None) -> dict:
+    """Referans modunda varlığın onaylı durağan görseli yeterlidir (hareket testi ve kilit gerekmez): asset_min_status
+    en çok still_approved. Kuru çalıştırma ve dağıtım aynı kuralı kullanır."""
+    if active(engine) and cfg.get("asset_min_status", "locked") != "still_approved":
+        return {**cfg, "asset_min_status": "still_approved"}
+    return cfg
+
+
 def plan_required(cfg: dict) -> bool:
     """Render'dan önce plan onayı: proje ayarı require_plan_approval; boşsa ücretli modda evet, ücretsiz modda hayır."""
     value = cfg.get("require_plan_approval")
@@ -298,6 +306,26 @@ def frame_line(shot, members: list, linked: set[str]) -> str:
            "out of frame."
 
 
+HEIGHT_WORDS = ("eye level", "eye-level", "street level", "ground level", "ground-level", "low angle", "high angle",
+                "aerial", "overhead", "from above", "bird's-eye", "birds-eye", "top-down", "drone", "worm's-eye")
+HEIGHT_DEFAULT = "camera at human eye level / street level"     # çekimde kamera yüksekliği yazılmamışsa
+ABOVE_WARNING = "Bu mekân referansı yukarıdan çekilmiş; sokak seviyesinde bir görsel yüklemeyi düşünün."
+ABOVE = re.compile(r"\b(aerial|overhead|from above|overpass|bird'?s[- ]eye|top[- ]down|drone)\b", re.I)
+
+
+def height_text(x) -> str:
+    """Kamera yüksekliği yazılmamışsa "camera at human eye level / street level": model mekân referansının (ör. üst
+    geçitten çekilmiş otoyol) bakış açısını kopyalamasın."""
+    from app.core.chain import camera_of
+    if camera_of(x).get("angle") in ("low", "high"):
+        return ""
+    text = " ".join(str(v) for v in ((x.prompt_spec or {}).get("prompt"), x.description, getattr(x, "director_note", None))
+                    if v).lower()
+    if any(w in text for w in HEIGHT_WORDS):
+        return ""
+    return HEIGHT_DEFAULT
+
+
 def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[str], members: list | None = None,
               linked: set[str] | None = None) -> str:
     from app.core.chain import camera_of
@@ -308,6 +336,7 @@ def shot_line(i: int, x, start: float, end: float, dialogue: list, names: list[s
     first = re.split(r"(?<=[.!?])\s", action.strip(), maxsplit=1)[0].lower()
     # çekim tarifi kendi kamera cümlesiyle başlıyorsa (Nora: "Wide shot, 28 mm, slow gentle dolly-in.") başlık tekrar etmez
     camera = "" if any(w in first for w in CAMERA_WORDS) else plain_camera(camera_of(x))
+    camera = ", ".join(c for c in (camera, height_text(x)) if c)
     parts = [f"Shot {i} ({seconds_label(start)}-{seconds_label(end)}s)" + (f", {camera}" if camera else "") + ":",
              sentence(action)]
     if members:
@@ -410,6 +439,8 @@ class PartPlan:
     warnings: list = field(default_factory=list)
     uploads: list = field(default_factory=list)
     draft: bool = False
+    lint: list = field(default_factory=list)          # onay durumu eşiğin altında kalan varlıklar (lint)
+    lint_blocks: bool = False
 
     @property
     def leader(self):
@@ -435,7 +466,8 @@ class PartPlan:
                 "duration": self.body.get("duration"), "duration_s": self.duration_s, "cost": self.cost,
                 "unmapped_negatives": self.unmapped, "warnings": self.warnings, "plan_hash": self.plan_hash,
                 "part_hash": self.part_hash, "approved": self.approved(), "seed": self.seed,
-                "blocked": bool(self.missing), "draft": self.draft, "prompt_chars": len(self.prompt),
+                "blocked": bool(self.missing) or self.lint_blocks, "lint": self.lint, "draft": self.draft,
+                "prompt_chars": len(self.prompt),
                 "prompt_limit": PROMPT_LIMIT.get(self.engine),
                 "notes": [w for w in self.warnings]}
 
@@ -495,10 +527,21 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
         for r in refs:
             r.number += 1
     warnings = []
+    for a in assets:                                  # sarı uyarı: yukarıdan çekilmiş mekân referansı
+        if a.type == "location" and ABOVE.search(f"{a.name} {a.description or ''}"):
+            warnings.append(f"{a.name}: {ABOVE_WARNING}")
     if dropped:
         warnings.append(f"Referans sınırı ({limit} görsel): düşenler {', '.join(r.name for r in dropped)} "
                         "(çekim metinlerinde en az geçen mekân/nesne).")
     missing = missing_references(chars, assets)
+    from app.hermes import lint as lint_
+    checks = [lint_.check_scene(s, x.id, lint_cfg(cfg, engine)) for x in part]   # dağıtımın referans denetimi, aynen
+    lint_missing = {(m.type, m.name): {"kind": m.type, "name": m.name, "status": m.status, "asset_id": m.asset_id}
+                    for r in checks for m in r.missing}
+    lint_blocks = any(r.blocks for r in checks)
+    if lint_missing:
+        warnings.append(("Onaylı referansı olmayan varlıklar (gereken en az durum: durağan görsel onaylı): " if lint_blocks
+                         else "Onay bekleyen varlıklar (uyarı): ") + ", ".join(v["name"] for v in lint_missing.values()))
     if missing:
         warnings.append("Eksik referans: " + ", ".join(m["name"] for m in missing) +
                         " (görsel yükleyin; render engelli).")
@@ -531,7 +574,8 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
                     endpoint=endpoint, body=body, resolution=resolution, audio=audio, duration_s=total,
                     cost=fal_plan.cost(engine, resolution, total, images, "ref", draft), plan_hash=plan_hash,
                     part_hash=part_hash,
-                    seed=seed, warnings=warnings, draft=draft)
+                    seed=seed, warnings=warnings, draft=draft, lint=list(lint_missing.values()),
+                    lint_blocks=lint_blocks)
     plan.uploads = uploads(plan, with_sha)
     return plan
 

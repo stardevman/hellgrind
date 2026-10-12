@@ -89,11 +89,16 @@ def _dispatch_post(project_id: str, scene_ids: list[str]) -> None:
 
 
 def _reset_auto_grade(s, sc) -> None:
-    """Otomatik renk eşlemesi düşük çözünürlüklü klipte yapıldıysa geri alınır: upscale'den sonra yeniden eşlenir."""
+    """Klip değişti (upscale, tamamlama, yükseltme): eski klipte yapılmış otomatik renk eşlemesi geri alınır ve çekim
+    "eşleme bekliyor" olarak işaretlenir; montajdan sonra (projede süren iş kalmayınca) otomatik eşleme yeniden çalışır
+    (tasks.maybe_rematch). Yönetmenin elle yaptığı renk ayarına dokunulmaz."""
+    from app.quality.consistency import _manual
     auto = sc.grade_auto or {}
     if auto.get("applied"):
         sc.grade = auto.get("previous") or {}
-        sc.grade_auto = None
+        sc.grade_auto = {"pending": True}
+    elif not _manual(sc):
+        sc.grade_auto = {**auto, "pending": True}
 
 
 # ---------- Seedance taslağı ----------

@@ -513,8 +513,10 @@ def _finish_draft(c: Ctx, first: VarResult) -> str:
 def lint_blocks(project_id: str, scene_id: str) -> bool:
     """Worker tarafındaki üretim öncesi kontrol: dispatch ile görev başlangıcı arasında bir varlığın kilidi açılmış
     olabilir. Engellerse sahneyi `blocked` yapar; hiçbir şey harcanmaz."""
+    from app.engine.scene_parts import lint_cfg                # referans modunda durağan görsel onayı yeter
     with session_scope() as s:
-        result = lint.check_scene(s, scene_id, project_settings(s.get(Project, project_id).settings))
+        result = lint.check_scene(s, scene_id, lint_cfg(project_settings(s.get(Project, project_id).settings),
+                                                        s.get(Scene, scene_id).engine))
     if not result.blocks:
         return False
     advance_scene(project_id, scene_id, status="blocked", last_error=result.message())
@@ -880,9 +882,9 @@ def run_tiered_generation(project_id: str, scene_id: str, mode: str = "full") ->
             return _fal_clip(ctx, project_id, scene_id)
         return _tiered(ctx, project_id, scene_id, mode)
     except ProviderError as e:                            # ör. fal.ai 422: yeniden denenmez, mesaj olduğu gibi
-        advance_scene(project_id, scene_id, status="needs_review", last_error=str(e))
+        advance_scene(project_id, scene_id, status="failed", last_error=str(e))
         killswitch.event(project_id, "provider_rejected", scene_id=scene_id, error=str(e)[:300])
-        return "needs_review"
+        return "failed"
     except ChainStale as e:                               # zincirdeki kare değişti: eski kareden video üretilmez
         advance_scene(project_id, scene_id, status="board_review",
                       last_error=f"Üretim durdu: {e}. Kare zincirle yeniden çizilip video yeniden üretilecek.")

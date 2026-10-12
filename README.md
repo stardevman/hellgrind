@@ -439,6 +439,26 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
   karakter (şema), Seedance'ta sınır yok; aşılırsa önce tekrarlar, sonra görsel kısıtlar kısaltılır; planda karakter
   sayısı görünür.
 
+### Passport Rush taksi testinden düzeltmeler (2026-10-12)
+
+- Seedance 2.5 taslağında (`draft: true`) `generate_audio: false` fal'den 422 "Invalid parameters" aldı: taslakta ses her
+  zaman açık gönderilir (fiyat aynı), modelin sesi indirilirken silinir; filmin sesi Hell Grind'den gelir.
+- 4xx'te yeniden deneme yok: parçanın bütün çekimleri hemen `failed` olur, mesaj `last_error`'da; kilidi bekleyen kardeş
+  görevler parçayı yeniden üretmez. Yönetmen yeniden render edince denenebilir.
+- Referans modunda varlığın durağan görsel onayı yeterlidir (`asset_min_status` en çok `still_approved`); kuru çalıştırma
+  dağıtımın referans denetimini aynen hesaplar (`lint`, `blocked`).
+- Referans cümleleri tarifin tamamını ve varlığın değişmezlerini yazar ("Ada must always have: …").
+- Parça üretilince bütün çekimlerin kazananı aynı anda değişir; kendi görevi olmayan çekimin ses/montajı kuyruğa verilir.
+  Kazanan klibin motoru çekimin motorundan farklıysa denetçi bunu açıkça yazar.
+- Klibi değişen çekimler (upscale, tamamlama, yükseltme) "eşleme bekliyor" olur; projede süren iş kalmayınca son
+  montajdan sonra otomatik renk eşleme kendiliğinden çalışır (ücretli modda).
+- Mekân referansı yalnızca görünüm içindir: her mekân satırında "Use Image N only for the look of the place
+  (architecture, materials, colors, light); do not copy its camera position or viewpoint — stage the action as described
+  in each shot." Çekimde kamera yüksekliği yazılmamışsa "camera at human eye level / street level". Mekânın tarifinde
+  aerial, overhead, bird's-eye, from above, overpass geçiyorsa planda sarı uyarı: "Bu mekân referansı yukarıdan çekilmiş;
+  sokak seviyesinde bir görsel yüklemeyi düşünün." (Wan 3.0 testi: üst geçitten çekilmiş otoyol referansı karakteri yola
+  yukarıdan koşturdu.)
+
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
 `VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel

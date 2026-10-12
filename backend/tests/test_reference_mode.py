@@ -106,8 +106,10 @@ def test_noras_three_shots_are_one_h3max_request_of_ten_seconds(ref_defaults, mk
     for label in ("Shot 1 (0-3s), medium shot", "Shot 2 (3-6s)", "Shot 3 (6-10s)"):
         assert label in prompt
     assert prompt.index("Shot 1") < prompt.index("Shot 2") < prompt.index("Shot 3")
-    assert "Nora (a slim teenage girl" in prompt and "is Image 1." in prompt and "The prop Hens" in prompt
+    assert "Nora is Image 1: a slim teenage girl" in prompt and "The prop Hens is Image 3:" in prompt
     assert "Pip is tiny, palm-sized; much smaller than a hen." in prompt               # gerçek boyut
+    assert ("Use Image 4 only for the look of the place (architecture, materials, colors, light); do not copy its camera "
+            "position or viewpoint — stage the action as described in each shot.") in prompt
     assert "The cast of this scene: Nora, Pip and the Hens." in prompt and "@Image" not in prompt
     assert body["resolution"] == "480P"                                                  # en ucuz varsayılan
     assert plan["cost"]["usd"] == pytest.approx(10 * 0.05 * 1.05, abs=1e-3)           # 4 görsel: token dahil
@@ -120,7 +122,7 @@ def test_the_same_scene_is_one_seedance_request_with_at_tokens(ref_defaults, mk_
     body = plan["body"]
     assert plan["endpoint"] == "bytedance/seedance-2.5/reference-to-video" and body["duration"] == "10"
     assert [r["token"] for r in plan["references"]] == ["@Image1", "@Image2", "@Image3", "@Image4"]
-    assert "is @Image1." in body["prompt"] and "Image 1" not in body["prompt"] and validate(plan["endpoint"], body) == []
+    assert "Nora is @Image1:" in body["prompt"] and "Image 1" not in body["prompt"] and validate(plan["endpoint"], body) == []
 
 
 def test_a_scene_over_15_seconds_is_split_at_shot_boundaries_for_h3max_only(ref_defaults, mk_project, s3):
@@ -175,8 +177,8 @@ def test_a_continuous_part_gets_the_previous_last_frame_in_the_right_slot(ref_de
     assert sd["references"][0]["kind"] == "frame" and sd["references"][0]["token"] == "@Image1"
     assert [(r["token"], r["name"]) for r in sd["references"][1:]] == [            # numaralar bir kayar
         ("@Image2", "Nora"), ("@Image3", "Pip"), ("@Image4", "Farmyard Behind The Old Red Barn")]
-    assert "starts exactly from @Image1" in sd["body"]["prompt"] and "Nora (a slim" in sd["body"]["prompt"]
-    assert "is @Image2." in sd["body"]["prompt"] and "image_url" not in sd["body"]
+    assert "starts exactly from @Image1" in sd["body"]["prompt"] and "Nora is @Image2: a slim" in sd["body"]["prompt"]
+    assert "image_url" not in sd["body"]
     assert validate(sd["endpoint"], sd["body"]) == []
 
 

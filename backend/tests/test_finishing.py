@@ -190,7 +190,7 @@ def test_upscale_is_a_new_variation_and_colour_matching_is_redone_after_it(seeda
         assert win.params["size"] == [1920, 1080] and win.params["fps"] == pytest.approx(settings.local_render_fps)
         assert s.get(Variation, orig).status == "passed"                          # orijinal korunur
         sc = s.get(Scene, sid)
-        assert sc.grade_auto is None and sc.grade == {}                           # eşleme upscale'den sonra yeniden
+        assert sc.grade_auto == {"pending": True} and sc.grade == {}             # eşleme upscale'den sonra yeniden
     chain = [st for _, s_, st in dispatched if s_ == sid][-1]
     assert "VISUAL" not in chain and chain[-1] == "MUX" and "LIPSYNC" in chain
 

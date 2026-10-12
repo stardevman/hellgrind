@@ -80,8 +80,9 @@ def test_seedance_body_uses_at_image_tokens_a_string_duration_and_validates_agai
     assert endpoint == fixture["endpoint"] == settings.fal_seedance25_ref_endpoint
     for i, r in enumerate(refs, start=1):
         assert f"{r.name}" in body["prompt"] and f"@Image{i}" in body["prompt"]
-    assert "Nora (a red-haired girl in a yellow raincoat) is @Image1." in body["prompt"]
-    assert "The location Airport (an airport terminal) is @Image4." in body["prompt"]
+    assert "Nora is @Image1: a red-haired girl in a yellow raincoat." in body["prompt"]
+    assert "The location Airport is @Image4: an airport terminal." in body["prompt"]
+    assert "Use @Image4 only for the look of the place (architecture, materials, colors, light)" in body["prompt"]
     assert "[Image" not in body["prompt"] and "Image 1" not in body["prompt"]
     assert body["duration"] == "10" and isinstance(body["duration"], str)          # Seedance: METİN
     assert body["image_urls"] == URLS and body["resolution"] == "720p" and body["aspect_ratio"] == "16:9"
@@ -366,7 +367,7 @@ def test_a_rejected_request_stops_the_shot_with_the_message_and_spends_nothing(f
     from app.engine.iteration import run_tiered_generation
     pid, sid, _ = _shot(mk_project)
     falq.behaviour["minimax/h3-max/reference-to-video"] = [HTTPError(422, "reference_image_urls: too many files")]
-    assert run_tiered_generation(pid, sid) == "needs_review"
+    assert run_tiered_generation(pid, sid) == "failed"                    # 4xx: hemen failed, yeniden deneme yok
     assert len(falq.submits) == 1
     with session_scope() as s:
         sc = s.get(Scene, sid)

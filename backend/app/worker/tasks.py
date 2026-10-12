@@ -187,7 +187,8 @@ def mux_scene(self, project_id: str, scene_id: str):
     result = _guard(self, project_id, scene_id, work)
     maybe_assemble_draft(project_id, scene_id)
     from app.engine.finishing import upscale_done          # bütün film upscale'i: son çekimden sonra film birleşir
-    upscale_done(project_id, scene_id)
+    if not upscale_done(project_id, scene_id):
+        maybe_rematch(project_id)
     maybe_refresh_continuity(project_id, scene_id)
     killswitch.refreeze_after(project_id, scene_id)
     return result
@@ -195,6 +196,26 @@ def mux_scene(self, project_id: str, scene_id: str):
 
 IN_FLIGHT = ("pending", "storyboard", "probing", "generating", "correcting", "refined", "audio", "lipsync", "grading",
              "muxing")
+
+
+def maybe_rematch(project_id: str) -> bool:
+    """Klibi değişen (upscale, taslak tamamlama, yükseltme) çekimler "eşleme bekliyor"sa ve projede süren iş kalmadıysa
+    otomatik renk eşleme montajdan sonra çalışır (ücretli modda; ücretsiz modun prosedürel çekimleri kasıtlı olarak farklı
+    palettedir). True: süreklilik + eşleme kuyruğa verildi."""
+    from app.models import Scene as SceneRow
+    from sqlalchemy import select
+    if settings.dry_run or killswitch.is_frozen(project_id):
+        return False
+    with session_scope() as s:
+        rows = s.scalars(select(SceneRow).where(SceneRow.project_id == project_id)).all()
+        pending = [r for r in rows if (r.grade_auto or {}).get("pending")]
+        if not pending or any(r.status in IN_FLIGHT for r in rows):
+            return False
+        for r in pending:
+            r.grade_auto = {k: v for k, v in (r.grade_auto or {}).items() if k != "pending"} or None
+    continuity.delay(project_id)                          # tam denetim: otomatik eşleme + yalnızca renk ve montaj
+    killswitch.event(project_id, "color_rematch", shots=len(pending))
+    return True
 
 
 def maybe_refresh_continuity(project_id: str, scene_id: str) -> None:

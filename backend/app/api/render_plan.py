@@ -197,6 +197,9 @@ def approve_plan(scene_id: SceneId, body: PlanApproveIn, render: bool = False, s
     if plan.missing:
         raise HTTPException(409, "Eksik referans: " + ", ".join(m["name"] for m in plan.missing) +
                                  " (görsel yükleyin; plan onaylanamaz).")
+    if plan.lint_blocks:                              # dağıtımın referans denetimi: kuru çalıştırmayla aynı
+        raise HTTPException(409, "Onaylı referansı olmayan varlıklar (gereken en az durum: durağan görsel onaylı): " +
+                                 ", ".join(m["name"] for m in plan.lint) + ". Varlıklar sayfasından onaylayın.")
     if body.plan_hash and body.plan_hash != plan.plan_hash:
         raise HTTPException(409, "Plan değişti (istem, referans, süre ya da motor); planı yeniden inceleyin.")
     scene_parts.approve(s, sc, plan)

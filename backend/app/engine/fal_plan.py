@@ -141,10 +141,11 @@ class Ref:
     key: str                  # nesne deposu anahtarı (durağan görsel)
     description: str = ""
     number: int = 0
+    invariants: tuple = ()    # varlığın tasarım değişmezleri (ör. kıyafet, saç): her istemde
 
     def as_dict(self, engine: str) -> dict:
         return {"image": self.number, "token": ref_token(engine, self.number), "kind": self.kind, "name": self.name,
-                "key": self.key, "description": self.description}
+                "key": self.key, "description": self.description, "invariants": list(self.invariants)}
 
 
 def _asset_still(asset) -> str | None:
@@ -161,18 +162,24 @@ def references(scene, chars=(), assets=(), strict: bool = True, limit: int = H3_
         key = still_key(ch)
         if key and _approved(ch, by_id, strict):
             asset = by_id.get(getattr(ch, "asset_id", None))
-            out.append(Ref("character", ch.name, key, _describe(getattr(ch, "description", None)
-                                                                or getattr(asset, "description", None))))
+            out.append(Ref("character", ch.name, key, _describe(getattr(asset, "description", None)
+                                                                or getattr(ch, "description", None)),
+                           invariants=_invariants(asset)))
     for a in sorted(assets or (), key=lambda a: (TYPE_ORDER.get(a.type, 9), a.name)):
         if a.type not in ("prop", "location"):
             continue
         key = _asset_still(a)
         if key and (not strict or a.status in APPROVED):
-            out.append(Ref(a.type, a.name, key, _describe(a.description)))
+            out.append(Ref(a.type, a.name, key, _describe(a.description), invariants=_invariants(a)))
     out = out[:limit]
     for i, r in enumerate(out, start=1):
         r.number = i
     return out
+
+
+def _invariants(asset) -> tuple:
+    return tuple(" ".join(str(x).split()).rstrip(" .;") for x in (getattr(asset, "invariants", None) or [])
+                 if str(x).strip())
 
 
 def _describe(text: str | None) -> str:
@@ -197,12 +204,28 @@ def short_description(name: str, text: str) -> str:
     return first.strip(" ,;")
 
 
+LOCATION_VIEW = ("Use {token} only for the look of the place (architecture, materials, colors, light); do not copy its "
+                 "camera position or viewpoint — stage the action as described in each shot.")
+
+
 def reference_sentence(engine: str, r: Ref, names: list[str]) -> str:
-    """"Nora (a slim teenage girl with long copper-red hair) is Image 1." — numara istemdeki sırayla birebir aynı."""
+    """"Nora is Image 1: a slim teenage girl … (tarifin TAMAMI). Nora must always have: …." — numara istemdeki sırayla
+    birebir aynı. Tarif kırpılmaz (Passport Rush: Ada'nın kıyafeti "…charming face" sonrası kesiliyordu); varlığın
+    değişmezleri (invariants) ayrıca yazılır. Mekân referansı yalnızca görünüm içindir: kamera konumu kopyalanmaz."""
     from app.hermes import translate
-    desc = short_description(r.name, translate.to_english(r.description, names)) if r.description else ""
+    from app.style.composer import sentence
+    token = ref_token(engine, r.number)
+    desc = translate.to_english(r.description, names) if r.description else ""
+    if desc.lower().startswith(r.name.lower() + ","):        # "Pip, a tiny …": ad tekrar etmez
+        desc = desc[len(r.name) + 1:].strip()
     label = {"character": r.name, "prop": f"The prop {r.name}", "location": f"The location {r.name}"}[r.kind]
-    return f"{label} ({desc}) is {ref_token(engine, r.number)}." if desc else f"{label} is {ref_token(engine, r.number)}."
+    parts = [sentence(f"{label} is {token}: {desc}") if desc else f"{label} is {token}."]
+    if r.invariants:
+        parts.append(sentence(f"{r.name} must always have: " + "; ".join(translate.to_english(i, names)
+                                                                          for i in r.invariants)))
+    if r.kind == "location":
+        parts.append(LOCATION_VIEW.format(token=token))
+    return " ".join(parts)
 
 
 # ---------- mod ----------
@@ -293,7 +316,9 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
         raise ValueError(f"fal planı yalnızca {', '.join(FAL_ENGINES)} içindir: {engine}")
     args = {"prompt": prompt, "duration": seconds, "resolution": resolution_, "generate_audio": bool(audio_)}
     if draft_:                                          # 480p önizleme + draft_id (7 gün içinde 1080p'ye tamamlanır)
-        args.update(draft=True, resolution="480p")
+        # Taslakta generate_audio false fal'den 422 "Invalid parameters" alıyor (Passport Rush taksi testi, 2026-10-12;
+        # gövde şemaya uygundu): ses açık gönderilir (fiyat aynı), üretilen ses indirilirken silinir, montajda kullanılmaz.
+        args.update(draft=True, resolution="480p", generate_audio=True)
     if mode == "i2v":
         endpoint = settings.fal_seedance25_i2v_endpoint
         args.update(image_url=image_url, aspect_ratio="auto")          # image-to-video'da her zaman "auto"

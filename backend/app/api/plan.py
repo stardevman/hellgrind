@@ -64,7 +64,8 @@ def lint_gate(s: Session, sc: Scene) -> None:
     """Görüntü üretimi planlandıysa referans eksiksizliğini denetler. block modunda sahneyi `blocked` yapar ve Blocked
     fırlatır; warn modunda yalnızca olay yazar."""
     pid = str(sc.project_id)
-    result = lint.check_scene(s, sc.id, project_settings(s.get(Project, sc.project_id).settings))
+    from app.engine.scene_parts import lint_cfg                # referans modunda durağan görsel onayı yeter
+    result = lint.check_scene(s, sc.id, lint_cfg(project_settings(s.get(Project, sc.project_id).settings), sc.engine))
     if result.ok:
         return
     missing = [m.name for m in result.missing]
@@ -91,8 +92,10 @@ class MissingReferences(Blocked):
 def reference_gate(s: Session, sc: Scene, cfg: dict) -> None:
     """Referans modu, görüntü üretimi planlandı: eksik referans -> blocked; plan onayı gerekli ve yoksa -> plan_review."""
     from app.engine import scene_parts
+    from app.engine.part_render import clear_failure
     plan = scene_parts.plan_part(s, sc)
     pid = str(sc.project_id)
+    clear_failure(plan.plan_hash)                     # yönetmenin yeniden üretim isteği: önceki 4xx işareti kalkar
     if plan.missing:
         message = ("Eksik referans: " + ", ".join(m["name"] for m in plan.missing) +
                    ". Varlıklar sayfasından referans görselini yükleyin; görseli olmayan varlıkla video üretilmez.")

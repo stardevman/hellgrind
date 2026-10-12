@@ -27,6 +27,7 @@ from app.core.h3mode import (edit_references, effective_mode, face_expected, fl2
 from app.core.hashing import grade_settings
 from app.engine import fal_plan
 from app.engine.iteration import reference_set
+from app.engine.scene_parts import lint_cfg
 from app.engine.providers import h3_disabled
 from app.engine.methods import suggest_method
 from app.core.chain import camera_of
@@ -322,7 +323,9 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "characters": cast[sc.id], "final_url": _media(sc.final_video_key),
         "assets": [{"id": aid, "type": type_, "name": name, "status": status} for aid, type_, name, status in items[sc.id]],
         "missing": [{"id": m.asset_id, "type": m.type, "name": m.name, "status": m.status}
-                    for m in (lint.find_missing(items[sc.id], cfg["asset_min_status"]) if check else [])],
+                    for m in (lint.find_missing(items[sc.id], lint_cfg(cfg, sc.engine)["asset_min_status"])
+                              if check else [])],
+        "winner_engine": next((v.engine for v in variations[sc.id] if v.refined_rank == 1), None),
         "tracks": [{"id": str(t.id), "kind": t.kind, "source": t.source, "text": t.text, "emotion": t.emotion,
                     "start_offset_s": t.start_offset_s, "gain_db": t.gain_db, "version": t.version,
                     "character_id": str(t.character_id) if t.character_id else None,
