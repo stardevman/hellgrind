@@ -5,11 +5,13 @@ import { STATUS_TR, WORKING } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
 
 /** Başlıklı panel (kurgu yazılımlarındaki yerleşik pencereler gibi). */
-export function Panel({ title, meta, tools, children, className = "", bodyClass = "", id }: {
+export function Panel({ title, meta, tools, children, className = "", bodyClass = "", id, tour }: {
   title: ReactNode; meta?: ReactNode; tools?: ReactNode; children: ReactNode; className?: string; bodyClass?: string; id?: string;
+  /** Rehber turunun hedef adı (data-tour). */
+  tour?: string;
 }) {
   return (
-    <section className={`pnl ${className}`.trim()} aria-labelledby={id}>
+    <section className={`pnl ${className}`.trim()} aria-labelledby={id} data-tour={tour}>
       <header className="pnl-h">
         <h2 id={id}>{title}</h2>
         {meta != null && meta !== "" && <span className="meta">{meta}</span>}

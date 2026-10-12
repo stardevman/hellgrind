@@ -26,10 +26,14 @@ export interface Note { text: string; kind: NoteKind }
 export type FilmKind = "final" | "draft";
 
 const STORE_KEY = "hg-project";              // eski panelle aynı anahtar: son açılan proje iki panelde de hatırlanır
+const ADVANCED_KEY = "hg-advanced";
+export const TOUR_DONE_KEY = "hg-tour-done";
 function recall(): string | null { try { return localStorage.getItem(STORE_KEY); } catch { return null; } }
 function store(id: string | null) {
   try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch { /* depolama kapalı */ }
 }
+export function readFlag(key: string): boolean { try { return localStorage.getItem(key) === "1"; } catch { return false; } }
+export function writeFlag(key: string, on: boolean) { try { if (on) localStorage.setItem(key, "1"); else localStorage.removeItem(key); } catch { /* depolama kapalı */ } }
 
 interface PanelState {
   meta: Meta | undefined;
@@ -72,6 +76,13 @@ interface PanelState {
   setFilmKind: (k: FilmKind) => void;
   assembling: { before: string | null; at: number } | null;
   setAssembling: (a: { before: string | null; at: number } | null) => void;
+
+  /** Gelişmiş görünüm: motor, plan, yükseltme ve elle düzeltme bölümleri yalnızca açıkken görünür (tarayıcıda hatırlanır). */
+  advanced: boolean;
+  setAdvanced: (on: boolean) => void;
+  /** Rehber turu açık mı; ilk açılışta kendiliğinden başlar, bitince tarayıcıda "görüldü" olarak kalır. */
+  tour: boolean;
+  setTour: (on: boolean) => void;
 }
 
 const Ctx = createContext<PanelState | null>(null);
@@ -100,7 +111,11 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [filmKind, setFilmKind] = useState<FilmKind>("final");
   const [assembling, setAssembling] = useState<PanelState["assembling"]>(null);
   const [remembered, setRemembered] = useState<string | null>(null);
-  useEffect(() => { setRemembered(recall()); }, []);
+  const [advanced, setAdvancedState] = useState(false);
+  const [tour, setTour] = useState(false);
+  useEffect(() => { setRemembered(recall()); setAdvancedState(readFlag(ADVANCED_KEY)); }, []);
+  const setAdvanced = useCallback((on: boolean) => { writeFlag(ADVANCED_KEY, on); setAdvancedState(on); }, []);
+  useEffect(() => { document.body.dataset.advanced = advanced ? "1" : "0"; }, [advanced]);
 
   const { data: meta } = useSWR<Meta>("/meta", fetcher, { revalidateOnFocus: false });
   const { data: projects, error: listError } = useSWR<ProjectListItem[]>("/projects", fetcher, { refreshInterval: POLL_MS * 5 });
@@ -187,6 +202,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     compareRaw: search.get("cmp"), openCompare, setCompare, history, setHistory,
     busy, frozen: Boolean(ov?.project.frozen), act, notes, note, refresh,
     flashAsset, gotoAsset, clearFlash, filmKind, setFilmKind, assembling, setAssembling,
+    advanced, setAdvanced, tour, setTour,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

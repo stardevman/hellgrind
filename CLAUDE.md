@@ -255,7 +255,13 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 **Panel** (`/` adresi `/panel/` adresine yönlenir; 2 saniyede bir overview çeker). İlk sürüm tek HTML dosyasıydı; Next.js'e
 geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: alt kenarda üretim sırasıyla sayfa çubuğu (Senaryo,
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
-açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. İşlevler ve metinler aşağıdaki gibidir:
+açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Sekiz sayfa dört **adım** altında gruplanır (Hazırlık: Senaryo,
+Stil, Varlıklar; Onay: Storyboard; Üretim: Kurgu, Karşılaştır; Bitirme: Renk, Teslim; `lib/steps.ts`): her adımın durumu ve
+eksikleri overview'dan hesaplanır, çubuğun sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Üst bantta **Basit /
+Gelişmiş** görünüm anahtarı (basit görünümde yalnızca ana eylemler; motor ve plan ayrıntıları, tamamlama ve upscale, elle
+düzeltme ve Karşılaştır sayfası gelişmişte) ve **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
+bağlı tur (`lib/tour.ts`, `components/Tour.tsx`). Denetçi üç sekmedir: Çekim, Ses, Üretim. İşlevler ve metinler aşağıdaki
+gibidir:
 - **Üst bant:** marka, proje seçici, "Yeni proje" ve "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
 - **Bütçe rayı:** harcanan ve ayrılan tutar; "Üretimi durdur" ve "Üretime devam et" düğmeleri; dondurulmuşsa uyarı bandı.
 - **Sahne satırları:** kod, durum, açıklama, **film şeridi** ve harcama.

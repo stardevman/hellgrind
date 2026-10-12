@@ -125,7 +125,7 @@ function ShotBin() {
     note("inspector", x.text, x.bad ? "err" : "ok");
   }, "inspector");
   return (
-    <section className="pnl bin">
+    <section className="pnl bin" data-tour="edit-bin">
       <div className="pnl-tabs" role="tablist" aria-label="Havuz">
         <button type="button" role="tab" aria-selected={tab === "shots"} onClick={() => setTab("shots")}>Çekimler <span className="faint mono">{ov.scenes.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Olay akışı</button>

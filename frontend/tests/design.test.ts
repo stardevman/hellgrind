@@ -7,7 +7,7 @@ const root = join(__dirname, "..", "src");
 const CSS = readFileSync(join(root, "app", "globals.css"), "utf8");
 const LAYOUT = readFileSync(join(root, "app", "layout.tsx"), "utf8");
 const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(join(root, "components", f), "utf8")).join("\n")
-  + readFileSync(join(root, "lib", "text.ts"), "utf8");
+  + readFileSync(join(root, "lib", "text.ts"), "utf8") + readFileSync(join(root, "lib", "steps.ts"), "utf8") + readFileSync(join(root, "lib", "tour.ts"), "utf8");
 
 describe("design contract", () => {
   it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
@@ -42,6 +42,10 @@ describe("design contract", () => {
     for (const s of ["refined", "rejected", "retired", "working", "failed", "selected", "compare-pick"]) expect(CSS).toContain(`.tile.${s}`);
     expect(CSS).toContain(".strip .gap");                 // test turu ile tam tur arasındaki ayraç
   });
+
+  it("styles the step bar, the next-up link, the view-mode switch and the tour", () => {
+    for (const sel of [".stepbar", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-advanced="0"] .adv', ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+  });
 });
 
 describe("documented Turkish texts", () => {
@@ -64,6 +68,8 @@ describe("documented Turkish texts", () => {
     "Karşılaştır", "Adayları karşılaştır", "Perde (1 ↔ 2)", "Bir kare geri", "Denetçide aç",
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
+    // Adım çubuğu, görünüm anahtarı ve rehber turu
+    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Basit", "Gelişmiş", "Rehber", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",

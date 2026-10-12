@@ -94,7 +94,7 @@ export function BoardPage() {
   const loose = scenes.filter((s) => !ov.sequences.some((q) => q.id === s.sequence_id));
   if (loose.length) groups.push({ id: "none", title: "Sekanssız", scenes: loose });
   return (
-    <div className="page">
+    <div className="page" data-tour="board">
       <section className="pnl" aria-labelledby="board-title">
         <header className="pnl-h">
           <h2 id="board-title">Storyboard</h2>

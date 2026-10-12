@@ -67,7 +67,7 @@ export function DeliverPage() {
   const minutes = m?.film_minutes ? `${ratio(Math.round(m.film_minutes * 600) / 10)} sn` : "—";
 
   return (
-    <div className="page deliver">
+    <div className="page deliver" data-tour="deliver">
       <Panel title="Teslim" meta={hasFilm ? `final ${timecode(ov.timeline?.cut?.clips?.at(-1)?.out_s ?? 0)}` : "film yok"}>
         <div className="pad stack">
           <div className="seg" role="group" aria-label="Film türü">

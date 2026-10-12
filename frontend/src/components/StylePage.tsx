@@ -64,7 +64,7 @@ export function StylePage() {
   }, "style");
 
   return (
-    <div className="page three">
+    <div className="page three" data-tour="style">
       <Panel title="Sürümler" meta={st.active ? `etkin: ${st.active.version}` : "etkin sürüm yok"}>
         <ol className="versions">
           {st.versions.length ? st.versions.map((v) => (

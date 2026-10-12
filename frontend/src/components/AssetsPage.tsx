@@ -243,7 +243,7 @@ export function AssetsPage() {
   const blocked = ov?.scenes.filter((x) => x.status === "blocked").length ?? 0;
   const count = (f: (a: Asset) => boolean) => all.filter(f).length;
   return (
-    <div className="page three">
+    <div className="page three" data-tour="assets">
       <Panel title="Kütüphane" meta={assets ? `${ready}/${all.length} hazır` : ""}>
         <p className="pad faint small">
           Çekimde geçen her karakter, mekân ve nesnenin onaylı referansı olmadan görüntü üretilmez. Gereken en az durum: {ASTATUS_TR[need]}.

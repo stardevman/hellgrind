@@ -1,0 +1,82 @@
+/* Üretim adımları: sayfa çubuğundaki sekiz sayfa, üretim sırasını izleyen dört adım altında toplanır. `stepReadiness`
+   her adım için durumu ve bir sonraki adıma geçmek için eksik olanları çıkarır; saf fonksiyondur (tarayıcı gerekmez). */
+import type { Overview } from "./types";
+
+export type StepId = "prep" | "approve" | "produce" | "finish";
+export type StepPage = "script" | "style" | "assets" | "board" | "edit" | "compare" | "color" | "deliver";
+export interface Step { id: StepId; label: string; pages: readonly StepPage[]; hint: string }
+
+export const STEPS: readonly Step[] = [
+  { id: "prep", label: "Hazırlık", pages: ["script", "style", "assets"], hint: "Senaryo işlenir, stil kılavuzu seçilir, karakter, mekân ve nesne referansları kilitlenir." },
+  { id: "approve", label: "Onay", pages: ["board"], hint: "Her çekimin storyboard karesi onaylanır; onaysız çekim üretime girmez." },
+  { id: "produce", label: "Üretim", pages: ["edit", "compare"], hint: "Çekimler üretilir, adaylar karşılaştırılır ve kazanan seçilir." },
+  { id: "finish", label: "Bitirme", pages: ["color", "deliver"], hint: "Renk sıçramaları giderilir, film birleştirilir ve dışa aktarılır." },
+];
+
+export const stepOf = (page: string): Step => STEPS.find((s) => (s.pages as readonly string[]).includes(page)) ?? STEPS[0];
+
+export type StepState = "todo" | "current" | "done" | "blocked";
+/** Eksik bir iş: Türkçe metin ve onu çözen sayfa. */
+export interface Todo { text: string; page: StepPage; tone?: "bad" | "warn" }
+export interface StepStatus { id: StepId; state: StepState; todos: Todo[] }
+
+const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+
+/** Adımların durumu: ilk tamamlanmamış adım `current`, öncekiler `done`, sonrakiler `todo`; engelli çekim ya da donma
+    adımı `blocked` yapar. Proje yoksa yalnızca hazırlık adımı açıktır. */
+export function stepReadiness(ov: Overview | undefined): StepStatus[] {
+  const todos: Record<StepId, Todo[]> = { prep: [], approve: [], produce: [], finish: [] };
+  const scenes = ov?.scenes ?? [];
+  const p = ov?.project;
+
+  if (!ov || !scenes.length) todos.prep.push({ text: ov ? "Senaryo henüz işlenmedi" : "Proje seçilmedi ya da oluşturulmadı", page: "script" });
+  else {
+    const c = p!.asset_counts ?? {};
+    const total = Object.values(c).reduce((x, y) => x + y, 0);
+    const locked = c.locked || 0;
+    const strict = p!.settings.lint_strictness !== "off";
+    if (strict && total && locked < total) todos.prep.push({ text: n(total - locked, "varlık kilitsiz", "varlık kilitsiz"), page: "assets", tone: scenes.some((s) => s.status === "blocked") ? "bad" : "warn" });
+    if (!p!.style_version) todos.prep.push({ text: "Stil kılavuzu etkinleştirilmedi", page: "style", tone: "warn" });
+  }
+
+  if (scenes.length) {
+    if (p!.settings.require_board_approval) {
+      const waiting = scenes.filter((s) => s.board_status !== "approved").length;
+      if (waiting) todos.approve.push({ text: n(waiting, "kare onay bekliyor", "kare onay bekliyor"), page: "board", tone: "warn" });
+    }
+    const blocked = scenes.filter((s) => s.status === "blocked").length;
+    const failed = scenes.filter((s) => s.status === "failed" || s.status === "needs_review").length;
+    const planReview = scenes.filter((s) => s.status === "plan_review").length;
+    const notDone = scenes.filter((s) => s.status !== "done").length;
+    if (blocked) todos.produce.push({ text: n(blocked, "çekim engelli", "çekim engelli"), page: "assets", tone: "bad" });
+    if (planReview) todos.produce.push({ text: n(planReview, "plan onay bekliyor", "plan onay bekliyor"), page: "edit", tone: "warn" });
+    if (failed) todos.produce.push({ text: n(failed, "çekim inceleme bekliyor", "çekim inceleme bekliyor"), page: "edit", tone: "bad" });
+    if (notDone - blocked - failed - planReview > 0) todos.produce.push({ text: n(notDone - blocked - failed - planReview, "çekim henüz bitmedi", "çekim henüz bitmedi"), page: "edit" });
+    const jumps = p!.continuity?.pairs.filter((x) => x.jump).length ?? 0;
+    if (jumps) todos.finish.push({ text: n(jumps, "renk sıçraması", "renk sıçraması"), page: "color", tone: "warn" });
+    if (!ov!.timeline) todos.finish.push({ text: "Film henüz birleştirilmedi", page: "deliver" });
+  }
+
+  let currentFound = false;
+  return STEPS.map((s) => {
+    const list = todos[s.id];
+    // Hazırlıkta stil ve kilit uyarıları engelleyici değildir (warn): sahneler varsa adım tamamlanmış sayılır.
+    const hard = s.id === "prep" ? list.filter((t) => t.tone !== "warn") : list;
+    let state: StepState;
+    if (!scenes.length && s.id !== "prep") state = "todo";
+    else if (hard.length === 0 && !currentFound) state = "done";
+    else if (!currentFound) { state = hard.some((t) => t.tone === "bad") || Boolean(p?.frozen && s.id === "produce") ? "blocked" : "current"; currentFound = true; }
+    else state = "todo";
+    return { id: s.id, state, todos: list };
+  });
+}
+
+/** Sıradaki iş: ilk tamamlanmamış adımın ilk eksiği (çubuğun sağındaki "Sıradaki" bağlantısı). */
+export function nextTodo(status: StepStatus[]): { step: Step; todo: Todo } | null {
+  for (const st of status) {
+    if (st.state === "done") continue;
+    const todo = st.todos[0];
+    if (todo) return { step: STEPS.find((s) => s.id === st.id)!, todo };
+  }
+  return null;
+}

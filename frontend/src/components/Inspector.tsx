@@ -1318,28 +1318,62 @@ function ColorLink({ sc }: { sc: Scene }) {
   );
 }
 
+type InspTab = "shot" | "sound" | "gen";
+const TAB_TR: Record<InspTab, string> = { shot: "Çekim", sound: "Ses", gen: "Üretim" };
+
+/** Denetçi: seçili çekimin bölümleri üç sekmede. Çekim (durum, varlıklar, adaylar), Ses (replikler, sekans), Üretim
+    (motor ve plan, yöntem; Gelişmiş görünümde yükseltme ve elle düzeltme de). */
 export function Inspector({ className = "" }: { className?: string }) {
-  const { scene: sc, sequence: q, varId, meta } = usePanel();
+  const { scene: sc, sequence: q, varId, meta, advanced } = usePanel();
+  const [tab, setTab] = useState<InspTab>("shot");
   if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2></header><p className="empty">Çekim seçin.</p></section>;
   const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
   const revTarget = chosen ?? sc.variations.find((v) => v.rank === 1);
+  const fal = isFal(sc.engine);
+  const badge: Partial<Record<InspTab, { text: string; tone: string }>> = {};
+  if (sc.status === "blocked") badge.shot = { text: "engelli", tone: "bad" };
+  if (sc.status === "plan_review") badge.gen = { text: "onay", tone: "warn" };
+  else if (sc.method_hint) badge.gen = { text: "öneri", tone: "info" };
   return (
-    <section className={`pnl ${className}`} aria-label="Denetçi">
+    <section className={`pnl ${className}`} aria-label="Denetçi" data-tour="inspector">
       <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
+      <div className="pnl-tabs" role="tablist" aria-label="Denetçi bölümleri">
+        {(Object.keys(TAB_TR) as InspTab[]).map((t) => (
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+            {TAB_TR[t]}{badge[t] && <span className={`tag ${badge[t]!.tone}`}>{badge[t]!.text}</span>}
+          </button>
+        ))}
+      </div>
       <div className="pnl-b">
-        <Shot sc={sc} />
-        {isFal(sc.engine) && <FalVideo key={`f${sc.id}`} sc={sc} />}
-        {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
-        {isFal(sc.engine) && meta?.video_input_mode !== "reference" && <H3 key={`hf${sc.id}`} sc={sc} fal />}
-        {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
-        <Pool key={`p${sc.id}`} sc={sc} />
-        <Finishing key={`fin${sc.id}`} sc={sc} />
-        <Sound key={`s${sc.id}`} sc={sc} q={q} />
-        {q && <SequenceBox q={q} />}
-        <Assets key={`a${sc.id}`} sc={sc} />
-        <Method key={`m${sc.id}`} sc={sc} />
-        <Revisions key={revTarget?.id ?? sc.id} target={revTarget} />
-        <ColorLink sc={sc} />
+        {tab === "shot" && (
+          <>
+            <Shot sc={sc} />
+            <Assets key={`a${sc.id}`} sc={sc} />
+            {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
+            <Pool key={`p${sc.id}`} sc={sc} />
+            <ColorLink sc={sc} />
+          </>
+        )}
+        {tab === "sound" && (
+          <>
+            <Sound key={`s${sc.id}`} sc={sc} q={q} />
+            {q && <SequenceBox q={q} />}
+          </>
+        )}
+        {tab === "gen" && (
+          <>
+            {fal && <FalVideo key={`f${sc.id}`} sc={sc} />}
+            {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
+            {fal && meta?.video_input_mode !== "reference" && <H3 key={`hf${sc.id}`} sc={sc} fal />}
+            <Method key={`m${sc.id}`} sc={sc} />
+            {advanced ? (
+              <>
+                <Finishing key={`fin${sc.id}`} sc={sc} />
+                <Revisions key={revTarget?.id ?? sc.id} target={revTarget} />
+              </>
+            ) : <p className="faint small pad">Yükseltme, tamamlama ve elle düzeltme bölümleri Gelişmiş görünümde açılır.</p>}
+          </>
+        )}
         <div style={{ padding: 10 }}><NoteBox id="inspector" /></div>
       </div>
     </section>

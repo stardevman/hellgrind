@@ -1,6 +1,6 @@
 "use client";
-/* Stüdyo çerçevesi: üstte proje, bütçe ve durdurma düğmesi; ortada etkin sayfa; altta üretim sırasıyla sayfa çubuğu
-   (Shift+1…8 ile geçilir). */
+/* Stüdyo çerçevesi: üstte proje, görünüm anahtarı, rehber ve durdurma düğmesi; ortada etkin sayfa; altta dört üretim
+   adımı ve sayfaları (Shift+1…8 ile geçilir). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
@@ -16,13 +16,11 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
+import { StepBar } from "./StepBar";
 import { StylePage } from "./StylePage";
+import { Tour } from "./Tour";
 import { shortcutTarget } from "./ui";
 
-const PAGE_LABEL: Record<Page, string> = {
-  script: "Senaryo", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
-  color: "Renk", deliver: "Teslim", settings: "Ayarlar", history: "Geçmiş",
-};
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
   color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
@@ -35,7 +33,7 @@ function Budget() {
   const left = Math.max(0, limit - p.spent_usd - p.reserved_usd);
   const pct = (x: number) => `${Math.min(100, (x / limit) * 100).toFixed(2)}%`;
   return (
-    <div className="budget" aria-label="Bütçe">
+    <div className="budget" aria-label="Bütçe" data-tour="budget">
       <div className="meter" role="img" aria-label={`Bütçenin yüzde ${Math.round((p.spent_usd / limit) * 100)} kadarı harcandı`}>
         <i className="spent" style={{ width: pct(p.spent_usd) }} />
         <i className="reserved" style={{ left: pct(p.spent_usd), width: pct(p.reserved_usd) }} />
@@ -63,7 +61,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
   return (
-    <div className="switcher" ref={box}>
+    <div className="switcher" ref={box} data-tour="project">
       <button type="button" className="switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label="Proje seçici" onClick={() => setOpen((v) => !v)}>
         <span className="sw-title">{current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok"}</span>
         {current && <span className="sw-status">{PROJECT_STATUS_TR[current.display_status ?? current.status] || current.status}</span>}
@@ -95,7 +93,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory } = usePanel();
+  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, advanced, setAdvanced, setTour } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -124,6 +122,13 @@ function TopBar() {
           {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
         </button>
         <span className="vsep" />
+        <div className="seg view-mode" role="group" aria-label="Görünüm" data-tour="view-mode"
+          title="Basit görünüm yalnızca ana eylemleri gösterir; Gelişmiş görünüm motor, plan, yükseltme ve elle düzeltme bölümlerini açar">
+          <button type="button" aria-pressed={!advanced} onClick={() => setAdvanced(false)}>Basit</button>
+          <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(true)}>Gelişmiş</button>
+        </div>
+        <button type="button" className="btn ghost" onClick={() => setTour(true)} data-tour="tour-button"
+          title="Rehber turu: panelin adımlarını baştan anlatır">Rehber</button>
         <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
           onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
           title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
@@ -162,45 +167,6 @@ function Alerts() {
   );
 }
 
-function PageBar({ hasShots }: { hasShots: boolean }) {
-  const { page, setPage, ov } = usePanel();
-  const scenes = ov?.scenes ?? [];
-  const c = ov?.project.asset_counts ?? {};
-  const assetsTotal = Object.values(c).reduce((x, y) => x + y, 0);
-  const blocked = scenes.filter((s) => s.status === "blocked").length;
-  const jumps = ov?.project.continuity?.pairs.filter((x) => x.jump).length ?? 0;
-  const badge: Partial<Record<Page, { text: string; tone?: string; title: string }>> = {};
-  if (ov?.project.style_version) badge.style = { text: `s${ov.project.style_version}`, title: `Etkin stil sürümü ${ov.project.style_version}` };
-  if (assetsTotal) badge.assets = { text: `${c.locked || 0}/${assetsTotal}`, tone: c.locked === assetsTotal ? "ok" : blocked ? "bad" : "", title: "Kilitli varlıklar" };
-  if (scenes.length) {
-    const approved = scenes.filter((s) => s.board_status === "approved").length;
-    badge.board = { text: `${approved}/${scenes.length}`, tone: approved === scenes.length ? "ok" : "", title: "Onaylı storyboard kareleri" };
-    const done = scenes.filter((s) => s.status === "done").length;
-    badge.edit = blocked ? { text: String(blocked), tone: "bad", title: `${blocked} çekim engelli` }
-      : { text: `${done}/${scenes.length}`, tone: done === scenes.length ? "ok" : "", title: "Hazır çekimler" };
-  }
-  if (jumps) badge.color = { text: String(jumps), tone: "bad", title: `${jumps} renk sıçraması` };
-  if (ov?.timeline) badge.deliver = { text: "film", tone: "ok", title: "Birleştirilmiş film hazır" };
-  return (
-    <nav className="pagebar" aria-label="Sayfalar">
-      {PAGES.map((x, i) => {
-        const Ico = Icon[x];
-        const b = badge[x];
-        return (
-          <span key={x} style={{ display: "contents" }}>
-            {i > 0 && <span className="step" aria-hidden="true">›</span>}
-            <button type="button" aria-current={page === x ? "page" : undefined} disabled={NEEDS_SHOTS.has(x) && !hasShots}
-              title={`${PAGE_LABEL[x]} (Shift+${i + 1})`} onClick={() => setPage(x)}>
-              <Ico />{PAGE_LABEL[x]}
-              {b && <span className={`badge ${b.tone || ""}`} title={b.title}>{b.text}</span>}
-            </button>
-          </span>
-        );
-      })}
-    </nav>
-  );
-}
-
 export function AppFrame() {
   const { projectId, ov, creating, offline, page, setPage, projects } = usePanel();
   const hasShots = Boolean(ov?.scenes.length);
@@ -229,7 +195,8 @@ export function AppFrame() {
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
-      <PageBar hasShots={hasShots} />
+      <StepBar hasShots={hasShots} />
+      <Tour />
     </div>
   );
 }

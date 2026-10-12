@@ -10,6 +10,7 @@ const config = {
   basePath: "/panel",
   trailingSlash: true,
   reactStrictMode: true,
+  agentRules: false,                       // Next, frontend/ içine AGENTS.md ve CLAUDE.md üretmesin (depo kökündeki CLAUDE.md tek kaynak)
   images: { unoptimized: true },
   turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   ...(dev

@@ -96,7 +96,7 @@ export function ScriptPage() {
   const resume = () => act(() => api.post(`/projects/${projectId}/killswitch`, { action: "resume" }), "start");
   return (
     <form className="page three" onSubmit={submit}>
-      <Panel title={newProject ? "Yeni proje" : "Proje"} meta={newProject ? "" : project?.title}
+      <Panel title={newProject ? "Yeni proje" : "Proje"} meta={newProject ? "" : project?.title} tour="script-form"
         tools={creating && projects && projects.length > 0 ? <button className="btn ghost" type="button" onClick={() => setCreating(false)}>Vazgeç</button> : undefined}>
         <div className="pad stack">
           {newProject ? (
@@ -174,7 +174,7 @@ export function ScriptPage() {
         </div>
       </Panel>
 
-      <section className="pnl script">
+      <section className="pnl script" data-tour="script-text">
         <header className="pnl-h">
           <h2>Senaryo</h2><span className="meta mono">{lines} satır · {words} kelime</span>
           <span className="grow" />

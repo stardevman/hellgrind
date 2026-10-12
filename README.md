@@ -62,11 +62,27 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 
 ## Kullanım
 
-Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte proje, sanal bütçe ve **Üretimi durdur** (Kill-Switch); altta, kurgu
-yazılımlarındaki gibi, üretim sırasıyla sayfa çubuğu: **Senaryo › Stil › Varlıklar › Storyboard › Kurgu › Karşılaştır › Renk
-› Teslim** (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>). Sayfa düğmelerindeki rozetler durumu özetler (kilitli varlık, onaylı
-kare, hazır ya da engelli çekim, renk sıçraması, film). Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon,
-karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca aynı görünüm açılır.
+Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte proje, sanal bütçe ve **Üretimi durdur** (Kill-Switch); altta, üretim
+sırasını izleyen dört **adım** ve her adımın sayfaları (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>):
+
+| Adım | Sayfalar | Bir sonraki adıma geçmek için |
+| --- | --- | --- |
+| 1 Hazırlık | Senaryo, Stil, Varlıklar | senaryo işlenmiş; çekimlerdeki varlıklar kilitli (stil kılavuzu önerilir) |
+| 2 Onay | Storyboard | her çekimin karesi onaylı (proje ayarı kare onayını zorunlu kılıyorsa) |
+| 3 Üretim | Kurgu, Karşılaştır | engelli, plan onayı ya da inceleme bekleyen çekim yok, hepsi hazır |
+| 4 Bitirme | Renk, Teslim | renk sıçraması kalmamış, film birleştirilmiş |
+
+Her adımın başlığındaki nokta durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli); üzerine gelince eksikler
+listelenir. Çubuğun sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Sayfa düğmelerindeki rozetler durumu özetler
+(kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk sıçraması, film).
+
+Üst banttaki **Basit / Gelişmiş** anahtarı görünümü seçer: basit görünümde yalnızca ana eylemler kalır; motor ve plan
+ayrıntıları, Seedance tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası Gelişmiş görünümde açılır (tarayıcıda
+hatırlanır). **Rehber** ilk açılışta kendiliğinden başlayan turu yeniden açar: dört adımı, sayfaları ve bütçe rayını
+sırayla gösterir (<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
+
+Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca
+aynı görünüm açılır.
 
 1. **Senaryo** sayfası: henüz proje yoksa **Yeni proje** formu açılır: proje adı, sanal bütçe, üretim yoğunluğu ve örnek
    senaryo hazır dolu olarak; sağda senaryo biçiminin kılavuzu.
@@ -100,10 +116,12 @@ karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca aynı görün
      izleyicide önizlenir.
    - Altta **zaman çizelgesi**: sekans bandı, görüntü izi (çekimler süreleri kadar, duygu renginde), diyalog, müzik ve efekt
      izleri. Cetvele tıklamak filmi oraya sarar; film oynarken oynatma kafası çekimler üzerinde ilerler ve denetçi o çekime geçer.
-   - Sağda **denetçi** (bölümler açılıp kapanır): çekim bilgisi, **Bu sahneyi baştan üret**, **İyileştir**; rafine havuz ve
-     **Bunu kullan** (yalnızca ses ve montaj yeniden çalışır); **Ses**: diyalog ve **Müziği değiştir** (*Sekansın tamamı*
-     sekans müziğini değiştirir, hiçbir çekim yeniden üretilmez; *Yalnızca bu çekim* çekime özel müzik koyar); **Sekans**: bütçe
-     tavanı, film kanalları ve **Stem yükle**; **Varlıklar** ve **Nesne bağla**; **Yöntem**; **Elle düzeltme**.
+   - Sağda **denetçi**, üç sekmede: **Çekim**: çekim bilgisi, **Bu sahneyi baştan üret**, **İyileştir**, **Varlıklar** ve
+     **Nesne bağla**, rafine havuz ve **Bunu kullan** (yalnızca ses ve montaj yeniden çalışır), renk bağlantısı. **Ses**:
+     diyalog ve **Müziği değiştir** (*Sekansın tamamı* sekans müziğini değiştirir, hiçbir çekim yeniden üretilmez; *Yalnızca bu
+     çekim* çekime özel müzik koyar); **Sekans**: bütçe tavanı, film kanalları ve **Stem yükle**. **Üretim**: motor ve plan
+     (fal.ai video), **Yöntem**; Gelişmiş görünümde ayrıca tamamlama ve upscale ile **Elle düzeltme**. Sekme rozetleri
+     engelli çekimi ve plan onayını gösterir.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
 6. **Karşılaştır** sayfası aynı çekimin 2–4 adayını yan yana, tek taşıma çubuğuyla **eşzamanlı** oynatır (denetçide
    **Adayları karşılaştır**; aday şeridinde <kbd>Shift</kbd>+tık ile istediğin klipleri seçebilirsin):
