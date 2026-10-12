@@ -48,6 +48,7 @@ button { cursor: pointer; }
 .small { font-size: 12px; }
 .tiny { font-size: 11px; }
 .warn { color: var(--bad); }
+.caution { color: var(--warn); }
 .grow { flex: 1; }
 .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .stack { display: grid; gap: 8px; align-content: start; }
@@ -304,6 +305,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .clip.vid.work { animation: pulse 1.4s ease-in-out infinite; }
 .clip.vid[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .clip.vid.jump { box-shadow: inset 3px 0 0 var(--bad); }
+/* karma üretim: kazanan klip parçanın kardeşlerinden başka bir üretimden (alt kenarda sarı çizgi) */
+.clip.vid.mixed { border-bottom: 2px dashed var(--warn); }
 .clip.dlg { background: #1f3b33; border-color: #2f5a4d; padding: 0 5px; align-items: center; white-space: nowrap; }
 .clip.mus { background: #2e2747; border-color: #45396b; padding: 0 5px; align-items: center; white-space: nowrap; }
 .clip.sfx { background: #3c311d; border-color: #5b4a2a; padding: 0 5px; align-items: center; white-space: nowrap; }

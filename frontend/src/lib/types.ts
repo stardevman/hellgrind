@@ -93,7 +93,21 @@ export interface PlanMissing { kind: string; name: string; asset_id: string | nu
 /** Parçanın ilk çekiminin geçişi ve önceki klibin son karesi (yalnızca "continuous" geçişte verilir). */
 export interface PartContinuity {
   transition: string; previous: string | null; frame_key: string | null; expected: boolean; winner_id: string | null; note: string | null;
+  /** Sahne içi model değişimi: önceki çekim başka motorla üretildi (model değişimi sahne sınırında önerilir). */
+  model_switch?: boolean;
 }
+/** Parça klibinin çekimlere bölünmesi: klipte bulunan kesmeler (sn), her iç sınırın kaynağı (klipteki kesme ya da
+    planlı sınır) ve uyarı. fal-plan'da kazanan klibin gerçek ve planlı segmenti de gelir. */
+export interface PartSplit {
+  cuts: number[]; sources: string[]; warning: string | null;
+  segment?: [number, number] | null; segment_planned?: [number, number] | null;
+}
+/** Karma üretim: kazanan klip, whole_scene parçasının kardeşlerinden başka bir üretimden (geçiş tutarsız olabilir). */
+export interface Generation {
+  consistent: boolean; part: string; engine: string; variation_id: string; mismatched: string[]; message: string;
+}
+/** Karma üretimin tek tık seçenekleri (promote yanıtı): adopt (bütün sahne bu üretime) ya da shot (çekim ayrı üretilir). */
+export interface MixOption { action: string; label: string; path: string }
 /** Yükseltmenin bir parçası (tek istek): çekimleri, süresi ve tahmini. */
 export interface UpgradePart { part: string[]; duration_s: number; usd: number; endpoint: string; plan_hash?: string }
 /** "Seedance 2.5 ile yükselt"in tahmini (yazılmaz): referans modunda bütün sahne. */
@@ -126,6 +140,8 @@ export interface FalPlan {
   draft?: boolean; prompt_chars?: number; prompt_limit?: number | null;
   /** 1080p'ye upscale tahmini (uç nokta başına), taslağı tamamlama tahmini ve çekimin taslağı (varsa). */
   upscale_estimate?: Record<string, UpscaleCost>; complete_estimate?: CompleteCost; seedance_draft?: DraftPreview;
+  /** Referans modu: kazanan klibin bölünmesi ve karma üretim uyarısı. */
+  split?: PartSplit | null; generation?: Generation | null;
 }
 
 /** POST /scenes/{id}/plan/approve: parçanın planı onaylandı (render=true ise çekimler üretime verildi). */
@@ -224,6 +240,8 @@ export interface Scene {
   engine_label?: string | null; engine_disabled?: boolean;
   /** Kazanan (rank 1) klibin motoru; çekimin motorundan farklıysa yükseltme bu çekimde tamamlanmamıştır. */
   winner_engine?: string | null;
+  /** Karma üretim (null: tutarlı) ve kazanan parça klibinin bölünmesi (kesmeler, sınır kaynakları, uyarı). */
+  generation?: Generation | null; split?: PartSplit | null;
   /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
   video_opts?: { resolution?: string; audio?: boolean };
   fal_request?: FalRequest | null;
@@ -369,6 +387,19 @@ export interface StageResult {
   /** Referans modu: plan onaylanmadı; çekim plan_review'da bekler. */
   awaiting_plan?: boolean; plan?: { part: string[]; plan_hash: string; usd: number };
 }
+/** POST /scenes/{id}/promote/{vid}: seçilen klip başka bir üretimdense uyarı ve seçenekler. */
+export interface PromoteResult extends StageResult { warning?: string; mixed?: Generation; options?: MixOption[] }
+/** POST /scenes/{id}/generation/adopt: parçanın bütün çekimleri seçilen üretime geçti (yeniden üretim ve ücret yok). */
+export interface AdoptResult { adopted: boolean; engine: string; part: string[]; stages: string[]; usd: number }
+/** POST /scenes/{id}/scene-engine?dry_run=true: bütün sahnenin o motorla tahmini (parça başına), kalan bütçe. */
+export interface SceneEnginePlan {
+  engine: string; shots: string[]; total_usd: number; parts: { part: string[]; usd: number; endpoint: string }[];
+  remaining_usd: number; budget_ok: boolean;
+}
+/** POST /scenes/{id}/scene-engine?expected_usd=: bütün sahne o motorla yeniden üretiliyor. */
+export interface SceneEngineResult { engine: string; shots: string[]; total_usd: number; dispatched: Record<string, StageResult & { busy?: string }> }
+/** POST /scenes/{id}/shot-engine: çekim ayrı üretilir; sonraki çekim son kareyle yeniden bağlanır. */
+export interface ShotEngineResult { engine: string; relinked: string[]; dispatched: Record<string, StageResult & { busy?: string }>; note: string }
 export interface DispatchAll {
   planned: Record<string, string[]>; busy: string[]; blocked: Record<string, unknown>;
   capped: string[]; awaiting_board?: string[]; frozen: boolean;

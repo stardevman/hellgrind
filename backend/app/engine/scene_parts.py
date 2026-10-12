@@ -473,28 +473,34 @@ class PartPlan:
 
 
 def previous_frame(s, first, engine: str) -> dict:
-    """Parçanın ilk çekiminin geçişine göre önceki klibin son karesi: {"transition", "previous", "expected", "frame_key",
-    "winner_id", "note"}. Kare yalnızca "continuous" geçişte; çıkarma üretimde yapılır (seam/{varyasyon}.jpg)."""
+    """Parçanın ilk çekiminden önceki klibin son karesi: {"transition", "previous", "previous_id", "previous_active",
+    "model_switch", "expected", "frame_key", "winner_id", "note"}. Kare "continuous" geçişte ve sahne içi model
+    değişiminde (önceki çekim aynı sahnede, başka motorla) verilir; çıkarma üretimde yapılır (seam/{varyasyon}.jpg).
+    Önceki çekim referans yoluyla üretiliyorsa üretimde önce onun parçası güncel planıyla hazırlanır."""
     from app.core.chain import neighbours, transition_of
     from app.models import Variation
     transition = transition_of(first)
-    out = {"transition": transition, "previous": None, "expected": False, "frame_key": None, "winner_id": None,
-           "note": None}
-    if transition != "continuous":
-        out["note"] = "Kesme: önceki klibin son karesi verilmez, yalnızca referanslar."
-        return out
+    out = {"transition": transition, "previous": None, "previous_id": None, "previous_active": False,
+           "model_switch": False, "expected": False, "frame_key": None, "winner_id": None, "note": None}
     previous, _ = neighbours(s, first)
     if previous is None:
         out["note"] = "Sekansın ilk çekimi: önceki klip yok."
         return out
-    out["previous"] = previous.scene_code
+    switch = heading_key(previous) == heading_key(first) and previous.engine != first.engine
+    out.update(previous=previous.scene_code, previous_id=str(previous.id), model_switch=switch,
+               previous_active=active(previous.engine) and (previous.method or "generate") == "generate")
+    if transition != "continuous" and not switch:
+        out["note"] = "Kesme: önceki klibin son karesi verilmez, yalnızca referanslar."
+        return out
+    why = (f"sahne içi model değişimi ({fal_plan.ENGINE_TR.get(previous.engine, previous.engine)} → "
+           f"{fal_plan.ENGINE_TR.get(first.engine, first.engine)})") if switch else "sürekli geçiş"
     winner = s.scalars(select(Variation).where(Variation.scene_id == previous.id, Variation.refined_rank == 1,
                                                Variation.video_key.is_not(None))).first()
     if winner is not None:
         out.update(expected=True, frame_key=f"seam/{winner.id}.jpg", winner_id=str(winner.id),
-                   note=f"{previous.scene_code} kazanan klibinin son karesi (ffmpeg ile çıkarılır).")
-    elif active(previous.engine) and (previous.method or "generate") == "generate":
-        out.update(expected=True, note=f"{previous.scene_code} henüz üretilmedi: önce o parça üretilir, son karesi "
+                   note=f"{why}: {previous.scene_code} kazanan klibinin gerçek son karesi (ffmpeg ile çıkarılır).")
+    elif out["previous_active"]:
+        out.update(expected=True, note=f"{why}: {previous.scene_code} henüz üretilmedi; önce o üretilir, son karesi "
                                        "çıkarılıp bu parçanın ilk karesi olur.")
     else:
         out["note"] = f"{previous.scene_code} klibi yok ve referans yoluyla üretilmiyor: son kare verilmeyecek."
@@ -545,6 +551,10 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     if missing:
         warnings.append("Eksik referans: " + ", ".join(m["name"] for m in missing) +
                         " (görsel yükleyin; render engelli).")
+    if cont.get("model_switch"):
+        warnings.append(f"Sahne içi model değişimi ({cont.get('previous')} → {part[0].scene_code}): bu çekim ayrı "
+                        "üretilir ve önceki çekimin gerçek son karesiyle başlar. Model değişimi sahne sınırında "
+                        "önerilir.")
     if cont.get("transition") == "continuous" and cont.get("note") and not cont.get("frame_key"):
         warnings.append(cont["note"])                 # önceki klip henüz yok ya da kare verilmeyecek
     prompt, unmapped = build_prompt(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")))
@@ -603,3 +613,33 @@ def approve(s, sc, plan: PartPlan) -> None:
         x.plan_approval = {"hash": plan.plan_hash, "usd": plan.cost["reserve_usd"], "at": time.time(),
                            "part": [y.scene_code for y in plan.shots], "engine": plan.engine}
 
+
+
+# ---------- üretim tutarlılığı (karma kurgu) ----------
+
+MIXED_WARNING = ("Bu çekim başka bir üretimden; geçiş tutarsız olabilir. Bütün sahneyi bu motorla değiştir ya da bu "
+                 "çekimi ayrı üret.")
+
+
+def generations(winners: dict) -> dict:
+    """winners: {kod: (parça, parça kodları, motor, varyasyon)} -> {kod: tutarlılık}. Bir whole_scene parçasının çekimleri
+    yalnızca AYNI üretimden gelebilir: kazananın üretimi kardeşlerinkiyle aynı değilse uyarı."""
+    out = {}
+    for code, (part, codes, engine, vid) in winners.items():
+        if not part or not codes or len(codes) < 2:
+            continue
+        mismatched = [c for c in codes if c != code and c in winners and winners[c][0] != part]
+        if mismatched:
+            out[code] = {"consistent": False, "part": part, "engine": engine, "variation_id": vid,
+                         "mismatched": mismatched, "message": MIXED_WARNING}
+    return out
+
+
+def scene_generations(s, sc) -> dict:
+    from app.models import Variation
+    winners = {}
+    for x in scene_shots(s, sc):
+        v = s.scalars(select(Variation).where(Variation.scene_id == x.id, Variation.refined_rank == 1)).first()
+        if v is not None:
+            winners[x.scene_code] = ((v.params or {}).get("part"), (v.params or {}).get("part_codes"), v.engine, str(v.id))
+    return generations(winners)

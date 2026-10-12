@@ -279,6 +279,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     def shot_assets(sid) -> list:
         return [r.asset for r in refs[sid] if r.asset] + places[sid]
 
+    from app.engine.scene_parts import generations
+    winners_of = {sc.id: next((v for v in variations[sc.id] if v.refined_rank == 1), None) for sc in scenes}
+    mixed = generations({sc.scene_code: ((w.params or {}).get("part"), (w.params or {}).get("part_codes"), w.engine,
+                                         str(w.id)) for sc in scenes if (w := winners_of[sc.id]) is not None})
     scenes_out = [{
         "id": str(sc.id), "scene_code": sc.scene_code, "status": sc.status, "engine": sc.engine,
         "engine_label": fal_plan.ENGINE_TR.get(sc.engine or "", sc.engine), "engine_disabled": h3_disabled(sc.engine),
@@ -326,6 +330,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     for m in (lint.find_missing(items[sc.id], lint_cfg(cfg, sc.engine)["asset_min_status"])
                               if check else [])],
         "winner_engine": next((v.engine for v in variations[sc.id] if v.refined_rank == 1), None),
+        "generation": mixed.get(sc.scene_code),                 # kazanan, parçanın kardeşlerinden başka bir üretimden
+        "split": ({**w.params["split"], "segment": w.params.get("segment"),
+                   "segment_planned": w.params.get("segment_planned")}
+                  if (w := winners_of[sc.id]) is not None and (w.params or {}).get("split") else None),
         "tracks": [{"id": str(t.id), "kind": t.kind, "source": t.source, "text": t.text, "emotion": t.emotion,
                     "start_offset_s": t.start_offset_s, "gain_db": t.gain_db, "version": t.version,
                     "character_id": str(t.character_id) if t.character_id else None,

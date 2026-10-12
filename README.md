@@ -459,6 +459,22 @@ referans, 10 sn, 16:9) kalite için **Seedance 2.5**, ucuz ve hızlı taslak iç
   sokak seviyesinde bir görsel yüklemeyi düşünün." (Wan 3.0 testi: üst geçitten çekilmiş otoyol referansı karakteri yola
   yukarıdan koşturdu.)
 
+### Model karışımı ve parça bölme (karma kurgu testi)
+
+- Bir whole_scene parçasının çekimleri yalnızca AYNI üretimden gelebilir. Yönetmen bir çekimde başka üretimin (ör. başka
+  motorun) varyasyonunu seçerse uyarı: "Bu çekim başka bir üretimden; geçiş tutarsız olabilir. Bütün sahneyi bu motorla
+  değiştir ya da bu çekimi ayrı üret." Tek tık: **Bütün sahneyi bu motorla değiştir** (`POST /api/scenes/{id}/generation/
+  adopt`: o üretimin kesimleri bütün çekimlerin kazananı olur, yeniden üretim ve ücret yok) ya da sahneyi o motorla yeniden
+  üret (`/scene-engine`, tahminli onay).
+- Sahne içi model değişimi (`/shot-engine`, "Bu çekimi ayrı üret"): çekim ayrı üretilir (per_shot) ve önceki çekimin
+  gerçek son karesiyle başlar (H3 Max `image_url`; Seedance `image_urls` başı + "starts exactly from @Image1"); sonraki
+  çekim de aynı şekilde yeniden bağlanır. Model değişimi varsayılan olarak yalnızca sahne sınırında önerilir.
+- Parça klibi sabit saniyelerden değil, klipteki gerçek kesmelerden bölünür (FFmpeg sahne değişimi skoru, eşik 0,3):
+  kesmeler senaryodaki çekim sırasına eşlenir; sayı uymazsa en yakın (klip süresine ölçeklenmiş) planlı sınır kullanılır
+  ve uyarı yazılır. Sınırlar planda ve Kurgu'da görünür.
+- Karma ya da upscale'li kurguda klibi değişen her çekim (seçim, benimseme, upscale, tamamlama, yeniden üretim) "eşleme
+  bekliyor" olur; montajdan sonra otomatik renk eşleme çalışır.
+
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
 `VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel

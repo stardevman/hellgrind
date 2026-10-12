@@ -107,7 +107,7 @@ export const resultText = (r: StageResult) => (r.blocked ? blockedText(r.blocked
   : r.awaiting_plan ? awaitingPlanText(r.plan?.part ?? [], r.plan?.usd) : stagesText(r.stages));
 
 /** Çekim başına sonuçların özeti (plan onayı ve yükseltme): üretime alınan, işlendiği için atlanan, engellenen. */
-function dispatchedText(d: Record<string, StageResult & { busy?: string }>): string {
+export function dispatchedText(d: Record<string, StageResult & { busy?: string }>): string {
   const rows = Object.entries(d);
   const started = rows.filter(([, r]) => r.stages.length && !r.blocked && !r.awaiting_plan).map(([c]) => c);
   const busy = rows.filter(([, r]) => r.busy).map(([c]) => c);

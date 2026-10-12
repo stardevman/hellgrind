@@ -14,7 +14,7 @@ import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type 
 import type { DispatchAll, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
 import { UpscaleConfirm } from "./Finishing";
-import { Inspector } from "./Inspector";
+import { Inspector, SplitView, useFalPlan } from "./Inspector";
 import { Panel, StatusDot, shortcutTarget } from "./ui";
 
 type Mode = "shot" | "film";
@@ -169,6 +169,7 @@ function ShotBin() {
                         {sc.cut_tier === "draft" && <span className="tag warn">Taslak</span>}
                         {sc.engine_disabled && <span className="tag bad" title="MiniMax H3 (RunPod) kapalı: denetçiden H3 Max'e geçin">Motor kapalı</span>}
                         {sc.upgrade_requested && <span className="tag info">İyileştirilecek</span>}
+                        {sc.generation && <span className="tag warn" title={`${sc.generation.message} Farklı üretimden: ${sc.generation.mismatched.join(", ")}.`}>karma üretim</span>}
                       </span>
                     </button>
                   );
@@ -279,7 +280,24 @@ function Takes({ onPick }: { onPick: () => void }) {
           ? sc.variations.map((v, i) => <Tile key={v.id} v={v} prev={sc.variations[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} />)
           : <span className="faint">Henüz klip yok</span>}
       </div>
+      <ClipSplit sc={sc} />
     </Panel>
+  );
+}
+
+/** Kazanan parça klibinin bu çekime düşen kesimi: gerçek segment ile planlı segment, sınır kaynakları ve bölme uyarısı.
+    Planlı segment fal-plan'dan (denetçiyle aynı SWR anahtarı; ayrıca istek yok), yoksa yalnızca gerçek segment. */
+function ClipSplit({ sc }: { sc: Scene }) {
+  const plan = useFalPlan(sc);
+  const win = sc.variations.find((v) => v.rank === 1);
+  const split = sc.split ?? plan?.split ?? null;
+  if (!split || !win?.segment) return null;
+  const planned = plan?.split?.segment_planned
+    ?? (() => { const x = plan?.timeline?.find((y) => y.code === sc.scene_code); return x ? [x.start, x.end] as [number, number] : null; })();
+  return (
+    <div className="pad" style={{ borderTop: "1px solid var(--line)", paddingTop: 6, paddingBottom: 6 }}>
+      <SplitView split={split} codes={win.part ?? plan?.part} code={sc.scene_code} segment={win.segment} planned={planned} />
+    </div>
   );
 }
 
@@ -363,11 +381,12 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
             <div className="trk vid">
               {lay.shots.map(({ scene: sc, start, end }) => {
                 const th = posterOf(sc);
-                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : ""].filter(Boolean).join(" ");
+                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : "", sc.generation ? "mixed" : ""].filter(Boolean).join(" ");
+                const extra = [sc.generation ? "karma üretim" : "", sc.split?.warning ?? ""].filter(Boolean).join(" · ");
                 return (
                   <button key={sc.id} type="button" className={cls} aria-current={scene?.id === sc.id}
                     style={{ left: x(start), width: Math.max(4, x(end - start) - 2), ["--clip" as string]: EMOTION_COLOR[sc.emotion] || "#6b6f78" }}
-                    title={`${sc.scene_code} · ${sc.description ?? ""}`} aria-label={`${sc.scene_code} çekimine git`} onClick={() => onClip(sc)}>
+                    title={`${sc.scene_code} · ${sc.description ?? ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}>
                     {th && <img src={th} alt="" loading="lazy" />}
                     <span className="lbl"><b>{sc.scene_code}</b><span>{sc.description}</span></span>
                   </button>

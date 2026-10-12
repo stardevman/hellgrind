@@ -173,8 +173,23 @@ def promote(scene_id: SceneId, variation_id: VariationId, override: bool = False
             s.flush()
         v.refined_rank = 1
         sc.lipsync_video_key = None                 # Stateless Re-render: LIPSYNC + MUX planlanır, VISUAL değil
+        from app.engine.finishing import _reset_auto_grade
+        _reset_auto_grade(s, sc)                    # klip değişti: renk eşleme montajdan sonra yeniden
         s.commit()
-    return dispatch_result(s, sc)
+    return {**dispatch_result(s, sc), **_mixed(s, sc)}
+
+
+def _mixed(s: Session, sc: Scene) -> dict:
+    """Seçilen klip parçanın kardeşlerinden farklı bir üretimdense uyarı ve tek tık seçenekleri."""
+    from app.engine import scene_parts
+    g = scene_parts.scene_generations(s, sc).get(sc.scene_code)
+    if not g:
+        return {}
+    return {"warning": g["message"], "mixed": g,
+            "options": [{"action": "adopt", "label": "Bütün sahneyi bu motorla değiştir",
+                         "path": f"/scenes/{sc.id}/generation/adopt?variation_id={g['variation_id']}"},
+                        {"action": "shot", "label": "Bu çekimi ayrı üret",
+                         "path": f"/scenes/{sc.id}/shot-engine?engine={g['engine']}"}]}
 
 
 def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
@@ -226,8 +241,10 @@ def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
     gate.promote_override(s, sc.id, v.id, {"status": "refined", "visual_hash": fp, "lipsync_video_key": None,
                                            "final_video_key": None, "last_error": None},
                           int(cfg["refined_k"]), {"from": str(v.id), "was": v.status, "gate": v.anomalies or []})
+    from app.engine.finishing import _reset_auto_grade
+    _reset_auto_grade(s, s.get(Scene, sc.id))       # klip değişti (karma kurgu olabilir): renk eşleme montajdan sonra
     s.commit()
     from app.budget import killswitch
     killswitch.event(str(sc.project_id), "director_override", scene_id=str(sc.id), code=sc.scene_code,
                      variation=str(v.id), full=False)
-    return {**dispatch_result(s, sc), "override": "promote"}
+    return {**dispatch_result(s, sc), "override": "promote", **_mixed(s, sc)}

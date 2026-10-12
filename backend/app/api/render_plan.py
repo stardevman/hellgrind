@@ -120,6 +120,11 @@ def scene_dry_run(s: Session, sc: Scene, force_visual: bool = False, with_sha: b
     if scene_parts.active(engine):                    # referans + senaryo: sahnenin parçası tek istekte
         plan = scene_parts.plan_part(s, sc, with_sha=with_sha)
         out.update(plan.as_dict())
+        winner = s.scalar(select(Variation).where(Variation.scene_id == sc.id, Variation.refined_rank == 1))
+        if winner is not None and (winner.params or {}).get("split"):    # üretilmiş klibin gerçek bölme sınırları
+            out["split"] = {**winner.params["split"], "segment": winner.params.get("segment"),
+                            "segment_planned": winner.params.get("segment_planned")}
+        out["generation"] = scene_parts.scene_generations(s, sc).get(sc.scene_code)
         out["approval"] = {"required": scene_parts.plan_required(cfg), "approved": plan.approved(),
                            "plan_hash": plan.plan_hash}
     else:
@@ -263,3 +268,128 @@ def upgrade_final(scene_id: SceneId, expected_usd: float | None = None, s: Sessi
     return {**first, "engine": preview["engine"], "from_engine": previous, "draft_variation_id": str(draft.id),
             "shots": preview["shots"], "parts": preview["parts"], "total_usd": preview["total_usd"],
             "dispatched": dispatched}
+
+
+# ---------- model karışımı: bir parçanın çekimleri aynı üretimden ----------
+
+@router.post("/scenes/{scene_id}/generation/adopt")
+@curated("generation_adopt")
+def adopt_generation(scene_id: SceneId, variation_id: str | None = None, s: Session = Depends(get_session)):
+    """"Bütün sahneyi bu motorla değiştir" (tek tık): seçilen varyasyonun üretimi (whole_scene parçası) bütün çekimlerin
+    kazananı olur; kesimler zaten varsa yeniden üretim ve ücret yok, çekimlerin motoru o üretiminkine geçer. Üretimin bir
+    çekimde kesimi yoksa 409 (sahneyi o motorla yeniden üretin: /scenes/{id}/scene-engine)."""
+    from app.engine.finishing import _dispatch_post, _reset_auto_grade
+    from app.quality import gate
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    v = s.get(Variation, variation_id) if variation_id else \
+        s.scalar(select(Variation).where(Variation.scene_id == sc.id, Variation.refined_rank == 1))
+    if v is None or str(v.scene_id) != str(sc.id):
+        raise HTTPException(404, "Bu çekimin böyle bir varyasyonu yok")
+    part, codes = (v.params or {}).get("part"), (v.params or {}).get("part_codes") or [sc.scene_code]
+    if not part:
+        raise HTTPException(409, "Bu varyasyon bir sahne parçasından üretilmedi (per_shot / kare yolu).")
+    shots = {x.scene_code: x for x in scene_parts.scene_shots(s, sc) if x.scene_code in codes}
+    chosen = {}
+    for code in codes:
+        x = shots.get(code)
+        row = s.scalar(select(Variation).where(Variation.scene_id == x.id, Variation.params["part"].astext == part,
+                                               Variation.status.in_(("passed", "refined")))
+                       .order_by(Variation.created_at.desc())) if x is not None else None
+        if row is None:
+            raise HTTPException(409, f"Bu üretimin {code} kesimi yok (elenmiş ya da silinmiş): sahneyi "
+                                     f"{fal_plan.ENGINE_TR.get(v.engine, v.engine)} ile yeniden üretin.")
+        chosen[str(x.id)] = str(row.id)
+    for x in shots.values():
+        x.engine = v.engine
+    s.commit()
+    for sid, vid in chosen.items():
+        gate.set_single_winner(sid, vid, {"status": "refined", "lipsync_video_key": None, "final_video_key": None,
+                                          "graded_video_key": None, "last_error": None})
+    from app.db import session_scope
+    with session_scope() as s2:
+        for sid in chosen:
+            _reset_auto_grade(s2, s2.get(Scene, sid))      # yeni klipler: renk eşleme montajdan sonra yeniden
+    _dispatch_post(str(sc.project_id), list(chosen))
+    return {"adopted": True, "engine": v.engine, "part": codes, "stages": ["LIPSYNC", "MUX"], "usd": 0.0}
+
+
+@router.post("/scenes/{scene_id}/scene-engine")
+@curated(lambda kw, r: None if kw.get("dry_run") else "scene_engine")
+def scene_engine(scene_id: SceneId, engine: str, expected_usd: float | None = None, dry_run: bool = False,
+                 s: Session = Depends(get_session)):
+    """Bütün sahneyi bir motorla yeniden üretir (model değişimi sahne sınırında önerilir): sahnenin bütün çekimleri o
+    motora geçer, parçaları yeniden planlanır ve bu onayla onaylanmış sayılır; bütçe kapısı ve tahmin denetimi."""
+    from app.api.plan import Busy, dispatch_result
+    if engine not in fal_plan.FAL_ENGINES:
+        raise HTTPException(422, f"Motor: {', '.join(fal_plan.FAL_ENGINES)}")
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    targets = [x for x in scene_parts.scene_shots(s, sc) if (x.method or "generate") == "generate"]
+    nested = s.begin_nested()
+    try:
+        for x in targets:
+            x.engine = engine
+        s.flush()
+        plans, seen = [], set()
+        for x in targets:
+            plan = scene_parts.plan_part(s, x)
+            if plan.part_hash not in seen:
+                seen.add(plan.part_hash)
+                plans.append(plan)
+        total = round(sum(p.cost["reserve_usd"] for p in plans), 4)
+    finally:
+        nested.rollback()
+    remaining = remaining_budget(s, sc.project_id)
+    if dry_run:                                       # onay ekranı: tahmin, parçalar, kalan bütçe
+        return {"dry_run": True, "engine": engine, "shots": [x.scene_code for x in targets], "total_usd": total,
+                "parts": [{"part": [y.scene_code for y in p.shots], "usd": p.cost["reserve_usd"], "endpoint": p.endpoint}
+                          for p in plans], "remaining_usd": remaining, "budget_ok": total <= remaining}
+    if expected_usd is not None and total > float(expected_usd) + 0.01:
+        raise HTTPException(409, f"Tahmin değişti: şimdi {total:.2f} $ (onaylanan {float(expected_usd):.2f} $).")
+    if total > remaining:
+        raise HTTPException(409, f"Bütçe yetmiyor: tahmini {total:.2f} $, kalan {remaining:.2f} $.".replace(".", ","))
+    for x in targets:
+        x.engine = engine
+        x.visual_hash = None                          # görüntü yeniden planlanır
+    s.flush()
+    for x in targets:
+        scene_parts.approve(s, x, scene_parts.plan_part(s, x))
+    s.commit()
+    dispatched = {}
+    for x in targets:
+        try:
+            dispatched[x.scene_code] = dispatch_result(s, x, rerun_visual=True)
+        except Busy as e:
+            dispatched[x.scene_code] = {"stages": [], "busy": e.detail}
+    return {"engine": engine, "shots": [x.scene_code for x in targets], "total_usd": total, "dispatched": dispatched}
+
+
+@router.post("/scenes/{scene_id}/shot-engine")
+@curated("shot_engine")
+def shot_engine(scene_id: SceneId, engine: str, s: Session = Depends(get_session)):
+    """"Bu çekimi ayrı üret": sahne içi model değişimi. Çekim kendi parçası olur (per_shot) ve önceki çekimin gerçek son
+    karesiyle başlar; sonraki çekim de bu çekimin son karesiyle yeniden bağlanır (ikisi de yeniden üretilir). Model
+    değişimi varsayılan olarak yalnızca sahne sınırında önerilir."""
+    from app.api.plan import Busy, dispatch_result
+    from app.core.chain import neighbours
+    if engine not in fal_plan.FAL_ENGINES:
+        raise HTTPException(422, f"Motor: {', '.join(fal_plan.FAL_ENGINES)}")
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    sc.engine, sc.visual_hash = engine, None
+    _, nxt = neighbours(s, sc)
+    relink = [sc]
+    if nxt is not None and scene_parts.heading_key(nxt) == scene_parts.heading_key(sc) \
+            and (nxt.method or "generate") == "generate" and scene_parts.active(nxt.engine):
+        nxt.visual_hash = None                        # sonraki çekim bu çekimin son karesiyle yeniden bağlanır
+        relink.append(nxt)
+    s.commit()
+    dispatched = {}
+    for x in relink:
+        try:
+            dispatched[x.scene_code] = dispatch_result(s, x, rerun_visual=True)
+        except Busy as e:
+            dispatched[x.scene_code] = {"stages": [], "busy": e.detail}
+    return {"engine": engine, "relinked": [x.scene_code for x in relink], "dispatched": dispatched,
+            "note": "Sahne içi model değişimi: çekim ayrı üretilir ve önceki çekimin son karesiyle başlar."}

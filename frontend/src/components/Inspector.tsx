@@ -1,16 +1,17 @@
 "use client";
 /* Kurgu sayfasının denetçisi: seçili çekimin bilgisi, rafine havuz, ses, sekans, varlıklar, yöntem ve elle düzeltme;
    her bölüm açılıp kapanır. */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import useSWR from "swr";
-import { api, fetcher } from "@/lib/api";
+import { ApiError, api, fetcher } from "@/lib/api";
 import { candidates, defaultSelection, parseIds } from "@/lib/compare";
 import { audioValue, defaultResolution, engineChoices, engineShort, isFal, modeValue, parseDuration, resolutionValue, resolutionsFor } from "@/lib/engines";
 import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_TR, FAL_MODE_CHOICES, FAL_MODE_TR, FAL_STATUS_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
+import { BOUNDARY_NOTE, SHOT_ONLY_LABEL, adoptText, boundarySources, cutsText, mixActions, promoteText, sceneEngineText, shotBoundaries, shotEngineText, wholeSceneSwitch } from "@/lib/mixing";
 import { usePanel } from "@/lib/panel";
 import { needsUpscale, resolutionBadge } from "@/lib/finishing";
 import { approveText, clock, gateLines, planWarnings, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdTr } from "@/lib/text";
-import type { FalPlan, PlanApproval, RevisionList, Scene, SceneAssetRef, Sequence, StageResult, UpgradeFinal, Variation } from "@/lib/types";
+import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, SceneEnginePlan, SceneEngineResult, Sequence, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 
@@ -42,7 +43,7 @@ const CUT_TR: Record<string, string> = {
 
 /** fal.ai motorlu çekimin hafif planı (SHA hesaplanmaz): mod ve gerekçesi, referanslar, tahmin, yükseltme tahmini.
     Her eylemden sonra panel bütün okumaları yenilediği için ayrıca yoklanmaz. */
-function useFalPlan(sc: Scene) {
+export function useFalPlan(sc: Scene) {
   const { data } = useSWR<FalPlan>(isFal(sc.engine) ? `/scenes/${sc.id}/fal-plan` : null, fetcher, { revalidateOnFocus: false, keepPreviousData: true });
   return data && data.scene_id === sc.id ? data : undefined;
 }
@@ -77,10 +78,18 @@ function Shot({ sc }: { sc: Scene }) {
     note("inspector", `${sc.scene_code}: yüz beklentisi ${face_expected === "auto" ? "otomatik" : face_expected === "true" ? "evet" : "hayır"}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
   }, "inspector");
   const engines = engineChoices(meta?.video, sc.engine);
-  const pickEngine = (engine: string) => act(async () => {
-    await api.patch(`/scenes/${sc.id}`, { engine });
-    note("inspector", `${sc.scene_code} bundan sonra ${ENGINE_TR[engine] ?? engine} ile üretilecek. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
-  }, "inspector");
+  // Shot çekim değişince yeniden kurulmaz: açık onay çekimin kimliğiyle tutulur.
+  const [ask, setEngineAsk] = useState<{ id: string; engine: string } | null>(null);
+  const engineAsk = ask?.id === sc.id ? ask.engine : null;
+  const pickEngine = (engine: string) => {
+    // Referans modu + whole_scene: model değişimi varsayılan olarak bütün sahneye (onaylı); çekime özel değişim ikincil.
+    if (wholeSceneSwitch(meta, sc.engine, engine)) { setEngineAsk({ id: sc.id, engine }); return; }
+    setEngineAsk(null);
+    void act(async () => {
+      await api.patch(`/scenes/${sc.id}`, { engine });
+      note("inspector", `${sc.scene_code} bundan sonra ${ENGINE_TR[engine] ?? engine} ile üretilecek. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+    }, "inspector");
+  };
   const refMode = useRefMode(sc);
   const upgrade = () => act(async () => {
     const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
@@ -105,6 +114,7 @@ function Shot({ sc }: { sc: Scene }) {
           Bu çekimde yükseltme tamamlanmadı: yeniden üretin ya da adaylardan birini seçin.
         </p>
       )}
+      {sc.generation && <MixedBox key={`${sc.id}:${sc.generation.variation_id}`} sc={sc} />}
       {sc.status === "blocked" && sc.missing.length > 0 && (
         <p className="small"><span className="warn">Eksik referans:</span> <MissingLinks list={sc.missing} /></p>
       )}
@@ -182,6 +192,7 @@ function Shot({ sc }: { sc: Scene }) {
         <dt>Kesim</dt><dd>{sc.cut_tier === "draft" ? "Taslak (kaba kurgu)" : sc.cut_tier === "final" ? "Final" : "—"}</dd>
         <dt>Harcama</dt><dd className="mono">{usd(sc.spent_usd)}</dd>
       </dl>
+      {engineAsk && <SceneEngineConfirm key={`${sc.id}:${engineAsk}`} sc={sc} engine={engineAsk} shotOnly onClose={() => setEngineAsk(null)} />}
       <div className="row">
         <button className="btn" type="button" disabled={busy || frozen} onClick={() => regen()} title={frozen ? FROZEN_TITLE : undefined}>Bu sahneyi baştan üret</button>
         {frozen && (
@@ -197,6 +208,145 @@ function Shot({ sc }: { sc: Scene }) {
       </div>
       {sc.upgrade_available && <UpgradeBox key={sc.id} sc={sc} plan={plan} />}
     </Section>
+  );
+}
+
+/** Karma üretim: kazanan klip parçanın kardeşlerinden başka bir üretimden. İki çıkış: bütün sahne bu üretime geçer (tek
+    tık, yeniden üretim ve ücret yok; üretimin bir çekimde kesimi yoksa 409 ve sahneyi o motorla yeniden üretme onayı) ya
+    da bu çekim ayrı üretilir (küçük onay: bu çekim ve sonraki çekim son karelerle bağlanıp yeniden üretilir). */
+function MixedBox({ sc }: { sc: Scene }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const g = sc.generation!;
+  const [ask, setAsk] = useState(false);
+  const [conflict, setConflict] = useState<string | null>(null);
+  const [rerender, setRerender] = useState(false);
+  const name = ENGINE_TR[g.engine] ?? g.engine;
+  const actions = mixActions(g);
+  const adopt = (variationId: string) => act(async () => {
+    setConflict(null);
+    try {
+      const r = await api.post<AdoptResult>(`/scenes/${sc.id}/generation/adopt?variation_id=${encodeURIComponent(variationId)}`);
+      setVar(null);
+      note("inspector", adoptText(r, ENGINE_TR[r.engine] ?? r.engine), "ok");
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 409)) throw e;
+      setConflict(e.message);
+      note("inspector", e.message, "err");
+    }
+  }, "inspector");
+  const separate = (engine: string) => act(async () => {
+    const r = await api.post<ShotEngineResult>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}`);
+    setAsk(false);
+    setVar(null);
+    note("inspector", shotEngineText(r, ENGINE_TR[r.engine] ?? r.engine, sc.scene_code), "ok");
+  }, "inspector");
+  return (
+    <div className="hint stack" role="group" aria-label="Karma üretim">
+      <span>{g.message}</span>
+      {g.mismatched.length > 0 && <span className="small">Farklı üretimden: <span className="mono">{g.mismatched.join(", ")}</span>
+        <span className="faint"> · bu çekimin klibi {name} üretiminden</span></span>}
+      <div className="row">
+        {actions.map((a) => a.action === "adopt"
+          ? <button key="adopt" className="btn primary" type="button" disabled={busy || frozen}
+              title={frozen ? FROZEN_TITLE : `Bu üretimin kesimleri parçanın bütün çekimlerinin kazananı olur ve çekimler ${name} motoruna geçer; yeniden üretim ve ücret yok`}
+              onClick={() => adopt(a.variationId)}>{a.label}</button>
+          : <button key="shot" className="btn" type="button" aria-expanded={ask} disabled={busy || frozen}
+              title={frozen ? FROZEN_TITLE : "Bu çekim kendi parçası olur; onaydan önce ne olacağı gösterilir"}
+              onClick={() => setAsk(!ask)}>{a.label}</button>)}
+      </div>
+      {conflict && (
+        <div className="stack" style={{ gap: 4 }}>
+          <span className="bad small">{conflict}</span>
+          <div className="row">
+            <button className="btn" type="button" aria-expanded={rerender} disabled={busy || frozen} onClick={() => setRerender(!rerender)}
+              title="Bütün sahne bu motorla yeniden üretilir: parça başına tahmin ve kalan bütçe gösterilir">Sahneyi {name} ile yeniden üret</button>
+          </div>
+          {rerender && <SceneEngineConfirm sc={sc} engine={g.engine} onClose={() => setRerender(false)} />}
+        </div>
+      )}
+      {ask && actions.some((a) => a.action === "shot") && (
+        <div className="stack" role="group" aria-label="Çekimi ayrı üretme onayı" style={{ gap: 4 }}>
+          <span className="small"><span className="mono">{sc.scene_code}</span> {name} ile ayrı üretilir: önceki çekimin gerçek son karesiyle başlar.
+            Sonraki çekim de bu çekimin son karesiyle yeniden bağlanır; ikisi yeniden üretilir (ücretli).</span>
+          <span className="faint small">{BOUNDARY_NOTE}</span>
+          <div className="row">
+            <button className="btn primary" type="button" disabled={busy || frozen}
+              onClick={() => { const a = actions.find((x) => x.action === "shot"); if (a?.action === "shot") void separate(a.engine); }}>Onayla ve ayrı üret</button>
+            <button className="btn ghost" type="button" onClick={() => setAsk(false)}>Vazgeç</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Bütün sahnenin motorunu değiştirme onayı: açılınca kuru çalıştırma (scene-engine?dry_run=true; fal.ai'ye gidilmez)
+    parçaları, toplamı ve kalan bütçeyi gösterir; onay gösterilen toplamla gider (tahmin yükselmişse arka uç reddeder) ve
+    planları da onaylar. shotOnly: ikincil seçenek, yalnızca bu çekim (ayrı üretim, son kareyle bağlanır). */
+function SceneEngineConfirm({ sc, engine, onClose, shotOnly = false }: { sc: Scene; engine: string; onClose: () => void; shotOnly?: boolean }) {
+  const { busy, frozen, act, note, setVar } = usePanel();
+  const [plan, setPlan] = useState<SceneEnginePlan | null>(null);
+  const [err, setErr] = useState("");
+  const name = ENGINE_TR[engine] ?? engine;
+  useEffect(() => {
+    let live = true;
+    setErr("");
+    api.post<SceneEnginePlan>(`/scenes/${sc.id}/scene-engine?engine=${encodeURIComponent(engine)}&dry_run=true`)
+      .then((r) => { if (live) setPlan(r); })
+      .catch((e: Error) => { if (live) setErr(e.message); });
+    return () => { live = false; };
+  }, [sc.id, engine]);
+  const confirm = () => act(async () => {
+    if (!plan) return;
+    const r = await api.post<SceneEngineResult>(`/scenes/${sc.id}/scene-engine?engine=${encodeURIComponent(engine)}&expected_usd=${plan.total_usd}`);
+    onClose();
+    setVar(null);
+    note("inspector", sceneEngineText(r, ENGINE_TR[r.engine] ?? r.engine), "ok");
+  }, "inspector");
+  const single = () => act(async () => {
+    const r = await api.post<ShotEngineResult>(`/scenes/${sc.id}/shot-engine?engine=${encodeURIComponent(engine)}`);
+    onClose();
+    setVar(null);
+    note("inspector", shotEngineText(r, ENGINE_TR[r.engine] ?? r.engine, sc.scene_code), "ok");
+  }, "inspector");
+  return (
+    <div className="hint stack mt8" role="group" aria-label={`Sahnenin motorunu ${name} yapma onayı`} aria-busy={!plan && !err}>
+      <span>Model değişimi bütün sahneye uygulanır: sahnenin çekimleri {name} ile yeniden üretilir.</span>
+      {err && <p className="bad small">{err}</p>}
+      {!plan && !err && <span className="faint small">Tahmin hesaplanıyor…</span>}
+      {plan && (
+        <>
+          <span className="small">Çekimler: <span className="mono">{plan.shots.join(", ")}</span></span>
+          {plan.parts.length > 0 && (
+            <ul className="lines">
+              {plan.parts.map((x) => (
+                <li key={x.part.join("+")}><span className="mono">~{usdTr(x.usd)}</span> · <span className="mono">{x.part.join(" + ")}</span>
+                  <span className="faint"> · tek istek</span>
+                  {x.endpoint && <div className="mono small faint" style={{ overflowWrap: "anywhere" }}>{x.endpoint}</div>}</li>
+              ))}
+            </ul>
+          )}
+          <dl className="kv">
+            <dt>Toplam</dt><dd className="mono">~{usdTr(plan.total_usd)}</dd>
+            <dt>Kalan bütçe</dt><dd className="mono">{usdTr(plan.remaining_usd)}</dd>
+          </dl>
+          {!plan.budget_ok && <p className="warn small">Bütçe yetmiyor: tahmini {usdTr(plan.total_usd)}, kalan {usdTr(plan.remaining_usd)}.</p>}
+          <span className="faint small">Bu onay yeni planları da onaylar; eski klipler varyasyon olarak kalır.</span>
+        </>
+      )}
+      <div className="row">
+        <button className="btn primary" type="button" disabled={busy || frozen || !plan || !plan.budget_ok}
+          title={frozen ? FROZEN_TITLE : undefined} onClick={confirm}>
+          Onayla: bütün sahne {name}{plan ? ` (~${usdTr(plan.total_usd)})` : ""}</button>
+        {shotOnly && (
+          <button className="btn" type="button" disabled={busy || frozen} onClick={single}
+            title="Bu çekim kendi parçası olur ve önceki çekimin son karesiyle başlar; sonraki çekim bu çekimin son karesiyle yeniden bağlanır (ikisi yeniden üretilir)">
+            {SHOT_ONLY_LABEL}</button>
+        )}
+        <button className="btn ghost" type="button" onClick={onClose}>Vazgeç</button>
+      </div>
+      {shotOnly && <span className="faint small">{BOUNDARY_NOTE}</span>}
+    </div>
   );
 }
 
@@ -586,8 +736,10 @@ function PartPlan({ sc, plan }: { sc: Scene; plan: FalPlan | undefined }) {
         <p className="faint small">
           Süreklilik: {TRANSITION_TR[c.transition]?.split(":")[0] ?? c.transition}
           {c.expected && c.previous ? `; ${c.previous} klibinin son karesi ilk referans olarak verilir` : ""}{c.note ? `. ${c.note}` : ""}
+          {c.model_switch && <span className="tag warn" style={{ marginLeft: 6 }} title="Önceki çekim başka motorla üretildi; model değişimi sahne sınırında önerilir">sahne içi model değişimi</span>}
         </p>
       )}
+      {plan.split && <SplitView split={plan.split} codes={plan.part} code={sc.scene_code} planned={plan.split.segment_planned} segment={plan.split.segment} />}
       <label className="field">Çekime geçiş
         <select value={sc.transition_explicit ?? "auto"} disabled={busy} aria-label="Çekime geçiş" onChange={(e) => setTransition(e.target.value)}
           title="Parçanın ilk çekimi devam ediyorsa önceki klibin son karesi ilk referanstır; kesmede yalnızca referanslar">
@@ -609,6 +761,23 @@ function PartPlan({ sc, plan }: { sc: Scene; plan: FalPlan | undefined }) {
           title={frozen ? FROZEN_TITLE : blocked ? BLOCKED_TITLE : `Plan onaylanır ve ${plan.part.join(", ")} tek istekte üretilir`}>Onayla ve üret</button>
       </div>
     </>
+  );
+}
+
+/** Kazanan parça klibinin bölünmesi: bu çekimin kesmeleri (gerçek ve planlı), her iç sınırın kaynağı ve uyarı. */
+export function SplitView({ split, codes, code, segment, planned }: {
+  split: PartSplit; codes: string[] | null | undefined; code: string;
+  segment: [number, number] | null | undefined; planned: [number, number] | null | undefined;
+}) {
+  const edges = shotBoundaries(split, segment, planned, codes, code);
+  const sources = boundarySources(split, codes);
+  return (
+    <div className="stack" style={{ gap: 2 }} aria-label="Klibin bölünmesi">
+      {edges.map((b) => <span key={`${b.from}-${b.to}`} className="small mono">{b.text}</span>)}
+      {segment && <span className="faint small mono">Bu çekim {sec1(segment[0])}–{sec1(segment[1])} sn{planned ? ` · planlı ${sec1(planned[0])}–${sec1(planned[1])} sn` : ""}</span>}
+      <span className="faint small">{cutsText(split)}{sources.length ? ` · ${sources.join("; ")}` : ""}</span>
+      {split.warning && <span className="caution small">{split.warning}</span>}
+    </div>
   );
 }
 
@@ -665,10 +834,10 @@ function Gates({ v }: { v: Variation }) {
 function Override({ sc, v }: { sc: Scene; v: Variation }) {
   const { busy, frozen, act, note, setVar } = usePanel();
   const pick = (full: boolean) => act(async () => {
-    const r = await api.post<StageResult>(`/scenes/${sc.id}/promote/${v.id}?override=true${full ? "&full=true" : ""}`);
+    const r = await api.post<PromoteResult>(`/scenes/${sc.id}/promote/${v.id}?override=true${full ? "&full=true" : ""}`);
     setVar(null);
-    note("inspector", full ? `Aynı seed (${v.seed}) ile tam tur klibi üretilecek ve 1. sıraya girecek. ${resultText(r)}`
-      : `Kapının kararı geçersiz kılındı: aday 1. sırada. ${resultText(r)}`, r.blocked ? "err" : "ok");
+    const x = promoteText(r, full ? `Aynı seed (${v.seed}) ile tam tur klibi üretilecek ve 1. sıraya girecek. ` : "Kapının kararı geçersiz kılındı: aday 1. sırada. ");
+    note("inspector", x.text, x.kind);
   }, "inspector");
   const why = v.anomalies.map((a) => ANOMALY_TR[a] || a).join(", ");
   return (
@@ -690,9 +859,10 @@ function Pool({ sc }: { sc: Scene }) {
   const picked = parseIds(compareRaw, sc);
   const n = candidates(sc).length;
   const promote = (v: Variation) => act(async () => {
-    const r = await api.post<StageResult>(`/scenes/${sc.id}/promote/${v.id}`);
+    const r = await api.post<PromoteResult>(`/scenes/${sc.id}/promote/${v.id}`);
     setVar(null);
-    note("inspector", resultText(r), r.blocked ? "err" : "ok");
+    const x = promoteText(r);
+    note("inspector", x.text, x.kind);
   }, "inspector");
   return (
     <Section title="Rafine havuz" meta={`${pool.length} aday`}>

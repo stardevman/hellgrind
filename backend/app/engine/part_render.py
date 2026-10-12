@@ -90,13 +90,15 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
         _checks(s, sc, plan, cfg)
         cont = dict(plan.continuity)
         previous = None
-        if cont.get("expected") and not cont.get("winner_id"):
-            from app.core.chain import neighbours
-            prev, _ = neighbours(s, plan.leader)
-            previous = (str(prev.id), prev.scene_code) if prev is not None else None
+        if cont.get("previous_active"):
+            prev = s.get(Scene, cont["previous_id"])
+            # önceki çekimin geçerli kazananı varsa onun son karesi; kazananı yoksa ya da yeniden üretim için
+            # işaretliyse (görsel özeti sıfırlandı, ör. "Bu çekimi ayrı üret") önce o parça üretilir
+            if not cont.get("winner_id") or prev.visual_hash is None:
+                previous = (cont["previous_id"], cont["previous"])
     frame_key = None
     if cont.get("expected"):
-        if previous is not None:                       # önceki parça henüz üretilmedi: önce o (sırayla)
+        if previous is not None:                       # önceki parça güncel planıyla hazır mı (değilse önce o; sırayla)
             try:
                 ok = ensure_part(project_id, previous[0], depth + 1, caller=caller)
             except PartStop as e:
@@ -124,6 +126,8 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
             lock.release()
         except Exception:                               # noqa: BLE001 — süresi dolmuş kilit
             pass
+    if winners and _already_final(winners):           # önceki parçanın hazır kazananları: yeniden yazılmaz
+        return True
     if not winners:
         for sid in snapshot["ids"]:
             advance_scene(project_id, sid, status="needs_review",
@@ -133,6 +137,11 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
         return False
     _finalize(project_id, plan, snapshot, winners, caller)
     return True
+
+
+def _already_final(winners: dict[str, str]) -> bool:
+    with session_scope() as s:
+        return all((v := s.get(Variation, vid)) is not None and v.refined_rank == 1 for vid in winners.values())
 
 
 def _last_frame(project_id: str, scene_id: str) -> str | None:
@@ -255,14 +264,67 @@ def _request(plan, snap: dict, seed: int, provider) -> GenRequest:
                              "project_id": str(plan.leader.project_id)})
 
 
+CUT_THRESHOLD = 0.3            # FFmpeg sahne değişimi skoru (0-1): bunun üstü kesme sayılır
+CUT_TOLERANCE = 0.4            # planlı sınıra en çok bu oranda (komşu çekimlerin kısasının) uzak kesme eşlenir
+
+
+def detect_cuts(path: str, threshold: float = CUT_THRESHOLD) -> list[float]:
+    """Klipteki gerçek kesmeler (sn): FFmpeg `select='gt(scene,eşik)'` + showinfo (PySceneDetect ContentDetector'ın
+    karşılığı, ek bağımlılık yok)."""
+    proc = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-vf", f"select='gt(scene,{threshold})',showinfo",
+                           "-an", "-f", "null", "-"], capture_output=True, text=True)
+    import re
+    return [round(float(m), 3) for m in re.findall(r"pts_time:([0-9.]+)", proc.stderr)]
+
+
+def boundaries(planned: list[tuple], duration: float, cuts: list[float]) -> tuple[list[tuple], list[str], str | None]:
+    """Senaryodaki çekim sınırlarını klipteki gerçek kesmelere eşler. planned: [(kod, başlangıç, bitiş)] (istenen süreye
+    göre); duration: klibin gerçek süresi (H3 Max ~0,7 sn uzun olabilir: planlı sınırlar orana göre ölçeklenir).
+    Her iç sınır için tolerans içindeki en yakın kesme alınır (sıra korunur); bulunamazsa ölçeklenmiş planlı sınır.
+    (segmentler, sınır kaynakları ["cut" | "planned"], uyarı)."""
+    total = planned[-1][2] if planned else 0.0
+    scale = (duration / total) if total and duration else 1.0
+    inner = [round(end * scale, 3) for _, _, end in planned[:-1]]
+    lengths = [(end - start) * scale for _, start, end in planned]
+    chosen, sources, used = [], [], set()
+    lower = 0.0
+    for i, b in enumerate(inner):
+        tol = CUT_TOLERANCE * min(lengths[i], lengths[i + 1])
+        options = [c for c in cuts if c > lower + 0.2 and abs(c - b) <= tol and c not in used]
+        if options:
+            c = min(options, key=lambda c: abs(c - b))
+            used.add(c)
+            chosen.append(c)
+            sources.append("cut")
+        else:
+            chosen.append(b)
+            sources.append("planned")
+        lower = chosen[-1]
+    edges = [0.0, *chosen, round(duration or total, 3)]
+    segments = [(code, edges[i], edges[i + 1]) for i, (code, _, _) in enumerate(planned)]
+    warning = None
+    if planned and len(planned) > 1 and (len(cuts) != len(inner) or "planned" in sources):
+        warning = (f"Klipte {len(cuts)} kesme bulundu, senaryoda {len(inner)} çekim sınırı var: "
+                   + ", ".join(f"{planned[i + 1][0]} {'kesmeden' if s == 'cut' else 'en yakın planlı sınırdan'} "
+                               f"({chosen[i]:.2f} sn)".replace(".", ",") for i, s in enumerate(sources))
+                   + ". Bölmeyi Kurgu'da kontrol edin.")
+    return segments, sources, warning
+
+
 def _cut(path: str, plan, snap: dict, seed: int, attempt: int, clip_key: str, score, result) -> dict[str, str]:
-    """Parça klibini çekim sınırlarından keser; her çekime bir varyasyon (geçen: passed, kalan: karantina)."""
+    """Parça klibini klipteki GERÇEK kesmelerden keser (sahne değişimi tespiti; sabit saniyeden değil): kesmeler
+    senaryodaki çekim sırasına eşlenir, sayı uymazsa en yakın planlı sınır kullanılır ve uyarı yazılır. Her çekime bir
+    varyasyon (geçen: passed, kalan: karantina)."""
+    from app.engine.finishing import probe as probe_media
     from app.engine.iteration import make_thumb
-    total = max(plan.duration_s, 1e-6)
+    duration = probe_media(path)["duration_s"] or plan.duration_s
+    total = max(duration, 1e-6)
+    cuts = detect_cuts(path) if len(snap["timeline"]) > 1 else []
+    segments, sources, split_warning = boundaries(snap["timeline"], duration, cuts)
     out = {}
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
-        for (code, start, end), sid in zip(snap["timeline"], snap["ids"]):
+        for i, ((code, start, end), sid) in enumerate(zip(segments, snap["ids"])):
             vid = uuid.uuid4()
             seg = os.path.join(tmp, f"{code}.mp4")
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-i", path, "-t", f"{end - start:.3f}",
@@ -274,7 +336,9 @@ def _cut(path: str, plan, snap: dict, seed: int, attempt: int, clip_key: str, sc
             share = round(float(result.cost_usd) * (end - start) / total, 4)
             params = {"part": plan.part_hash, "part_codes": snap["codes"], "part_clip": clip_key, "attempt": attempt,
                       "request_id": result.request_id,
-                      "segment": [start, end], "resolution": plan.resolution, "duration_s": end - start,
+                      "segment": [start, end], "segment_planned": [snap["timeline"][i][1], snap["timeline"][i][2]],
+                      "split": {"cuts": cuts, "sources": sources, "warning": split_warning},
+                      "resolution": plan.resolution, "duration_s": end - start,
                       "prompt": plan.prompt, "input_mode": "reference", "render_mode": settings.scene_render_mode,
                       "references": [{"image": r.number, "name": r.name, "kind": r.kind} for r in plan.refs],
                       "continuity": {k: plan.continuity.get(k) for k in ("transition", "previous", "frame_key")},
