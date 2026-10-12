@@ -202,11 +202,15 @@ export interface ProjectSettings {
 }
 
 export interface ContinuityPair {
-  from: string; to: string; to_id: string; jump: boolean;
-  delta: { brightness: number; warmth: number; saturation: number };
-  suggestion?: Record<string, number> | null;
-  /** Kamerası değişen kesmede ölçü bölgesi (strips | outer) ve eşik gevşekliği. */
+  from: string; to: string; to_id: string; from_id?: string; jump: boolean;
+  delta: { brightness: number; warmth: number; saturation: number; E?: number };
+  /** Sıçrama puanı: 1 eşik (ΔL 3 ya da ΔE 4, gevşeklikle çarpılı); üstü sıçrama. */
+  score?: number;
+  suggestion?: Record<string, number> | null; suggestion_score?: number | null;
+  /** Kamerası değişen kesmede ölçü bölgesi (strips | outer) ve eşik gevşekliği (kamera 1,5; yeni sahne 2). */
   region?: string; slack?: number;
+  /** Geçişin türü: continuous (aynı andan devam), cut (kesme), new_scene (yeni sahne başlığı). */
+  seam?: "continuous" | "cut" | "new_scene";
 }
 
 export interface Project {
@@ -273,6 +277,8 @@ export interface Scene {
   upgrade_requested: boolean; cut_tier: string | null; draft_url: string | null;
   method: string; method_hint: boolean; external_url: string | null; guide_url: string | null;
   grade: Grade; graded: boolean; lipsync_ready: boolean;
+  /** Renk önizleme adreslerinin önbellek anahtarı (kaynak video değişince değişir). */
+  grade_rev?: string | null;
   heading: string; description: string | null; emotion: string;
   camera: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
   duration_s: number; action_complexity: number; spent_usd: number; last_error: string | null;

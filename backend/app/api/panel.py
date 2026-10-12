@@ -1,4 +1,5 @@
 """Kontrol panelini besleyen uç noktalar: ön ayarlar, senaryo yükleme, toplu görünüm, medya, film."""
+import hashlib
 import json
 from typing import Literal
 from collections import defaultdict
@@ -321,6 +322,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "guide_url": _media(sc.guide_key), "grade": grade_settings(sc.grade), "graded": bool(sc.graded_video_key),
         "grade_auto": sc.grade_auto,
         "lipsync_ready": bool(sc.lipsync_video_key),
+        # Renk önizleme adreslerinin önbellek anahtarı: kaynak video değişince (yeni kazanan, bölme) eski kare görünmesin
+        "grade_rev": hashlib.sha1(sc.lipsync_video_key.encode()).hexdigest()[:10] if sc.lipsync_video_key else None,
         "heading": (sc.script_text or "").split("\n")[0], "description": sc.description, "emotion": sc.emotion,
         "camera": sc.camera, "camera_plan": sc.camera_plan, "camera_effective": camera_of(sc), "entry_mode": sc.entry_mode,
         "entering": (seams.get(sc.id) or {}).get("entering") or [],

@@ -61,7 +61,7 @@ describe("documented Turkish texts", () => {
     "Işık öneki", "Hareket tarzı", "Yeni sürüm olarak kaydet", "Etkisini önizle", "Etkinleştir", "Etkilenen çekimleri hemen yeniden üret",
     "Örnekle doldur", "Kareleri hazırla", "PDF indir", "Onayla", "Değişiklik iste", "Taslak geçişi başlat", "İyileştirme geçişi",
     "İyileştir", "Kaba kurgu", "Final", "kare onayı zorunlu", "Previs rehberi yükle", "Dış çekim yükle", "Elle düzeltme",
-    "Revizyon yükle", "Orijinale dön", "Düzenlenmiş ilk kare", "Sürekliliği denetle", "Öneriyi uygula", "Rengi uygula",
+    "Revizyon yükle", "Orijinale dön", "Düzenlenmiş ilk kare", "Sürekliliği denetle", "Öneriyi uygula", "Öneriyi dene", "Geçişi göster", "Rengi uygula",
     "Kabul edilen çekim başına varyasyon", "Film dakikası başına", "sanal maliyet", "gerçek harcama", "Eleme nedenleri", "Son kararlar",
     "Profesyonel dışa aktarma", "EDL (CMX3600)", "OpenTimelineIO", "Çekim paketi (zip)", "Kürasyon kaydını indir",
     // Karşılaştırma

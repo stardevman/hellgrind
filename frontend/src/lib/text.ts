@@ -387,6 +387,23 @@ export function impactText(i: StyleImpact): string {
 }
 
 /** Karakter dışı bölgenin LAB farkı: ΔL (parlaklık), Δb (sıcaklık), ΔE; doygunluk tüm kareden (bilgi). */
+/** Renk sıçramasının sade dille anlatımı: sonraki çekim öncekine göre nasıl görünüyor, fark ne kadar, neden işaretlendi. */
+export const jumpText = (j: { from: string; to: string; delta: Record<string, number | undefined>; slack?: number; seam?: string; region?: string }) => {
+  const dl = j.delta.brightness ?? 0, db = j.delta.warmth ?? 0, de = j.delta.E ?? 0;
+  const how: string[] = [];
+  if (Math.abs(dl) >= 1.5) how.push(`${Math.abs(dl) >= 4 ? "belirgin ölçüde " : "biraz "}daha ${dl > 0 ? "açık" : "koyu"}`);
+  if (Math.abs(db) >= 1.5) how.push(`${Math.abs(db) >= 4 ? "belirgin ölçüde " : "biraz "}daha ${db > 0 ? "sıcak" : "soğuk"}`);
+  const look = how.length ? how.join(" ve ") + " görünüyor" : "parlaklığı ve sıcaklığı yakın ama renk tonu farklı (yeşil–macenta ekseni)";
+  const slack = j.slack ?? 1;
+  const limit = (4 * slack).toFixed(1).replace(".", ",");
+  const why = j.seam === "new_scene"
+    ? (slack >= 2 ? ` Yeni sahne olduğu için eşik gevşek (ΔE ${limit}); yine aşıldı.`
+      : " Yeni sahne: mekân ya da zaman değiştiği için bu fark beklenebilir; bu rapor eski, sıkı eşikle alındı, \"Sürekliliği denetle\" ile yeniden ölçün.")
+    : slack > 1 ? ` Kamera değiştiği için eşik gevşek (ΔE ${limit}, ${j.region === "outer" ? "merkez dışı alan" : "kenar şeritleri"} ölçüldü).`
+      : ` Eşik ΔE ${limit} ya da parlaklıkta 3.`;
+  return `${j.to}, önceki çekim ${j.from}'e göre ${look}. Toplam fark ΔE ${de.toFixed(1).replace(".", ",")}.${why}`;
+};
+
 export const deltaText = (d: Record<string, number>) => {
   const sign = (v: number, digits = 1) => `${v > 0 ? "+" : ""}${v.toFixed(digits).replace(".", ",")}`;
   const parts = [`ΔL ${sign(d.brightness ?? 0)}`, `sıcaklık ${sign(d.warmth ?? 0)}`];

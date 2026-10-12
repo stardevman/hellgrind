@@ -90,10 +90,14 @@ def bhattacharyya(p: np.ndarray, q: np.ndarray) -> float:
     return float(np.sqrt(max(0.0, 1.0 - float(np.sum(np.sqrt(p * q))))))
 
 
-def compare(a: dict, b: dict, camera_change: bool = False) -> dict:
+NEW_SCENE_SLACK = 2.0          # yeni sahne (mekân ya da zaman değişir): farklı bir görünüm beklenir, yalnızca büyük sıçrama
+
+
+def compare(a: dict, b: dict, camera_change: bool = False, new_scene: bool = False) -> dict:
     """b - a. delta: parlaklık (ΔL), sıcaklık (Δb) ve ΔE karakter dışı bölgenin LAB ölçüsünden; doygunluk tüm kare HSV
     ortalamasından (bilgi). camera_change: kamerası değişen kesme (cut-in, yeni açı): şerit ve merkez dışı ölçülerden
-    küçüğü, eşik color.CAMERA_CHANGE_SLACK kadar gevşek (sabit şeritler farklı içerik görür)."""
+    küçüğü, eşik color.CAMERA_CHANGE_SLACK kadar gevşek (sabit şeritler farklı içerik görür). new_scene: yeni sahne
+    başlığıyla gelen çekim; mekân ya da zaman değiştiği için eşik NEW_SCENE_SLACK kadar gevşek."""
     lab = color.difference(a["lab"], b["lab"])
     slack, region = 1.0, "strips"
     if camera_change and "lab_outer" in a and "lab_outer" in b:
@@ -101,6 +105,8 @@ def compare(a: dict, b: dict, camera_change: bool = False) -> dict:
         outer = color.difference(a["lab_outer"], b["lab_outer"])
         if color.jump_score(outer) < color.jump_score(lab):
             lab, region = outer, "outer"
+    if new_scene:
+        slack = max(slack, NEW_SCENE_SLACK)
     score = color.jump_score(lab, slack)
     deltas = {"brightness": lab["L"], "warmth": lab["b"], "E": lab["E"]}
     out = {"score": round(score, 3), "delta": deltas, "lab": lab, "region": region, "slack": slack,
@@ -217,7 +223,8 @@ def check_project(project_id: str, only_scene: str | None = None) -> dict:
                     and ("content" in old) == (transition_of(b) == "continuous"):
                 out.append(old)
                 continue
-            result = compare(measured(a.final_video_key), measured(b.final_video_key), camera_changed(a, b))
+            result = compare(measured(a.final_video_key), measured(b.final_video_key), camera_changed(a, b),
+                             new_scene=transition_of(b) == "new_scene")
             pair = {"from": a.scene_code, "to": b.scene_code, "from_id": ids[0], "to_id": ids[1],
                     "final": [a.final_video_key, b.final_video_key], **result,
                     "suggestion": None, "suggestion_score": None, "seam": transition_of(b)}

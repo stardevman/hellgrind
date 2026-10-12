@@ -134,9 +134,14 @@ aynı görünüm açılır.
      döngü; <kbd>1</kbd>–<kbd>4</kbd> bir adayı tek başına büyütür.
    - Ölçüm tablosu birleşik skoru (gerçek skorlayıcıyla stil, tarif ve yüz uyumunu da) yan yana koyar, her satırda öndekini
      işaretler ve farkı yazar. Havuzdaki bir aday **Bunu kullan** ile seçilir; seçim kürasyon kaydına düşer.
-7. **Renk** sayfası: seçili çekimin önce/sonra görüntüsü, kaydırıcılarla pozlama, kontrast, doygunluk, gama ve sıcaklık
-   (çift tık nötre döndürür), film LUT'u ve **Sürekliliği denetle**; alttaki klip şeridinde renk sıçramaları kırmızı çentikle
-   işaretlidir ve **Öneriyi uygula** tek tıkla düzeltir.
+7. **Renk** sayfası: seçili çekimin önce/sonra görüntüsü (**Bu çekim**) ya da önceki çekimle yan yana (**Geçiş**),
+   kaydırıcılarla pozlama, kontrast, doygunluk, gama ve sıcaklık (çift tık nötre döndürür; kaydırıcılar yalnızca önizlemeyi
+   değiştirir, **Rengi uygula** çekimi yeniden renklendirip montajlar), film LUT'u ve **Sürekliliği denetle**. Süreklilik,
+   aynı sekansta art arda gelen çekimlerin orta karelerini karşılaştırır; eşik ΔL 3 ya da ΔE 4, kamera değişiminde 1,5 kat,
+   yeni sahne başlığında 2 kat gevşek (mekân değişince farklı görünüm beklenir). Her sıçrama sade dille anlatılır (sonraki
+   çekim daha koyu/açık, sıcak/soğuk ya da tonu farklı) ve üç adımla çözülür: **Geçişi göster** (iki kare yan yana),
+   **Öneriyi dene** (öneri kaydırıcılara yüklenir, uygulanmaz), **Rengi uygula** ya da **Öneriyi uygula**. Alttaki klip
+   şeridinde sıçramalar kırmızı çentikle işaretlidir. Üretim durdurulmuşken renk uygulanamaz; sayfa bunu söyler.
 8. **Teslim** sayfası: **Tamamlanan N sahneyi birleştir** (ya da kaba kurgu), film ve kesme şeridi; dışa aktarma kuyruğu (EDL,
    OpenTimelineIO, çekim paketi, storyboard PDF'i, kürasyon kaydı) ve verimlilik raporu.
 9. Üst banttaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**

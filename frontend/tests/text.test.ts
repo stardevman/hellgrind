@@ -178,3 +178,15 @@ describe("promptSourceText", () => {
       .toBe("Kurallar istemi · LLM istemi yazılıyor…");
   });
 });
+
+describe("jump text", () => {
+  it("says how the next shot looks, the total difference and why it was flagged", async () => {
+    const { jumpText } = await import("@/lib/text");
+    expect(jumpText({ from: "S001_SH03", to: "S002_SH01", delta: { brightness: -0.4, warmth: -1.4, E: 5.3 } }))
+      .toBe("S002_SH01, önceki çekim S001_SH03'e göre parlaklığı ve sıcaklığı yakın ama renk tonu farklı (yeşil–macenta ekseni). Toplam fark ΔE 5,3. Eşik ΔE 4,0 ya da parlaklıkta 3.");
+    expect(jumpText({ from: "A", to: "B", delta: { brightness: -5.9, warmth: 2, E: 6.5 }, slack: 1.5, region: "outer" }))
+      .toBe("B, önceki çekim A'e göre belirgin ölçüde daha koyu ve biraz daha sıcak görünüyor. Toplam fark ΔE 6,5. Kamera değiştiği için eşik gevşek (ΔE 6,0, merkez dışı alan ölçüldü).");
+    expect(jumpText({ from: "A", to: "B", delta: { brightness: 1, warmth: 0, E: 9 }, slack: 2, seam: "new_scene" })).toContain("Yeni sahne olduğu için eşik gevşek (ΔE 8,0)");
+    expect(jumpText({ from: "A", to: "B", delta: { brightness: 1, warmth: 0, E: 5 }, slack: 1, seam: "new_scene" })).toContain("bu rapor eski, sıkı eşikle alındı");
+  });
+});

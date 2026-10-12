@@ -142,6 +142,18 @@ def spent(pid):
         return s.get(Project, pid).spent_usd
 
 
+def test_a_new_scene_seam_tolerates_a_different_look_but_still_flags_a_big_jump():
+    """Yeni sahne (mekân/zaman değişir) ΔE 5,3'lük farkla sıçrama sayılmaz; aynı fark kesmede sıçramadır; ΔE 9 yine sıçrar."""
+    base = {"L": 50.0, "a": 0.0, "b": 0.0, "sdL": 10.0}
+    a = {"lab": base}
+    near = {"lab": {**base, "a": 5.3}}                      # ΔE ≈ 5,3 > 4 (eşik)
+    far = {"lab": {**base, "a": 9.0}}
+    assert consistency.compare(a, near)["jump"] is True
+    r = consistency.compare(a, near, new_scene=True)
+    assert r["jump"] is False and r["slack"] == consistency.NEW_SCENE_SLACK
+    assert consistency.compare(a, far, new_scene=True)["jump"] is True
+
+
 def test_a_colour_change_runs_only_grade_and_mux(api, produced, monkeypatch):
     pid, ids = produced
     sid = ids["S001_SH02"]
