@@ -43,8 +43,8 @@ describe("design contract", () => {
     expect(CSS).toContain(".strip .gap");                 // test turu ile tam tur arasındaki ayraç
   });
 
-  it("styles the step bar, the next-up link, the view-mode switch and the tour", () => {
-    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+  it("styles the step bar, the next-up link, the admin login and the tour", () => {
+    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
   });
 });
 

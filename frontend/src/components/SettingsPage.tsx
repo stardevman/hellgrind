@@ -1,7 +1,8 @@
 "use client";
-/* Ayarlar: ücretli servislerin bağlantıları (anahtar, model ve uç noktalar, motor seçimi), ücretsiz/ücretli mod ve
-   fiyat tablosu. Her şey .env (fiyatlar pricing.yaml) dosyasına yazılır ve servisler yeniden başlatılmadan geçerli
-   olur. Anahtarlar yalnızca maskeli görünür; ücretli moda geçiş açık onay ister. */
+/* Ayarlar: Kullanıcı / Yönetici seçimi (herkese açık) ve yönetici modunda ücretli servislerin bağlantıları (anahtar, model
+   ve uç noktalar, motor seçimi), ücretsiz/ücretli mod ve fiyat tablosu. Her şey .env (fiyatlar pricing.yaml) dosyasına
+   yazılır ve servisler yeniden başlatılmadan geçerli olur. Anahtarlar yalnızca maskeli görünür; ücretli moda geçiş açık
+   onay ister. Kullanıcı modunda /settings uçları çağrılmaz (yönetici şifresi tanımlıysa sunucu reddeder). */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -13,7 +14,7 @@ import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, Replacement
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
-type Sec = "mode" | Service["id"] | "pricing" | "audit";
+type Sec = "view" | "mode" | Service["id"] | "pricing" | "audit";
 
 const tone = (ok: boolean | null) => (ok === true ? "ok" : ok === false ? "bad" : "warn");
 
@@ -661,7 +662,48 @@ function PricingView({ onSaved }: { onSaved: () => void }) {
   );
 }
 
+/** Kullanıcı / Yönetici seçimi. Yönetici seçilince şifre tanımlıysa giriş penceresi açılır; kullanıcıya dönmek oturumu kapatır. */
+function ViewModeView() {
+  const { admin, adminState, setAdmin } = usePanel();
+  return (
+    <Panel title="Kullanıcı ve yönetici" meta={admin ? "yönetici" : "kullanıcı"}>
+      <div className="pad stack">
+        <div className="stack" role="radiogroup" aria-label="Kullanım modu" style={{ gap: 6 }}>
+          <label className="choice">
+            <input type="radio" name="view-mode" checked={!admin} onChange={() => setAdmin(false)} />
+            <span><b>Kullanıcı</b><small>Her sayfada yalnızca filmi yapmak için gerekenler: senaryo, varlıklar, storyboard, kurgu, renk, teslim, bütçe ve üretimi durdurma.</small></span>
+          </label>
+          <label className="choice">
+            <input type="radio" name="view-mode" checked={admin} onChange={() => setAdmin(true)} />
+            <span><b>Yönetici{adminState?.required && !adminState.admin && <> <Icon.lock /></>}</b><small>Bütün ayrıntılar: ücretli servisler ve anahtarlar, çalışma modu, fiyat tablosu, servis geçmişi, motor ve plan ayrıntıları, aday skorları, tamamlama, upscale ve elle düzeltme.</small></span>
+          </label>
+        </div>
+        <p className="faint small">
+          {!adminState ? "Yönetici durumu okunuyor…"
+            : adminState.required ? "Yönetici modu şifreyle açılır (.env'deki ADMIN_PASSWORD); kullanıcıya dönmek oturumu kapatır. Seçim bu tarayıcıda hatırlanır."
+            : "Yönetici şifresi tanımlı değil: herkes yönetici moduna geçebilir. Paneli başkalarına açmadan önce .env'e ADMIN_PASSWORD ekleyin."}
+        </p>
+      </div>
+    </Panel>
+  );
+}
+
 export function SettingsPage() {
+  const { admin } = usePanel();
+  if (admin) return <AdminSettings />;
+  return (
+    <div className="page two-l">
+      <Panel title="Ayarlar">
+        <div className="side-h">Görünüm</div>
+        <ul className="list"><li><button type="button" aria-current>Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li></ul>
+        <p className="pad faint small">Ücretli servisler, çalışma modu, fiyat tablosu ve değişiklik kaydı yönetici modunda görünür.</p>
+      </Panel>
+      <ViewModeView />
+    </div>
+  );
+}
+
+function AdminSettings() {
   const { busy, setHistory } = usePanel();
   const { data: st, mutate } = useSWR<SettingsState>("/settings", fetcher, { refreshInterval: POLL_MS * 2 });
   const { data: prices } = useSWR<{ table: PricingTable }>("/settings/pricing", fetcher, { revalidateOnFocus: false });
@@ -674,7 +716,9 @@ export function SettingsPage() {
   );
   return (
     <div className="page three">
-      <Panel title="Ayarlar" meta="ücretli servisler">
+      <Panel title="Ayarlar" meta="yönetici">
+        <div className="side-h">Görünüm</div>
+        <ul className="list">{item("view", "Kullanıcı ve yönetici", <span className="st info">yönetici</span>)}</ul>
         <div className="side-h">Mod</div>
         <ul className="list">{item("mode", "Çalışma modu", <span className={`st ${st.dry_run ? "ok" : "bad"}`}>{st.dry_run ? "ücretsiz" : "ücretli"}</span>)}</ul>
         <div className="side-h">Servisler</div>
@@ -693,7 +737,8 @@ export function SettingsPage() {
         </p>
       </Panel>
 
-      {sec === "mode" ? <ModeView st={st} onSaved={refresh} />
+      {sec === "view" ? <ViewModeView />
+        : sec === "mode" ? <ModeView st={st} onSaved={refresh} />
         : svc ? <ServiceView key={svc.id} svc={svc} st={st} prices={prices?.table} onSaved={refresh} />
         : sec === "pricing" ? <PricingView onSaved={refresh} />
         : (

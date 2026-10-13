@@ -25,7 +25,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { page: "edit", target: "inspector", when: "project", title: "Denetçi", text: "Seçili çekimin ayrıntıları sekmelerde: Çekim (durum, adaylar, \"Bunu kullan\"), Ses (replikler, müzik) ve Üretim (motor, yöntem, elle düzeltme). Her eylemden sonra hangi aşamaların çalışacağı yazılır; yalnızca ses değişirse görüntü motoru çağrılmaz." },
   { page: "deliver", target: "deliver", when: "project", title: "4. Teslim", text: "Tamamlanan çekimler tek filme birleşir; kaba kurgu ve final ayrı sekmelerde izlenir. EDL, OpenTimelineIO ve çekim paketi buradan indirilir." },
   { target: "budget", title: "Bütçe ve Kill-Switch", text: "Üst banttaki bütçe göstergesi harcanan tutarı ve limiti gösterir; tıklayınca ayrılan, kalan ve yumuşak sınır açılır. \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
-  { target: "view-mode", title: "Kullanıcı ve yönetici modu", text: "Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servislerin ayarları, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları Yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
+  { target: "settings", title: "Ayarlar: kullanıcı ve yönetici", text: "Ayarlar'da kullanıcı ya da yönetici modunu seçersin. Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servisler, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
   { target: "steps", title: "Hepsi bu", text: "Shift+1…8 sayfalar arasında geçer; her adımın eksikleri üstteki şeritte, sıradaki iş alttaki rayda durur." },
 ];
 

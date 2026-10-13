@@ -1,8 +1,8 @@
 "use client";
-/* Stüdyo çerçevesi: üstte proje, bütçe, Kullanıcı / Yönetici anahtarı ve durdurma düğmesi; ortada etkin sayfa; altta dört
-   üretim adımı ve sayfaları (Shift+1…8 ile geçilir). Kullanıcı modu yalnızca filmi yapmak için gerekenleri gösterir;
-   ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır (şifre tanımlıysa girişle).
-   Rehber turu ilk açılışta kendiliğinden başlar. */
+/* Stüdyo çerçevesi: üstte proje, bütçe, Ayarlar ve durdurma düğmesi; ortada etkin sayfa; altta dört üretim adımı ve
+   sayfaları (Shift+1…8 ile geçilir). Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
+   gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
+   (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
@@ -123,7 +123,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin, adminState, setAdmin } = usePanel();
+  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -154,24 +154,14 @@ function TopBar() {
             {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
           </button>
         )}
-        <span className="vsep" />
-        <div className="seg view-mode" role="group" aria-label="Mod" data-tour="view-mode"
-          title={"Kullanıcı modu filmi yapmak için gerekenleri gösterir. Yönetici modu ücretli servisleri, fiyat tablosunu, servis geçmişini, "
-            + "motor ve plan ayrıntılarını açar" + (adminState?.required ? " (şifreyle)" : "")}>
-          <button type="button" aria-pressed={!admin} onClick={() => setAdmin(false)}>Kullanıcı</button>
-          <button type="button" aria-pressed={admin} onClick={() => setAdmin(true)}>
-            {adminState?.required && !adminState.admin && <Icon.lock />}Yönetici
-          </button>
-        </div>
         {admin && (
-          <>
-            <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
-              onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
-              title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
-            <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
-              aria-label="Ayarlar" title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear /></button>
-          </>
+          <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
+            onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
+            title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
         )}
+        <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
+          aria-label="Ayarlar" data-tour="settings"
+          title={admin ? "Kullanıcı / yönetici seçimi, ücretli servisler, mod ve fiyat tablosu" : "Ayarlar: kullanıcı / yönetici seçimi"}><Icon.gear /></button>
         {ov && (
           <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
             title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
@@ -245,14 +235,14 @@ function AdminLogin() {
   );
 }
 
-/** Kullanıcı modunda Ayarlar ya da Geçmiş açılırsa (eski bağlantı, oturum süresi doldu) sayfa yerine gösterilir. */
+/** Kullanıcı modunda servis geçmişi açılırsa (eski bağlantı, oturum süresi doldu) sayfa yerine gösterilir. */
 function AdminGate() {
-  const { page, setPage, setAdmin, adminState } = usePanel();
+  const { setPage, setAdmin, adminState } = usePanel();
   return (
     <div className="gate">
       <div className="gate-card">
         <span className="gate-ico"><Icon.lock /></span>
-        <h2>{page === "settings" ? "Ayarlar" : "Servis geçmişi"} yönetici modunda açılır</h2>
+        <h2>Servis geçmişi yönetici modunda açılır</h2>
         <p className="faint">Ücretli servislerin bağlantıları, çalışma modu, fiyat tablosu ve harcama kayıtları yalnızca yöneticiye görünür.</p>
         <div className="row">
           <button type="button" className="btn" onClick={() => setPage("edit")}>Stüdyoya dön</button>
@@ -282,7 +272,7 @@ export function AppFrame() {
   const loading = (!projects && !offline) || (projectId && !ov && !creating && !offline);
   const target: Page = isExtraPage(page) && !creating ? page
     : creating || !projectId || (ov && NEEDS_SHOTS.has(page) && !hasShots) ? "script" : page;
-  const View = isExtraPage(target) && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
+  const View = target === "history" && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
   return (
     <div className="app">
       <TopBar />

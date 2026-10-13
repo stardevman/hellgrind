@@ -212,10 +212,8 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 button.todo:hover { color: var(--text); border-color: var(--accent); }
 .todo.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .todo.ok::before { display: none; }
 .todo.ok svg { width: 13px; height: 13px; }
-.view-mode { margin-right: 2px; }
-.view-mode button { height: 22px; padding: 0 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
-.view-mode button svg { width: 11px; height: 11px; }
-/* Kullanıcı modu: .adv ile işaretli bölümler gizlenir (Kullanıcı / Yönetici anahtarı body[data-admin] yazar). */
+.choice b svg { width: 11px; height: 11px; vertical-align: -1px; color: var(--text-2); }
+/* Kullanıcı modu: .adv ile işaretli bölümler gizlenir (Ayarlar'daki Kullanıcı / Yönetici seçimi body[data-admin] yazar). */
 body[data-admin="0"] .adv { display: none !important; }
 
 /* Yönetici girişi ve kullanıcı modunda açılan yönetici sayfasının yerine gelen kilit ekranı. */
