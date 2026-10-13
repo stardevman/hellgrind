@@ -13,8 +13,8 @@ export interface TourStep {
 }
 
 export const TOUR_STEPS: readonly TourStep[] = [
-  { target: "steps", title: "Hoş geldin", text: "Bir senaryoyu filme dönüştürmek dört adımdır: Hazırlık, Onay, Üretim, Bitirme. Alttaki ray adımları ve durumlarını gösterir; sağdaki \"Sıradaki\" bağlantısı seni bir sonraki eksik işe götürür." },
-  { target: "stephead", title: "Adım şeridi", text: "Üstteki şerit bulunduğun adımın sayfalarını ve bu adımda eksik olanları listeler. Bir eksiğe tıklamak onu çözeceğin sayfayı açar; adım tamamlanınca yeşil onay görünür." },
+  { target: "steps", title: "Hoş geldin", text: "Bir senaryoyu filme dönüştürmek dört adımdır: Hazırlık, Onay, Üretim, Bitirme. Üst banttaki adımlar durumlarını gösterir; hemen altındaki şeridin sağındaki \"Sıradaki\" bağlantısı seni bir sonraki eksik işe götürür." },
+  { target: "stephead", title: "Adım şeridi", text: "Bu şerit bulunduğun adımın sayfalarını ve bu adımda eksik olanları listeler. Bir eksiğe tıklamak onu çözeceğin sayfayı açar; adım tamamlanınca yeşil onay görünür." },
   { target: "project", title: "Proje", text: "Projeler buradan seçilir ve oluşturulur. Her projenin kendi sanal bütçesi vardır; bütçe dolarsa üretim kendiliğinden durur." },
   { page: "script", target: "script-form", when: "no-project", title: "1. Senaryoyu işle", text: "Bir ad, bütçe ve üretim yoğunluğu yeter. \"Örnek senaryo\" düğmesi hazır bir metin yükler; \"Senaryoyu işle ve üret\" senaryoyu çekimlere ayırır ve üretimi başlatır." },
   { page: "script", target: "script-text", title: "Senaryo", text: "Sahne başlıkları (İÇ., DIŞ.), aksiyon paragrafları ve büyük harfli konuşmacı adları çekimlere dönüşür. Biçim kuralları sayfanın sağında durur. Yalnızca değişen çekimler yeniden üretilir." },
@@ -26,7 +26,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { page: "deliver", target: "deliver", when: "project", title: "4. Teslim", text: "Tamamlanan çekimler tek filme birleşir; kaba kurgu ve final ayrı sekmelerde izlenir. EDL, OpenTimelineIO ve çekim paketi buradan indirilir." },
   { target: "budget", title: "Bütçe ve Kill-Switch", text: "Üst banttaki bütçe göstergesi harcanan tutarı ve limiti gösterir; tıklayınca ayrılan, kalan ve yumuşak sınır açılır. \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
   { target: "settings", title: "Ayarlar: kullanıcı ve yönetici", text: "Ayarlar'da kullanıcı ya da yönetici modunu seçersin. Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servisler, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
-  { target: "steps", title: "Hepsi bu", text: "Shift+1…8 sayfalar arasında geçer; her adımın eksikleri üstteki şeritte, sıradaki iş alttaki rayda durur." },
+  { target: "steps", title: "Hepsi bu", text: "Shift+1…8 sayfalar arasında geçer; adımlar üst bantta, her adımın eksikleri ve sıradaki iş hemen altındaki şeritte durur." },
 ];
 
 export const tourStepsFor = (hasProject: boolean): TourStep[] =>

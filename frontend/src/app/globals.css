@@ -119,7 +119,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .loading { padding: 24px 12px; color: var(--text-3); text-align: center; }
 
 /* ---------- uygulama çerçevesi ---------- */
-.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
+.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100vh; height: 100dvh; }
 .topbar { display: flex; flex-direction: column; background: var(--panel); border-bottom: 1px solid var(--line); min-width: 0; }
 .tb-main { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; min-width: 0; }
 .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; }
@@ -129,7 +129,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .btn.icon-only[aria-current="page"] { color: var(--text); background: var(--hover); }
 .btn.icon-only svg { width: 16px; height: 16px; }
 .switcher { position: relative; margin-left: 6px; }
-.switch-btn { display: inline-flex; align-items: center; gap: 10px; height: 30px; max-width: 360px; padding: 0 8px 0 12px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 13px; }
+.switch-btn { display: inline-flex; align-items: center; gap: 10px; height: 30px; max-width: 300px; padding: 0 8px 0 12px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 13px; }
 .switch-btn:hover, .switch-btn[aria-expanded="true"] { border-color: #4a4d55; background: var(--hover); }
 .switch-btn svg { width: 14px; height: 14px; color: var(--text-3); flex: none; }
 .sw-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +167,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .modal h2.bad svg { color: var(--bad); }
 .kill.resume { border-color: rgba(61, 204, 145, .5); background: rgba(61, 204, 145, .1); color: var(--ok); }
 .kill.resume::before { width: 0; height: 0; border-radius: 0; background: none; border-left: 8px solid var(--ok); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-.topbar { grid-row: 1; } .alerts { grid-row: 2; } .stephead { grid-row: 3; } .workspace { grid-row: 4; } .stepbar { grid-row: 5; }   /* boş uyarı şeridi satırları kaydırmasın */
+.topbar { grid-row: 1; } .alerts { grid-row: 2; } .stephead { grid-row: 3; } .workspace { grid-row: 4; }   /* boş uyarı şeridi satırları kaydırmasın */
 .alerts:empty { display: none; }
 .alert { padding: 5px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
 .alert.frozen { background: rgba(255, 92, 85, .14); color: #ffb3ae; }
@@ -175,9 +175,10 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .alert.offline { background: var(--raised); color: var(--text-2); }
 .workspace { min-height: 0; padding: var(--gap); overflow: hidden; }
 /* Adım rayı (altta, 30 px): dört adım ve sıradaki iş. */
-.stepbar { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--panel); border-top: 1px solid var(--line); overflow: hidden; }
+/* Üst banttaki üretim adımları (dar ekranda yalnızca bulunulan adımın adı yazılır). */
+.tb-steps { display: flex; align-items: center; min-width: 0; flex: none; }
 .stp-list { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.stp button { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border: 1px solid transparent; border-radius: 11px; background: none; color: var(--text-3); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.stp button { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid transparent; border-radius: 13px; background: none; color: var(--text-3); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 .stp button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .stp button:disabled { opacity: .4; cursor: not-allowed; }
 .stp.on button { color: var(--text); background: var(--raised); border-color: var(--line-2); }
@@ -198,7 +199,6 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 
 /* Adım şeridi (çalışma alanının üstünde): adım adı, sayfa sekmeleri, eksik işler. */
 .stephead { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
-.sh-step { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
 .sh-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .sh-tabs button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: var(--r); background: none; color: var(--text-3); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .sh-tabs button svg { width: 15px; height: 15px; }
@@ -565,6 +565,18 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .steps > li { display: grid; gap: 4px; padding: 7px 8px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
 .steps summary { cursor: pointer; color: var(--text-2); }
 
+/* Orta genişlik: üst bant sığsın diye adım adları yalnızca bulunulan adımda yazılır (numara ve durum noktası kalır). */
+@media (max-width: 1480px) {
+  body[data-admin="1"] .stp:not(.on) .stp-l { display: none; }
+  body[data-admin="1"] .stp:not(.on) button { padding: 0 7px; }
+}
+@media (max-width: 1280px) {
+  .stp:not(.on) .stp-l { display: none; }
+  .stp:not(.on) button { padding: 0 7px; }
+  .switch-btn { max-width: 220px; }
+  .sw-status { display: none; }
+}
+
 /* ---------- dar ekran: tek sütun, sayfa kayar ---------- */
 @media (max-width: 1100px) {
   body { overflow: auto; }
@@ -589,16 +601,15 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .switch-btn .sw-title { flex: 1; text-align: left; }
   .menu { right: 0; max-width: none; }
   .vsep { display: none; }
-  .stepbar { position: sticky; bottom: 0; }
+  .tb-steps { order: 4; width: 100%; overflow-x: auto; scrollbar-width: none; }
   .stp button { padding: 0 7px; }
   .stp-l { display: none; }
   .stp.on .stp-l { display: inline; }
-  .nextup { max-width: 50%; }
+  .nextup { max-width: 100%; }
   .stephead { height: auto; flex-wrap: wrap; padding: 6px 10px; gap: 6px; }
   .sh-tabs { overflow-x: auto; scrollbar-width: none; }
   .sh-todos { width: 100%; overflow-x: auto; scrollbar-width: none; }
   .budget-wrap { order: 5; }
-  .view-mode { order: 4; }
   .cmp-grid, .cmp-grid.n3, .cmp-grid.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {

@@ -1,6 +1,7 @@
 "use client";
-/* Alt ray: yalnızca dört üretim adımı (numara, ad, durum noktası) ve sağda "Sıradaki" bağlantısı; 30 px. Adımın sayfaları
-   ve eksik işleri çalışma alanının üstündeki şeritte (StepHeader) durur. Shift+1…8 sayfalar arasında geçer. */
+/* Üretim adımları, hepsi üstte: üst bantta dört adım (numara, ad, durum noktası; StepRail), hemen altındaki şeritte
+   bulunulan adımın sayfa sekmeleri, bu adımın eksikleri ve en sağda "Sıradaki" bağlantısı (StepHeader). Ayarlar ve
+   Geçmiş gibi adım dışı sayfalarda şerit sayfanın adını ve "Sıradaki"yi gösterir. Shift+1…8 sayfalar arasında geçer. */
 import { useMemo } from "react";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, type StepStatus } from "@/lib/steps";
@@ -19,13 +20,13 @@ function stepTitle(st: StepStatus, hint: string): string {
   return st.todos.length ? `${head}\n${st.todos.map((t) => `• ${t.text}`).join("\n")}` : `${head}\n${hint}`;
 }
 
-export function StepBar({ hasShots }: { hasShots: boolean }) {
+/** Üst banttaki dört üretim adımı; tıklanınca adımın ilk açılabilir sayfası açılır. */
+export function StepRail({ hasShots }: { hasShots: boolean }) {
   const { page, setPage, ov } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);
-  const next = nextTodo(status);
   const current = isExtraPage(page) ? null : stepOf(page).id;
   return (
-    <nav className="stepbar" aria-label="Üretim adımları" data-tour="steps">
+    <nav className="tb-steps" aria-label="Üretim adımları" data-tour="steps">
       <ol className="stp-list">
         {STEPS.map((s, i) => {
           const st = status[i];
@@ -40,31 +41,49 @@ export function StepBar({ hasShots }: { hasShots: boolean }) {
           );
         })}
       </ol>
-      <span className="grow" />
-      <div className="nextup" aria-live="polite">
-        {next ? (
-          <button type="button" className={`nx ${next.todo.tone || ""}`} onClick={() => setPage(next.todo.page)}
-            title={`${next.step.label} adımı · ${PAGE_LABEL[next.todo.page]} sayfasına git`}>
-            <span className="nx-k">Sıradaki</span><span className="nx-t">{next.todo.text}</span><Icon.chevron />
-          </button>
-        ) : ov ? <span className="nx done"><Icon.check />Tüm adımlar tamamlandı</span> : null}
-      </div>
     </nav>
   );
 }
 
-/** Çalışma alanının üstündeki şerit: adımın adı, sayfaları (sekme) ve bu adımın eksik işleri (tıklanınca ilgili sayfa). */
+/** "Sıradaki": bütün adımlardaki ilk eksik iş; tıklanınca onu çözecek sayfa açılır. */
+function NextUp({ next }: { next: ReturnType<typeof nextTodo> }) {
+  const { setPage, ov } = usePanel();
+  return (
+    <div className="nextup" aria-live="polite">
+      {next ? (
+        <button type="button" className={`nx ${next.todo.tone || ""}`} onClick={() => setPage(next.todo.page)}
+          title={`${next.step.label} adımı · ${PAGE_LABEL[next.todo.page]} sayfasına git`}>
+          <span className="nx-k">Sıradaki</span><span className="nx-t">{next.todo.text}</span><Icon.chevron />
+        </button>
+      ) : ov ? <span className="nx done"><Icon.check />Tüm adımlar tamamlandı</span> : null}
+    </div>
+  );
+}
+
+/** Üst bandın altındaki şerit: adımın sayfaları (sekme), bu adımın eksikleri (tıklanınca ilgili sayfa) ve "Sıradaki". */
 export function StepHeader({ hasShots }: { hasShots: boolean }) {
   const { page, setPage, ov, admin } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);
   const badge = useMemo(() => pageBadges(ov), [ov]);
-  if (isExtraPage(page)) return null;
+  const next = nextTodo(status);
+  if (isExtraPage(page)) {
+    const Ico = page === "settings" ? Icon.gear : Icon.receipt;
+    return (
+      <div className="stephead" data-tour="stephead">
+        <div className="sh-tabs" role="tablist" aria-label="Sayfa">
+          <button type="button" role="tab" aria-selected><Ico />{PAGE_LABEL[page]}</button>
+        </div>
+        <span className="grow" />
+        <NextUp next={next} />
+      </div>
+    );
+  }
   const step = stepOf(page);
-  const i = STEPS.indexOf(step);
-  const st = status[i];
+  const st = status[STEPS.indexOf(step)];
+  // "Sıradaki" bu adımdaysa aynı eksik iki kez yazılmaz: şeritte yalnızca "Sıradaki" olarak görünür.
+  const todos = st.todos.filter((t) => !(next && t.text === next.todo.text && t.page === next.todo.page));
   return (
     <div className="stephead" data-tour="stephead">
-      <span className="sh-step"><span className="stp-n">{i + 1}</span>{step.label}</span>
       <div className="sh-tabs" role="tablist" aria-label={`${step.label} sayfaları`}>
         {step.pages.map((x) => {
           if (!admin && ADMIN_PAGES.has(x)) return null;
@@ -81,12 +100,13 @@ export function StepHeader({ hasShots }: { hasShots: boolean }) {
       <span className="grow" />
       <div className="sh-todos" aria-label="Bu adımda eksikler">
         {st.state === "done" && ov ? <span className="todo ok"><Icon.check />Bu adım tamam</span>
-          : st.todos.map((t) => (
+          : todos.map((t) => (
             <button key={t.text} type="button" className={`todo ${t.tone || ""}`} onClick={() => setPage(t.page)} title={`${PAGE_LABEL[t.page]} sayfasına git`}>
               {t.text}
             </button>
           ))}
       </div>
+      <NextUp next={next} />
     </div>
   );
 }

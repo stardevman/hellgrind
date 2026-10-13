@@ -62,10 +62,10 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 
 ## Kullanım
 
-Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte tek satırda proje, bütçe göstergesi (tıklayınca harcanan, ayrılan,
-kalan ve yumuşak sınır), görünüm anahtarı ve **Üretimi durdur** (Kill-Switch); altta üretim sırasını izleyen dört
-**adımı** taşıyan ince bir ray; çalışma alanının üstündeki şeritte bulunulan adımın sayfaları
-(<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>) ve o adımda eksik olanlar:
+Panel bir yapım stüdyosu gibi düzenlenmiştir ve bütün denetimler üsttedir: üst bantta tek satırda proje, üretim sırasını
+izleyen dört **adım**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), **Ayarlar** ve üretimi
+durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister); hemen altındaki şeritte bulunulan adımın sayfaları
+(<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>), o adımda eksik olanlar ve en sağda **Sıradaki**:
 
 | Adım | Sayfalar | Bir sonraki adıma geçmek için |
 | --- | --- | --- |
@@ -74,8 +74,8 @@ kalan ve yumuşak sınır), görünüm anahtarı ve **Üretimi durdur** (Kill-Sw
 | 3 Üretim | Kurgu, Karşılaştır | engelli, plan onayı ya da inceleme bekleyen çekim yok, hepsi hazır |
 | 4 Bitirme | Renk, Teslim | renk sıçraması kalmamış, film birleştirilmiş |
 
-Raydaki her adımın noktası durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli); rayın sağındaki **Sıradaki**
-bağlantısı ilk eksik işe götürür. Şeritteki eksikler tıklanınca onları çözecek sayfa açılır; adım tamamlanınca "Bu adım
+Üst banttaki her adımın noktası durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli; dar ekranda yalnızca
+bulunulan adımın adı yazılır); şeridin sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Şeritteki eksikler tıklanınca onları çözecek sayfa açılır; adım tamamlanınca "Bu adım
 tamam" görünür. Sayfa sekmelerindeki rozetler durumu özetler (kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk
 sıçraması, film).
 

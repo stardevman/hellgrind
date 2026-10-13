@@ -1,6 +1,6 @@
 "use client";
-/* Stüdyo çerçevesi: üstte proje, bütçe, Ayarlar ve durdurma düğmesi; ortada etkin sayfa; altta dört üretim adımı ve
-   sayfaları (Shift+1…8 ile geçilir). Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
+/* Stüdyo çerçevesi, her şey üstte: üst bantta proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi; altındaki
+   şeritte adımın sayfaları, eksikleri ve "Sıradaki"; altında etkin sayfa (Shift+1…8 sayfalar arasında geçer). Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
    gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
    (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
@@ -18,7 +18,7 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { StepBar, StepHeader } from "./StepBar";
+import { StepHeader, StepRail } from "./StepBar";
 import { StylePage } from "./StylePage";
 import { Tour } from "./Tour";
 import { shortcutTarget } from "./ui";
@@ -140,6 +140,8 @@ function TopBar() {
       <div className="tb-main">
         <div className="logo"><Icon.logo />Hell Grind</div>
         <ProjectSwitcher onRemove={remove} />
+        <span className="vsep" />
+        <StepRail hasShots={Boolean(ov?.scenes.length)} />
         <span className="grow" />
         {admin && q && (
           <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
@@ -309,7 +311,6 @@ export function AppFrame() {
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
-      <StepBar hasShots={hasShots} />
       <Tour />
       <AdminLogin />
     </div>

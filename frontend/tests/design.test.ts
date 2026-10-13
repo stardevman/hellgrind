@@ -44,7 +44,7 @@ describe("design contract", () => {
   });
 
   it("styles the step bar, the next-up link, the admin login and the tour", () => {
-    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+    for (const sel of [".tb-steps", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
   });
 });
 
