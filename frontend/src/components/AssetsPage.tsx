@@ -1,6 +1,7 @@
 "use client";
 /* Varlıklar sayfası (yapım takip yazılımları gibi ana-ayrıntı düzeni): solda kütüphane süzgeçleri, ortada varlık
-   ızgarası, sağda seçili varlığın onay akışı: referans, durağan onayı, hareket testi, kilit. */
+   ızgarası, sağda seçili varlığın onay akışı: referans, durağan onayı, hareket testi, kilit. Görseller kırpılmadan
+   sığdırılır; referansa tıklanınca tam boyu açılır ve indirilebilir. */
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -8,12 +9,53 @@ import { ANOMALY_TR, ASTATUS_ORDER, ASTATUS_TR, REF_ACCEPT, REF_KINDS, REF_TR, T
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { dispatchText, lowerTr, usd } from "@/lib/text";
 import type { Asset, DispatchAll } from "@/lib/types";
+import { Icon } from "./icons";
 import { NoteBox, Panel, Section, reducedMotion } from "./ui";
 
 const TONE: Record<string, string> = { draft: "bad", still_approved: "warn", motion_tested: "info", locked: "ok" };
 
 const thumbOf = (a: Asset) => a.references.still?.thumb_url ?? a.references.turnaround?.frame_urls?.[0]
   ?? a.references.expressions?.thumb_url ?? a.motion_test?.thumb_url ?? null;
+
+interface Shown { src: string; name: string }
+
+/** İndirilecek dosyanın adı: "Ada - Durağan görsel.png" (uzantı depo anahtarından). */
+function fileName(src: string, name: string): string {
+  const key = new URLSearchParams(src.split("?")[1] ?? "").get("key") ?? "";
+  const ext = /\.[a-z0-9]{2,5}$/i.exec(key)?.[0] ?? ".jpg";
+  return `${name.replace(/[\\/:*?"<>|]+/g, "-")}${ext}`;
+}
+
+/** Tam boy görsel: ekranı kaplayan karartma, kırpılmamış görsel, indir ve yeni sekmede aç. Esc ya da dışarı tıklama kapatır. */
+function Lightbox({ shown, onClose }: { shown: Shown; onClose: () => void }) {
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    close.current?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+  return (
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={shown.name} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="lb-bar">
+        <span className="grow">{shown.name}</span>
+        <a className="btn" href={shown.src} download={fileName(shown.src, shown.name)}><Icon.download />İndir</a>
+        <a className="btn ghost" href={shown.src} target="_blank" rel="noreferrer">Yeni sekmede aç</a>
+        <button ref={close} type="button" className="btn ghost" onClick={onClose}>Kapat</button>
+      </div>
+      <img src={shown.src} alt={shown.name} onMouseDown={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
+/** Tıklanınca tam boyunu açan küçük görsel. */
+function Zoomable({ thumb, full, name, className, onOpen }: { thumb: string; full?: string | null; name: string; className?: string; onOpen: (s: Shown) => void }) {
+  return (
+    <button type="button" className={`zoom ${className ?? ""}`.trim()} title="Tam boyutu aç" onClick={() => onOpen({ src: full || thumb, name })}>
+      <img src={thumb} alt={name} loading="lazy" />
+    </button>
+  );
+}
 
 function Pipeline({ a }: { a: Asset }) {
   const rank = ASTATUS_ORDER.indexOf(a.status);
@@ -51,6 +93,7 @@ const ASSET_ACTS: Record<Act, (id: string) => Promise<string>> = {
 function Detail({ a }: { a: Asset }) {
   const { busy, frozen, act, note, meta } = usePanel();
   const [kind, setKind] = useState(REF_KINDS[a.type][0]);
+  const [shown, setShown] = useState<Shown | null>(null);
   const hasVisual = ["still", "turnaround", "expressions"].some((k) => a.references?.[k]);
   const t = a.motion_test, locked = a.status === "locked";
   const running = Boolean(t && ["queued", "running"].includes(t.status));
@@ -141,9 +184,9 @@ function Detail({ a }: { a: Asset }) {
             <div className="refs">
               {refs.map((k) => {
                 const r = a.references[k];
-                if (k === "turnaround") return <div className="ref" key={k}><span>{REF_TR[k]} · {r.frames?.length ?? 0} kare, ilki yüz referansı</span><div className="frames">{(r.frame_urls ?? []).map((u) => <img key={u} src={u} alt="" loading="lazy" />)}</div></div>;
+                if (k === "turnaround") return <div className="ref" key={k}><span>{REF_TR[k]} · {r.frames?.length ?? 0} kare, ilki yüz referansı</span><div className="frames">{(r.frame_urls ?? []).map((u, i) => <Zoomable key={u} thumb={u} name={`${a.name} - ${REF_TR[k]} ${i + 1}`} onOpen={setShown} />)}</div></div>;
                 if (k === "voice_sample") return <div className="ref" key={k}><span>{REF_TR[k]}</span><audio controls preload="none" src={r.url ?? undefined} /></div>;
-                return <div className="ref" key={k}><span>{REF_TR[k]}</span>{r.thumb_url && <img className="big" src={r.thumb_url} alt={`${a.name}: ${REF_TR[k]}`} loading="lazy" />}</div>;
+                return <div className="ref" key={k}><span>{REF_TR[k]}</span>{r.thumb_url && <Zoomable className="big" thumb={r.thumb_url} full={r.url} name={`${a.name} - ${REF_TR[k]}`} onOpen={setShown} />}</div>;
               })}
             </div>
           ) : <p className="faint">Henüz referans yok.</p>}
@@ -154,7 +197,7 @@ function Detail({ a }: { a: Asset }) {
                 {history.slice().reverse().map((h) => (
                   <div className="ref" key={`${h.kind}-${h.replaced_at}`}>
                     <span>{REF_TR[h.kind] ?? h.kind} · sürüm {h.version}</span>
-                    {h.entry.thumb_url && <img src={h.entry.thumb_url} alt="" loading="lazy" />}
+                    {h.entry.thumb_url && <Zoomable thumb={h.entry.thumb_url} full={h.entry.url} name={`${a.name} - ${REF_TR[h.kind] ?? h.kind} sürüm ${h.version}`} onOpen={setShown} />}
                   </div>
                 ))}
               </div>
@@ -200,6 +243,7 @@ function Detail({ a }: { a: Asset }) {
           {a.character?.voice_id && <p className="small dim">Ses kimliği {a.character.voice_id}</p>}
         </Section>
       </div>
+      {shown && <Lightbox shown={shown} onClose={() => setShown(null)} />}
     </section>
   );
 }
@@ -285,7 +329,7 @@ export function AssetsPage() {
               return (
                 <button key={a.id} ref={(el) => { cards.current[a.id] = el; }} type="button" className={`card${flashAsset === a.id ? " flash" : ""}`}
                   aria-current={selected?.id === a.id} onClick={() => selectAsset(a.id)} aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
-                  {th ? <img className="th" src={th} alt="" loading="lazy" /> : <span className="th">Referans yok</span>}
+                  {th ? <img className="th fit" src={th} alt="" loading="lazy" /> : <span className="th">Referans yok</span>}
                   <span className="row"><h3 className="grow">{a.name}</h3><span className={`tag ${TONE[a.status]}`}>{ASTATUS_TR[a.status]}</span></span>
                   <span className="faint small">{TYPE_TR[a.type]} · sürüm {a.version} · {a.scenes.length} çekim</span>
                   <Pipeline a={a} />

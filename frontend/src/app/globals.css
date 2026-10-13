@@ -408,10 +408,20 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .side-h { padding: 12px 10px 4px; font-size: 11px; font-weight: 600; color: var(--text-3); }
 .refs { display: grid; gap: 8px; }
 .ref { display: grid; gap: 4px; font-size: 11.5px; color: var(--text-2); }
-.ref img.big { width: 100%; max-height: 170px; object-fit: cover; border-radius: 3px; background: #0b0b0c; }
+/* Referans görselleri kırpılmaz (contain); tıklanınca tam boyu açılır. */
+.card .th.fit { object-fit: contain; }
+.zoom { display: block; width: 100%; padding: 0; border: 0; background: #0b0b0c; border-radius: 3px; cursor: zoom-in; overflow: hidden; }
+.zoom img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+.zoom.big img { aspect-ratio: auto; max-height: 360px; }
+.zoom:hover { outline: 1px solid var(--accent); }
+.ref > .zoom:not(.big) { max-width: 180px; }
+.lightbox { position: fixed; inset: 0; z-index: 120; display: grid; grid-template-rows: auto minmax(0, 1fr); background: rgba(0, 0, 0, .9); }
+.lb-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 13px; color: var(--text); background: var(--panel); border-bottom: 1px solid var(--line); }
+.lb-bar .btn svg { width: 14px; height: 14px; }
+.lightbox > img { place-self: center; max-width: calc(100vw - 32px); max-height: calc(100vh - 72px); object-fit: contain; }
 .frames { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
-.frames img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 2px; }
-.frames img:first-child { outline: 2px solid var(--accent); outline-offset: -2px; }
+.frames .zoom { border-radius: 2px; }
+.frames .zoom:first-child { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ref audio, .motion video { width: 100%; border-radius: 3px; display: block; }
 .motion video { background: #000; }
 
