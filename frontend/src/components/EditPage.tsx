@@ -407,9 +407,19 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
     setAssembling({ before: ov.timeline?.url ?? null, at: Date.now() });
     note("inspector", "Film birleştirmeye alındı.", "ok");
   }, "inspector");
-  const rulerClick = (e: MouseEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    onRuler(Math.max(0, Math.min(lay.duration, (e.clientX - r.left) / pps)));
+  // Cetvel: tıkla ya da basılı tutup sürükle (kafa izler); metin seçimi oluşmaz.
+  const rulerAt = (el: HTMLElement, clientX: number) => {
+    const r = el.getBoundingClientRect();
+    onRuler(Math.max(0, Math.min(lay.duration, (clientX - r.left) / pps)));
+  };
+  const rulerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    rulerAt(e.currentTarget, e.clientX);
+  };
+  const rulerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.buttons & 1) rulerAt(e.currentTarget, e.clientX);
   };
   const hasFx = lay.effects.length > 0;
   return (
@@ -438,7 +448,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
         </div>
         <div className="tl-scroll" ref={scroller}>
           <div className="tl-canvas" style={{ width: total }}>
-            <div className="ruler" onClick={rulerClick} title="Tıkla: oynatma kafasını buraya taşı">
+            <div className="ruler" onPointerDown={rulerDown} onPointerMove={rulerMove} title="Tıkla ya da sürükle: oynatma kafasını taşı">
               {ticks.map((t) => <span key={t} style={{ left: x(t) }}>{timecode(t).slice(3, 8)}</span>)}
             </div>
             <div className="trk seq">

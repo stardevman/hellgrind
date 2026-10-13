@@ -349,7 +349,8 @@ body[data-advanced="0"] .adv { display: none !important; }
 .tl-heads div { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--text-2); }
 .tl-heads b { font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--text-3); }
 .tl-scroll { position: relative; overflow-x: auto; overflow-y: hidden; }
-.tl-canvas { position: relative; min-width: 100%; }
+.tl-canvas { position: relative; min-width: 100%; user-select: none; -webkit-user-select: none; }
+.ruler { touch-action: none; }
 .ruler { position: relative; height: 22px; border-bottom: 1px solid var(--line); background: var(--raised); cursor: pointer; }
 .ruler span { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-2); padding: 3px 0 0 4px; font-family: var(--mono); font-size: 10px; color: var(--text-3); white-space: nowrap; }
 .trk { position: relative; border-bottom: 1px solid var(--line); }
