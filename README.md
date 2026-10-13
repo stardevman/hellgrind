@@ -63,7 +63,7 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 ## Kullanım
 
 Panel bir yapım stüdyosu gibi düzenlenmiştir: üstte tek satırda proje, bütçe göstergesi (tıklayınca harcanan, ayrılan,
-kalan ve yumuşak sınır), görünüm anahtarı, **Rehber** ve **Üretimi durdur** (Kill-Switch); altta üretim sırasını izleyen dört
+kalan ve yumuşak sınır), görünüm anahtarı ve **Üretimi durdur** (Kill-Switch); altta üretim sırasını izleyen dört
 **adımı** taşıyan ince bir ray; çalışma alanının üstündeki şeritte bulunulan adımın sayfaları
 (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>) ve o adımda eksik olanlar:
 

@@ -119,7 +119,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, advanced, setAdvanced, setTour } = usePanel();
+  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, advanced, setAdvanced } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -154,8 +154,6 @@ function TopBar() {
           <button type="button" aria-pressed={!advanced} onClick={() => setAdvanced(false)}>Basit</button>
           <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(true)}>Gelişmiş</button>
         </div>
-        <button type="button" className="btn ghost" onClick={() => setTour(true)} data-tour="tour-button"
-          title="Rehber turu: panelin adımlarını baştan anlatır">Rehber</button>
         <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
           onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
           title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>

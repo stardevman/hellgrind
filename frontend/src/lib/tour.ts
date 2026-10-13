@@ -26,7 +26,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { page: "deliver", target: "deliver", when: "project", title: "4. Teslim", text: "Tamamlanan çekimler tek filme birleşir; kaba kurgu ve final ayrı sekmelerde izlenir. EDL, OpenTimelineIO ve çekim paketi buradan indirilir." },
   { target: "budget", title: "Bütçe ve Kill-Switch", text: "Üst banttaki bütçe göstergesi harcanan tutarı ve limiti gösterir; tıklayınca ayrılan, kalan ve yumuşak sınır açılır. \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
   { target: "view-mode", title: "Basit ve gelişmiş görünüm", text: "Basit görünümde her sayfada yalnızca ana eylemler kalır. Motor seçimi, plan ayrıntıları, yükseltme ve elle düzeltme gibi bölümler Gelişmiş görünümde açılır." },
-  { target: "tour-button", title: "Hepsi bu", text: "Bu rehberi istediğin zaman üst banttaki Rehber düğmesiyle yeniden açabilirsin. Shift+1…8 sayfalar arasında geçer." },
+  { target: "steps", title: "Hepsi bu", text: "Shift+1…8 sayfalar arasında geçer; her adımın eksikleri üstteki şeritte, sıradaki iş alttaki rayda durur." },
 ];
 
 export const tourStepsFor = (hasProject: boolean): TourStep[] =>

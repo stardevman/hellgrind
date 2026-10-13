@@ -69,7 +69,7 @@ describe("documented Turkish texts", () => {
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
     // Adım çubuğu, görünüm anahtarı ve rehber turu
-    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Basit", "Gelişmiş", "Rehber", "Atla", "İleri", "Bitir",
+    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Basit", "Gelişmiş", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",

@@ -24,6 +24,6 @@ describe("tour", () => {
 
   it("names the four steps and ends with how to reopen the guide", () => {
     expect(TOUR_STEPS[0].text).toContain("Hazırlık, Onay, Üretim, Bitirme");
-    expect(TOUR_STEPS[TOUR_STEPS.length - 1].text).toContain("Rehber");
+    expect(TOUR_STEPS[TOUR_STEPS.length - 1].title).toBe("Hepsi bu");
   });
 });
