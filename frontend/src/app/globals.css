@@ -269,6 +269,7 @@ body[data-advanced="0"] .adv { display: none !important; }
 .three { grid-template-columns: 260px minmax(0, 1fr) 360px; }
 .two { grid-template-columns: minmax(0, 1fr) 360px; }
 .two-l { grid-template-columns: 300px minmax(0, 1fr); }
+.two-l > .script { grid-row: 1 / -1; grid-column: 2; }
 .color { grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: minmax(0, 1fr) 132px; grid-template-areas: "cv cc" "cs cc"; }
 .color > .cv { grid-area: cv; } .color > .cc { grid-area: cc; } .color > .cs { grid-area: cs; }
 .deliver { grid-template-columns: 300px minmax(0, 1fr) 440px; }

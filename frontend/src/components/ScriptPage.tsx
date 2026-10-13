@@ -17,7 +17,7 @@ interface Ingest extends DispatchAll { cast: string[]; shots: number; created: s
 const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
 
 export function ScriptPage() {
-  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov, frozen, busy, act } = usePanel();
+  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov, frozen, busy, act, advanced } = usePanel();
   const { mutate } = useSWRConfig();
   const newProject = creating || !projectId;
   const { data: project } = useSWR<{ script_source: string | null; title: string }>(!newProject ? `/projects/${projectId}` : null, fetcher);
@@ -95,7 +95,7 @@ export function ScriptPage() {
   const blockedByFreeze = !newProject && frozen;
   const resume = () => act(() => api.post(`/projects/${projectId}/killswitch`, { action: "resume" }), "start");
   return (
-    <form className="page three" onSubmit={submit}>
+    <form className={`page ${advanced ? "three" : "two-l"}`} onSubmit={submit}>
       <Panel title={newProject ? "Yeni proje" : "Proje"} meta={newProject ? "" : project?.title} tour="script-form"
         tools={creating && projects && projects.length > 0 ? <button className="btn ghost" type="button" onClick={() => setCreating(false)}>Vazgeç</button> : undefined}>
         <div className="pad stack">
@@ -117,13 +117,13 @@ export function ScriptPage() {
                   <input type="radio" name="intensity" value="brief" checked={intensity === "brief"} onChange={() => pickIntensity("brief")} />
                   <span><b>Brifing</b><small>{d ? `${d.probe_n} test ve en çok ${d.full_n} tam klip: brifingdeki yoğunluk.` : ""}</small></span>
                 </label>
-                {eco && (
+                {eco && advanced && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="economy" checked={intensity === "economy"} onChange={() => pickIntensity("economy")} />
                     <span><b>Üretim (ekonomik)</b><small>{`${eco.probe_n} test (${eco.probe_resolution}) ve ${eco.full_n} tam klip (${eco.full_resolution}), ${eco.max_correction_rounds} düzeltme turu, havuzda ${eco.refined_k} aday: gerçek film için en az üretim.`}</small></span>
                   </label>
                 )}
-                {trial && (
+                {trial && advanced && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
                     <span><b>MiniMax H3 denemesi</b><small>
@@ -152,7 +152,7 @@ export function ScriptPage() {
               <dt>Bütçe</dt><dd className="mono">${ov?.project.budget_limit_usd.toFixed(2)}</dd>
             </dl>
           )}
-          <p className="faint small">
+          <p className="faint small adv">
             {meta?.dry_run === false ? "Ücretli mod açık: üretim gerçek harcama yapar ve bütçe limitinde durur." : "Ücretsiz modda harcama sanaldır; gerçek sağlayıcı fiyatlarıyla hesaplanır."}{" "}
             {(ov?.project.settings.lint_strictness ?? meta?.defaults.lint_strictness) === "block"
               ? "Çekimler, içlerindeki karakter, mekân ve nesneler Varlıklar sayfasında kilitlenene dek engelli kalır."
@@ -171,6 +171,17 @@ export function ScriptPage() {
           )}
           {!newProject && hasShots && <p className="faint small">Yalnızca değişen çekimler yeniden üretilir; değişmeyenler olduğu gibi kalır.</p>}
           <NoteBox id="start" />
+          {!advanced && (
+            <details className="sec" style={{ margin: "4px -10px -10px" }}>
+              <summary>Senaryo nasıl yazılır?</summary>
+              <ul className="syntax sec-b">
+                <li><code>İÇ. DÖKÜMHANE - GECE</code>Sahne başlığı; mekân buradan çıkar.</li>
+                <li><code>Kerem kapıya koşar.</code>Aksiyon paragrafı: her paragraf bir çekim.</li>
+                <li><code>{"KEREM\n(tedirgin)\nKimse yok mu?"}</code>Konuşan karakter, duygu, replik.</li>
+              </ul>
+              <p className="faint tiny" style={{ padding: "0 10px 10px" }}>Sekans, nesne ve kesme işaretleri için Gelişmiş görünümdeki Biçim panosuna bakın.</p>
+            </details>
+          )}
         </div>
       </Panel>
 
@@ -185,12 +196,12 @@ export function ScriptPage() {
         <textarea aria-label="Senaryo" spellCheck={false} required minLength={10} value={text} onChange={(e) => setScript(e.target.value)} />
       </section>
 
-      {!newProject && ov && <Intensity />}
+      {advanced && !newProject && ov && <Intensity />}
 
-      <Estimate body={newProject ? { text, preset: intensity } : { project_id: projectId, ...(script != null ? { text } : {}) }}
-        refresh={newProject ? "" : JSON.stringify(ov?.project.settings ?? {}) + (ov?.scenes.length ?? 0)} />
+      {advanced && <Estimate body={newProject ? { text, preset: intensity } : { project_id: projectId, ...(script != null ? { text } : {}) }}
+        refresh={newProject ? "" : JSON.stringify(ov?.project.settings ?? {}) + (ov?.scenes.length ?? 0)} />}
 
-      <Panel title="Biçim">
+      {advanced && <Panel title="Biçim">
         <ul className="syntax pad">
           <li><code># SEKANS: Dökümhane</code>Yeni sekans başlatır; sonraki sahne başlıkları ona aittir.</li>
           <li><code>İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE</code>Sahne başlığı (İÇ., DIŞ., İÇ/DIŞ., INT., EXT.). Mekân başlıktan çıkar.</li>
@@ -201,7 +212,7 @@ export function ScriptPage() {
           <li><code>[KARAKTER: Kerem]</code>Konuşmayan karakter: kadroya girer ve adı geçen çekimlere bağlanır; tek satırdaysa sahnenin bütün çekimlerine.</li>
           <li><code>EXT. ROOFTOP - SUNSET</code>Senaryo İngilizce de yazılabilir ([CHARACTER: …], [PROP: …]). Ücretli modda Türkçe tarifler sağlayıcıya gitmeden İngilizceye çevrilir.</li>
         </ul>
-      </Panel>
+      </Panel>}
     </form>
   );
 }
