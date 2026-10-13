@@ -43,6 +43,7 @@ ACTIONS_TR = {
     "asset_approve_motion": "Hareket testi onayı", "asset_link": "Sahneye varlık bağlandı", "asset_unlink": "Varlık bağı kaldırıldı",
     "sequence_edit": "Sekans düzenlendi", "track_change": "Film kanalı değişti", "track_remove": "Film kanalı kaldırıldı",
     "storyboard_prepare": "Storyboard kareleri istendi", "draft_pass": "Taslak geçiş", "upgrade_pass": "İyileştirme geçişi",
+    "finish_pending": "Bekleyen çekimler klipleri korunarak tamamlandı",
     "method_change": "Üretim yöntemi", "external_upload": "Dış çekim yüklendi", "guide_upload": "Previs rehberi yüklendi",
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "keyframe_upload": "İlk kare yüklendi (H3)", "keyframe_clear": "Yüklenen ilk kare kaldırıldı (H3)",
