@@ -258,12 +258,12 @@ body[data-advanced="0"] .adv { display: none !important; }
 
 /* ---------- sayfa ızgaraları ---------- */
 .page { display: grid; gap: var(--gap); height: 100%; min-height: 0; }
-.edit.insp-closed { grid-template-columns: 268px minmax(0, 1fr) 150px 34px; }
+.edit.insp-closed { grid-template-columns: 308px minmax(0, 1fr) 34px; }
 .insp-rail { grid-area: insp; display: flex; align-items: flex-start; justify-content: center; padding-top: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
 .insp-rail .btn { writing-mode: vertical-rl; height: auto; padding: 10px 0; gap: 8px; }
 .insp-rail .btn svg { transform: rotate(90deg); }
 .insp .pnl-h .icon-btn svg { transform: rotate(-90deg); }
-.edit { grid-template-columns: 268px minmax(0, 1fr) 150px 350px; grid-template-rows: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: "bin viewer takes insp" "tl tl tl tl"; }
+.edit { grid-template-columns: 308px minmax(0, 1fr) 350px; grid-template-rows: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: "bin viewer insp" "tl tl tl"; }
 .edit > .bin { grid-area: bin; } .edit > .viewer { grid-area: viewer; } .edit > .takes { grid-area: takes; }
 .edit > .insp { grid-area: insp; } .edit > .tl { grid-area: tl; }
 .three { grid-template-columns: 260px minmax(0, 1fr) 360px; }
@@ -310,8 +310,8 @@ body[data-advanced="0"] .adv { display: none !important; }
 .takes-bar .btn { width: 100%; }
 .takes-foot { display: grid; gap: 6px; padding: 8px; border-top: 1px solid var(--line); flex: none; }
 .takes-foot .legend { flex-direction: column; gap: 3px; }
-.strip { display: flex; flex-direction: column; gap: 6px; padding: 8px; align-items: center; flex: 1; min-height: 0; overflow-y: auto; overflow-x: visible; }
-.strip .gap { height: 10px; width: 100%; border-top: 1px dashed var(--line-2); margin-top: 2px; flex: none; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; align-content: flex-start; flex: 1; min-height: 0; overflow-y: auto; }
+.strip .gap { height: 6px; width: 100%; border-top: 1px dashed var(--line-2); margin-top: 2px; flex: none; }
 .tile { position: relative; flex: none; width: 128px; height: 72px; transition: transform .15s; padding: 0; border: 1px solid var(--line-2); border-radius: 3px; overflow: hidden; background: #0b0b0c; }
 .tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tile .sc { position: absolute; left: 0; bottom: 0; padding: 1px 4px; font-family: var(--mono); font-size: 10px; background: rgba(0, 0, 0, .7); color: #e7e9ee; }

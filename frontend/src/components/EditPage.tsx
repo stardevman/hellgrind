@@ -16,7 +16,7 @@ import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@
 import { Icon } from "./icons";
 import { UpscaleConfirm } from "./Finishing";
 import { Inspector } from "./Inspector";
-import { Panel, StatusDot, shortcutTarget } from "./ui";
+import { StatusDot, shortcutTarget } from "./ui";
 
 type Mode = "shot" | "film";
 const INSP_KEY = "hg-inspector";     // denetçi açık mı (tarayıcıda hatırlanır; varsayılan kapalı)
@@ -112,9 +112,9 @@ function PlanTotal({ projectId }: { projectId: string }) {
   );
 }
 
-function ShotBin() {
+function ShotBin({ onPick }: { onPick: () => void }) {
   const { ov, scene, selectScene, projectId, busy, frozen, act, note } = usePanel();
-  const [tab, setTab] = useState<"shots" | "events">("shots");
+  const [tab, setTab] = useState<"shots" | "takes" | "events">("shots");
   if (!ov) return null;
   const codes = Object.fromEntries(ov.scenes.map((s) => [s.id, s.scene_code]));
   const groups = ov.sequences.map((q) => ({ q, scenes: ov.scenes.filter((s) => s.sequence_id === q.id) }))
@@ -130,10 +130,11 @@ function ShotBin() {
     <section className="pnl bin" data-tour="edit-bin">
       <div className="pnl-tabs" role="tablist" aria-label="Havuz">
         <button type="button" role="tab" aria-selected={tab === "shots"} onClick={() => setTab("shots")}>Çekimler <span className="faint mono">{ov.scenes.length}</span></button>
+        <button type="button" role="tab" aria-selected={tab === "takes"} onClick={() => setTab("takes")}>Adaylar{scene ? <span className="faint mono"> {scene.variations.filter(playable).length}</span> : null}</button>
         <button type="button" role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Olay akışı</button>
       </div>
-      <div className="pnl-b">
-        {tab === "events" ? (
+      <div className={`pnl-b${tab === "takes" ? " takes" : ""}`}>
+        {tab === "takes" ? <Takes onPick={onPick} /> : tab === "events" ? (
           <ol className="ev">
             {ov.events.length ? ov.events.map((e, i) => {
               const x = eventText(e, codes);
@@ -269,11 +270,11 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId, on
 
 /** Üzerine gelinen adayın büyük önizlemesi ve ayrıntısı: sütunun dışında, izleyicinin üstünde açılır (kırpılmaz); video varsa
     sessiz ve döngülü oynar, yoksa küçük resim. */
-function TakePop({ v, prev, top, right }: { v: Variation; prev?: Variation; top: number; right: number }) {
+function TakePop({ v, prev, top, left }: { v: Variation; prev?: Variation; top: number; left: number }) {
   const t = tileSpec(v, prev);
   const badge = resolutionBadge(v);
   return (
-    <div className="take-pop" style={{ top, right }} role="tooltip">
+    <div className="take-pop" style={{ top, left }} role="tooltip">
       {v.video_url ? <video src={v.video_url} poster={v.thumb_url ?? undefined} muted autoPlay loop playsInline preload="auto" />
         : v.thumb_url ? <img src={v.thumb_url} alt="" /> : <span className="ph" />}
       <div className="tp-body">
@@ -300,14 +301,14 @@ function usePromote(sc: Scene) {
 function Takes({ onPick }: { onPick: () => void }) {
   const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare, advanced, busy } = usePanel();
   const [showAll, setShowAll] = useState(false);
-  const [hover, setHover] = useState<{ v: Variation; top: number; right: number } | null>(null);
+  const [hover, setHover] = useState<{ v: Variation; top: number; left: number } | null>(null);
   const onHover = useCallback((v: Variation | null, el: HTMLElement | null) => {
     if (!v || !el) { setHover(null); return; }
     const r = el.getBoundingClientRect();
-    setHover({ v, top: Math.max(8, Math.min(window.innerHeight - 220, r.top - 20)), right: window.innerWidth - r.left + 8 });
+    setHover({ v, top: Math.max(8, Math.min(window.innerHeight - 220, r.top - 20)), left: r.right + 8 });
   }, []);
   const promote = usePromote(sc ?? ({ id: "" } as Scene));
-  if (!sc) return null;
+  if (!sc) return <p className="empty">Çekim seçin.</p>;
   const picked = parseIds(compareRaw, sc);
   const pick = (v: Variation, e: MouseEvent) => {
     if (e.shiftKey && playable(v)) { setCompare(toggle(picked, v.id)); return; }
@@ -320,9 +321,9 @@ function Takes({ onPick }: { onPick: () => void }) {
   const hidden = advanced || showAll ? [] : sc.variations.filter((v) => !playable(v) && !["queued", "running", "generated"].includes(v.status));
   const shown = hidden.length ? sc.variations.filter((v) => !hidden.includes(v)) : sc.variations;
   return (
-    <Panel className="takes" title="Adaylar"
-      meta={winner ? `${sc.variations.filter(playable).length} izlenebilir` : `${probe} test + ${sc.variations.length - probe} tam`}>
+    <>
       <div className="takes-bar">
+        <span className="faint tiny mono">{sc.scene_code} · {winner ? `${sc.variations.filter(playable).length} izlenebilir` : `${probe} test + ${sc.variations.length - probe} tam`}</span>
         {chosen ? (
           chosen.rank === 1 ? <span className="tag ok">Filmde bu oynuyor</span>
             : usable(chosen) ? <button className="btn primary" type="button" disabled={busy} onClick={() => promote(chosen)}
@@ -335,7 +336,7 @@ function Takes({ onPick }: { onPick: () => void }) {
           ? shown.map((v, i) => <Tile key={v.id} v={v} prev={shown[i - 1]} selected={varId === v.id} picked={picked.includes(v.id)} onPick={pick} sceneId={sc.id} onHover={onHover} />)
           : <span className="faint">Henüz klip yok</span>}
       </div>
-      {hover && <TakePop v={hover.v} prev={sc.variations[sc.variations.indexOf(hover.v) - 1]} top={hover.top} right={hover.right} />}
+      {hover && <TakePop v={hover.v} prev={sc.variations[sc.variations.indexOf(hover.v) - 1]} top={hover.top} left={hover.left} />}
       <div className="takes-foot">
         {hidden.length > 0 && <button className="btn ghost" type="button" onClick={() => setShowAll(true)}>{hidden.length} elenen adayı göster</button>}
         {!advanced && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
@@ -346,7 +347,7 @@ function Takes({ onPick }: { onPick: () => void }) {
           <span><kbd>Shift</kbd>+tık: karşılaştır</span>
         </span>
       </div>
-    </Panel>
+    </>
   );
 }
 
@@ -557,10 +558,9 @@ export function EditPage() {
   const filmLabel = waiting ? "film birleştiriliyor…" : ov.timeline ? `film ${timecode(ov.timeline.cut?.clips?.at(-1)?.out_s ?? 0)}` : "film yok";
   return (
     <div className={`page edit${inspOpen ? "" : " insp-closed"}`}>
-      <ShotBin />
+      <ShotBin onPick={() => setMode("shot")} />
       <Viewer mode={filmMode ? "film" : "shot"} setMode={setMode} player={player} src={src} poster={filmMode ? null : media?.poster ?? null}
         label={label} right={scene && !filmMode ? `${Number(scene.duration_s).toFixed(1)} sn · ${FPS} kare/sn` : ""} />
-      <Takes onPick={() => setMode("shot")} />
       {inspOpen ? <Inspector className="insp" onClose={() => toggleInsp(false)} />
         : <aside className="insp-rail" aria-label="Denetçi kapalı">
           <button type="button" className="btn ghost" onClick={() => toggleInsp(true)} title="Denetçiyi aç: seçili çekimin ayrıntıları, ses ve üretim ayarları">
