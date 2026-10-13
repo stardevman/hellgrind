@@ -319,6 +319,39 @@ Müşteriye teslim edilen 2D animasyon dizisi için sektörün üretim alışkan
   - Renk özetine girdiği için biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz, harcama değişmez. Karar kürasyon kaydına `on_twos_change` olarak düşer.
 - **Renk sayfası › Kareler**, kare tutma açıkken ya da yönetici modunda: art arda altı kare önce ve sonra yan yana gösterilir (`GET /api/scenes/{id}/grade/strip.jpg?before=true` / `?twos=true`). Altlarındaki numaralar karede görünen çizimdir: 1 2 3 4 5 6 → 1 1 2 2 3 3.
 
+### Ses-önce akışı (Ses sayfası, animatik)
+
+Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten çıkar. Ses sayfası Hazırlık adımında, Senaryo'dan hemen sonradır. Sayfa sırası Senaryo, Ses, Stil, Varlıklar…; kısayollar Shift+1…9.
+
+- **Replikler** sekans ve çekim başlıkları altında listelenir. Her satırda şunlar var:
+  - karakter ve metin;
+  - kaynak rozeti: **Geçici** (espeak ya da ElevenLabs) veya **Final** (yüklendi);
+  - dalga formu ve oynat düğmesi;
+  - ölçülen ses süresi / repliğin çekimdeki yeri.
+- Fark 0,5 sn'yi aşarsa amber uyarı çıkar: "Replik süresi çekimden belirgin farklı; görüntünün yeniden üretilmesi gerekebilir."
+- **Geçici sesleri üret** seslendirilmemiş replikleri sentezler (`POST /api/projects/{id}/voice/temp`; ücretsiz modda espeak). Ardından her replik ölçülür.
+- **Toplu yükleme:** dosyalar sürükle-bırak ile, birden çok seçilebilir.
+  - Adı `S001_SH01_2.wav` biçimindeki dosya o çekimin 2. repliğine kendiliğinden eşlenir; eşlenemeyenler ayrı listede elle atanır.
+  - Dosya önce `POST /api/projects/{id}/voice/upload?filename=…` ile içerik-adresli depoya gider, süresi ölçülür.
+  - Sonra mevcut `PUT /api/scenes/{id}/audio` (`source: upload`, `replaces: replik`) ile repliğin yerine geçer.
+  - Senaryo yeniden işlenince final kayıt korunur (`params.line_hash`).
+- **Sesi kilitle** sekans başına çalışır ve onay ister (`POST /api/sequences/{id}/voice-lock {"locked": true}`):
+  - Kilitli sekansta "Kilitli" rozeti görünür, replik düzenleme ve yükleme kapanır.
+  - Kilidi açmak ayrı onay ister. İkisi de kürasyon kaydına düşer (`voice_lock`, `voice_unlock`).
+- **Çekim süresi sesten:** kilitte, görüntüsü henüz üretilmemiş çekimlerin süresi ve replik zamanlaması ölçülen sesten hesaplanır. Formül: 0,4 sn giriş payı + replikler (aralarında 0,35 sn) + 0,6 sn çıkış payı, 2–10 sn ile sınırlı.
+  - Çekim panelde "sesten" etiketiyle görünür (`scenes.duration_source = voice`, migration 031).
+  - Görüntüsü üretilmiş çekim değişmez; yalnızca uyarı verilir. Planlayıcı değişmedi: "diyalog değişince görüntü yeniden üretilmez" kuralı yönetmen onayı bekliyor.
+- **Proje ayarı `voice_first`** (varsayılan kapalı; Ses sayfası › Ses-önce ayarı, yönetici):
+  - Açıkken sesi kilitlenmemiş sekansta görüntü üretimi başlamaz. Dağıtım `awaiting_voice` döner; planlayıcı aynı kalır.
+  - "Sıradaki" şeridi "N sekansın sesi kilitlenmedi" ve "N replik final sesi bekliyor" eksiklerini gösterir.
+- **Animatik** (Storyboard › Animatik): onaylı kareleri, karesi olmayan çekimde ise çekim kartını geçici ya da final sesle, sesin süresine göre dizer.
+  - Yerel FFmpeg ile birleştirilir (`POST /api/projects/{id}/animatic`; çıktı `animatic/{proje}/{özet}.mp4` ve kesme listesi).
+  - Toplam süre ve sekans süreleri görünür.
+- **Kurgu denetçisi › Ses:** kilit durumu, çekim süresi ve "sesten" etiketi görünür. Yönetici modunda iki ek bilgi var:
+  - **Ses referansı: açık / kapalı.** Açıkken parçanın diyalog karışımı video isteğine eklenir. Alan adı şemadandır: Seedance 2.5'te `audio_urls`, H3 Max'te `reference_audio_urls`.
+  - **Dudak senkronu durumu** (ücretsiz modda atlanır).
+  - Ses referansı yalnızca istek planında ve kuru çalıştırmada görünür; karışım üretimde yerel olarak birleştirilip yüklenir. Bu görevde hiçbir ağ çağrısı yapılmadı.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.

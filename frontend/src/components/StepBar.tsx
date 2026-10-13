@@ -1,14 +1,14 @@
 "use client";
 /* Üretim adımları, hepsi altta: en alttaki uygulama bandında dört adım (numara, ad, durum noktası; StepRail), hemen
    üstündeki şeritte bulunulan adımın sayfa sekmeleri, bu adımın eksikleri ve en sağda "Sıradaki" bağlantısı (StepHeader). Ayarlar ve
-   Geçmiş gibi adım dışı sayfalarda şerit sayfanın adını ve "Sıradaki"yi gösterir. Shift+1…8 sayfalar arasında geçer. */
+   Geçmiş gibi adım dışı sayfalarda şerit sayfanın adını ve "Sıradaki"yi gösterir. Shift+1…9 sayfalar arasında geçer. */
 import { useMemo } from "react";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, type StepStatus } from "@/lib/steps";
 import { Icon } from "./icons";
 
 export const PAGE_LABEL: Record<Page, string> = {
-  script: "Senaryo", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
+  script: "Senaryo", voice: "Ses", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
   color: "Renk", deliver: "Teslim", settings: "Ayarlar", history: "Geçmiş",
 };
 /** Kullanıcı modunda gizlenen sayfalar (Karşılaştır, Kurgu'daki "Adayları karşılaştır" ile yine açılır). */

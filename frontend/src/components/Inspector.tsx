@@ -1073,6 +1073,51 @@ function Pool({ sc }: { sc: Scene }) {
   );
 }
 
+/** Ses-önce: sekansın ses kilidi, çekim süresinin kaynağı ("sesten") ve (yönetici) video planındaki ses referansı ile
+    dudak senkronunun durumu. Ses referansı istek gövdesine girer; yalnızca planda ve kuru çalıştırmada görünür. */
+function VoiceStatus({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
+  const { busy, frozen, act, note, admin, ov, setPage } = usePanel();
+  const plan = useFalPlan(sc);
+  const refMode = useRefMode(sc);
+  const on = Boolean(sc.video_opts?.audio_ref);
+  const ref = plan?.audio_ref;
+  const lip = ov?.project.lipsync;
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="row">
+        {q?.voice_locked_at ? <span className="tag ok" title={`Kilit: ${clock(q.voice_locked_at)}`}><Icon.lock />Ses kilitli</span>
+          : <span className="tag" title="Ses sayfasından kilitlenir">Ses kilitli değil</span>}
+        <span className="mono small">{Number(sc.duration_s).toFixed(1).replace(".", ",")} sn</span>
+        {sc.duration_source === "voice" && <span className="tag info" title="Süre sekansın ses kilidinde ölçülen sesten hesaplandı">sesten</span>}
+        <span className="grow" />
+        <button type="button" className="btn ghost" onClick={() => setPage("voice")}>Ses sayfasında aç</button>
+      </div>
+      {admin && (
+        <dl className="kv">
+          <dt>Ses referansı</dt>
+          <dd>
+            <select value={on ? "on" : "off"} disabled={busy || frozen || !refMode} aria-label="Ses referansı"
+              title={refMode ? "Diyalog karışımı video isteğine ses referansı olarak eklenir (yalnızca plan ve kuru çalıştırmada görünür)" : "Yalnızca referans modunda (fal.ai, tüm sahne)"}
+              onChange={(e) => void act(async () => {
+                await api.patch(`/scenes/${sc.id}`, { video_audio_ref: e.target.value });
+                note("inspector", `${sc.scene_code}: ses referansı ${e.target.value === "on" ? "açık" : "kapalı"}. Plan değişti: yeniden inceleyip onaylayın.`, "ok");
+              }, "inspector")}>
+              <option value="off">Kapalı</option><option value="on">Açık</option>
+            </select>
+            {ref && <div className="faint small">
+              <span className="mono">{ref.field}</span> · {ref.lines} replik · {String(ref.duration_s).replace(".", ",")} sn{ref.key ? "" : " · gönderilmez"}
+              {ref.warnings.map((w) => <div key={w} className="warn">{w}</div>)}
+            </div>}
+            {!refMode && <div className="faint small">Yalnızca referans modunda (tüm sahne tek istek).</div>}
+          </dd>
+          <dt>Dudak senkronu</dt>
+          <dd>{lip?.text ?? "—"}{sc.lipsync_ready && <span className="faint small"> · dudak senkronlu video hazır</span>}</dd>
+        </dl>
+      )}
+    </div>
+  );
+}
+
 function Sound({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
   const { busy, frozen, act, note } = usePanel();
   const lines = sc.tracks.filter((t) => t.kind === "dialogue");
@@ -1101,11 +1146,13 @@ function Sound({ sc, q }: { sc: Scene; q: Sequence | undefined }) {
   };
   return (
     <Section title="Ses" meta={`${lines.length} replik`}>
+      <VoiceStatus sc={sc} q={q} />
       <h4 className="small dim">Diyalog</h4>
       <ul className="lines">
         {lines.length ? lines.map((t) => (
           <li key={t.id}><span className="who">{t.character || "Anlatıcı"}</span> · {t.text}{" "}
-            <span className="faint mono small">({EMOTION_TR[t.emotion ?? ""] || "—"}, {Number(t.start_offset_s).toFixed(1)} sn)</span></li>
+            <span className={`tag ${t.source === "upload" ? "ok" : "warn"}`}>{t.source === "upload" ? "Final" : "Geçici"}</span>{" "}
+            <span className="faint mono small">({EMOTION_TR[t.emotion ?? ""] || "—"}, {Number(t.start_offset_s).toFixed(1)} sn{t.duration_s ? ` · ${Number(t.duration_s).toFixed(1)} sn ses` : ""})</span></li>
         )) : <li className="faint">Bu çekimde diyalog yok.</li>}
       </ul>
       <h4 className="small dim">Müziği değiştir</h4>

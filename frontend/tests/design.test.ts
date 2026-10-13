@@ -7,7 +7,8 @@ const root = join(__dirname, "..", "src");
 const CSS = readFileSync(join(root, "app", "globals.css"), "utf8");
 const LAYOUT = readFileSync(join(root, "app", "layout.tsx"), "utf8");
 const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(join(root, "components", f), "utf8")).join("\n")
-  + readFileSync(join(root, "lib", "text.ts"), "utf8") + readFileSync(join(root, "lib", "steps.ts"), "utf8") + readFileSync(join(root, "lib", "tour.ts"), "utf8");
+  + readFileSync(join(root, "lib", "text.ts"), "utf8") + readFileSync(join(root, "lib", "steps.ts"), "utf8") + readFileSync(join(root, "lib", "tour.ts"), "utf8")
+  + readFileSync(join(root, "lib", "voice.ts"), "utf8");
 
 describe("design contract", () => {
   it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
@@ -78,5 +79,8 @@ describe("documented Turkish texts", () => {
     "MiniMax H3 · vast.ai", "yalnızca seçtiğiniz çekimlerde", "Video motoru", "makinenin boşta geçen süresi",
     // Animasyon dizisi: çizim türü ve kare tutma
     "Çizim türü", "On twos (12 çizim/sn görünümü)", "Kareler", "her çizim iki kare",
+    // Ses-önce akışı
+    "Ses", "Geçici", "Final", "Sesi kilitle", "Kilidi aç", "Kilitli", "sesten", "Animatik", "Kayıtları buraya sürükle",
+    "Replik süresi çekimden belirgin farklı; görüntünün yeniden üretilmesi gerekebilir.", "Ses referansı", "Dudak senkronu",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

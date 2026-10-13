@@ -212,12 +212,13 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .sh-tabs .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
 .sh-tabs .badge.ok { color: var(--ok); }
 .sh-todos { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
-.todo { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--field); color: var(--text-2); font-size: 11.5px; white-space: nowrap; }
-.todo::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
-.todo.warn::before { background: var(--warn); } .todo.bad::before { background: var(--bad); }
-button.todo:hover { color: var(--text); border-color: var(--accent); }
-.todo.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .todo.ok::before { display: none; }
-.todo.ok svg { width: 13px; height: 13px; }
+/* Eksik çipleri yalnızca şeritte: adım rayındaki "sırada" durumu da .todo sınıfını taşır (li.stp.todo), ona uygulanmaz. */
+.sh-todos .todo { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--field); color: var(--text-2); font-size: 11.5px; white-space: nowrap; }
+.sh-todos .todo::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.sh-todos .todo.warn::before { background: var(--warn); } .sh-todos .todo.bad::before { background: var(--bad); }
+.sh-todos button.todo:hover { color: var(--text); border-color: var(--accent); }
+.sh-todos .todo.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .sh-todos .todo.ok::before { display: none; }
+.sh-todos .todo.ok svg { width: 13px; height: 13px; }
 .choice b svg { width: 11px; height: 11px; vertical-align: -1px; color: var(--text-2); }
 /* Kullanıcı modu: .adv ile işaretli bölümler gizlenir (Ayarlar'daki Kullanıcı / Yönetici seçimi body[data-admin] yazar). */
 body[data-admin="0"] .adv { display: none !important; }
@@ -462,6 +463,48 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .cv figure { position: relative; margin: 0; min-height: 0; display: grid; place-items: center; }
 .cv figure img { width: 100%; height: 100%; object-fit: contain; }
 .cv figcaption { position: absolute; top: 8px; left: 8px; padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .65); font-size: 11px; }
+/* Ses sayfası: solda replikler (sekans > çekim > satır), sağda toplu yükleme. */
+.voice { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 6px; }
+.vq + .vq { border-top: 1px solid var(--line); }
+.vq-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.vq-h h3 { font-size: 13px; }
+.vq-h .tag svg { width: 11px; height: 11px; }
+.vs { padding: 4px 12px 8px; }
+.vs-h { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r); background: var(--raised); }
+.vs-h.drift { box-shadow: inset 3px 0 0 var(--warn); }
+.vs-code { border: 0; background: none; color: var(--text); font-weight: 600; padding: 0; cursor: pointer; }
+.vs-code:hover { color: var(--accent); }
+.vs-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vs-warn, .vl-warn { margin: 4px 0 0; padding: 4px 8px; border-left: 3px solid var(--warn); background: rgba(243, 180, 67, .08); color: var(--warn); font-size: 11px; }
+.vs-none { margin: 4px 8px; }
+.vl { list-style: none; margin: 0; padding: 0; }
+.vl-row { display: grid; grid-template-columns: 28px 90px minmax(0, 1fr) auto 140px 92px auto; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.vl-row.drift { background: rgba(243, 180, 67, .04); }
+.vl-row .vl-warn { grid-column: 2 / -1; }
+.vl-who { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vl-text { font-size: 12px; color: var(--text-2); }
+.vl-dur { font-size: 11px; text-align: right; white-space: nowrap; }
+.vl-dur.warn { color: var(--warn); }
+.vl-up { height: 24px; font-size: 11px; cursor: pointer; }
+.vl-up.disabled { opacity: .4; cursor: not-allowed; }
+.wave { width: 140px; height: 22px; }
+.wave rect { fill: var(--text-3); }
+.wave.final rect { fill: var(--ok); }
+.wave line { stroke: var(--line-2); stroke-width: .2; }
+.drop { display: grid; justify-items: center; gap: 4px; padding: 18px 12px; border: 1px dashed var(--line-2); border-radius: 8px; text-align: center; cursor: pointer; }
+.drop svg { width: 22px; height: 22px; color: var(--text-3); }
+.drop.over, .drop:hover { border-color: var(--accent); background: rgba(77, 141, 255, .06); }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vu-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.vu-list li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vu-list li.col { flex-direction: column; align-items: stretch; }
+.vu-list svg { width: 12px; height: 12px; transform: rotate(-90deg); color: var(--text-3); flex: none; }
+/* Animatik: oynatıcı, sekans bantları ve çekim şeridi (kart ya da kare, sesten süre). */
+.animatic { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 6px; padding: 8px; }
+.animatic video { width: 100%; max-height: 52vh; background: #000; border-radius: var(--r); }
+.anim-seq { display: grid; gap: 4px; font-size: 12px; }
+.anim-seq .row { justify-content: space-between; }
+
 /* Kare tutma görünümü: art arda altı kare ve altında karede görünen çizimin numarası (on twos: 1 1 2 2 3 3). */
 .cv .hold { display: grid; gap: 4px; place-items: stretch; background: #000; padding: 6px; border-radius: var(--r); }
 .cv .hold img { height: auto; }
@@ -590,7 +633,10 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   body { overflow: auto; }
   .app { height: auto; min-height: 100vh; }
   .workspace { overflow: visible; }
-  .page, .edit, .three, .two, .two-l, .color, .deliver, .history { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
+  .page, .edit, .three, .two, .two-l, .color, .deliver, .history, .voice, .animatic { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
+  .vl-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .vl-row .vl-text, .vl-row .wave, .vl-row .vl-warn { grid-column: 1 / -1; }
+  .wave { width: 100%; }
   .edit > *, .color > * { grid-area: auto !important; }
   .insp-rail { padding: 6px; }
   .insp-rail .btn { writing-mode: horizontal-tb; width: 100%; padding: 0 10px; height: 28px; }

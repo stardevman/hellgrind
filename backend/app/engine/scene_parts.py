@@ -32,6 +32,16 @@ from app.engine import fal_plan
 LIMIT_S = {"h3max": 15.0, "seedance25": 30.0}
 MAX_IMAGES = {"h3max": 9, "seedance25": 30}
 MAX_FILES = {"h3max": 12, "seedance25": 50}
+# Ses-önce: diyalog karışımı (Ses sayfasındaki geçici ya da final sesler) isteğe ses referansı olarak eklenir. Alan adları
+# şemadandır (tests/data/fal_openapi): H3 Max reference_audio_urls (en çok 3, her biri 2-15 sn), Seedance 2.5 audio_urls
+# (en çok 10, her biri 1,8-30,2 sn). Parça başına tek karışım dosyası gider.
+AUDIO_REF_FIELD = {"h3max": "reference_audio_urls", "seedance25": "audio_urls"}
+AUDIO_REF_SECONDS = {"h3max": (2.0, 15.0), "seedance25": (1.8, 30.2)}
+AUDIO_REF_SENTENCE = {
+    "h3max": "Audio 1 is the recorded dialogue of this scene: mouth movements and the timing of the action follow Audio 1.",
+    "seedance25": "@Audio1 is the recorded dialogue of this scene: mouth movements and the timing of the action follow "
+                  "@Audio1.",
+}
 CONTINUOUS_SEEDANCE = "The shot starts exactly from @Image1 (the last frame of the previous shot); continue from it."
 CONTINUOUS_H3 = "The video opens exactly on the provided first frame (the last frame of the previous shot); continue from it."
 
@@ -524,6 +534,7 @@ class PartPlan:
     draft: bool = False
     lint: list = field(default_factory=list)          # onay durumu eşiğin altında kalan varlıklar (lint)
     lint_blocks: bool = False
+    audio_ref: dict | None = None                     # ses referansı (ses-önce): karışımın anahtarı, alan, uyarılar
     prompt_source: str = "rules"                      # rules | llm | override (prompt_writer.choose)
     prompt_rules: str = ""                            # kurallar istemi (yönetmen istemi düzenlemesinin başlangıcı)
     prompt_meta: dict = field(default_factory=dict)   # {"llm", "override", "estimate", "input_hash", "writer"}
@@ -558,7 +569,7 @@ class PartPlan:
                 "prompt_limit": PROMPT_LIMIT.get(self.engine),
                 "prompt_source": self.prompt_source, "prompt_source_label": SOURCE_LABEL[self.prompt_source],
                 "prompt_rules": self.prompt_rules, "prompt_writer": self.prompt_meta,
-                "notes": [w for w in self.warnings]}
+                "audio_ref": self.audio_ref, "notes": [w for w in self.warnings]}
 
 
 def previous_frame(s, first, engine: str) -> dict:
@@ -594,6 +605,25 @@ def previous_frame(s, first, engine: str) -> dict:
     else:
         out["note"] = f"{previous.scene_code} klibi yok ve referans yoluyla üretilmiyor: son kare verilmeyecek."
     return out
+
+
+def audio_reference(s, part: list, engine: str) -> dict | None:
+    """Parçanın ilk çekiminde ses referansı açıksa (video_opts.audio_ref) diyalog karışımının planı; yoksa None.
+    Dosya burada üretilmez (kuru çalıştırma): üretimde part_render oluşturur ve yükler."""
+    if not (part[0].video_opts or {}).get("audio_ref"):
+        return None
+    from app.post import voice
+    mix = voice.mix_for(s, part)
+    lo, hi = AUDIO_REF_SECONDS[engine]
+    warnings = []
+    if mix["missing"]:
+        warnings.append(f"Ses referansı: {mix['missing']} replik henüz seslendirilmedi (Ses sayfasında geçici sesleri "
+                        "üretin ya da kayıtları yükleyin).")
+    if not mix["key"]:
+        warnings.append("Ses referansı açık ama parçada seslendirilmiş replik yok: istekte ses referansı gönderilmez.")
+    elif not lo <= mix["duration_s"] <= hi:
+        warnings.append(f"Ses referansı {mix['duration_s']:g} sn; {fal_plan.ENGINE_TR[engine]} {lo:g}-{hi:g} sn kabul eder.")
+    return {**mix, "field": AUDIO_REF_FIELD[engine], "warnings": warnings}
 
 
 def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, with_sha: bool = False,
@@ -656,6 +686,11 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     chosen = prompt_writer.choose(s, inp, rules_prompt, override_of(part), [x.scene_code for x in part])
     prompt = chosen["prompt"]
     warnings += chosen["warnings"]
+    audio_ref = audio_reference(s, part, engine)
+    if audio_ref and audio_ref["key"]:
+        prompt = f"{prompt} {AUDIO_REF_SENTENCE[engine]}"
+    if audio_ref:
+        warnings += audio_ref["warnings"]
     draft = fal_plan.draft(engine, part[0], cfg)
     frame_local = fal_plan.local_url(cont["frame_key"]) if cont.get("frame_key") else \
         ("local:<önceki klibin son karesi>" if cont.get("expected") else None)
@@ -663,13 +698,15 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     if seed_frame:
         ref_urls = [frame_local, *ref_urls]
     plan_hash = stable_hash([engine, resolution, audio, prompt, total, [r.key for r in refs], bool(cont.get("expected")),
-                             [x.scene_code for x in part], *(["draft"] if draft else [])])
+                             [x.scene_code for x in part], *(["draft"] if draft else []),
+                             *([audio_ref["key"]] if audio_ref and audio_ref["key"] else [])])
     part_hash = stable_hash([plan_hash, cont.get("frame_key"), [x.prompt_revision for x in part]])
     seed = seed_for(part_hash, "part", 0)
     endpoint, body = fal_plan.body(engine, "ref", prompt=prompt, duration_s=total, resolution_=resolution, audio_=audio,
                                    seed=seed, image_url=frame_local if engine == "h3max" else None,
-                                   reference_urls=ref_urls, draft_=draft)
-    files = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0)
+                                   reference_urls=ref_urls, draft_=draft,
+                                   audio_urls=[fal_plan.local_url(audio_ref["key"])] if audio_ref and audio_ref["key"] else ())
+    files = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0) + int(bool(audio_ref and audio_ref["key"]))
     if files > MAX_FILES[engine]:
         warnings.append(f"Dosya sınırı aşıldı ({files} > {MAX_FILES[engine]}).")
     images = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0)
@@ -682,7 +719,7 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
                     lint_blocks=lint_blocks, prompt_source=chosen["source"], prompt_rules=rules_prompt,
                     prompt_meta={k: chosen.get(k) for k in ("llm", "override", "estimate", "input_hash", "writer",
                                                          "writing")},
-                    writer_input=inp)
+                    writer_input=inp, audio_ref=audio_ref)
     plan.uploads = uploads(plan, with_sha)
     return plan
 
@@ -725,6 +762,11 @@ def uploads(plan: PartPlan, with_sha: bool) -> list[dict]:
     name = "reference_image_urls" if plan.engine == "h3max" else "image_urls"
     for i, r in enumerate(plan.refs):
         rows.append(_upload_row(f"{name}[{i + shift}]", r.key, with_sha))
+    if plan.audio_ref and plan.audio_ref["key"]:            # diyalog karışımı: üretimde oluşturulup yüklenir
+        rows.append({"field": f"{plan.audio_ref['field']}[0]", "key": plan.audio_ref["key"], "path": plan.audio_ref["key"],
+                     "upload": "yüklenmedi (kuru çalıştırma)",
+                     "note": f"diyalog karışımı: {plan.audio_ref['lines']} replik, {plan.audio_ref['duration_s']:g} sn "
+                             "(üretimde yerel olarak birleştirilir)"})
     return rows
 
 

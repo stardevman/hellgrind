@@ -36,6 +36,7 @@ from app.engine.storyboard import chain_enabled, clean_key, parent_token
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
+from app.post import voice
 from app.schemas import EstimateIn, ScriptIn
 
 router = APIRouter(tags=["panel"])
@@ -66,7 +67,7 @@ Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
-                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/")
+                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/", "animatic/")
 MUTABLE_PREFIXES = ("storyboard/",)             # içerik-adresli değil: yeniden çizim aynı anahtara yazar
 EVENT_LIMIT = 30
 
@@ -338,7 +339,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
         "camera": sc.camera, "camera_plan": sc.camera_plan, "camera_effective": camera_of(sc), "entry_mode": sc.entry_mode,
         "entering": (seams.get(sc.id) or {}).get("entering") or [],
         "entry_options": ["cut", "walk_in"] if (seams.get(sc.id) or {}).get("entering") else None,
-        "duration_s": sc.duration_s, "action_complexity": sc.action_complexity,
+        "duration_s": sc.duration_s, "duration_source": sc.duration_source or "script",
+        "action_complexity": sc.action_complexity,
         "spent_usd": float(sc.spent_usd), "last_error": sc.last_error, "correction_count": sc.correction_count,
         "characters": cast[sc.id], "final_url": _media(sc.final_video_key),
         "assets": [{"id": aid, "type": type_, "name": name, "status": status} for aid, type_, name, status in items[sc.id]],
@@ -352,6 +354,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                   if (w := winners_of[sc.id]) is not None and (w.params or {}).get("split") else None),
         "tracks": [{"id": str(t.id), "kind": t.kind, "source": t.source, "text": t.text, "emotion": t.emotion,
                     "start_offset_s": t.start_offset_s, "gain_db": t.gain_db, "version": t.version,
+                    "duration_s": t.duration_s, "file_url": _media(t.file_key),
                     "character_id": str(t.character_id) if t.character_id else None,
                     "character": names.get(t.character_id), "mood": (t.params or {}).get("mood")} for t in tracks[sc.id]],
         "variations": [{
@@ -383,6 +386,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
 
     events = [json.loads(e) for e in killswitch.r().lrange(killswitch.EVENTS.format(project_id), 0, EVENT_LIMIT - 1)]
     timeline, draft_timeline = _film(p.timeline_key), _film(p.draft_timeline_key)
+    animatic = _film(p.animatic_key)
     return {
         "project": {"id": str(p.id), "title": p.title, "status": p.status,
                     "display_status": display_status(p.status, [sc.status for sc in scenes]),
@@ -391,11 +395,12 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
                     "dry_run": settings.dry_run, "style_version": bible.active_version(s, project_id),
                     "style_medium": bible.medium_of(bible.active(s, project_id)),
+                    "lipsync": voice.lipsync_state(cfg),
                     "lut": bool(p.lut_key), "continuity": p.continuity,
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
-        "draft_timeline": draft_timeline,
+        "draft_timeline": draft_timeline, "animatic": animatic,
     }
 
 

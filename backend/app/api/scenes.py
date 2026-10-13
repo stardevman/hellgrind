@@ -11,6 +11,7 @@ from app.db import get_session
 from app.engine.providers import route_engine
 from app.hermes.ingest import dialogue_hash, music_hash
 from app.models import AudioTrack, Character, Scene, Variation
+from app.post import voice
 from app.schemas import AudioIn, Emotion, ScenePatch
 
 router = APIRouter(tags=["scenes"])
@@ -56,6 +57,9 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
     if "video_audio" in changes:
         value = changes.pop("video_audio")
         opts.pop("audio", None) if value == "auto" else opts.update(audio=value == "true")
+    if "video_audio_ref" in changes:
+        value = changes.pop("video_audio_ref")
+        opts.update(audio_ref=True) if value == "on" else opts.pop("audio_ref", None)
     if opts != (sc.video_opts or {}):
         sc.video_opts = opts or None
     for key, value in changes.items():
@@ -129,18 +133,32 @@ def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_ses
     emotion = body.emotion or (mood if body.kind == "music" else sc.emotion if body.kind == "dialogue" else None)
 
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id, AudioTrack.kind == body.kind)))
+    params = {**body.params, **({"mood": mood} if mood else {})}
+    duration = None
     if body.kind == "dialogue":
+        try:
+            voice.ensure_editable(s, sc)              # kilitli sekansta replik değişmez
+        except voice.VoiceLocked as e:
+            raise HTTPException(409, str(e))
         retired = [t for t in tracks if t.id == body.replaces and t.is_active] if body.replaces else []
         if body.replaces and not retired:
             raise HTTPException(404, "Değiştirilecek aktif diyalog kanalı bu sahnede yok")
+        if retired:                                   # yerini aldığı repliğin kimliği: senaryo yeniden işlenince korunur
+            params["line_hash"] = voice.line_hash(retired[0])
+            if body.source == "upload":               # final kayıt repliğin kendisi: karakter ve metin aynen kalır
+                body.character_id = body.character_id or retired[0].character_id
+                body.text = body.text or retired[0].text
+                emotion = body.emotion or retired[0].emotion or emotion
+        if body.source == "upload":
+            duration = voice.measure(body.file_key)   # ölçülen süre: Ses sayfası ve sekans kilidi bunu kullanır
     else:
         retired = [t for t in tracks if t.is_active]            # müzik ve efektler türün tüm eski kanallarının yerini alır
     version = max((t.version for t in tracks), default=0) + 1
     for t in retired:
         t.is_active = False
     track = AudioTrack(scene_id=sc.id, character_id=body.character_id, kind=body.kind, source=body.source,
-                       text=body.text, emotion=emotion, params={**body.params, **({"mood": mood} if mood else {})},
-                       content_hash=_content_hash(body, mood, emotion), file_key=body.file_key,
+                       text=body.text, emotion=emotion, params=params,
+                       content_hash=_content_hash(body, mood, emotion), file_key=body.file_key, duration_s=duration,
                        start_offset_s=body.start_offset_s, gain_db=body.gain_db, is_active=True, version=version)
     s.add(track)
     s.commit()

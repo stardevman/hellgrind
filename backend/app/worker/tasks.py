@@ -420,6 +420,31 @@ def assemble_timeline(project_id: str, kind: str = "final", rematch: bool = True
     return result
 
 
+@celery.task(name="hg.voice_temp")
+def voice_temp(project_id: str, sequence_id: str | None = None):
+    """Seslendirilmemiş sentez repliklerinin geçici sesi (Ses sayfası; ücretsiz modda espeak)."""
+    from app.post.voice import ensure_temp
+    done = ensure_temp(project_id, sequence_id)
+    killswitch.event(project_id, "voice_temp", shots=done)
+    return done
+
+
+@celery.task(name="hg.assemble_animatic")
+def assemble_animatic(project_id: str):
+    """Animatik: onaylı kareler (yoksa çekim kartı) geçici ya da final sesle, sesin süresine göre (yerel FFmpeg)."""
+    from app.post.animatic import assemble
+    try:
+        result = assemble(project_id)
+    except Exception as e:
+        killswitch.event(project_id, "animatic_failed", error=f"{type(e).__name__}: {e}")
+        raise
+    if "error" in result:
+        killswitch.event(project_id, "animatic_failed", error=result["error"])
+    else:
+        killswitch.event(project_id, "animatic", **{k: v for k, v in result.items() if k != "key"})
+    return result
+
+
 # ---------- sahne istemi yazıcı ----------
 
 @celery.task(name="hg.write_prompt")

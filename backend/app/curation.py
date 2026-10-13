@@ -47,6 +47,8 @@ ACTIONS_TR = {
     "method_change": "Üretim yöntemi", "external_upload": "Dış çekim yüklendi", "guide_upload": "Previs rehberi yüklendi",
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "on_twos_change": "Kare tutma (on twos)",
+    "voice_lock": "Sekansın sesi kilitlendi", "voice_unlock": "Sekansın ses kilidi açıldı",
+    "voice_temp": "Geçici sesler istendi", "voice_upload": "Ses kaydı yüklendi", "animatic": "Animatik birleştirme",
     "keyframe_upload": "İlk kare yüklendi (H3)", "keyframe_clear": "Yüklenen ilk kare kaldırıldı (H3)",
     "plan_approve": "Kuru çalıştırma planı onaylandı", "upgrade_final": "Final motoruyla yükseltme onaylandı",
     "draft_complete": "Seedance taslağı 1080p'ye tamamlandı (onaylı)", "upscale": "Upscale (1080p) onaylandı",

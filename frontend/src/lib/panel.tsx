@@ -9,7 +9,7 @@ import type { AdminState, Meta, Overview, ProjectListItem, Scene, Sequence } fro
 
 export const POLL_MS = 2000;
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
-export const PAGES = ["script", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
+export const PAGES = ["script", "voice", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
 /** Sayfa çubuğunda olmayan, alt banttan açılan sayfalar. */
 export const EXTRA_PAGES = ["settings", "history"] as const;
 export type Page = (typeof PAGES)[number] | (typeof EXTRA_PAGES)[number];
@@ -20,7 +20,7 @@ export const isExtraPage = (p: string): p is (typeof EXTRA_PAGES)[number] => (EX
 export const HISTORY_PARAMS = { project: "hp", service: "hs", operation: "ho", mode: "hm", status: "hst", days: "hd", call: "hc" } as const;
 export type HistoryFilter = Partial<Record<keyof typeof HISTORY_PARAMS, string | null>>;
 /** Çekimi olmayan projede açılamayan sayfalar: senaryo sayfasına düşülür. */
-export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["board", "edit", "compare", "color", "deliver"]);
+export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["voice", "board", "edit", "compare", "color", "deliver"]);
 export type NoteKind = "ok" | "err" | "";
 export interface Note { text: string; kind: NoteKind }
 export type FilmKind = "final" | "draft";

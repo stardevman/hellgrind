@@ -67,6 +67,7 @@ SETTING_RULES = {
     "seedance25_draft": (lambda v: v is None or type(v) is bool, "true, false ya da boş"),
     "seedance25_resolution": (lambda v: v in (None, "480p", "720p", "1080p"), "480p, 720p, 1080p ya da boş"),
     "on_twos": (lambda v: type(v) is bool, "true ya da false"),
+    "voice_first": (lambda v: type(v) is bool, "true ya da false"),
 }
 
 
@@ -152,6 +153,7 @@ class ScenePatch(BaseModel):
     # fal video (H3 Max / Seedance 2.5): çözünürlük ve model sesi; auto: Ayarlar'daki varsayılan
     video_resolution: Literal["auto", "480P", "768P", "1080P", "480p", "720p", "1080p"] | None = None
     video_audio: Literal["auto", "true", "false"] | None = None
+    video_audio_ref: Literal["on", "off"] | None = None     # ses-önce: diyalog karışımı video isteğine ses referansı
     h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)
@@ -294,6 +296,10 @@ class StyleVersionIn(BaseModel):
 
 class StyleActivateIn(StyleVersionIn):
     render: bool = False                             # etkilenen çekimleri hemen yeniden üret
+
+
+class VoiceLockIn(BaseModel):
+    locked: bool                                     # true: sekansın sesi kilitlenir; false: kilit açılır
 
 
 class OnTwosIn(BaseModel):

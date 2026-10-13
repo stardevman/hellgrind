@@ -297,10 +297,12 @@ def build_prompt(engine: str, mode: str, composed, refs: list[Ref], style, names
 
 def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_: str, audio_: bool, seed: int | None,
          image_url: str | None = None, end_image_url: str | None = None, reference_urls=(),
-         draft_: bool = False) -> tuple[str, dict]:
-    """(uç nokta, istek gövdesi). Tipler şemaya uyar (testler OpenAPI tanımıyla doğrular)."""
+         draft_: bool = False, audio_urls=()) -> tuple[str, dict]:
+    """(uç nokta, istek gövdesi). Tipler şemaya uyar (testler OpenAPI tanımıyla doğrular). audio_urls: ses referansı
+    (yalnızca reference-to-video; H3 Max reference_audio_urls en çok 3, Seedance 2.5 audio_urls en çok 10)."""
     seconds = request_seconds(engine, duration_s)
     refs = list(reference_urls)
+    sounds = list(audio_urls)
     if engine == "h3max":
         args = {"prompt": prompt, "prompt_expansion_mode": settings.h3max_prompt_expansion or "disabled",
                 "duration": seconds, "resolution": resolution_}
@@ -317,6 +319,8 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
             args["aspect_ratio"] = "16:9"
             if refs:
                 args["reference_image_urls"] = refs[:H3_MAX_REFERENCES]
+            if sounds:
+                args["reference_audio_urls"] = sounds[:3]
             if image_url:                                   # ilk kare ref modunda da verilebilir (referanslar korunur)
                 args["image_url"] = image_url
         return endpoint, args
@@ -337,6 +341,8 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
     args.update(task="reference", aspect_ratio="16:9")
     if refs:
         args["image_urls"] = refs[:SEEDANCE_MAX_REFERENCES]
+    if sounds:
+        args["audio_urls"] = sounds[:10]
     if seed is not None:
         args["seed"] = int(seed)
     return endpoint, args

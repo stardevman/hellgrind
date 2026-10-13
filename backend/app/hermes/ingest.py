@@ -143,7 +143,9 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
         engine_cfg = project_settings(s.get(Project, project_id).settings)    # projenin taslak motoru
         for order, shot in enumerate(parsed["shots"], start=1):
             sc = existing.get(shot["scene_id"])
-            fields = dict(seq_order=order, sequence_id=seqs[shot.get("sequence", DEFAULT_SEQUENCE["code"])].id,
+            seq = seqs[shot.get("sequence", DEFAULT_SEQUENCE["code"])]
+            voice_locked = seq.voice_locked_at is not None          # ses-önce: kilitli sekansın zamanlaması sesten gelir
+            fields = dict(seq_order=order, sequence_id=seq.id,
                           script_text=script_text(shot), description=shot["description"],
                           emotion=shot["emotion"], camera=shot["camera"], duration_s=shot["duration_s"],
                           action_complexity=shot["action_complexity"],
@@ -162,6 +164,10 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
                     for key in PRESERVED_ON_SAME_TEXT:
                         fields.pop(key)
                     unchanged.append(shot["scene_id"])
+                elif voice_locked and sc.duration_source == "voice":
+                    fields.pop("duration_s")              # süre kilitteki ölçülen sesten; senaryo tahmini ezmez
+                elif "duration_s" in fields:
+                    fields["duration_source"] = "script"
                 for key, value in fields.items():
                     setattr(sc, key, value)
                 sc.prompt_spec = {**(sc.prompt_spec or {}), **prompt}    # düzeltme turlarının eklediği anahtarlar kalır
@@ -170,7 +176,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
             s.flush()
             _write_cast(s, sc, shot, chars)
             _write_assets(s, sc, shot, book)
-            _write_tracks(s, sc, shot, chars)
+            _write_tracks(s, sc, shot, chars, keep_timing=voice_locked)
         music = _write_sequence_music(s, project_id, seqs, parsed["shots"]) if auto_music else []
         sync_seams(s, project_id)                          # geçişler ve zincirden gelen karakterler (core/chain.py)
         _board_approval_default(s, project)
@@ -254,24 +260,27 @@ def _write_assets(s, sc: Scene, shot: dict, book: AssetBook) -> None:
                   .on_conflict_do_nothing(index_elements=["scene_id", "asset_id"]))
 
 
-def _write_tracks(s, sc: Scene, shot: dict, chars: dict) -> None:
+def _write_tracks(s, sc: Scene, shot: dict, chars: dict, keep_timing: bool = False) -> None:
+    """keep_timing: sekansın sesi kilitli; değişmeyen repliklerin ofseti kilitte ölçülen sesten gelir, korunur."""
     tracks = s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)).all()
     active = [t for t in tracks if t.is_active]
     next_version = max((t.version for t in tracks if t.kind == "dialogue"), default=0) + 1
 
-    # İstenen replikler ardışık ofsetlerle; her biri mevcut bir kanalla içerik özetiyle eşleşir.
+    # İstenen replikler ardışık ofsetlerle; her biri mevcut bir kanalla içerik özetiyle eşleşir. Yüklenen final kayıt,
+    # yerini aldığı repliğin özetiyle eşleşir (params.line_hash): senaryoyu yeniden işlemek kaydı silmez.
     # Aynı replik iki kez geçebilir, bu yüzden özet başına bir liste tutulur.
     keep: dict[str, list[AudioTrack]] = {}
     for t in active:
         if t.kind == "dialogue":
-            keep.setdefault(t.content_hash, []).append(t)
+            keep.setdefault((t.params or {}).get("line_hash") or t.content_hash, []).append(t)
     offset = DIALOGUE_START_S
     for line in shot["dialogue"]:
         cid = chars[line["character"]].id if line["character"] in chars else None
         h = dialogue_hash(cid, line)
         if keep.get(h):
             track = keep[h].pop(0)
-            track.start_offset_s = round(offset, 2)             # değişmeyen replik: dosyası ve sesi korunur
+            if not keep_timing:
+                track.start_offset_s = round(offset, 2)         # değişmeyen replik: dosyası ve sesi korunur
         else:
             s.add(AudioTrack(scene_id=sc.id, character_id=cid, kind="dialogue", source="tts", text=line["line"],
                              emotion=line["emotion"], params={}, content_hash=h, start_offset_s=round(offset, 2),

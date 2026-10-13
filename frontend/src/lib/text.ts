@@ -103,8 +103,14 @@ export const blockedText = (b: Blocked) => b.missing.some((m) => m.status === "n
 export const awaitingPlanText = (codes: string[], usd?: number) =>
   `Plan onayı bekliyor: ${codes.join(", ")}${usd != null ? ` (tahmini ~${usdTr(usd)})` : ""}. Denetçideki fal.ai video bölümünden planı inceleyip onaylayın.`;
 
+/** Ses-önce: sekansın sesi kilitlenmeden görüntü üretilmez. */
+export const awaitingVoiceText = (codes: string[]) =>
+  `Ses kilidi bekliyor: ${codes.join(", ")}. Ses sayfasında sekansın sesini kilitleyin; çekim süresi sesten hesaplanır.`;
+
 export const resultText = (r: StageResult) => (r.blocked ? blockedText(r.blocked)
-  : r.awaiting_plan ? awaitingPlanText(r.plan?.part ?? [], r.plan?.usd) : stagesText(r.stages));
+  : r.awaiting_plan ? awaitingPlanText(r.plan?.part ?? [], r.plan?.usd)
+  : r.awaiting_voice ? `${r.sequence ?? "Sekans"} sekansının sesi kilitlenmedi: görüntü üretimi ses kilidini bekliyor.`
+  : stagesText(r.stages));
 
 /** Çekim başına sonuçların özeti (plan onayı ve yükseltme): üretime alınan, işlendiği için atlanan, engellenen. */
 export function dispatchedText(d: Record<string, StageResult & { busy?: string }>): string {
@@ -337,6 +343,11 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     };
     case "grade_changed": return { t: `${x.code}: renk ayarı değişti` };
     case "lut_changed": return { t: x.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${x.name})` };
+    case "voice_locked": return { t: `${x.code}: ses kilitlendi${(x.retimed as string[] | undefined)?.length ? `; sesten süre: ${(x.retimed as string[]).join(", ")}` : ""}${(x.drift as string[] | undefined)?.length ? `; süre farkı (uyarı): ${(x.drift as string[]).join(", ")}` : ""}`, c: "good" };
+    case "voice_unlocked": return { t: `${x.code}: ses kilidi açıldı` };
+    case "voice_temp": return { t: `Geçici sesler üretildi${(x.shots as string[] | undefined)?.length ? `: ${(x.shots as string[]).join(", ")}` : " (eksik yoktu)"}` };
+    case "animatic": return { t: `Animatik birleşti: ${x.shots} çekim, ${Number(x.duration_s).toFixed(1).replace(".", ",")} sn`, c: "good" };
+    case "animatic_failed": return { t: `Animatik birleştirilemedi: ${x.error}`, c: "bad" };
     case "on_twos_changed": return { t: x.enabled ? "Kare tutma açıldı (12 çizim/sn görünümü): yalnızca renk ve montaj" : "Kare tutma kapatıldı: yalnızca renk ve montaj" };
     case "style_activated": {
       const stale = (x.stale as string[] | undefined) ?? [];
@@ -353,6 +364,7 @@ export function passText(r: DispatchAll, kind: string): string {
   const parts = [started.length ? `${kind}: ${started.join(", ")}.` : `${kind} için üretilecek çekim yok.`];
   if (r.awaiting_board?.length) parts.push(`Kare onayı bekleyen: ${r.awaiting_board.join(", ")}.`);
   if (r.awaiting_plan?.length) parts.push(`Plan onayı bekliyor: ${r.awaiting_plan.join(", ")}.`);
+  if (r.awaiting_voice?.length) parts.push(awaitingVoiceText(r.awaiting_voice));
   if (r.blocked && Object.keys(r.blocked).length) parts.push(`Eksik referans: ${Object.keys(r.blocked).join(", ")}.`);
   if (r.capped?.length) parts.push(`Sekans tavanında: ${r.capped.join(", ")}.`);
   return parts.join(" ");
@@ -375,6 +387,7 @@ export function dispatchText(r: DispatchAll): { text: string; bad: boolean } {
   const text = (started.length ? `Üretime alındı: ${started.join(", ")}.` : "Üretime alınan çekim yok.")
     + (still.length ? ` Hâlâ engelli: ${still.join(", ")}.` : "")
     + (r.awaiting_plan?.length ? ` Plan onayı bekliyor: ${r.awaiting_plan.join(", ")}.` : "")
+    + (r.awaiting_voice?.length ? ` ${awaitingVoiceText(r.awaiting_voice)}` : "")
     + (r.capped.length ? ` Sekans tavanında: ${r.capped.join(", ")}.` : "");
   return { text, bad: Boolean(still.length || r.capped.length) };
 }

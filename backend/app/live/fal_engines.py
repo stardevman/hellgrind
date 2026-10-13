@@ -87,11 +87,13 @@ class FalVideoProvider:
         mode = self.mode(req)
         refs = [fal_queue.upload_key(self.client(), key) for key in req.extra.get("fal_refs") or []] \
             if mode == "ref" else []
+        sounds = [fal_queue.upload_key(self.client(), key) for key in req.extra.get("fal_audio_refs") or []] \
+            if mode == "ref" else []
         return fal_plan.body(self.engine, mode, prompt=req.prompt, duration_s=req.duration_s,
                              resolution_=self.resolution(req.resolution),
                              audio_=bool(req.extra.get("fal_audio", settings.seedance25_audio)), seed=req.seed,
                              image_url=req.image_url, end_image_url=req.extra.get("last_frame"), reference_urls=refs,
-                             draft_=bool(req.extra.get("fal_draft")))
+                             draft_=bool(req.extra.get("fal_draft")), audio_urls=sounds)
 
     def billed(self, req: GenRequest, args: dict, measured: dict) -> dict:
         """İşlenen tutar ve tahmini faturalanan birimler."""

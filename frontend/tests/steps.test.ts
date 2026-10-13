@@ -1,6 +1,6 @@
 /* Adım modeli: dört adımın durumu ve sıradaki iş (saf fonksiyonlar). */
 import { describe, expect, it } from "vitest";
-import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness } from "@/lib/steps";
+import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, voiceTodos } from "@/lib/steps";
 import type { Overview, Scene } from "@/lib/types";
 
 const scene = (over: Partial<Scene>): Scene => ({ id: Math.random().toString(36).slice(2), scene_code: "S001_SH01", status: "done", engine: "h3max", sequence_id: null,
@@ -14,8 +14,8 @@ const ov = (scenes: Scene[], over: Partial<Overview["project"]> = {}, timeline: 
 });
 
 describe("steps", () => {
-  it("covers all eight pages once, in production order", () => {
-    expect(STEPS.flatMap((s) => s.pages)).toEqual(["script", "style", "assets", "board", "edit", "compare", "color", "deliver"]);
+  it("covers all nine pages once, in production order (voice right after the script)", () => {
+    expect(STEPS.flatMap((s) => s.pages)).toEqual(["script", "voice", "style", "assets", "board", "edit", "compare", "color", "deliver"]);
     expect(stepOf("compare").id).toBe("produce");
   });
 
@@ -62,5 +62,26 @@ describe("steps", () => {
     expect(pageBadges(ov([scene({})], { style_version: 2, style_medium: "2d" })).style).toMatchObject({ text: "s2 · 2D" });
     expect(pageBadges(ov([scene({})], { style_version: 1, style_medium: "3d" })).style?.title).toContain("çizim türü 3D");
     expect(pageBadges(ov([scene({})], { style_version: null })).style).toBeUndefined();
+  });
+
+  it("voice-first lists lines without a final recording (warn) and unlocked sequences (blocks preparation)", () => {
+    const line = (source: string) => ({ id: Math.random().toString(36), kind: "dialogue", source, text: "x", emotion: null, start_offset_s: 0.4,
+      gain_db: 0, version: 1, character_id: null, character: "Kerem", mood: null });
+    const seq = (locked: boolean) => ({ id: Math.random().toString(36), code: "SEQ01", title: "t", seq_order: 1, status: "active", budget_cap_usd: null,
+      spent_usd: 0, reserved_usd: 0, shots: 1, done: 0, tracks: [], voice_locked_at: locked ? 1 : null });
+    const shots = [scene({ status: "pending", tracks: [line("tts"), line("upload")] } as Partial<Scene>)];
+    const settings = { soft_budget_ratio: .8, require_board_approval: false, asset_min_status: "locked", lint_strictness: "block" };
+    const off = { ...ov(shots, { settings }), sequences: [seq(false)] };
+    expect(voiceTodos(off)).toEqual([]);                                             // ayar kapalı: eksik yok
+    const on = { ...ov(shots, { settings: { ...settings, voice_first: true } }), sequences: [seq(false), seq(true)] };
+    expect(voiceTodos(on)).toEqual([
+      { text: "1 sekansın sesi kilitlenmedi", page: "voice" }, { text: "1 replik final sesi bekliyor", page: "voice", tone: "warn" }]);
+    const st = stepReadiness({ ...on, project: { ...on.project, style_version: null } });
+    expect(st[0].state).toBe("current");
+    expect(st[0].todos.map((t) => t.text)).toEqual(["1 sekansın sesi kilitlenmedi", "Stil kılavuzu etkinleştirilmedi", "1 replik final sesi bekliyor"]);
+    expect(nextTodo(st)?.todo).toMatchObject({ page: "voice", text: "1 sekansın sesi kilitlenmedi" });
+    const locked = { ...on, sequences: [seq(true)] };
+    expect(stepReadiness(locked)[0].state).toBe("done");                              // final ses uyarıdır, engellemez
+    expect(pageBadges(locked).voice).toMatchObject({ text: "1/2" });
   });
 });

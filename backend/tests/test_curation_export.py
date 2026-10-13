@@ -14,7 +14,7 @@ import zipfile
 import pytest
 from sqlalchemy import select, text
 
-from app.api import assets, budget, grade, methods, panel, projects, scenes, sequences, storyboard, style
+from app.api import assets, budget, grade, methods, panel, projects, scenes, sequences, storyboard, style, voice
 from app.curation import ACTIONS_TR
 from app.db import session_scope
 from app.hermes import rules
@@ -23,7 +23,7 @@ from app.post import export
 from tests.media_utils import pcm, probe, rms
 
 SMALL = dict(probe_n=2, full_n=2, wave_size=2, refined_k=2, max_correction_rounds=1, max_spend_per_10min=10_000)
-MODULES = (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, panel)
+MODULES = (projects, scenes, methods, grade, sequences, storyboard, assets, style, budget, panel, voice)
 READ_ONLY_POSTS = {"preview_style",          # POST ama hiçbir şey yazmaz: karar değildir
                    "estimate",               # tahmini maliyet: yalnızca hesap
                    "delete_project"}         # olayın bağlı olduğu proje silinir; kayıt da CASCADE ile gider

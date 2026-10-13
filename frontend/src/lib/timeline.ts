@@ -37,7 +37,7 @@ export function layout(scenes: Scene[], sequences: Sequence[]): Layout {
       if (tr.kind === "dialogue") {
         const who = tr.character || "Anlatıcı";
         dialogue.push({ id: tr.id, sceneId: s.scene.id, label: who, title: `${who}: ${tr.text ?? ""}`,
-                        start: at, end: Math.min(s.end, at + speechSeconds(tr.text)) });
+                        start: at, end: Math.min(s.end, at + (Number(tr.duration_s) || speechSeconds(tr.text))) });   // ölçülen ses varsa o
       } else if (tr.kind === "music") {
         const label = `Çekim müziği${tr.mood ? " · " + moodLabel(tr.mood) : ""}`;
         music.push({ id: tr.id, sceneId: s.scene.id, label, title: `${s.scene.scene_code}: ${label}`, start: s.start, end: s.end });

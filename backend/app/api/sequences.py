@@ -62,7 +62,8 @@ def sequences_out(s: Session, project_id: str) -> list[dict]:
     return [{"id": str(q.id), "code": q.code, "title": q.title, "seq_order": q.seq_order, "status": q.status,
              "budget_cap_usd": float(q.budget_cap_usd) if q.budget_cap_usd is not None else None,
              "spent_usd": float(q.spent_usd), "reserved_usd": float(q.reserved_usd), **counts[q.id],
-             "tracks": tracks[q.id]} for q in rows]
+             "tracks": tracks[q.id],
+             "voice_locked_at": q.voice_locked_at.timestamp() if q.voice_locked_at else None} for q in rows]
 
 
 def sequence_or_404(s: Session, sequence_id: str, lock: bool = False) -> Sequence:

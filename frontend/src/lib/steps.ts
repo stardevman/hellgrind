@@ -1,13 +1,13 @@
-/* Üretim adımları: sayfa çubuğundaki sekiz sayfa, üretim sırasını izleyen dört adım altında toplanır. `stepReadiness`
+/* Üretim adımları: sayfa çubuğundaki dokuz sayfa, üretim sırasını izleyen dört adım altında toplanır. `stepReadiness`
    her adım için durumu ve bir sonraki adıma geçmek için eksik olanları çıkarır; saf fonksiyondur (tarayıcı gerekmez). */
 import type { Overview } from "./types";
 
 export type StepId = "prep" | "approve" | "produce" | "finish";
-export type StepPage = "script" | "style" | "assets" | "board" | "edit" | "compare" | "color" | "deliver";
+export type StepPage = "script" | "voice" | "style" | "assets" | "board" | "edit" | "compare" | "color" | "deliver";
 export interface Step { id: StepId; label: string; pages: readonly StepPage[]; hint: string }
 
 export const STEPS: readonly Step[] = [
-  { id: "prep", label: "Hazırlık", pages: ["script", "style", "assets"], hint: "Senaryo işlenir, stil kılavuzu seçilir, karakter, mekân ve nesne referansları kilitlenir." },
+  { id: "prep", label: "Hazırlık", pages: ["script", "voice", "style", "assets"], hint: "Senaryo işlenir, diyalog kaydedilir, stil kılavuzu seçilir, karakter, mekân ve nesne referansları kilitlenir." },
   { id: "approve", label: "Onay", pages: ["board"], hint: "Her çekimin storyboard karesi onaylanır; onaysız çekim üretime girmez." },
   { id: "produce", label: "Üretim", pages: ["edit", "compare"], hint: "Çekimler üretilir, adaylar karşılaştırılır ve kazanan seçilir." },
   { id: "finish", label: "Bitirme", pages: ["color", "deliver"], hint: "Renk sıçramaları giderilir, film birleştirilir ve dışa aktarılır." },
@@ -37,6 +37,10 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     const strict = p!.settings.lint_strictness !== "off";
     if (strict && total && locked < total) todos.prep.push({ text: n(total - locked, "varlık kilitsiz", "varlık kilitsiz"), page: "assets", tone: scenes.some((s) => s.status === "blocked") ? "bad" : "warn" });
     if (!p!.style_version) todos.prep.push({ text: "Stil kılavuzu etkinleştirilmedi", page: "style", tone: "warn" });
+    todos.prep.push(...voiceTodos(ov!));
+    // Hazırlıkta engelleyiciler önce: "Sıradaki" uyarıdan (stil, final ses) önce kilitsiz sekansı gösterir.
+    const rank = (t: Todo) => (t.tone === "bad" ? 0 : t.tone === "warn" ? 2 : 1);
+    todos.prep.sort((a, b) => rank(a) - rank(b));
   }
 
   if (scenes.length) {
@@ -74,6 +78,19 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
   });
 }
 
+/** Ses-önce (proje ayarı voice_first): final sesi olmayan replikler (uyarı) ve sesi kilitlenmemiş sekanslar (görüntü
+    üretimini bekletir; adımı tamamlanmamış sayar). Ayar kapalıyken eksik yoktur. */
+export function voiceTodos(ov: Overview): Todo[] {
+  if (!ov.project.settings.voice_first) return [];
+  const out: Todo[] = [];
+  const lines = ov.scenes.flatMap((s) => (s.tracks ?? []).filter((t) => t.kind === "dialogue"));
+  const waiting = lines.filter((t) => t.source !== "upload").length;
+  const unlocked = (ov.sequences ?? []).filter((q) => !q.voice_locked_at).length;
+  if (unlocked) out.push({ text: n(unlocked, "sekansın sesi kilitlenmedi", "sekansın sesi kilitlenmedi"), page: "voice" });
+  if (waiting) out.push({ text: n(waiting, "replik final sesi bekliyor", "replik final sesi bekliyor"), page: "voice", tone: "warn" });
+  return out;
+}
+
 /** Sıradaki iş: ilk tamamlanmamış adımın ilk eksiği (çubuğun sağındaki "Sıradaki" bağlantısı). */
 export function nextTodo(status: StepStatus[]): { step: Step; todo: Todo } | null {
   for (const st of status) {
@@ -94,6 +111,13 @@ export function pageBadges(ov: Overview | undefined): Partial<Record<StepPage, P
   const assetsTotal = Object.values(c).reduce((x, y) => x + y, 0);
   const blocked = scenes.filter((s) => s.status === "blocked").length;
   const jumps = ov.project.continuity?.pairs.filter((x) => x.jump).length ?? 0;
+  const lines = ov.scenes.flatMap((s) => (s.tracks ?? []).filter((t) => t.kind === "dialogue"));
+  if (lines.length) {
+    const finals = lines.filter((t) => t.source === "upload").length;
+    const locked = ov.sequences.filter((q) => q.voice_locked_at).length;
+    badge.voice = { text: `${finals}/${lines.length}`, tone: finals === lines.length ? "ok" : "",
+      title: `Final sesli replikler${ov.sequences.length ? ` · ${locked}/${ov.sequences.length} sekansın sesi kilitli` : ""}` };
+  }
   if (ov.project.style_version) {
     const medium = ov.project.style_medium === "3d" ? "3D" : ov.project.style_medium === "2d" ? "2D" : "";
     badge.style = { text: `s${ov.project.style_version}${medium ? ` · ${medium}` : ""}`, title: `Etkin stil sürümü ${ov.project.style_version}${medium ? `, çizim türü ${medium}` : ""}` };

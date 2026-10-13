@@ -22,6 +22,8 @@ Kontroller:
   D. Dış çekim üretim harcaması olmadan `done` olur; rafine #1'in elle düzeltmesi yalnızca LIPSYNC ve MUX çalıştırır (Faz 15)
   A. 2D dizi: yeni stil sürümü 2D başlar ve video istemine 2D cümlesi girer; 3D sürümü önizlemeden geçer; kare tutma
      (on twos) açılıp kapanınca yalnızca GRADE ve MUX çalışır, harcama değişmez
+  O. Ses-önce: geçici ses ölçülür; final kayıt dosya adıyla repliğe bağlanır; voice_first açıkken kilitsiz sekansta
+     görüntü üretilmez; kilit süreyi sesten hesaplar ve replik düzenlemeyi kapatır; animatik sesle birleşir
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
      düzeltme uygulanınca uyarı kalkar (Faz 16)
   K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
@@ -364,6 +366,7 @@ def main() -> int:
               f"(skor {jumped['score']} -> {pair and pair['score']}, ΔL {pair and pair['lab']['L']})")
 
     check_series_style(pid)
+    check_voice_first(meta)
     check_curation_and_exports(pid)
     check_history(pid)
 
@@ -686,6 +689,79 @@ def check_series_style(pid: str) -> None:
     for sid, key in finals.items():
         wait_scene(sid, key)
     check(sorted(r["regraded"]) == CODES and spent(pid) == before[0], "kare tutma kapatıldı; yine yalnızca renk ve montaj")
+
+
+def check_voice_first(meta: dict) -> None:
+    """Ses-önce: geçici ses ölçülür, final kayıt dosya adıyla repliğe bağlanır, voice_first açıkken kilitsiz sekansta
+    görüntü üretilmez, kilit süreyi sesten hesaplar ve replik düzenlemeyi kapatır, animatik sesle birleşir."""
+    import subprocess
+    import tempfile
+    print("O) Ses-önce: geçici ses, final kayıt, kilit, animatik")
+    pid = new_project("duman-testi-ses", 100.0, lint_strictness="off", voice_first=True)
+    c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"], "auto_render": False}).raise_for_status()
+    st = c.get(f"/projects/{pid}/voice").json()
+    lines = [(sh, ln) for q in st["sequences"] for sh in q["shots"] for ln in sh["lines"]]
+    check(bool(lines) and st["counts"]["final"] == 0 and st["counts"]["unmeasured"] == len(lines),
+          f"Ses sayfası {len(lines)} repliği sekans ve çekim altında listeledi; hepsi seslendirilmemiş")
+    r = c.post(f"/projects/{pid}/render-all").json()
+    check(sorted(r["awaiting_voice"]) == CODES and variation_count(pid) == 0 and spent(pid) == 0,
+          "voice_first: ses kilitlenmeden hiçbir görüntü üretilmedi")
+    c.post(f"/projects/{pid}/voice/temp").raise_for_status()
+    for _ in range(60):
+        st = c.get(f"/projects/{pid}/voice").json()
+        if st["counts"]["unmeasured"] == 0:
+            break
+        time.sleep(1)
+    lines = [(sh, ln) for q in st["sequences"] for sh in q["shots"] for ln in sh["lines"]]
+    check(all(ln["duration_s"] and ln["engine"] == "espeak" for _, ln in lines), "geçici sesler espeak ile üretildi ve ölçüldü")
+    shot, line = lines[0]
+    name = f"{shot['scene_code']}_{line['n']}.wav"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, name)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1.8", path], check=True)
+        with open(path, "rb") as f:
+            up = c.post(f"/projects/{pid}/voice/upload", params={"filename": name}, content=f.read(),
+                        headers={"content-type": "audio/wav"}).json()
+    c.put(f"/scenes/{shot['scene_id']}/audio", json={"kind": "dialogue", "source": "upload", "file_key": up["key"],
+                                                    "replaces": line["track_id"], "params": {"filename": name}}).raise_for_status()
+    final = c.get(f"/projects/{pid}/voice").json()["sequences"][0]["shots"][0]["lines"][0]
+    check(up["match"] == {"scene_code": shot["scene_code"], "n": line["n"]} and final["final"] and abs(final["duration_s"] - 1.8) < 0.1,
+          f"final kayıt dosya adıyla ({name}) repliğe bağlandı, süresi ölçüldü")
+    seqs = [q for q in st["sequences"] if q["id"]]
+    first = c.post(f"/sequences/{seqs[0]['id']}/voice-lock", json={"locked": True}).json()
+    r = c.post(f"/projects/{pid}/render-all").json()
+    rest = [sh["scene_code"] for q in seqs[1:] for sh in q["shots"]]
+    check(sorted(r["awaiting_voice"]) == sorted(rest) and all("VISUAL" in r["planned"][sh["scene_code"]] for sh in seqs[0]["shots"]),
+          f"yalnızca kilitli {seqs[0]['code']} üretime girdi; kilitsiz sekansın çekimleri bekliyor: {r['awaiting_voice']}")
+    first_codes = {sh["scene_code"] for sh in seqs[0]["shots"]}
+    wait_for(pid, lambda ov: all(x["status"] in TERMINAL for x in ov["scenes"] if x["scene_code"] in first_codes))
+    retimed = list(first["retimed"])
+    for q in seqs[1:]:
+        retimed += c.post(f"/sequences/{q['id']}/voice-lock", json={"locked": True}).json()["retimed"]
+    st = c.get(f"/projects/{pid}/voice").json()
+    talkers = [sh for q in st["sequences"] for sh in q["shots"] if sh["lines"]]
+    check(all(q["locked"] for q in st["sequences"] if q["id"]) and sorted(retimed) == sorted(sh["scene_code"] for sh in talkers)
+          and all(sh["duration_source"] == "voice" for sh in talkers), f"kilit: süresi sesten hesaplanan {retimed}")
+    blocked = c.put(f"/scenes/{talkers[0]['scene_id']}/audio", json={"kind": "dialogue", "text": "Değişti.",
+                                                                     "replaces": talkers[0]["lines"][0]["track_id"]})
+    check(blocked.status_code == 409, "kilitli sekansta replik değiştirilemiyor (409)")
+    c.post(f"/projects/{pid}/animatic").raise_for_status()
+    film = None
+    for _ in range(90):
+        film = overview(pid)["animatic"]
+        if film and film["cut"]:
+            break
+        time.sleep(1)
+    cut = film["cut"] if film else {}
+    check(bool(cut) and [x["scene_code"] for x in cut["clips"]] == CODES and cut["voiced"] == len(talkers),
+          f"animatik {len(cut.get('clips', []))} çekimle birleşti, {cut.get('duration_s')} sn, {cut.get('voiced')} çekimin süresi sesten")
+    r = c.post(f"/projects/{pid}/render-all").json()
+    check(all("VISUAL" in r["planned"][k] for k in rest) and not r["awaiting_voice"], "bütün sekanslar kilitlenince kalan çekimler üretime girdi")
+    ov = wait_scenes(pid)
+    check(all(x["status"] == "done" for x in ov["scenes"]), "sesten süreli çekimler üretildi")
+    c.post(f"/sequences/{seqs[0]['id']}/voice-lock", json={"locked": False}).raise_for_status()
+    actions = {e["action"] for e in curation(pid)}
+    check({"voice_lock", "voice_unlock", "voice_temp", "animatic"} <= actions, "kilit, kilidin açılması ve animatik kürasyon kaydında")
 
 
 def check_sequences(pid: str) -> None:

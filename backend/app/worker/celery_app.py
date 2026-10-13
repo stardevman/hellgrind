@@ -25,6 +25,8 @@ celery.conf.update(
         "hg.lipsync_scene": {"queue": "post"},
         "hg.grade_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},
+        "hg.voice_temp": {"queue": "post"},
+        "hg.assemble_animatic": {"queue": "post"},
         "hg.continuity": {"queue": "post"},
         "hg.auto_match": {"queue": "post"},
         "hg.write_prompt": {"queue": "control"},     # sahne istemi yazıcı (LLM; ücretli, kısa)

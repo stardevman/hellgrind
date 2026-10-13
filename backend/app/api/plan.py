@@ -48,6 +48,15 @@ class AwaitingPlan(Exception):
         self.scene_code, self.plan = scene_code, plan
 
 
+class AwaitingVoice(Exception):
+    """Ses-önce (proje ayarı voice_first): çekimin sekansının sesi kilitlenmedi; görüntü üretimi başlamaz. Planlayıcı
+    değişmez, yalnızca dağıtım bekler (ses ve renk gibi görüntüsüz aşamalar serbesttir)."""
+
+    def __init__(self, scene_code: str, sequence_code: str):
+        super().__init__(f"{scene_code}: {sequence_code} sekansının sesi kilitlenmedi")
+        self.scene_code, self.sequence_code = scene_code, sequence_code
+
+
 class Blocked(Exception):
     """Üretim öncesi kontrol: çekimde onaylı referansı olmayan varlık var; sahne `blocked` oldu, hiçbir şey harcanmadı."""
 
@@ -231,6 +240,8 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
     if Stage.VISUAL in stages:
         lint_gate(s, sc)                     # para harcanmadan önce: eksik referansla görüntü üretilmez
         cfg = project_settings(project.settings)
+        if cfg.get("voice_first") and seq is not None and seq.voice_locked_at is None:
+            raise AwaitingVoice(sc.scene_code, seq.code)     # ses-önce: süre ve tempo kilitli sesten gelir
         if reference:
             reference_gate(s, sc, cfg)       # eksik referans ve plan onayı (kare onayının yerine)
         elif cfg["require_board_approval"] and not board_ready(sc, fp.visual):
@@ -280,6 +291,8 @@ def dispatch_result(s: Session, sc: Scene, **kwargs) -> dict:
         return {"stages": e.stages, "awaiting_board": True}
     except AwaitingPlan as e:
         return {"stages": [], "awaiting_plan": True, "plan": e.plan}
+    except AwaitingVoice as e:
+        return {"stages": [], "awaiting_voice": True, "sequence": e.sequence_code}
 
 
 def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage | None = None,
@@ -294,10 +307,11 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
     çekimde değil, bir kez olur)."""
     planned, busy, blocked, capped, awaiting = {}, [], {}, [], []
     plans: list = []
+    voice: list = []
     batch = Batch(project_id)
     try:
         frozen = _plan_all(s, project_id, mode, allowed, batch, planned, busy, blocked, capped, awaiting, plans,
-                           post_only=post_only, restyle=restyle)
+                           post_only=post_only, restyle=restyle, voice=voice)
         batched = batch.launch()
         frozen = frozen or killswitch.is_frozen(project_id)    # kuyruğa verilen ilk işler bütçeyi bitirmiş olabilir
     except Exception:
@@ -306,12 +320,12 @@ def dispatch_all(s: Session, project_id: str, mode: str = "full", allowed: Stage
                 release_dispatch(sid)
         raise
     return {"planned": planned, "busy": busy, "blocked": blocked, "capped": capped, "awaiting_board": awaiting,
-            "awaiting_plan": plans, "frozen": frozen, "batched": batched is not None}
+            "awaiting_plan": plans, "awaiting_voice": voice, "frozen": frozen, "batched": batched is not None}
 
 
 def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, batch: Batch, planned: dict, busy: list,
               blocked: dict, capped: list, awaiting: list, plans: list | None = None, post_only: bool = False,
-              restyle: bool = False) -> bool:
+              restyle: bool = False, voice: list | None = None) -> bool:
     frozen = False
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)).all():
         if frozen or killswitch.is_frozen(project_id):
@@ -327,6 +341,10 @@ def _plan_all(s: Session, project_id: str, mode: str, allowed: Stage | None, bat
             planned[sc.scene_code] = []
             if plans is not None:
                 plans.append(sc.scene_code)
+        except AwaitingVoice:
+            planned[sc.scene_code] = []
+            if voice is not None:
+                voice.append(sc.scene_code)
         except Busy:
             planned[sc.scene_code] = []
             busy.append(sc.scene_code)

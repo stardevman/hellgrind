@@ -1,13 +1,17 @@
 "use client";
 /* Storyboard sayfası (storyboard yazılımları gibi): sekans sekans kare ızgarası; her karede kamera, süre, diyalog,
-   yönetmen notu ve onay. Üst araç çubuğu kareleri hazırlar, PDF verir, taslak ve iyileştirme geçişlerini başlatır. */
-import { useState } from "react";
+   yönetmen notu ve onay. Üst araç çubuğu kareleri hazırlar, PDF verir, taslak ve iyileştirme geçişlerini başlatır.
+   "Animatik" sekmesi onaylı kareleri (yoksa çekim kartını) geçici ya da final sesle, sesin süresine göre dizer; ücretsiz
+   modda yerel olarak birleştirilir. Toplam süre ve sekans süreleri görünür. */
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { BOARD_TR, MOVE_TR, SHOT_TR } from "@/lib/i18n";
 import { pickMedia, posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
 import { passText, stripText } from "@/lib/text";
-import type { DispatchAll, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
+import { timecode } from "@/lib/timeline";
+import { secTr } from "@/lib/voice";
+import type { DispatchAll, Film, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
 import { NoteBox, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
@@ -77,7 +81,7 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
         <button className="open" type="button" onClick={() => { selectScene(sc.id); setPage("edit"); }}>Kurguda aç</button>
       </div>
       <div className="row">
-        <span className="dim small grow">{SHOT_TR[cam.shot ?? ""] || cam.shot || ""}, {MOVE_TR[cam.movement ?? ""] || cam.movement || ""} · <span className="mono">{Number(sc.duration_s).toFixed(1)} sn</span></span>
+        <span className="dim small grow">{SHOT_TR[cam.shot ?? ""] || cam.shot || ""}, {MOVE_TR[cam.movement ?? ""] || cam.movement || ""} · <span className="mono">{Number(sc.duration_s).toFixed(1)} sn</span>{sc.duration_source === "voice" && <span className="tag info" style={{ marginLeft: 4 }}>sesten</span>}</span>
         {refMode ? (sc.board_status === "changes_requested" ? <span className="st bad">not kaydedildi</span> : sc.upgrade_requested ? <span className="st info">iyileştirilecek</span> : null)
           : <span className={`st ${TONE[sc.board_status] ?? ""}`}>{BOARD_TR[sc.board_status] || sc.board_status}</span>}
       </div>
@@ -116,8 +120,56 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
   );
 }
 
+/** Animatik: oynatıcı, kesme şeridi ve sekans süreleri. Birleştirme kuyruğa verilir; film adresi değişince biter. */
+function Animatic() {
+  const { ov, projectId, busy, act, note } = usePanel();
+  const video = useRef<HTMLVideoElement | null>(null);
+  const [now, setNow] = useState(0);
+  const [waiting, setWaiting] = useState<{ before: string | null; at: number } | null>(null);
+  const film: Film | null = ov?.animatic ?? null;
+  const pending = Boolean(waiting && film?.url === waiting.before && Date.now() - waiting.at < 120000);
+  useEffect(() => { if (waiting && !pending) setWaiting(null); }, [waiting, pending]);
+  if (!ov) return null;
+  const cut = film?.cut ?? null;
+  const clips = cut?.clips ?? [];
+  const total = cut?.duration_s ?? (clips.length ? clips[clips.length - 1].out_s : 0);
+  const build = () => act(async () => {
+    setWaiting({ before: film?.url ?? null, at: Date.now() });
+    await api.post(`/projects/${projectId}/animatic`);
+    note("board", "Animatik birleştirmeye alındı: seslendirilmemiş replikler önce geçici sesle üretilir.", "ok");
+  }, "board");
+  return (
+    <div className="animatic">
+      <div className="stack">
+        {film ? <video key={film.url} ref={video} src={film.url} controls preload="metadata" playsInline onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} />
+          : <p className="empty">Henüz animatik yok. Onaylı kareler (yoksa çekim kartları) sesle dizilir; birleştirmek ücretsizdir.</p>}
+        {clips.length > 0 && (
+          <div className="cutbar" aria-label="Animatik çekimleri">
+            {clips.map((c) => (
+              <button key={c.scene_code} type="button" className={`cut${now >= c.in_s && now < c.out_s ? " active" : ""}`}
+                style={{ flex: `${Math.max(0.1, c.out_s - c.in_s)} 1 0`, background: c.still === "board" ? "#3a5f9e" : "#3a3c42" }}
+                title={`${c.scene_code} · ${secTr(c.out_s - c.in_s)} · ${c.still === "board" ? "onaylı kare" : "çekim kartı"} · ${c.timing === "voice" ? "süre sesten" : "çekim süresi"}`}
+                onClick={() => { const v = video.current; if (v) { v.currentTime = c.in_s + 0.05; v.play().catch(() => {}); } }}>{c.scene_code}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="stack anim-seq">
+        <button className="btn primary" type="button" disabled={busy || pending} onClick={() => void build()}>{pending ? "Birleştiriliyor…" : film ? "Animatiği yeniden birleştir" : "Animatiği birleştir"}</button>
+        <div className="row"><b>Toplam</b><span className="mono">{timecode(total)} · {secTr(total)}</span></div>
+        {(cut?.sequences ?? []).map((q) => (
+          <div key={q.code} className="row"><span>{q.code} · {q.title}</span><span className="mono">{secTr(q.out_s - q.in_s)}</span></div>
+        ))}
+        {cut && <p className="faint small">{cut.boards ?? 0} onaylı kare, {clips.length - (cut.boards ?? 0)} çekim kartı · {cut.voiced ?? 0} çekimin süresi sesten.</p>}
+        <p className="faint small">Süre: çekimin bütün replikleri seslendirildiyse giriş payı + replikler + çıkış payı, değilse çekim süresi. Ses ve kareler değişince yeniden birleştir.</p>
+      </div>
+    </div>
+  );
+}
+
 export function BoardPage() {
   const { ov, projectId, busy, frozen, act, note, meta, admin } = usePanel();
+  const [tab, setTab] = useState<"frames" | "animatic">("frames");
   if (!ov) return null;
   const refMode = meta?.video_input_mode === "reference";
   const scenes = ov.scenes;
@@ -133,6 +185,10 @@ export function BoardPage() {
       <section className="pnl" aria-labelledby="board-title">
         <header className="pnl-h">
           <h2 id="board-title">Storyboard</h2>
+          <div className="seg" role="tablist" aria-label="Storyboard görünümü" data-tour="board-animatic">
+            <button type="button" role="tab" aria-selected={tab === "frames"} aria-pressed={tab === "frames"} onClick={() => setTab("frames")}>Kareler</button>
+            <button type="button" role="tab" aria-selected={tab === "animatic"} aria-pressed={tab === "animatic"} onClick={() => setTab("animatic")}>Animatik</button>
+          </div>
           <span className="meta">{refMode ? `${scenes.filter((x) => x.status === "done").length}/${scenes.length} çekim hazır` : `${approved}/${scenes.length} kare onaylı`} · {drafts} taslak çekim · {flagged} iyileştirilecek</span>
           <span className="grow" />
           {!refMode && <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {
@@ -177,7 +233,7 @@ export function BoardPage() {
             note("board", passText(r, "Tam tura alınan"), "ok");
           }, "board")}>{flagged ? `İyileştirme geçişi (${flagged} çekim)` : "İyileştirme geçişi"}</button>
         </header>
-        <div className="pnl-b">
+        {tab === "animatic" ? <div className="pnl-b"><div className="pad"><NoteBox id="board" /></div><Animatic /></div> : <div className="pnl-b">
           <div className="pad stack">
             {refMode ? (
               <p className="faint small">
@@ -205,7 +261,7 @@ export function BoardPage() {
               <div className="boards">{g.scenes.map((sc) => <BoardCard key={sc.id} sc={sc} refMode={refMode} />)}</div>
             </section>
           ))}
-        </div>
+        </div>}
       </section>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 /* Stüdyo çerçevesi, bütün denetimler altta: en üstte etkin sayfa; altında uyarılar, adımın sayfaları, eksikleri ve
    "Sıradaki" şeridi; en altta uygulama bandı (logo, proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi).
-   Bandın menüleri yukarı açılır. Shift+1…8 sayfalar arasında geçer. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
+   Bandın menüleri yukarı açılır. Shift+1…9 sayfalar arasında geçer. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
    gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
    (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
@@ -21,11 +21,12 @@ import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
 import { StepHeader, StepRail } from "./StepBar";
 import { StylePage } from "./StylePage";
+import { VoicePage } from "./VoicePage";
 import { Tour } from "./Tour";
 import { shortcutTarget } from "./ui";
 
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
-  script: ScriptPage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
+  script: ScriptPage, voice: VoicePage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
   color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
 };
 
@@ -287,7 +288,7 @@ export function AppFrame() {
   const { projectId, ov, creating, offline, page, setPage, projects, admin, adminState } = usePanel();
   const hasShots = Boolean(ov?.scenes.length);
 
-  useEffect(() => {                                       // Shift+1…8: sayfalar arasında geçiş
+  useEffect(() => {                                       // Shift+1…9: sayfalar arasında geçiş
     const onKey = (e: KeyboardEvent) => {
       if (!e.shiftKey || !shortcutTarget(e)) return;
       const i = Number(e.code.replace("Digit", "")) - 1;

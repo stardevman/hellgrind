@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
-from app.api.plan import (AwaitingBoard, AwaitingPlan, Blocked, Busy, SequenceCapped, dispatch_all, dispatch_result,
-                          ensure_idle, plan_and_dispatch)
+from app.api.plan import (AwaitingBoard, AwaitingPlan, AwaitingVoice, Blocked, Busy, SequenceCapped, dispatch_all,
+                          dispatch_result, ensure_idle, plan_and_dispatch)
 from app.budget import killswitch
 from app.config import project_settings, settings
 from app.core.rerender import Stage, board_stale, fingerprints
@@ -436,7 +436,7 @@ def upgrade_pass(project_id: ProjectId, s: Session = Depends(get_session)):
             busy.append(sc.scene_code)
         except Blocked as e:
             blocked[sc.scene_code] = [m["name"] for m in e.payload()["missing"]]
-        except (AwaitingBoard, AwaitingPlan):
+        except (AwaitingBoard, AwaitingPlan, AwaitingVoice):
             awaiting.append(sc.scene_code)
         except SequenceCapped:
             capped.append(sc.scene_code)

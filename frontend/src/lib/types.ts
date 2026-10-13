@@ -164,7 +164,11 @@ export interface FalPlan {
   upscale_estimate?: Record<string, UpscaleCost>; complete_estimate?: CompleteCost; seedance_draft?: DraftPreview;
   /** Referans modu: kazanan klibin bölünmesi ve karma üretim uyarısı. */
   split?: PartSplit | null; generation?: Generation | null;
+  /** Ses referansı (ses-önce): diyalog karışımının anahtarı, istekteki alan, replik sayısı, süre, uyarılar. */
+  audio_ref?: AudioRef | null;
 }
+
+export interface AudioRef { key: string | null; field: string; lines: number; missing: number; duration_s: number; warnings: string[] }
 
 /** POST /scenes/{id}/plan/approve: parçanın planı onaylandı (render=true ise çekimler üretime verildi). */
 export interface PlanApproval {
@@ -197,6 +201,8 @@ export interface ProjectSettings {
   soft_budget_ratio: number;
   /** Kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında uygulanır. */
   on_twos?: boolean;
+  /** Ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz. */
+  voice_first?: boolean;
   require_board_approval: boolean;
   asset_min_status: string;
   lint_strictness: string;
@@ -222,6 +228,8 @@ export interface Project {
   style_version: number | null; lut: boolean;
   /** Etkin stil kılavuzunun çizim türü (kılavuz yoksa 3d: eski davranış). */
   style_medium?: Medium;
+  /** Dudak senkronunun bu projedeki durumu (ücretsiz modda atlanır). */
+  lipsync?: { mode: "free" | "off" | "no_key" | "paid"; text: string };
   continuity: { pairs: ContinuityPair[] } | null;
   asset_counts: Record<string, number>;
 }
@@ -258,6 +266,8 @@ export interface Track {
   id: string; kind: string; source: string; text: string | null; emotion: string | null;
   start_offset_s: number; gain_db: number; version: number;
   character_id: string | null; character: string | null; mood: string | null;
+  /** Ölçülen süre (sentez ya da yükleme sonrası) ve dosyanın adresi; seslendirilmemişse null. */
+  duration_s?: number | null; file_url?: string | null;
 }
 
 export interface SceneAssetRef { id: string | null; type: string; name: string; status: string | null }
@@ -273,7 +283,7 @@ export interface Scene {
   /** Karma üretim (null: tutarlı) ve kazanan parça klibinin bölünmesi (kesmeler, sınır kaynakları, uyarı). */
   generation?: Generation | null; split?: PartSplit | null;
   /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
-  video_opts?: { resolution?: string; audio?: boolean };
+  video_opts?: { resolution?: string; audio?: boolean; audio_ref?: boolean };
   fal_request?: FalRequest | null;
   /** "Seedance 2.5 ile yükselt" uygun: taslak motorla üretilmiş ve final motorunda değil. */
   upgrade_available?: boolean;
@@ -286,6 +296,8 @@ export interface Scene {
   heading: string; description: string | null; emotion: string;
   camera: { shot?: string; movement?: string; angle?: string; lens_mm?: number; side?: number } | null;
   duration_s: number; action_complexity: number; spent_usd: number; last_error: string | null;
+  /** Çekim süresinin kaynağı: script (senaryodan tahmin) ya da voice (sekans ses kilidinde ölçülen sesten). */
+  duration_source?: "script" | "voice";
   correction_count: number; characters: string[]; final_url: string | null;
   assets: SceneAssetRef[]; missing: SceneAssetRef[]; tracks: Track[]; variations: Variation[];
   /** MiniMax H3 koşulu: fl2va (ilk kareden) | ref2va (karakter referans setiyle). */
@@ -338,17 +350,28 @@ export interface Sequence {
   id: string; code: string; title: string; seq_order: number; status: string;
   budget_cap_usd: number | null; spent_usd: number; reserved_usd: number;
   shots: number; done: number; tracks: TimelineTrack[];
+  /** Ses-önce: sekansın sesi kilitlendiği an (epoch sn); null = kilitsiz. */
+  voice_locked_at?: number | null;
 }
 
-export interface CutClip { scene_code: string; in_s: number; out_s: number; description?: string; emotion?: string }
+export interface CutClip {
+  scene_code: string; in_s: number; out_s: number; description?: string; emotion?: string;
+  /** Animatik: kare (onaylı storyboard karesi ya da çekim kartı) ve sürenin kaynağı (ses ya da çekim süresi). */
+  still?: "board" | "card"; timing?: "voice" | "shot"; sequence?: string;
+}
 export interface CutSequence { code: string; title: string; in_s: number; out_s: number }
-export interface Film { url: string; cut: { clips?: CutClip[]; sequences?: CutSequence[] } | null }
+export interface Film {
+  url: string;
+  cut: { clips?: CutClip[]; sequences?: CutSequence[]; duration_s?: number; voiced?: number; boards?: number } | null;
+}
 
 export interface PanelEvent { kind: string; ts: number; scene_id?: string; [key: string]: unknown }
 
 export interface Overview {
   project: Project; scenes: Scene[]; sequences: Sequence[]; events: PanelEvent[];
   timeline: Film | null; draft_timeline: Film | null;
+  /** Animatik: onaylı kareler (yoksa çekim kartı) sesle, sesin süresine göre. */
+  animatic?: Film | null;
 }
 
 /* ---------- varlıklar ---------- */
@@ -428,6 +451,8 @@ export interface StageResult {
   stages: string[]; blocked?: Blocked | null; hint?: string; awaiting_board?: boolean;
   /** Referans modu: plan onaylanmadı; çekim plan_review'da bekler. */
   awaiting_plan?: boolean; plan?: { part: string[]; plan_hash: string; usd: number };
+  /** Ses-önce: sekansın sesi kilitlenmedi (sequence: sekans kodu). */
+  awaiting_voice?: boolean; sequence?: string;
 }
 /** POST /scenes/{id}/promote/{vid}: seçilen klip başka bir üretimdense uyarı ve seçenekler. */
 export interface PromoteResult extends StageResult { warning?: string; mixed?: Generation; options?: MixOption[] }
@@ -449,6 +474,8 @@ export interface DispatchAll {
   capped: string[]; awaiting_board?: string[]; frozen: boolean;
   /** Referans modu: planı onay bekleyen çekimler. */
   awaiting_plan?: string[];
+  /** Ses-önce: sekansının sesi kilitlenmediği için görüntüsü bekleyen çekimler. */
+  awaiting_voice?: string[];
 }
 
 /** "Kareleri hazırla"nın planı (GET /projects/{id}/storyboard/plan): onaydan önce gösterilir. */
@@ -630,3 +657,30 @@ export interface CostEstimate {
 
 /** GET /admin: yönetici şifresi tanımlı mı, bu tarayıcı yönetici mi (şifre yoksa her zaman). */
 export interface AdminState { required: boolean; admin: boolean }
+
+/* ---------- ses-önce ---------- */
+
+export interface VoiceLine {
+  track_id: string; n: number; character_id: string | null; character: string | null; text: string | null; emotion: string | null;
+  source: string; final: boolean; engine: string | null; url: string | null; duration_s: number | null;
+  start_offset_s: number; slot_s: number; drift: boolean; filename: string | null; version: number;
+}
+export interface VoiceShot {
+  scene_id: string; scene_code: string; heading: string; description: string | null; duration_s: number;
+  duration_source: "script" | "voice"; voice_s: number | null; voice_clamped: number | null; has_video: boolean;
+  status: string; drift: boolean; drift_text: string | null; lines: VoiceLine[];
+}
+export interface VoiceSequence {
+  id: string | null; code: string; title: string; locked: boolean; locked_at: number | null; shots: VoiceShot[];
+  lines: number; final: number;
+}
+/** GET /projects/{id}/voice: Ses sayfası. */
+export interface VoiceState {
+  sequences: VoiceSequence[]; voice_first: boolean;
+  counts: { lines: number; final: number; temp: number; unmeasured: number; drift: number; unlocked: number };
+  pads: { in: number; gap: number; out: number; drift: number }; drift_text: string;
+}
+/** POST /sequences/{id}/voice-lock. */
+export interface VoiceLockResult { sequence_id: string; code: string; locked: boolean; locked_at: number | null; retimed?: string[]; drift?: string[]; clamped?: string[] }
+/** POST /projects/{id}/voice/upload. */
+export interface VoiceUpload { key: string; duration_s: number; filename: string; match: { scene_code?: string; n?: number } }

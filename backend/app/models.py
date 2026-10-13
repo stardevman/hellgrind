@@ -46,6 +46,7 @@ class Project(Base):
     draft_timeline_key: Mapped[str | None] = mapped_column(Text)
     lut_key: Mapped[str | None] = mapped_column(Text)
     lut_hash: Mapped[str | None] = mapped_column(Text)
+    animatic_key: Mapped[str | None] = mapped_column(Text)        # 031: storyboard kareleri + ses (animatik)
     continuity: Mapped[dict | None] = mapped_column(JSONB)
     script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -83,6 +84,7 @@ class Sequence(Base):
     reserved_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
     status: Mapped[str] = mapped_column(Text, default="active")          # active | capped
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    voice_locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # 031: sekansın sesi kilitli
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -121,6 +123,7 @@ class Scene(Base):
     action_complexity: Mapped[float] = mapped_column(Float, default=0.0)
     engine: Mapped[str | None] = mapped_column(EngineKind)
     duration_s: Mapped[float] = mapped_column(Float, default=5.0)
+    duration_source: Mapped[str] = mapped_column(Text, default="script")   # 031: script | voice (kilitte sesten)
     prompt_spec: Mapped[dict] = mapped_column(JSONB, default=dict)
     prompt_revision: Mapped[int] = mapped_column(Integer, default=0)
     correction_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -160,7 +163,7 @@ class Scene(Base):
     style_stale: Mapped[dict | None] = mapped_column(JSONB)                # eski stil işareti (style/bible.mark_stale)
     plan_approval: Mapped[dict | None] = mapped_column(JSONB)               # onaylanan kuru çalıştırma planı {"hash", "usd", "at"}
     fal_request: Mapped[dict | None] = mapped_column(JSONB)                 # fal kuyruğundaki iş (request_id; sürdürme)
-    video_opts: Mapped[dict | None] = mapped_column(JSONB)                  # fal video: {"resolution", "audio"}; boşsa Ayarlar
+    video_opts: Mapped[dict | None] = mapped_column(JSONB)                  # fal video: {"resolution", "audio", "audio_ref"}; boşsa Ayarlar
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
