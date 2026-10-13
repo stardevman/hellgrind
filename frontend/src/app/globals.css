@@ -294,7 +294,9 @@ body[data-advanced="0"] .adv { display: none !important; }
 /* ---------- izleyici ---------- */
 .viewer { background: #050506; }
 .viewer .screen { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; background: #000; }
-.viewer video, .viewer .screen img { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; display: block; }
+/* Video ekranı mutlak konumla doldurur: yükseklik ekrana bağlı kalır, kare her zaman tam görünür (letterbox). */
+.viewer video, .viewer .screen img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.viewer .screen { overflow: hidden; }
 .viewer .none { color: var(--text-3); }
 .viewer .osd { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; font-size: 11.5px; }
 .viewer .osd span { padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .62); color: #e7e9ee; }
