@@ -162,6 +162,9 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .chip.paid { color: var(--bad); border-color: rgba(255, 92, 85, .45); }
 .kill { height: 28px; padding: 0 12px; border-radius: var(--r); border: 1px solid rgba(255, 92, 85, .55); background: rgba(255, 92, 85, .1); color: #ff8f89; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .kill::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--bad); }
+.kill-ico { color: var(--bad); }
+.kill-ico.resume { color: var(--ok); border-color: rgba(61, 204, 145, .5); background: rgba(61, 204, 145, .1); }
+.modal h2.bad svg { color: var(--bad); }
 .kill.resume { border-color: rgba(61, 204, 145, .5); background: rgba(61, 204, 145, .1); color: var(--ok); }
 .kill.resume::before { width: 0; height: 0; border-radius: 0; background: none; border-left: 8px solid var(--ok); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
 .topbar { grid-row: 1; } .alerts { grid-row: 2; } .stephead { grid-row: 3; } .workspace { grid-row: 4; } .stepbar { grid-row: 5; }   /* boş uyarı şeridi satırları kaydırmasın */

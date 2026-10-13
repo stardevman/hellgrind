@@ -127,6 +127,7 @@ function TopBar() {
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const frozenReason = (ov?.events.find((e) => e.kind === "frozen") as { reason?: string } | undefined)?.reason;
+  const [confirmStop, setConfirmStop] = useState(false);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
   const current = projects?.find((p) => p.id === projectId);
   const remove = async () => {
@@ -169,12 +170,14 @@ function TopBar() {
           </span>
         )}
         {ov && (
-          <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
-            title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
-            {frozen ? "Üretime devam et" : "Üretimi durdur"}
+          <button type="button" className={`btn ghost icon-only kill-ico${frozen ? " resume" : ""}`} onClick={frozen ? kill : () => setConfirmStop(true)}
+            aria-label={frozen ? "Üretime devam et" : "Üretimi durdur"}
+            title={frozen ? "Üretime devam et: kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Üretimi durdur: önce onay sorulur"}>
+            {frozen ? <Icon.play /> : <Icon.stop />}
           </button>
         )}
       </div>
+      {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
     </header>
   );
 }
@@ -190,6 +193,30 @@ function Alerts() {
         <div className="alert soft">Yumuşak bütçe sınırı aşıldı: yeni tam dalga başlatılmıyor, çekimler eldeki adaylarla tamamlanıyor.</div>
       )}
       {g?.text && <div className={`alert ${g.kind === "err" ? "frozen" : "offline"}`} role="status">{g.text}</div>}
+    </div>
+  );
+}
+
+/** Üretimi durdurma onayı: düğme sistemi doğrudan durdurmaz. Esc ya da dışarı tıklama vazgeçer. */
+function StopConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancel.current?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onCancel]);
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="stop-t" aria-describedby="stop-d">
+        <h2 id="stop-t" className="bad"><Icon.stop />Üretim durdurulsun mu?</h2>
+        <p id="stop-d" className="faint small">Kuyruktaki ve çalışan işler iptal edilir, yeni iş başlamaz. Tamamlanmış klipler korunur; devam edince kaldığı yerden sürer.</p>
+        <div className="row">
+          <span className="grow" />
+          <button ref={cancel} type="button" className="btn ghost" onClick={onCancel}>Vazgeç</button>
+          <button type="button" className="btn danger" onClick={onConfirm}>Üretimi durdur</button>
+        </div>
+      </div>
     </div>
   );
 }
