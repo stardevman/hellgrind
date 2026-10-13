@@ -1323,7 +1323,7 @@ type InspTab = "shot" | "sound" | "gen";
 const TAB_TR: Record<InspTab, string> = { shot: "Çekim", sound: "Ses", gen: "Üretim" };
 
 /** Denetçi: seçili çekimin bölümleri üç sekmede. Çekim (durum, varlıklar, adaylar), Ses (replikler, sekans), Üretim
-    (motor ve plan, yöntem; Gelişmiş görünümde yükseltme ve elle düzeltme de). */
+    (motor ve plan, yöntem; yönetici modunda yükseltme ve elle düzeltme de). */
 /** Kazanan parça klibinin bu çekime düşen kesimi: gerçek segment ile planlı segment, sınır kaynakları ve bölme uyarısı.
     Planlı segment fal-plan'dan (denetçiyle aynı SWR anahtarı; ayrıca istek yok), yoksa yalnızca gerçek segment. */
 export function ClipSplit({ sc }: { sc: Scene }) {
@@ -1342,7 +1342,7 @@ export function ClipSplit({ sc }: { sc: Scene }) {
 
 
 export function Inspector({ className = "", onClose }: { className?: string; onClose?: () => void }) {
-  const { scene: sc, sequence: q, varId, meta, advanced } = usePanel();
+  const { scene: sc, sequence: q, varId, meta, admin } = usePanel();
   const [tab, setTab] = useState<InspTab>("shot");
   const closeBtn = onClose && <button type="button" className="btn ghost icon-btn" aria-label="Denetçiyi kapat" title="Denetçiyi kapat" onClick={onClose}><Icon.chevron /></button>;
   if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2><span className="grow" />{closeBtn}</header><p className="empty">Çekim seçin.</p></section>;
@@ -1385,13 +1385,13 @@ export function Inspector({ className = "", onClose }: { className?: string; onC
             {(sc.engine ?? "h3") === "h3" && <H3 key={`h${sc.id}`} sc={sc} />}
             {fal && meta?.video_input_mode !== "reference" && <H3 key={`hf${sc.id}`} sc={sc} fal />}
             <Method key={`m${sc.id}`} sc={sc} />
-            {advanced ? (
+            {admin && (
               <>
                 <ClipSplit key={`cs${sc.id}`} sc={sc} />
                 <Finishing key={`fin${sc.id}`} sc={sc} />
                 <Revisions key={revTarget?.id ?? sc.id} target={revTarget} />
               </>
-            ) : <p className="faint small pad">Yükseltme, tamamlama ve elle düzeltme bölümleri Gelişmiş görünümde açılır.</p>}
+            )}
           </>
         )}
         <div style={{ padding: 10 }}><NoteBox id="inspector" /></div>

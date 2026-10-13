@@ -213,9 +213,22 @@ button.todo:hover { color: var(--text); border-color: var(--accent); }
 .todo.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .todo.ok::before { display: none; }
 .todo.ok svg { width: 13px; height: 13px; }
 .view-mode { margin-right: 2px; }
-.view-mode button { height: 22px; padding: 0 8px; font-size: 11px; }
-/* Basit görünüm: .adv ile işaretli bölümler gizlenir (Gelişmiş anahtarı body[data-advanced] yazar). */
-body[data-advanced="0"] .adv { display: none !important; }
+.view-mode button { height: 22px; padding: 0 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.view-mode button svg { width: 11px; height: 11px; }
+/* Kullanıcı modu: .adv ile işaretli bölümler gizlenir (Kullanıcı / Yönetici anahtarı body[data-admin] yazar). */
+body[data-admin="0"] .adv { display: none !important; }
+
+/* Yönetici girişi ve kullanıcı modunda açılan yönetici sayfasının yerine gelen kilit ekranı. */
+.modal-back { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.modal { width: min(360px, 100%); padding: 16px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: 0 12px 40px rgba(0, 0, 0, .5); display: grid; gap: 10px; }
+.modal h2 { font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.modal h2 svg, .gate-ico svg { width: 16px; height: 16px; color: var(--accent); }
+.gate { height: 100%; display: grid; place-items: center; padding: 16px; }
+.gate-card { max-width: 420px; display: grid; justify-items: center; gap: 10px; text-align: center; }
+.gate-card h2 { font-size: 15px; }
+.gate-card p { font-size: 12.5px; line-height: 1.5; }
+.gate-ico { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); }
+.gate-ico svg { width: 18px; height: 18px; }
 
 /* Rehber turu: karartma, spot ışığı ve kart. */
 .tour { position: fixed; inset: 0; z-index: 100; }

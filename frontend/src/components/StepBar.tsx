@@ -10,8 +10,8 @@ export const PAGE_LABEL: Record<Page, string> = {
   script: "Senaryo", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
   color: "Renk", deliver: "Teslim", settings: "Ayarlar", history: "Geçmiş",
 };
-/** Basit görünümde gizlenen sayfalar (Karşılaştır, Kurgu'daki "Adayları karşılaştır" ile yine açılır). */
-const ADVANCED_PAGES: ReadonlySet<Page> = new Set(["compare"]);
+/** Kullanıcı modunda gizlenen sayfalar (Karşılaştır, Kurgu'daki "Adayları karşılaştır" ile yine açılır). */
+const ADMIN_PAGES: ReadonlySet<Page> = new Set(["compare"]);
 const STATE_TR = { todo: "sırada", current: "bu adımdasınız", done: "tamamlandı", blocked: "engelli" } as const;
 
 function stepTitle(st: StepStatus, hint: string): string {
@@ -55,7 +55,7 @@ export function StepBar({ hasShots }: { hasShots: boolean }) {
 
 /** Çalışma alanının üstündeki şerit: adımın adı, sayfaları (sekme) ve bu adımın eksik işleri (tıklanınca ilgili sayfa). */
 export function StepHeader({ hasShots }: { hasShots: boolean }) {
-  const { page, setPage, ov, advanced } = usePanel();
+  const { page, setPage, ov, admin } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);
   const badge = useMemo(() => pageBadges(ov), [ov]);
   if (isExtraPage(page)) return null;
@@ -67,7 +67,7 @@ export function StepHeader({ hasShots }: { hasShots: boolean }) {
       <span className="sh-step"><span className="stp-n">{i + 1}</span>{step.label}</span>
       <div className="sh-tabs" role="tablist" aria-label={`${step.label} sayfaları`}>
         {step.pages.map((x) => {
-          if (!advanced && ADVANCED_PAGES.has(x)) return null;
+          if (!admin && ADMIN_PAGES.has(x)) return null;
           const Ico = Icon[x];
           const b = badge[x];
           return (

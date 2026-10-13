@@ -14,11 +14,12 @@ from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.admin import require_admin
 from app.api.services import SERVICES
 from app.budget.history import OPERATIONS
 from app.db import get_session
 
-router = APIRouter(tags=["history"])
+router = APIRouter(tags=["history"], dependencies=[Depends(require_admin)])   # yalnızca yönetici modunda
 
 MODE_SQL = {"real": "c.dry_run IS FALSE", "virtual": "c.dry_run IS TRUE", "unknown": "c.dry_run IS NULL"}
 MODE_OF = {False: "real", True: "virtual", None: "unknown"}

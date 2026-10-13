@@ -60,7 +60,7 @@ function HoverClip({ sc }: { sc: Scene }) {
 }
 
 function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
-  const { busy, act, note, selectScene, setPage, advanced } = usePanel();
+  const { busy, act, note, selectScene, setPage, admin } = usePanel();
   const [text, setText] = useSynced(sc.board_note || "", `${sc.id}:${sc.board_note ?? ""}`);   // yazılan not yoklamayla ezilmez
   const cam = sc.camera_effective || sc.camera || {};
   const lines = sc.tracks.filter((t) => t.kind === "dialogue");
@@ -82,7 +82,7 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
           : <span className={`st ${TONE[sc.board_status] ?? ""}`}>{BOARD_TR[sc.board_status] || sc.board_status}</span>}
       </div>
       <p className="small">{sc.description}</p>
-      {advanced && (sc.transition_reason || (sc.chain_cast?.length ?? 0) > 0) && (
+      {admin && (sc.transition_reason || (sc.chain_cast?.length ?? 0) > 0) && (
         <p className="faint small">
           {sc.transition_reason && <span>{SEAM[sc.transition ?? ""]?.mark} {sc.transition_reason}</span>}
           {(sc.chain_cast?.length ?? 0) > 0 && <span className="tag info" style={{ marginLeft: 6 }}>zincirden gelen: {sc.chain_cast!.join(", ")}</span>}
@@ -117,7 +117,7 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
 }
 
 export function BoardPage() {
-  const { ov, projectId, busy, frozen, act, note, meta, advanced } = usePanel();
+  const { ov, projectId, busy, frozen, act, note, meta, admin } = usePanel();
   if (!ov) return null;
   const refMode = meta?.video_input_mode === "reference";
   const scenes = ov.scenes;
@@ -185,7 +185,7 @@ export function BoardPage() {
                 plan Kurgu'daki denetçiden onaylanır. Burada her çekimin filmdeki klibi, tarifi ve diyaloğu bir arada: üzerine gelince oynar,
                 zayıf çekimi <b>İyileştir</b> ile işaretle, yeniden üretimde isteme girecek notu <b>Notu kaydet</b> ile bırak.
               </p>
-            ) : advanced && (
+            ) : admin && (
               <p className="faint small">
                 Revizyonu en ucuz aşamada yap: her çekimin karesini onayla ya da not bırakıp değişiklik iste. Taslak geçiş yalnızca test
                 turuyla kaba kurguyu çıkarır; zayıf çekimleri Kurgu sayfasında &quot;İyileştir&quot; ile işaretleyip yalnızca onları tam turla üretirsin.

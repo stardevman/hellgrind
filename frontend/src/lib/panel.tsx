@@ -4,8 +4,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
-import { fetcher } from "./api";
-import type { Meta, Overview, ProjectListItem, Scene, Sequence } from "./types";
+import { api, fetcher } from "./api";
+import type { AdminState, Meta, Overview, ProjectListItem, Scene, Sequence } from "./types";
 
 export const POLL_MS = 2000;
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
@@ -26,7 +26,7 @@ export interface Note { text: string; kind: NoteKind }
 export type FilmKind = "final" | "draft";
 
 const STORE_KEY = "hg-project";              // eski panelle aynı anahtar: son açılan proje iki panelde de hatırlanır
-const ADVANCED_KEY = "hg-advanced";
+const ADMIN_KEY = "hg-advanced";           // Basit/Gelişmiş anahtarının eski adı: "Gelişmiş" seçenler yönetici görünümünde açar
 export const TOUR_DONE_KEY = "hg-tour-done";
 function recall(): string | null { try { return localStorage.getItem(STORE_KEY); } catch { return null; } }
 function store(id: string | null) {
@@ -77,9 +77,17 @@ interface PanelState {
   assembling: { before: string | null; at: number } | null;
   setAssembling: (a: { before: string | null; at: number } | null) => void;
 
-  /** Gelişmiş görünüm: motor, plan, yükseltme ve elle düzeltme bölümleri yalnızca açıkken görünür (tarayıcıda hatırlanır). */
-  advanced: boolean;
-  setAdvanced: (on: boolean) => void;
+  /** Yönetici modu: Ayarlar (ücretli servisler, mod, fiyat tablosu), servis geçmişi, motor, plan, yükseltme ve elle düzeltme
+      yalnızca açıkken görünür. Şifre tanımlıysa (ADMIN_PASSWORD) sunucu girişi ister; seçim tarayıcıda hatırlanır. */
+  admin: boolean;
+  /** Sunucunun yönetici durumu: şifre gerekli mi, bu tarayıcı girişli mi. */
+  adminState: AdminState | undefined;
+  /** Yönetici moduna geçer (şifre gerekiyorsa giriş penceresini açar) ya da kullanıcı moduna döner (oturumu kapatır). */
+  setAdmin: (on: boolean) => void;
+  /** Şifreyle giriş; başarılıysa yönetici modu açılır. Hata mesajı fırlatır. */
+  login: (password: string) => Promise<void>;
+  loginOpen: boolean;
+  setLoginOpen: (on: boolean) => void;
   /** Rehber turu açık mı; ilk açılışta kendiliğinden başlar, bitince tarayıcıda "görüldü" olarak kalır. */
   tour: boolean;
   setTour: (on: boolean) => void;
@@ -111,11 +119,33 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [filmKind, setFilmKind] = useState<FilmKind>("final");
   const [assembling, setAssembling] = useState<PanelState["assembling"]>(null);
   const [remembered, setRemembered] = useState<string | null>(null);
-  const [advanced, setAdvancedState] = useState(false);
+  const [wantAdmin, setWantAdmin] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [tour, setTour] = useState(false);
-  useEffect(() => { setRemembered(recall()); setAdvancedState(readFlag(ADVANCED_KEY)); }, []);
-  const setAdvanced = useCallback((on: boolean) => { writeFlag(ADVANCED_KEY, on); setAdvancedState(on); }, []);
-  useEffect(() => { document.body.dataset.advanced = advanced ? "1" : "0"; }, [advanced]);
+  useEffect(() => { setRemembered(recall()); setWantAdmin(readFlag(ADMIN_KEY)); }, []);
+
+  // Yönetici modu = tarayıcının seçimi + sunucunun izni (şifre yoksa her zaman, varsa geçerli giriş çereziyle). Oturum
+  // süresi dolunca sunucu izni kalkar ve panel kendiliğinden kullanıcı moduna döner.
+  const { data: adminState, mutate: mutateAdmin } = useSWR<AdminState>("/admin", fetcher, { refreshInterval: POLL_MS * 15 });
+  const admin = wantAdmin && Boolean(adminState?.admin);
+  const chooseAdmin = useCallback((on: boolean) => { writeFlag(ADMIN_KEY, on); setWantAdmin(on); }, []);
+  const setAdmin = useCallback((on: boolean) => {
+    if (!on) {
+      chooseAdmin(false);
+      if (adminState?.required) void api.post<AdminState>("/admin/logout").then((st) => mutateAdmin(st, false)).then(() => mutate(() => true));
+      return;
+    }
+    if (!adminState) return;                             // durum henüz gelmedi: şifre gerekip gerekmediği bilinmiyor
+    if (adminState.admin) chooseAdmin(true);
+    else setLoginOpen(true);
+  }, [adminState, chooseAdmin, mutateAdmin, mutate]);
+  const login = useCallback(async (password: string) => {
+    const st = await api.post<AdminState>("/admin/login", { password });
+    await mutateAdmin(st, false);
+    chooseAdmin(true);
+    setLoginOpen(false);
+  }, [chooseAdmin, mutateAdmin]);
+  useEffect(() => { document.body.dataset.admin = admin ? "1" : "0"; }, [admin]);
 
   const { data: meta } = useSWR<Meta>("/meta", fetcher, { revalidateOnFocus: false });
   const { data: projects, error: listError } = useSWR<ProjectListItem[]>("/projects", fetcher, { refreshInterval: POLL_MS * 5 });
@@ -202,7 +232,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     compareRaw: search.get("cmp"), openCompare, setCompare, history, setHistory,
     busy, frozen: Boolean(ov?.project.frozen), act, notes, note, refresh,
     flashAsset, gotoAsset, clearFlash, filmKind, setFilmKind, assembling, setAssembling,
-    advanced, setAdvanced, tour, setTour,
+    admin, adminState, setAdmin, login, loginOpen, setLoginOpen, tour, setTour,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

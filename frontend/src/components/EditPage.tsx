@@ -274,7 +274,7 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId, on
         onMouseEnter={(e) => onHover(v, e.currentTarget)} onMouseLeave={() => onHover(null, null)}
         onFocus={(e) => onHover(v, e.currentTarget)} onBlur={() => onHover(null, null)}>
         {v.thumb_url && <img src={v.thumb_url} alt="" loading="lazy" decoding="async" />}
-        {v.score != null && <span className="sc">{v.score.toFixed(3)}</span>}
+        {v.score != null && <span className="sc adv">{v.score.toFixed(3)}</span>}
         {v.revision ? <span className="rev">R{v.revision}</span> : null}
         {badge ? <span className="res" aria-hidden="true">{badge.short}</span> : null}
         {picked ? <span className="cmp">K</span> : null}
@@ -315,7 +315,7 @@ function usePromote(sc: Scene) {
 }
 
 function Takes({ onPick }: { onPick: () => void }) {
-  const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare, advanced, busy } = usePanel();
+  const { scene: sc, varId, setVar, compareRaw, setCompare, openCompare, admin, busy } = usePanel();
   const [showAll, setShowAll] = useState(false);
   const [hover, setHover] = useState<{ v: Variation; top: number; left: number } | null>(null);
   const onHover = useCallback((v: Variation | null, el: HTMLElement | null) => {
@@ -334,7 +334,7 @@ function Takes({ onPick }: { onPick: () => void }) {
   const probe = sc.variations.filter((v) => v.tier === "probe").length;
   const winner = sc.variations.find((v) => v.rank === 1);
   const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
-  const hidden = advanced || showAll ? [] : sc.variations.filter((v) => !playable(v) && !["queued", "running", "generated"].includes(v.status));
+  const hidden = admin || showAll ? [] : sc.variations.filter((v) => !playable(v) && !["queued", "running", "generated"].includes(v.status));
   const shown = hidden.length ? sc.variations.filter((v) => !hidden.includes(v)) : sc.variations;
   return (
     <>
@@ -355,7 +355,7 @@ function Takes({ onPick }: { onPick: () => void }) {
       {hover && <TakePop v={hover.v} prev={sc.variations[sc.variations.indexOf(hover.v) - 1]} top={hover.top} left={hover.left} />}
       <div className="takes-foot">
         {hidden.length > 0 && <button className="btn ghost" type="button" onClick={() => setShowAll(true)}>{hidden.length} elenen adayı göster</button>}
-        {!advanced && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
+        {!admin && showAll && hidden.length === 0 && sc.variations.some((v) => !playable(v)) && <button className="btn ghost" type="button" onClick={() => setShowAll(false)}>Elenenleri gizle</button>}
         {picked.length >= 2 && <button className="btn" type="button" onClick={() => openCompare(sc.id, picked)}>Seçilen {picked.length} klibi karşılaştır</button>}
         <span className="legend adv" aria-label="Aday göstergeleri">
           <span><i className="refined" />havuzda</span><span><i className="rejected" />elendi</span>

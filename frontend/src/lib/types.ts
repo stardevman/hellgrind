@@ -615,3 +615,6 @@ export interface CostEstimate {
   settings: { probe_n: number; probe_resolution: string; full_n: number; full_resolution: string; max_correction_rounds: number };
   platform: string; dry_run: boolean;
 }
+
+/** GET /admin: yönetici şifresi tanımlı mı, bu tarayıcı yönetici mi (şifre yoksa her zaman). */
+export interface AdminState { required: boolean; admin: boolean }

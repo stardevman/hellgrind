@@ -109,8 +109,16 @@ def new_project(title: str, budget: float, **cfg) -> str:
     return r.json()["id"]
 
 
+def admin_login() -> None:
+    """Yönetici şifresi tanımlıysa servis geçmişi ve ayar uçları için giriş yapılır (şifre API'yle aynı .env'den)."""
+    from app import admin
+    if admin.required():
+        c.post("/admin/login", json={"password": admin.password()}).raise_for_status()
+
+
 def main() -> int:
     t0 = time.time()
+    admin_login()
 
     print("1) Güvenlik")
     meta = c.get("/meta").json()

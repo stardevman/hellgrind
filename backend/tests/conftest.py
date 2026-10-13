@@ -22,6 +22,9 @@ settings.database_url = make_url(settings.database_url).set(database=TEST_DB).re
 # testlerde kapalıdır: ayar testleri geçici bir dosya kullanır.
 settings.dry_run = True
 settings.config_env_file = ""
+# Yönetici şifresi testlerde boştur (Ayarlar ve geçmiş uçları açık); şifreli davranışı tests/test_admin.py sınar.
+settings.admin_password = ""
+os.environ.pop("ADMIN_PASSWORD", None)
 
 # Testler geliştirme .env'inden bağımsızdır: konteyner .env'i ortam değişkeni olarak yükler (ör. H3_ALLOW_NORDIC=true,
 # RUNPOD_DATACENTER=EUR-NO-1, anahtarlar). Panelden düzenlenen bütün ayarlar varsayılana döner ve ortamdan silinir; böylece

@@ -138,6 +138,8 @@ class Settings(BaseSettings):
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""
+    # Yönetici modunun şifresi (Ayarlar ve servis geçmişi). Boşsa yönetici modu şifresiz açılır; panelden yazılamaz.
+    admin_password: str = ""
     s3_public_endpoint_url: str | None = "http://localhost:9000"   # tarayıcının MinIO'ya eriştiği adres
 
     purge_mode: str = "quarantine"   # hard | quarantine

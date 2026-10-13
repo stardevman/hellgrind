@@ -79,10 +79,20 @@ bağlantısı ilk eksik işe götürür. Şeritteki eksikler tıklanınca onlar�
 tamam" görünür. Sayfa sekmelerindeki rozetler durumu özetler (kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk
 sıçraması, film).
 
-Üst banttaki **Basit / Gelişmiş** anahtarı görünümü seçer: basit görünümde yalnızca ana eylemler kalır; motor ve plan
-ayrıntıları, Seedance tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası Gelişmiş görünümde açılır (tarayıcıda
-hatırlanır). **Rehber** ilk açılışta kendiliğinden başlayan turu yeniden açar: dört adımı, sayfaları ve bütçe rayını
-sırayla gösterir (<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
+Üst banttaki **Kullanıcı / Yönetici** anahtarı modu seçer. **Kullanıcı modu** son kullanıcı içindir: her sayfada yalnızca
+filmi yapmak için gerekenler (senaryo, varlık onayı, storyboard, kurgu, renk, teslim, bütçe ve **Üretimi durdur**) kalır.
+**Yönetici modu** bütün ayrıntıları açar: **Ayarlar** (ücretli servisler, anahtarlar, model ve uç noktalar, çalışma modu,
+fiyat tablosu), **Geçmiş** (servis çağrıları ve harcama), mod ve kalite skoru rozetleri, motor ve plan ayrıntıları, üretim
+yoğunluğu ve tahmini maliyet, Seedance tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası.
+
+Yönetici modu `.env`'deki `ADMIN_PASSWORD` ile korunur: tanımlıysa **Yönetici** düğmesi şifre sorar ve Ayarlar ile Geçmiş uçları
+(`/api/settings*`, `/api/history*`) sunucuda da şifresiz reddedilir (401). Giriş 12 saat geçerli, HttpOnly bir çereze yazılır;
+**Kullanıcı**'ya dönmek oturumu kapatır, şifre değişince bütün oturumlar düşer (yeniden başlatma gerekmez). 15 dakikada 10
+hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazılamaz; `.env`'i elle düzenleyin. Boşsa yönetici
+modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
+
+Rehber turu ilk açılışta kendiliğinden başlar: dört adımı, sayfaları, bütçe rayını ve mod anahtarını sırayla gösterir
+(<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
 
 Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca
 aynı görünüm açılır.
@@ -117,17 +127,17 @@ aynı görünüm açılır.
    - İzleyicinin sağında dar bir sütunda seçili çekimin **adayları**: aynı çekim için üretilen klipler; filmde yalnızca
      biri oynar ve **filmde** etiketiyle yeşil çerçevelidir. Üzerine gelince izleyicinin üstünde büyük önizleme ve ayrıntı
      (sıra, skor, çözünürlük, seed) açılır. Bir adaya tıklayınca izleyicide oynar ve **Filmde kullan** düğmesi çıkar
-     (yalnızca ses ve montaj yeniden çalışır); aday zaman çizelgesindeki çekimin üstüne de sürüklenebilir. Basit
-     görünümde elenenler gizlidir (**N elenen adayı göster** açar); Gelişmiş görünümde hepsi görünür: gri ve kırmızı çapraz
+     (yalnızca ses ve montaj yeniden çalışır); aday zaman çizelgesindeki çekimin üstüne de sürüklenebilir. Kullanıcı
+     modunda elenenler gizlidir (**N elenen adayı göster** açar); yönetici modunda hepsi görünür: gri ve kırmızı çapraz
      çizgili kalite kontrolünde elendi, soluk havuza giremedi, mor ve nefes alan üretiliyor. Kazanan klibin parça bölme
-     ayrıntısı ve havuzdaki taslak toplamı da Gelişmiş görünümdedir.
+     ayrıntısı ve havuzdaki taslak toplamı da yönetici modundadır.
    - Altta **zaman çizelgesi**: sekans bandı, görüntü izi (her çekim filmde kullanılan klibiyle, süresi kadar, duygu
      renginde), diyalog, müzik ve efekt izleri. Bir adayı çekimin üstüne bırakmak filmdeki klibi değiştirir. Cetvele tıklamak filmi oraya sarar; film oynarken oynatma kafası çekimler üzerinde ilerler ve denetçi o çekime geçer.
    - Sağda **denetçi**, üç sekmede: **Çekim**: çekim bilgisi, **Bu sahneyi baştan üret**, **İyileştir**, **Varlıklar** ve
      **Nesne bağla**, rafine havuz ve **Bunu kullan** (yalnızca ses ve montaj yeniden çalışır), renk bağlantısı. **Ses**:
      diyalog ve **Müziği değiştir** (*Sekansın tamamı* sekans müziğini değiştirir, hiçbir çekim yeniden üretilmez; *Yalnızca bu
      çekim* çekime özel müzik koyar); **Sekans**: bütçe tavanı, film kanalları ve **Stem yükle**. **Üretim**: motor ve plan
-     (fal.ai video), **Yöntem**; Gelişmiş görünümde ayrıca tamamlama ve upscale ile **Elle düzeltme**. Sekme rozetleri
+     (fal.ai video), **Yöntem**; yönetici modunda ayrıca tamamlama ve upscale ile **Elle düzeltme**. Sekme rozetleri
      engelli çekimi ve plan onayını gösterir.
    Her eylemden sonra panel hangi aşamaların çalışacağını yazar.
 6. **Karşılaştır** sayfası aynı çekimin 2–4 adayını yan yana, tek taşıma çubuğuyla **eşzamanlı** oynatır (denetçide
@@ -301,7 +311,7 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 ## Servis geçmişi (panelin Geçmiş sayfası)
 
 Ücretli servislere yapılan her çağrı ayrıntılı bir kayıt bırakır; ücretsiz modda aynı iş, ücretli modda harcanacak tutarla
-**sanal** olarak kaydedilir. Üst banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
+**sanal** olarak kaydedilir. Yönetici modunda üst banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
 
 - **Çağrılar:** zaman, işlem (video üretimi, ilk kare, storyboard karesi, varlık referansı, hareket testi, previs rehberinden
   video, düzenlenmiş kareden video, dudak senkronu, diyalog seslendirme, senaryo ayrıştırma), proje ve çekim ya da varlık,
@@ -322,7 +332,7 @@ işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/his
 
 ## Ücretli servisler (panelin Ayarlar sayfası)
 
-Üst banttaki **Ayarlar** düğmesi (ya da mod rozeti) bütün ücretli servisleri tek yerde gösterir ve düzenletir:
+Yönetici modunda üst banttaki **Ayarlar** düğmesi (ya da mod rozeti) bütün ücretli servisleri tek yerde gösterir ve düzenletir:
 
 - **Servisler:** MiniMax H3 · vast.ai (video; kendi GPU sunucunuz), fal.ai (isteğe bağlı: Seedance, Flux kareleri, previs
   aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
@@ -405,8 +415,8 @@ Proje ücretli moda geçmeden önce oluşturulursa çekimler hemen yerel motorla
 o durumda Kurgu'da **Bu sahneyi baştan üret** kullanın. Sanal bütçe tavanı ücretli modda gerçek harcamanın da sınırıdır:
 dolunca Kill-Switch üretimi durdurur.
 
-> Panelin kimlik doğrulaması yoktur; yalnızca kendi makinenizde (localhost) çalıştırın. Ayarlar sayfası `.env` dosyasına
-> yazabildiği için paneli ağa açmayın.
+> Ayarlar ve Geçmiş yalnızca yönetici modunda açılır; paneli başkalarına açmadan önce `.env`'de `ADMIN_PASSWORD` tanımlayın
+> (bkz. Kullanıcı / Yönetici anahtarı). Stüdyonun geri kalanında kullanıcı girişi yoktur: paneli internete açmayın.
 
 ## Video motoru: fal.ai (taslak MiniMax H3 Max, final Seedance 2.5)
 

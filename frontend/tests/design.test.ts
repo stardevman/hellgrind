@@ -44,7 +44,7 @@ describe("design contract", () => {
   });
 
   it("styles the step bar, the next-up link, the view-mode switch and the tour", () => {
-    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-advanced="0"] .adv', ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+    for (const sel of [".stepbar", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", ".view-mode", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
   });
 });
 
@@ -69,7 +69,7 @@ describe("documented Turkish texts", () => {
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
     // Adım çubuğu, görünüm anahtarı ve rehber turu
-    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Basit", "Gelişmiş", "Atla", "İleri", "Bitir",
+    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Kullanıcı", "Yönetici", "Yönetici girişi", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",

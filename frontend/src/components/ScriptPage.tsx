@@ -17,7 +17,7 @@ interface Ingest extends DispatchAll { cast: string[]; shots: number; created: s
 const FROZEN_TITLE = "Üretim durduruldu, önce Üretime devam et";
 
 export function ScriptPage() {
-  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov, frozen, busy, act, advanced } = usePanel();
+  const { meta, projects, projectId, creating, setCreating, selectProject, setPage, note, ov, frozen, busy, act, admin } = usePanel();
   const { mutate } = useSWRConfig();
   const newProject = creating || !projectId;
   const { data: project } = useSWR<{ script_source: string | null; title: string }>(!newProject ? `/projects/${projectId}` : null, fetcher);
@@ -30,7 +30,7 @@ export function ScriptPage() {
   const text = script ?? source ?? "";
   const hasShots = Boolean(ov?.scenes.length);
   const lines = text.split("\n").length, words = text.split(/\s+/).filter(Boolean).length;
-  const { data: prices } = useSWR<{ table: PricingTable }>(intensity === "trial" ? "/settings/pricing" : null, fetcher, { revalidateOnFocus: false });
+  const { data: prices } = useSWR<{ table: PricingTable }>(admin && intensity === "trial" ? "/settings/pricing" : null, fetcher, { revalidateOnFocus: false });
   const trial = meta?.presets.trial;
   // Deneme: çekim başına en çok (test + tam) klip; her klip 480p MiniMax H3 videosu (en az 4 sn GPU'da üretilir).
   // RunPod (varsayılan): en pahalı GPU tipinin saniye ücreti; vast.ai (deneysel): makinenin saatlik ücreti.
@@ -95,7 +95,7 @@ export function ScriptPage() {
   const blockedByFreeze = !newProject && frozen;
   const resume = () => act(() => api.post(`/projects/${projectId}/killswitch`, { action: "resume" }), "start");
   return (
-    <form className={`page ${advanced ? "three" : "two-l"}`} onSubmit={submit}>
+    <form className={`page ${admin ? "three" : "two-l"}`} onSubmit={submit}>
       <Panel title={newProject ? "Yeni proje" : "Proje"} meta={newProject ? "" : project?.title} tour="script-form"
         tools={creating && projects && projects.length > 0 ? <button className="btn ghost" type="button" onClick={() => setCreating(false)}>Vazgeç</button> : undefined}>
         <div className="pad stack">
@@ -117,13 +117,13 @@ export function ScriptPage() {
                   <input type="radio" name="intensity" value="brief" checked={intensity === "brief"} onChange={() => pickIntensity("brief")} />
                   <span><b>Brifing</b><small>{d ? `${d.probe_n} test ve en çok ${d.full_n} tam klip: brifingdeki yoğunluk.` : ""}</small></span>
                 </label>
-                {eco && advanced && (
+                {eco && admin && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="economy" checked={intensity === "economy"} onChange={() => pickIntensity("economy")} />
                     <span><b>Üretim (ekonomik)</b><small>{`${eco.probe_n} test (${eco.probe_resolution}) ve ${eco.full_n} tam klip (${eco.full_resolution}), ${eco.max_correction_rounds} düzeltme turu, havuzda ${eco.refined_k} aday: gerçek film için en az üretim.`}</small></span>
                   </label>
                 )}
-                {trial && advanced && (
+                {trial && admin && (
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
                     <span><b>MiniMax H3 denemesi</b><small>
@@ -171,15 +171,16 @@ export function ScriptPage() {
           )}
           {!newProject && hasShots && <p className="faint small">Yalnızca değişen çekimler yeniden üretilir; değişmeyenler olduğu gibi kalır.</p>}
           <NoteBox id="start" />
-          {!advanced && (
+          {!admin && (
             <details className="sec" style={{ margin: "4px -10px -10px" }}>
               <summary>Senaryo nasıl yazılır?</summary>
               <ul className="syntax sec-b">
                 <li><code>İÇ. DÖKÜMHANE - GECE</code>Sahne başlığı; mekân buradan çıkar.</li>
                 <li><code>Kerem kapıya koşar.</code>Aksiyon paragrafı: her paragraf bir çekim.</li>
                 <li><code>{"KEREM\n(tedirgin)\nKimse yok mu?"}</code>Konuşan karakter, duygu, replik.</li>
+                <li><code># SEKANS: Dökümhane</code>Filmi bölümlere ayırır (isteğe bağlı).</li>
+                <li><code>[KARAKTER: Ayşe] [NESNE: Taksi]</code>Konuşmayan karakteri ya da nesneyi çekime bağlar.</li>
               </ul>
-              <p className="faint tiny" style={{ padding: "0 10px 10px" }}>Sekans, nesne ve kesme işaretleri için Gelişmiş görünümdeki Biçim panosuna bakın.</p>
             </details>
           )}
         </div>
@@ -196,12 +197,12 @@ export function ScriptPage() {
         <textarea aria-label="Senaryo" spellCheck={false} required minLength={10} value={text} onChange={(e) => setScript(e.target.value)} />
       </section>
 
-      {advanced && !newProject && ov && <Intensity />}
+      {admin && !newProject && ov && <Intensity />}
 
-      {advanced && <Estimate body={newProject ? { text, preset: intensity } : { project_id: projectId, ...(script != null ? { text } : {}) }}
+      {admin && <Estimate body={newProject ? { text, preset: intensity } : { project_id: projectId, ...(script != null ? { text } : {}) }}
         refresh={newProject ? "" : JSON.stringify(ov?.project.settings ?? {}) + (ov?.scenes.length ?? 0)} />}
 
-      {advanced && <Panel title="Biçim">
+      {admin && <Panel title="Biçim">
         <ul className="syntax pad">
           <li><code># SEKANS: Dökümhane</code>Yeni sekans başlatır; sonraki sahne başlıkları ona aittir.</li>
           <li><code>İÇ. TERK EDİLMİŞ DÖKÜMHANE - GECE</code>Sahne başlığı (İÇ., DIŞ., İÇ/DIŞ., INT., EXT.). Mekân başlıktan çıkar.</li>

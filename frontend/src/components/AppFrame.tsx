@@ -1,7 +1,9 @@
 "use client";
-/* Stüdyo çerçevesi: üstte proje, görünüm anahtarı, rehber ve durdurma düğmesi; ortada etkin sayfa; altta dört üretim
-   adımı ve sayfaları (Shift+1…8 ile geçilir). Rehber turu ilk açılışta kendiliğinden başlar. */
-import { useEffect, useRef, useState, type ReactElement } from "react";
+/* Stüdyo çerçevesi: üstte proje, bütçe, Kullanıcı / Yönetici anahtarı ve durdurma düğmesi; ortada etkin sayfa; altta dört
+   üretim adımı ve sayfaları (Shift+1…8 ile geçilir). Kullanıcı modu yalnızca filmi yapmak için gerekenleri gösterir;
+   ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır (şifre tanımlıysa girişle).
+   Rehber turu ilk açılışta kendiliğinden başlar. */
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
@@ -25,6 +27,8 @@ const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
   color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
 };
+
+const Waiting = () => <p className="loading">Yükleniyor…</p>;
 
 function BudgetChip() {
   const { ov, meta } = usePanel();
@@ -119,7 +123,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
 }
 
 function TopBar() {
-  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, advanced, setAdvanced } = usePanel();
+  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin, adminState, setAdmin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
@@ -135,7 +139,7 @@ function TopBar() {
         <div className="logo"><Icon.logo />Hell Grind</div>
         <ProjectSwitcher onRemove={remove} />
         <span className="grow" />
-        {q && (
+        {admin && q && (
           <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
             title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
               : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
@@ -143,22 +147,31 @@ function TopBar() {
           </span>
         )}
         <BudgetChip />
-        <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
-          title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
-          onClick={() => setPage("settings")}>
-          {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
-        </button>
+        {admin && (
+          <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
+            title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
+            onClick={() => setPage("settings")}>
+            {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
+          </button>
+        )}
         <span className="vsep" />
-        <div className="seg view-mode" role="group" aria-label="Görünüm" data-tour="view-mode"
-          title="Basit görünüm yalnızca ana eylemleri gösterir; Gelişmiş görünüm motor, plan, yükseltme ve elle düzeltme bölümlerini açar">
-          <button type="button" aria-pressed={!advanced} onClick={() => setAdvanced(false)}>Basit</button>
-          <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(true)}>Gelişmiş</button>
+        <div className="seg view-mode" role="group" aria-label="Mod" data-tour="view-mode"
+          title={"Kullanıcı modu filmi yapmak için gerekenleri gösterir. Yönetici modu ücretli servisleri, fiyat tablosunu, servis geçmişini, "
+            + "motor ve plan ayrıntılarını açar" + (adminState?.required ? " (şifreyle)" : "")}>
+          <button type="button" aria-pressed={!admin} onClick={() => setAdmin(false)}>Kullanıcı</button>
+          <button type="button" aria-pressed={admin} onClick={() => setAdmin(true)}>
+            {adminState?.required && !adminState.admin && <Icon.lock />}Yönetici
+          </button>
         </div>
-        <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
-          onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
-          title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
-        <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
-          aria-label="Ayarlar" title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear /></button>
+        {admin && (
+          <>
+            <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
+              onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
+              title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
+            <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
+              aria-label="Ayarlar" title="Ücretli servisler, mod ve fiyat tablosu"><Icon.gear /></button>
+          </>
+        )}
         {ov && (
           <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
             title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
@@ -191,8 +204,67 @@ function Alerts() {
   );
 }
 
+/** Yönetici girişi: şifre tanımlıyken "Yönetici" seçilince açılır. Şifre yalnızca sunucuya gider; tarayıcıda saklanmaz. */
+function AdminLogin() {
+  const { loginOpen, setLoginOpen, login } = usePanel();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!loginOpen) return;
+    setPassword(""); setError("");
+    input.current?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setLoginOpen(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [loginOpen, setLoginOpen]);
+  if (!loginOpen) return null;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSending(true); setError("");
+    try { await login(password); } catch (err) { setError((err as Error).message); setPassword(""); input.current?.focus(); } finally { setSending(false); }
+  };
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) setLoginOpen(false); }}>
+      <form className="modal" role="dialog" aria-modal="true" aria-labelledby="admin-login-t" onSubmit={submit}>
+        <h2 id="admin-login-t"><Icon.lock />Yönetici girişi</h2>
+        <p className="faint small">Ücretli servisler, çalışma modu, fiyat tablosu ve servis geçmişi yönetici modundadır.</p>
+        <label className="field">Şifre
+          <input ref={input} type="password" autoComplete="current-password" required maxLength={400} value={password}
+            onChange={(e) => setPassword(e.target.value)} />
+        </label>
+        {error && <div className="note err" role="alert">{error}</div>}
+        <div className="row">
+          <span className="grow" />
+          <button type="button" className="btn ghost" onClick={() => setLoginOpen(false)}>Vazgeç</button>
+          <button type="submit" className="btn primary" disabled={sending || !password}>{sending ? "Giriş yapılıyor…" : "Giriş yap"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** Kullanıcı modunda Ayarlar ya da Geçmiş açılırsa (eski bağlantı, oturum süresi doldu) sayfa yerine gösterilir. */
+function AdminGate() {
+  const { page, setPage, setAdmin, adminState } = usePanel();
+  return (
+    <div className="gate">
+      <div className="gate-card">
+        <span className="gate-ico"><Icon.lock /></span>
+        <h2>{page === "settings" ? "Ayarlar" : "Servis geçmişi"} yönetici modunda açılır</h2>
+        <p className="faint">Ücretli servislerin bağlantıları, çalışma modu, fiyat tablosu ve harcama kayıtları yalnızca yöneticiye görünür.</p>
+        <div className="row">
+          <button type="button" className="btn" onClick={() => setPage("edit")}>Stüdyoya dön</button>
+          <button type="button" className="btn primary" onClick={() => setAdmin(true)}>{adminState?.required ? "Yönetici girişi" : "Yönetici moduna geç"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AppFrame() {
-  const { projectId, ov, creating, offline, page, setPage, projects } = usePanel();
+  const { projectId, ov, creating, offline, page, setPage, projects, admin, adminState } = usePanel();
   const hasShots = Boolean(ov?.scenes.length);
 
   useEffect(() => {                                       // Shift+1…8: sayfalar arasında geçiş
@@ -210,7 +282,7 @@ export function AppFrame() {
   const loading = (!projects && !offline) || (projectId && !ov && !creating && !offline);
   const target: Page = isExtraPage(page) && !creating ? page
     : creating || !projectId || (ov && NEEDS_SHOTS.has(page) && !hasShots) ? "script" : page;
-  const View = PAGE_VIEW[target];
+  const View = isExtraPage(target) && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
   return (
     <div className="app">
       <TopBar />
@@ -222,6 +294,7 @@ export function AppFrame() {
       </main>
       <StepBar hasShots={hasShots} />
       <Tour />
+      <AdminLogin />
     </div>
   );
 }

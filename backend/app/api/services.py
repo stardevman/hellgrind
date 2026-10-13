@@ -11,12 +11,13 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app import runtime_config as rc
+from app.admin import require_admin
 from app.budget import pricing
 from app.config import settings
 from app.db import get_session
 from app.models import Project, Scene
 
-router = APIRouter(tags=["settings"])
+router = APIRouter(tags=["settings"], dependencies=[Depends(require_admin)])   # yalnızca yönetici modunda
 
 WORKING = ("storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
 
