@@ -60,12 +60,15 @@ def _storyboard_plan(s: Session, project_id: str) -> dict:
             requested.append(sc)
             followers[sc.id] = successors(s, sc) if chain_enabled() else []
     after = {x.id for xs in followers.values() for x in xs}
+    from app.engine import scene_parts
     stale, ends, current = [], [], []
     for sc in shots:
         is_stale, fp, chars, assets = info[sc.id]
         if sc in requested or sc.id in after:
             continue
-        if is_stale:
+        if (sc.method or "generate") == "generate" and scene_parts.active(sc.engine):
+            current.append(sc)                    # referans modu: kare çizilmez, çekim "eski" sayılmaz
+        elif is_stale:
             stale.append(sc)
         elif sc.board_key and end_wanted(s, sc, cfg, chars, assets) and not end_fresh(sc, fp):
             ends.append(sc)
@@ -140,9 +143,14 @@ def prepare_storyboard(project_id: ProjectId, s: Session = Depends(get_session))
             queued += queue_requested_redraw(s, sc, plan["followers"][sc.id])
         else:
             skipped.append(sc.scene_code)
+    from app.engine.storyboard import FINISHED
     for sc in plan["stale"]:
         if not ready(sc):
             skipped.append(sc.scene_code)
+            continue
+        if sc.status in FINISHED:                 # biten çekim: kare çizilir, durum ve klip korunur
+            tasks.storyboard_scene.si(project_id=project_id, scene_id=str(sc.id), standalone=True, keep_status=True).apply_async()
+            queued.append(sc.scene_code)
             continue
         sc.status, sc.last_error = "storyboard", None
         s.commit()

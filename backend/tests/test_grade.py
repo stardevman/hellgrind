@@ -172,6 +172,22 @@ def test_a_colour_change_runs_only_grade_and_mux(api, produced, monkeypatch):
     assert scene_row(sid).final_video_key == before.final_video_key                           # içerik-adresli: aynı montaj
 
 
+def test_finish_pending_restores_a_finished_shot_without_rendering(api, produced, monkeypatch):
+    """Kare hazırlama gibi bir adım biten çekimi "pending"e düşürmüşse: görüntü üretilmez, klip korunur, çekim yine done."""
+    pid, ids = produced
+    sid = ids["S001_SH02"]
+    before, cost = scene_row(sid), spent(pid)
+    with session_scope() as s:
+        s.get(Scene, sid).status = "pending"
+    calls = []
+    monkeypatch.setattr(LocalProvider, "generate", lambda self, req: calls.append(req) or None)
+    r = api.post(f"/api/projects/{pid}/finish-pending")
+    assert r.status_code == 200 and r.json()["planned"]["S001_SH02"] == [], r.text
+    after = scene_row(sid)
+    assert after.status == "done" and after.final_video_key == before.final_video_key and calls == [] and spent(pid) == cost
+    assert "status_restored" in api.get(f"/api/projects/{pid}/overview").json()["events"][0]["kind"]
+
+
 def test_the_preview_shows_before_and_after(api, produced):
     pid, ids = produced
     sid = ids["S001_SH01"]

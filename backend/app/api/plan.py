@@ -160,6 +160,20 @@ def model_group(sc: Scene, s: Session) -> tuple[str, str]:
     return effective_mode(sc, chars, assets), board
 
 
+RESETTABLE = ("pending", "parsed", "storyboard", "frozen")
+
+
+def restore_finished(s: Session, sc: Scene) -> bool:
+    """Yapılacak iş yok ve çekimin montajlanmış videosu ile kazanan klibi duruyorsa durumu yeniden "done" yapar. Kare
+    hazırlama ya da donma gibi bir adım çekimi "Sırada"ya düşürmüş olabilir; klip hazırken çekim bekliyor görünmesin."""
+    if sc.status not in RESETTABLE or not sc.final_video_key or not has_winner(s, sc):
+        return False
+    sc.status, sc.last_error = "done", None
+    s.commit()
+    killswitch.event(str(sc.project_id), "status_restored", scene_id=str(sc.id), code=sc.scene_code)
+    return True
+
+
 def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, rerun_visual: bool = False,
                       mode: str = "full", allowed: Stage | None = None, batch: Batch | None = None,
                       post_only: bool = False, restyle: bool = False) -> list[str]:
@@ -202,7 +216,10 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
         stages &= ~Stage.STORYBOARD         # referans modu: storyboard karesi çizilmez
     elif Stage.VISUAL in stages and Stage.STORYBOARD not in stages and board_upgrade(s, sc):
         stages |= Stage.STORYBOARD          # kare videodan önce, kare grubunda yeniden çizilsin (video kuyruğunun ortasında değil)
-    if stages == Stage.NONE or (allowed is not None and stages & ~allowed):
+    if stages == Stage.NONE:
+        restore_finished(s, sc)
+        return []
+    if allowed is not None and stages & ~allowed:
         return []
     ensure_idle(sc)
     seq = s.get(Sequence, sc.sequence_id) if sc.sequence_id else None

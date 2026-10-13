@@ -158,6 +158,16 @@ def estimate(body: EstimateIn, s: Session = Depends(get_session)):
             "platform": settings.h3_platform, "dry_run": settings.dry_run}
 
 
+@router.post("/projects/{project_id}/finish-pending")
+@curated("finish_pending")
+def finish_pending(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Bekleyen çekimleri klibini koruyarak tamamlar: görüntü hiçbir koşulda üretilmez (post_only); eksik ses, renk ya
+    da montaj varsa yalnızca onlar çalışır, hepsi hazırsa çekim yeniden "done" olur (plan.restore_finished)."""
+    project_or_404(s, project_id)
+    ensure_not_frozen(project_id)
+    return dispatch_all(s, project_id, post_only=True)
+
+
 @router.post("/projects/{project_id}/render-all")
 @curated("render_all")
 def render_all(project_id: ProjectId, restyle: bool = False, s: Session = Depends(get_session)):

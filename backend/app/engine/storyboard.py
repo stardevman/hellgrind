@@ -927,7 +927,8 @@ def chain_enabled() -> bool:
     return board_source("fl2va", False, "qwen_edit") == "qwen_edit"
 
 
-def make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False) -> str:
+def make_board(project_id: str, scene_id: str, standalone: bool = False, explicit: bool = False,
+               keep_status: bool = False) -> str:
     """STORYBOARD aşaması. Kare güncelse hiçbir şey yapmaz. standalone: zincirde başka aşama yok; sahne onaya kalır.
     explicit: yönetmenin açık isteği (storyboard sayfası): Ref2VA çekiminde de ücretli kare çizilir; ücretli kare yeni
     seed'lerle yeniden çizilir.
@@ -966,7 +967,7 @@ def make_board(project_id: str, scene_id: str, standalone: bool = False, explici
                     killswitch.event(project_id, "chain_waiting", scene_id=scene_id, code=current.scene_code,
                                      parent=parent.scene_code, stale=True)
                     return current.board_key or ""
-        return _make_board(project_id, scene_id, standalone, explicit)
+        return _make_board(project_id, scene_id, standalone, explicit, keep_status=keep_status)
 
 
 FINISHED = ("done", "refined", "audio", "lipsync", "grading", "muxing", "needs_review")

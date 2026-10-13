@@ -87,12 +87,13 @@ def _guard(task, project_id: str, scene_id: str, work):
 
 @celery.task(bind=True, name="hg.storyboard_scene")
 def storyboard_scene(self, project_id: str, scene_id: str, standalone: bool = False, batch: str | None = None,
-                     paid: bool = False):
+                     paid: bool = False, keep_status: bool = False):
     """batch: toplu dağıtımın parçası; bitince (başarılı ya da değil) bariyere haber verir, son kareden sonra videolar
     kuyruğa girer."""
     def work():
         from app.engine.storyboard import make_board
-        return make_board(project_id, scene_id, standalone=standalone, **({"explicit": True} if paid else {}))
+        return make_board(project_id, scene_id, standalone=standalone, keep_status=keep_status,
+                          **({"explicit": True} if paid else {}))
     ok = False
     try:
         result = _guard(self, project_id, scene_id, work)

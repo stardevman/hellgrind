@@ -121,6 +121,13 @@ function ShotBin({ onPick }: { onPick: () => void }) {
     .concat([{ q: null as never, scenes: ov.scenes.filter((s) => !ov.sequences.some((q) => q.id === s.sequence_id)) }])
     .filter((g) => g.scenes.length);
   const blocked = ov.scenes.filter((s) => s.status === "blocked").length;
+  // Klibi hazır ama "Sırada"da kalmış çekimler (ör. kare hazırlama ya da donma sonrası): görüntü üretmeden tamamlanır.
+  const stuck = ov.scenes.filter((s) => ["pending", "parsed", "storyboard", "frozen"].includes(s.status) && s.final_url).length;
+  const finish = () => act(async () => {
+    const r = await api.post<DispatchAll>(`/projects/${projectId}/finish-pending`);
+    const x = dispatchText(r);
+    note("inspector", x.text || "Bekleyen çekimler tamamlandı.", x.bad ? "err" : "ok");
+  }, "inspector");
   const retry = () => act(async () => {
     const r = await api.post<DispatchAll>(`/projects/${projectId}/render-all`);
     const x = dispatchText(r);
@@ -144,6 +151,15 @@ function ShotBin({ onPick }: { onPick: () => void }) {
         ) : (
           <>
             {projectId && <div className="adv"><PlanTotal key={projectId} projectId={projectId} /></div>}
+            {stuck > 0 && (
+              <div className="pad stack" style={{ borderBottom: "1px solid var(--line)", gap: 6 }}>
+                <span className="small dim">{stuck} çekimin klibi hazır ama durumu "Sırada": görüntü üretilmeden tamamlanabilir.</span>
+                <button className="btn primary" type="button" disabled={busy || frozen} onClick={finish}
+                  title={frozen ? "Üretim durduruldu, önce Üretime devam et" : "Klip korunur; eksik ses, renk ya da montaj varsa yalnızca onlar çalışır"}>
+                  Bekleyen {stuck} çekimi tamamla
+                </button>
+              </div>
+            )}
             {blocked > 0 && (
               <div className="pad" style={{ borderBottom: "1px solid var(--line)" }}>
                 <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry}>Engellenen çekimleri yeniden dene ({blocked})</button>

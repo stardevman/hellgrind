@@ -52,7 +52,7 @@ describe("documented Turkish texts", () => {
   it.each([
     // Faz 9
     "Ücretsiz mod: hiçbir ücretli servis çağrılmaz", "Yeni proje", "Üretimi durdur", "Üretime devam et", "Senaryoyu işle ve üret",
-    "Bunu kullan", "Filmde kullan", "elenen adayı göster", "Müziği değiştir", "Bu sahneyi baştan üret", "Rafine havuz", "Diyalog", "Olay akışı",
+    "Bunu kullan", "Filmde kullan", "elenen adayı göster", "çekimi tamamla", "Müziği değiştir", "Bu sahneyi baştan üret", "Rafine havuz", "Diyalog", "Olay akışı",
     "sahneyi birleştir", "Sonuca dön",
     // Faz 11–17
     "Sekansın tamamı", "Yalnızca bu çekim", "Bütçe tavanı", "Tavanı kaydet", "Stem yükle", "Tavan doldu", "Sekanssız",

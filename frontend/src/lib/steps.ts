@@ -51,7 +51,10 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     if (blocked) todos.produce.push({ text: n(blocked, "çekim engelli", "çekim engelli"), page: "assets", tone: "bad" });
     if (planReview) todos.produce.push({ text: n(planReview, "plan onay bekliyor", "plan onay bekliyor"), page: "edit", tone: "warn" });
     if (failed) todos.produce.push({ text: n(failed, "çekim inceleme bekliyor", "çekim inceleme bekliyor"), page: "edit", tone: "bad" });
-    if (notDone - blocked - failed - planReview > 0) todos.produce.push({ text: n(notDone - blocked - failed - planReview, "çekim henüz bitmedi", "çekim henüz bitmedi"), page: "edit" });
+    const stuck = scenes.filter((s) => ["pending", "parsed", "storyboard", "frozen"].includes(s.status) && s.final_url).length;
+    if (stuck) todos.produce.push({ text: n(stuck, "çekim klibi hazır, tamamlanmayı bekliyor", "çekim klibi hazır, tamamlanmayı bekliyor"), page: "edit", tone: "warn" });
+    const rest = notDone - blocked - failed - planReview - stuck;
+    if (rest > 0) todos.produce.push({ text: n(rest, "çekim henüz bitmedi", "çekim henüz bitmedi"), page: "edit" });
     const jumps = p!.continuity?.pairs.filter((x) => x.jump).length ?? 0;
     if (jumps) todos.finish.push({ text: n(jumps, "renk sıçraması", "renk sıçraması"), page: "color", tone: "warn" });
     if (!ov!.timeline) todos.finish.push({ text: "Film henüz birleştirilmedi", page: "deliver" });
