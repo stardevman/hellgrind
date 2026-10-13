@@ -59,7 +59,7 @@ describe("documented Turkish texts", () => {
     "Durağanı onayla", "Hareket testi üret", "Hareket testini onayla", "Kilitle", "Kilidi aç", "Yerel taslak üret",
     "Eksik referans", "Engellenen çekimleri yeniden dene", "Nesne bağla",
     "Işık öneki", "Hareket tarzı", "Yeni sürüm olarak kaydet", "Etkisini önizle", "Etkinleştir", "Etkilenen çekimleri hemen yeniden üret",
-    "Örnekle doldur", "Kareleri hazırla", "PDF indir", "Onayla", "Değişiklik iste", "Taslak geçişi başlat", "İyileştirme geçişi",
+    "Örnekle doldur", "Kareleri hazırla", "PDF indir", "Onayla", "Değişiklik iste", "Notu kaydet", "Taslak geçişi başlat", "İyileştirme geçişi",
     "İyileştir", "Kaba kurgu", "Final", "kare onayı zorunlu", "Previs rehberi yükle", "Dış çekim yükle", "Elle düzeltme",
     "Revizyon yükle", "Orijinale dön", "Düzenlenmiş ilk kare", "Sürekliliği denetle", "Öneriyi uygula", "Öneriyi dene", "Geçişi göster", "Rengi uygula",
     "Kabul edilen çekim başına varyasyon", "Film dakikası başına", "sanal maliyet", "gerçek harcama", "Eleme nedenleri", "Son kararlar",
