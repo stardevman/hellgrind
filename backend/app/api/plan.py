@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ensure_not_frozen
 from app.budget import killswitch
 from app.config import project_settings
+from app.core.hashing import film_grade_token
 from app.core.rerender import PRODUCTION, Stage, board_stale, plan_rerender, stage_names
 from app.engine.storyboard import board_ready
 from app.core.state import load_assets, load_characters
@@ -202,11 +203,12 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
         if sc.visual_hash is None and not has_winner(s, sc):     # klibi yok: yalnızca ses/renk/montaj yapılamaz
             return []
     chars, assets, style = load_characters(s, sc.id), load_assets(s, sc.id), bible.active_version(s, sc.project_id)
-    stages, fp = plan_rerender(sc, chars, tracks, assets, style, project.lut_hash, keep_visual=post_only)
+    film_grade = film_grade_token(project.lut_hash, project.settings)
+    stages, fp = plan_rerender(sc, chars, tracks, assets, style, film_grade, keep_visual=post_only)
     if Stage.VISUAL in stages and not (force_visual or rerun_visual or restyle) and bible.style_held(sc, fp.visual) \
             and has_winner(s, sc):
         # eski stil: yalnızca stil değişti; çekim işaretli kalır, görüntü yönetmen isteyince üretilir
-        stages, fp = plan_rerender(sc, chars, tracks, assets, style, project.lut_hash, keep_visual=True)
+        stages, fp = plan_rerender(sc, chars, tracks, assets, style, film_grade, keep_visual=True)
     if force_visual or rerun_visual:
         stages |= PRODUCTION | (Stage.STORYBOARD if board_stale(sc, fp) else Stage.NONE) | \
             (Stage.GRADE if fp.grade is not None else Stage.NONE)

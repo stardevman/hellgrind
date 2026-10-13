@@ -390,6 +390,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "reserved_usd": float(p.reserved_usd), "frozen": killswitch.is_frozen(project_id),
                     "soft_limited": killswitch.is_soft_limited(project_id), "settings": cfg,
                     "dry_run": settings.dry_run, "style_version": bible.active_version(s, project_id),
+                    "style_medium": bible.medium_of(bible.active(s, project_id)),
                     "lut": bool(p.lut_key), "continuity": p.continuity,
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},

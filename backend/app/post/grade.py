@@ -3,6 +3,9 @@
 Ayarlar: exposure (EV, FFmpeg `exposure`), contrast / saturation / gamma (FFmpeg `eq`), temperature (Kelvin, FFmpeg
 `colortemperature`; 6500 nötrdür, düşük değer ısıtır, yüksek değer soğutur). Sıra: LUT -> exposure -> eq -> temperature.
 Aynı ayar hem videoya hem tek bir kareye (önizleme, süreklilik önerisi) birebir aynı filtreyle uygulanır.
+
+Kare tutma (on twos, proje ayarı): 2D animasyonun "12 çizim/sn" görünümü. Renkten sonra her ikinci kare atılır
+(framestep=2) ve kaynak kare hızına geri doldurulur (fps): kare sayısı ve süre aynı kalır, her çizim iki kare görünür.
 """
 import subprocess
 
@@ -72,12 +75,45 @@ def filter_chain(raw: dict | None, lut_path: str | None) -> str:
     return ",".join(parts) or "null"
 
 
-def grade_video(src: str, dst: str, raw: dict | None, lut_path: str | None) -> str:
-    """Videoya renk ayarı; ses (varsa) kopyalanır."""
+def probe_fps(video: str) -> str:
+    """Videonun kare hızı, FFmpeg'in kesirli yazımıyla ("24/1", "24000/1001"); okunamazsa "24"."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                          "-of", "csv=p=0", video], capture_output=True, text=True).stdout.strip()
+    return out if out and out not in ("0/0", "N/A") else "24"
+
+
+def hold_filter(fps: str) -> str:
+    """Kare tutma (on twos): her ikinci kare atılır, kaynak hızına geri doldurulur (her çizim iki kare)."""
+    return f"framestep=2,fps=fps={fps}"
+
+
+def grade_video(src: str, dst: str, raw: dict | None, lut_path: str | None, on_twos: bool = False) -> str:
+    """Videoya renk ayarı (ve istenirse kare tutma); ses (varsa) kopyalanır."""
+    vf = filter_chain(raw, lut_path)
+    if on_twos:
+        vf = f"{vf},{hold_filter(probe_fps(src))}"
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-map", "0:v", "-map", "0:a?",
-                    "-vf", f"{filter_chain(raw, lut_path)},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast",
+                    "-vf", f"{vf},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", dst], check=True, capture_output=True)
     return dst
+
+
+STRIP_FRAMES = 6
+STRIP_W = 200
+
+
+def strip_jpeg(video: str, at: float, out: str, raw: dict | None = None, lut_path: str | None = None,
+               on_twos: bool = False, frames: int = STRIP_FRAMES) -> str:
+    """`at` saniyesinden başlayan art arda `frames` kare yan yana (renk ayarıyla ve istenirse kare tutmayla): kare
+    tutmanın etkisi durağan bir görüntüde görünür (aynı çizim iki karede tekrar eder)."""
+    fps = probe_fps(video)
+    vf = filter_chain(raw, lut_path)
+    if on_twos:
+        vf = f"{vf},{hold_filter(fps)}"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{max(0.0, at):.3f}", "-i", video, "-frames:v", "1",
+                    "-vf", f"{vf},scale={STRIP_W}:-2,tile={frames}x1:padding=2:color=0x111214", "-q:v", "4", out],
+                   check=True, capture_output=True)
+    return out
 
 
 def mid_frame(video: str, at: float, raw: dict | None = None, lut_path: str | None = None,

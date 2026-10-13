@@ -1308,12 +1308,14 @@ function Revisions({ target }: { target: Variation | undefined }) {
 }
 
 function ColorLink({ sc }: { sc: Scene }) {
-  const { setPage } = usePanel();
+  const { setPage, ov } = usePanel();
   const g = sc.grade;
   const neutral = g.exposure === 0 && g.contrast === 1 && g.saturation === 1 && g.gamma === 1 && g.temperature === 6500;
+  const twos = Boolean(ov?.project.settings.on_twos);
   return (
-    <Section title="Renk" meta={neutral ? "nötr" : "ayarlı"} open={false}>
+    <Section title="Renk" meta={`${neutral ? "nötr" : "ayarlı"}${twos ? " · on twos" : ""}`} open={false}>
       <p className="dim small mono">pozlama {g.exposure} · kontrast {g.contrast} · doygunluk {g.saturation} · gama {g.gamma} · {g.temperature} K</p>
+      {twos && <p className="faint small">Kare tutma açık: her çizim iki kare (12 çizim/sn). Etkisi Renk sayfasının Kareler görünümünde.</p>}
       <div className="row"><button className="btn" type="button" onClick={() => setPage("color")}>Renk sayfasında aç</button></div>
     </Section>
   );

@@ -21,7 +21,7 @@ from app.engine.references import sha_of
 from app.models import Project
 from app.post import grade
 from app.quality.anomaly import probe_duration
-from app.schemas import GradeIn
+from app.schemas import GradeIn, OnTwosIn
 
 router = APIRouter(tags=["grade"])
 REGRADE = Stage.GRADE | Stage.MUX
@@ -68,6 +68,38 @@ def grade_preview(scene_id: SceneId, before: bool = False, exposure: float = Que
     LUT'uyla. Kaydetmeden denemek içindir; sonuç içerik-adresli önbelleğe alınır."""
     data = _preview(scene_id, dict(exposure=exposure, contrast=contrast, saturation=saturation, gamma=gamma,
                                    temperature=temperature), before)
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+def _strip(scene_id: str, raw: dict | None, before: bool, twos: bool) -> bytes:
+    with session_scope() as s:
+        sc = scene_or_404(s, scene_id)
+        source = sc.lipsync_video_key
+        lut_key = s.get(Project, sc.project_id).lut_key
+    if not source:
+        raise HTTPException(409, "Bu çekimin henüz renklendirilecek videosu yok.")
+    settings_ = None if before else grade.clamp(raw or {})
+    hold = twos and not before
+    key = f"thumbs/grade/{scene_id}/strip_{stable_hash([source, settings_, None if before else lut_key, hold])}.jpg"
+    if not storage.exists(key):
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            video = storage.download(source, os.path.join(tmp, "v.mp4"))
+            lut = storage.download(lut_key, os.path.join(tmp, "film.cube")) if lut_key and not before else None
+            out = grade.strip_jpeg(video, probe_duration(video) / 2, os.path.join(tmp, "s.jpg"), settings_, lut, hold)
+            storage.put_file(out, key, "image/jpeg")
+    return storage.read_bytes(key)
+
+
+@router.get("/scenes/{scene_id}/grade/strip.jpg")
+def grade_strip(scene_id: SceneId, before: bool = False, twos: bool = False,
+                exposure: float = Query(0.0, ge=-3, le=3), contrast: float = Query(1.0, ge=0.5, le=2),
+                saturation: float = Query(1.0, ge=0, le=3), gamma: float = Query(1.0, ge=0.3, le=3),
+                temperature: int = Query(6500, ge=2000, le=12000)):
+    """Kare tutmanın önce/sonra karşılaştırması: çekimin ortasından art arda altı kare yan yana. before=true ham kareler;
+    twos=true renk ayarından sonra kare tutma (her çizim iki kare). İçerik-adresli önbelleğe alınır."""
+    data = _strip(scene_id, dict(exposure=exposure, contrast=contrast, saturation=saturation, gamma=gamma,
+                                 temperature=temperature), before, twos)
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
@@ -124,6 +156,19 @@ def remove_lut(project_id: ProjectId, s: Session = Depends(get_session)):
     s.commit()
     killswitch.event(project_id, "lut_changed", removed=True)
     return {"lut": None, **_regrade(project_id)}
+
+
+@router.post("/projects/{project_id}/on-twos")
+@curated("on_twos_change")
+def set_on_twos(project_id: ProjectId, body: OnTwosIn, s: Session = Depends(get_session)):
+    """Kare tutma (on twos, 12 çizim/sn görünümü) proje ayarıdır ve renk aşamasında uygulanır: bitmiş çekimlerde yalnızca
+    GRADE + MUX çalışır, görüntü motoru çağrılmaz."""
+    p = project_or_404(s, project_id)
+    ensure_not_frozen(project_id)
+    p.settings = {**(p.settings or {}), "on_twos": body.enabled}
+    s.commit()
+    killswitch.event(project_id, "on_twos_changed", enabled=body.enabled)
+    return {"on_twos": body.enabled, **_regrade(project_id)}
 
 
 @router.post("/projects/{project_id}/color/auto-match")

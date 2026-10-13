@@ -11,6 +11,7 @@ from app.api.plan import dispatch_all
 from app.budget import killswitch
 from app.curation import curated
 from app.db import get_session
+from app.engine.fal_plan import MEDIUM_SENTENCE, style_line
 from app.models import StyleBible
 from app.schemas import StyleActivateIn, StyleIn, StyleVersionIn
 from app.style import bible
@@ -21,9 +22,9 @@ router = APIRouter(tags=["style"])
 
 def style_out(b: StyleBible) -> dict:
     return {"version": b.version, "is_active": b.is_active, "lighting_prefix": b.lighting_prefix,
-            "motion_style": b.motion_style, "rules": {**bible.DEFAULT_RULES, **(b.rules or {})}, "negative": b.negative,
+            "motion_style": b.motion_style, "rules": {**bible.default_rules(b), **(b.rules or {})}, "negative": b.negative,
             "palette": b.palette, "notes": b.notes, "created_at": b.created_at.timestamp() if b.created_at else None,
-            "prefix": style_prefix(b)}
+            "prefix": style_prefix(b), "medium": bible.medium_of(b), "video_line": style_line(b)}
 
 
 def version_or_404(s: Session, project_id: str, version: int) -> StyleBible:
@@ -39,7 +40,11 @@ def get_style(project_id: ProjectId, s: Session = Depends(get_session)):
     rows = bible.versions(s, project_id)
     active = next((r for r in rows if r.is_active), None)
     return {"active": style_out(active) if active else None, "versions": [style_out(r) for r in rows],
-            "defaults": bible.DEFAULT_RULES, "render_styles": STYLE_TEXT, "example": bible.EXAMPLE}
+            "defaults": bible.DEFAULT_RULES_2D, "render_styles": STYLE_TEXT, "example": bible.EXAMPLE_2D,
+            # çizim türüne göre varsayılan kurallar ve örnek (formda 2D / 3D seçilince değişir); yeni sürüm 2D başlar
+            "defaults_by_medium": {"2d": bible.DEFAULT_RULES_2D, "3d": bible.DEFAULT_RULES},
+            "examples": {"2d": bible.EXAMPLE_2D, "3d": bible.EXAMPLE}, "media": bible.MEDIUM_TR,
+            "medium_default": "2d", "video_lines": MEDIUM_SENTENCE}
 
 
 @router.post("/projects/{project_id}/style", status_code=201)

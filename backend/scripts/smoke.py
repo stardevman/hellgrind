@@ -20,6 +20,8 @@ Kontroller:
   S. Stil değişikliği: önizleme 4 çekimi ve sanal maliyeti listeler, onay olmadan hiçbir şey üretilmez; etkinleştirince
      çekimler yeni önekle yeniden üretilir
   D. Dış çekim üretim harcaması olmadan `done` olur; rafine #1'in elle düzeltmesi yalnızca LIPSYNC ve MUX çalıştırır (Faz 15)
+  A. 2D dizi: yeni stil sürümü 2D başlar ve video istemine 2D cümlesi girer; 3D sürümü önizlemeden geçer; kare tutma
+     (on twos) açılıp kapanınca yalnızca GRADE ve MUX çalışır, harcama değişmez
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
      düzeltme uygulanınca uyarı kalkar (Faz 16)
   K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
@@ -361,6 +363,7 @@ def main() -> int:
               f"önerilen düzeltme parlaklığı eşledi, uyarı kalktı ya da skor yarıya indi "
               f"(skor {jumped['score']} -> {pair and pair['score']}, ΔL {pair and pair['lab']['L']})")
 
+    check_series_style(pid)
     check_curation_and_exports(pid)
     check_history(pid)
 
@@ -651,6 +654,38 @@ def check_curation_and_exports(pid: str) -> None:
     last = curation(pid)[-1]
     check("VISUAL" in r["stages"] and last["action"] == "force_rerender" and last["scene_code"] == "S002_SH01",
           f"baştan üretim isteği kaydedildi ({r['stages']})")
+
+
+def check_series_style(pid: str) -> None:
+    """2D dizi: stil kılavuzunun çizim türü video istemine girer; tür değişikliği yeni sürümdür ve önizlemeden geçer; kare
+    tutma (on twos) yalnızca renk ve montajı çalıştırır, harcama değişmez."""
+    print("A) Animasyon dizisi: çizim türü ve kare tutma")
+    st = c.get(f"/projects/{pid}/style").json()
+    active = st["active"]
+    check(active["medium"] == "2d" and "2D animation" in active["video_line"] and "3D" not in active["video_line"],
+          f"yeni sürüm 2D başladı; video istemi 2D cümlesini taşıyor: {active['video_line'][-80:]}")
+    v3 = c.post(f"/projects/{pid}/style", json={**st["examples"]["3d"], "lighting_prefix": active["lighting_prefix"],
+                                                "motion_style": active["motion_style"]}).json()
+    before = (spent(pid), variation_count(pid))
+    impact = c.post(f"/projects/{pid}/style/preview", json={"version": v3["version"]}).json()
+    generated = [sc["scene_code"] for sc in overview(pid)["scenes"] if sc["method"] != "external"]   # dış çekim stilden bağımsız
+    affected = [a["scene_code"] for a in impact["affected"]]
+    check(v3["medium"] == "3d" and affected == generated and (spent(pid), variation_count(pid)) == before,
+          f"3D sürümü yeni bir stil sürümü: önizleme üretilen {len(affected)} çekimi listeledi ({', '.join(affected)}), "
+          "onaysız hiçbir şey üretilmedi")
+    finals = {sc["id"]: c.get(f"/scenes/{sc['id']}").json()["final_video_key"] for sc in overview(pid)["scenes"]}
+    r = c.post(f"/projects/{pid}/on-twos", json={"enabled": True}).json()
+    check(sorted(r["regraded"]) == CODES, f"kare tutma açıldı; biten çekimler yalnızca renk ve montajdan geçiyor: {r['regraded']}")
+    for sid, key in finals.items():
+        wait_scene(sid, key)
+    rows = [c.get(f"/scenes/{sid}").json() for sid in finals]
+    check(all(x["graded_video_key"] and x["status"] == "done" for x in rows) and (spent(pid), variation_count(pid)) == before,
+          "her çekim kare tutmayla yeniden renklendirildi; görüntü motoru çağrılmadı, harcama aynı")
+    finals = {x["id"]: x["final_video_key"] for x in rows}
+    r = c.post(f"/projects/{pid}/on-twos", json={"enabled": False}).json()
+    for sid, key in finals.items():
+        wait_scene(sid, key)
+    check(sorted(r["regraded"]) == CODES and spent(pid) == before[0], "kare tutma kapatıldı; yine yalnızca renk ve montaj")
 
 
 def check_sequences(pid: str) -> None:

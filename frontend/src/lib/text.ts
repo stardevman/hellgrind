@@ -337,6 +337,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     };
     case "grade_changed": return { t: `${x.code}: renk ayarı değişti` };
     case "lut_changed": return { t: x.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${x.name})` };
+    case "on_twos_changed": return { t: x.enabled ? "Kare tutma açıldı (12 çizim/sn görünümü): yalnızca renk ve montaj" : "Kare tutma kapatıldı: yalnızca renk ve montaj" };
     case "style_activated": {
       const stale = (x.stale as string[] | undefined) ?? [];
       return { t: `Stil kılavuzu sürüm ${x.version} etkin (${x.affected} çekim etkilendi)${stale.length ? `; eski stil olarak işaretlendi, yeniden üretilmedi: ${stale.join(", ")}` : ""}`, c: "good" };

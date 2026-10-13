@@ -30,8 +30,11 @@ def style_version(pid):
 
 
 def lut_hash(pid):
+    """Film geneli renk girdisi (LUT + kare tutma), üretim koduyla aynı biçimde."""
+    from app.core.hashing import film_grade_token
     with session_scope() as s:
-        return s.get(Project, pid).lut_hash
+        p = s.get(Project, pid)
+        return film_grade_token(p.lut_hash, p.settings)
 
 
 def scene_assets(pid):

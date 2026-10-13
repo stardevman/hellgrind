@@ -1,6 +1,8 @@
 "use client";
 /* Renk sayfası (renk düzenleme yazılımları gibi): üstte seçili çekimin önce/sonra görüntüsü, sağda kaydırıcılı
-   renk ayarı, film LUT'u ve süreklilik denetimi, altta bütün çekimlerin klip şeridi (renk sıçramaları işaretli). */
+   renk ayarı, film LUT'u ve süreklilik denetimi, altta bütün çekimlerin klip şeridi (renk sıçramaları işaretli).
+   "Kareler" görünümü (kare tutma açıkken ya da yönetici modunda) art arda altı kareyi önce/sonra gösterir: on twos'ta
+   her çizim iki karede tekrar eder. */
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { GRADE_FIELDS } from "@/lib/i18n";
@@ -52,8 +54,30 @@ function Controls({ sc, values, setValues, numeric }: {
   );
 }
 
+/** Art arda altı kare: önce ham, sonra renk ayarı ve kare tutmayla. Altındaki numaralar karede görünen çizimdir. */
+function HoldStrips({ sc, query, rev, on }: { sc: Scene; query: string; rev: string; on: boolean }) {
+  const drawings = (twos: boolean) => Array.from({ length: 6 }, (_, i) => (twos ? Math.floor(i / 2) : i) + 1);
+  const Numbers = ({ twos }: { twos: boolean }) => (
+    <span className="hold-n mono" aria-hidden="true">{drawings(twos).map((n, i) => <span key={i}>{n}</span>)}</span>
+  );
+  return (
+    <div className="stack" style={{ padding: 10, gap: 10 }}>
+      <figure className="hold">
+        <img src={`/api/scenes/${sc.id}/grade/strip.jpg?before=true${rev}`} alt="Art arda altı kare, renk ve kare tutmadan önce" />
+        <Numbers twos={false} />
+        <figcaption>Önce · art arda altı kare, her karede yeni çizim (24 çizim/sn)</figcaption>
+      </figure>
+      <figure className="hold">
+        <img src={`/api/scenes/${sc.id}/grade/strip.jpg?twos=true&${query}${rev}`} alt="Aynı altı kare, renk ayarı ve kare tutmayla" />
+        <Numbers twos />
+        <figcaption>Sonra · renk ayarı + kare tutma: her çizim iki kare (12 çizim/sn){on ? "" : " · şu an kapalı, yalnızca önizleme"}</figcaption>
+      </figure>
+    </div>
+  );
+}
+
 export function ColorPage() {
-  const { ov, scene: sc, selectScene, projectId, busy, frozen, act, note } = usePanel();
+  const { ov, scene: sc, selectScene, projectId, busy, frozen, act, note, admin } = usePanel();
   const sig = sc ? sc.id + ":" + JSON.stringify(sc.grade) : "";
   const [values, setValues] = useSynced<Record<string, string>>(
     Object.fromEntries(GRADE_FIELDS.map((k) => [k, String(sc ? sc.grade[k as keyof Grade] : FIELDS[k].neutral)])), sig);
@@ -65,7 +89,7 @@ export function ColorPage() {
   const query = new URLSearchParams(Object.entries(numeric()).map(([k, v]) => [k, String(v)])).toString();
   const [preview, setPreview] = useState(query);
   useEffect(() => { const t = setTimeout(() => setPreview(query), 350); return () => clearTimeout(t); }, [query]);   // sürüklemeyi bitirince
-  const [view, setView] = useState<"shot" | "seam">("shot");
+  const [view, setView] = useState<"shot" | "seam" | "hold">("shot");
   const [tried, setTried] = useState<string | null>(null);        // kaydırıcılara yüklenmiş öneri (çekim kimliği)
   // Başka çekimin önerisi: önce çekim seçilir, seçim gelince kaydırıcılar yüklenir (useSynced seçimde sunucu değerine döner).
   const [pending, setPending] = useState<{ id: string; values: Record<string, string> } | null>(null);
@@ -75,6 +99,8 @@ export function ColorPage() {
 
   if (!ov || !sc) return null;
   const p = ov.project, report = p.continuity, jumps = report ? report.pairs.filter((x) => x.jump) : [];
+  const twos = Boolean(p.settings.on_twos);
+  const holdView = twos || admin;
   const jumpTo = new Set(jumps.map((j) => j.to));
   const incoming = jumps.find((j) => j.to_id === sc.id);          // bu çekime gelen geçişteki sıçrama
   const order = ov.scenes.filter((x) => x.sequence_id === sc.sequence_id && x.lipsync_ready);
@@ -100,7 +126,10 @@ export function ColorPage() {
             <button type="button" aria-pressed={view === "shot"} onClick={() => setView("shot")} title="Bu çekimin renklendirilmemiş hâli ve kaydırıcılarla önizlemesi">Bu çekim</button>
             <button type="button" aria-pressed={view === "seam"} disabled={!prev} onClick={() => setView("seam")}
               title={prev ? `Önceki çekim ${prev.scene_code} (şu anki rengi) ile bu çekimin önizlemesi yan yana` : "Bu sekansta önceki hazır çekim yok"}>Geçiş</button>
+            {holdView && <button type="button" aria-pressed={view === "hold"} onClick={() => setView("hold")}
+              title="Art arda altı kare önce ve sonra: kare tutmanın (on twos) etkisi">Kareler</button>}
           </div>
+          {twos && <span className="tag info" title="Kare tutma (on twos) açık: renk aşamasında her çizim iki kare">on twos</span>}
           <span className="grow" />
           {sc.graded && <span className="tag warn">renk uygulanmış</span>}
           {sc.grade_auto?.applied && <span className="tag info" title={`Referans ${sc.grade_auto.reference}; ΔE ${sc.grade_auto.delta_e_before?.toFixed(1)} → ${sc.grade_auto.delta_e_after?.toFixed(1)}`}>otomatik eşleştirildi ({sc.grade_auto.reference})</span>}
@@ -110,6 +139,7 @@ export function ColorPage() {
           }, "color")}>Geri al</button>}
         </header>
         {!sc.lipsync_ready ? <p className="empty">Bu çekimin dudak senkronlu videosu henüz hazır değil; renk önizlemesi o zaman açılır.</p>
+          : view === "hold" && holdView ? <HoldStrips sc={sc} query={preview} rev={rev(sc)} on={twos} />
           : view === "seam" && prev ? (
             <div className="split">
               <figure><img src={`/api/scenes/${prev.id}/grade/preview.jpg?${current(prev)}${rev(prev)}`} alt={`Önceki çekim ${prev.scene_code}`} /><figcaption>Önceki çekim <span className="mono">{prev.scene_code}</span> · şu anki rengi</figcaption></figure>

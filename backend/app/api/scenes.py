@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.api.deps import SceneId, VariationId, ensure_not_frozen, scene_or_404
 from app.api.plan import dispatch_result, ensure_idle
-from app.core.hashing import stable_hash
+from app.core.hashing import film_grade_token, stable_hash
 from app.curation import curated
 from app.db import get_session
 from app.engine.providers import route_engine
@@ -231,7 +231,7 @@ def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
         project = s.get(Project, sc.project_id)
         tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
         _, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
-                              bible.active_version(s, sc.project_id), project.lut_hash)
+                              bible.active_version(s, sc.project_id), film_grade_token(project.lut_hash, project.settings))
         post_stages = Stage.LIPSYNC | Stage.MUX | (Stage.GRADE if fp.grade is not None else Stage.NONE)
         if not claim_dispatch(sc.id):
             raise HTTPException(409, f"{sc.scene_code} için üretim zaten sıraya alındı.")

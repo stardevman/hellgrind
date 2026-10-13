@@ -195,6 +195,8 @@ export interface ProjectListItem {
 
 export interface ProjectSettings {
   soft_budget_ratio: number;
+  /** Kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında uygulanır. */
+  on_twos?: boolean;
   require_board_approval: boolean;
   asset_min_status: string;
   lint_strictness: string;
@@ -218,6 +220,8 @@ export interface Project {
   budget_limit_usd: number; spent_usd: number; reserved_usd: number;
   frozen: boolean; soft_limited: boolean; settings: ProjectSettings; dry_run: boolean;
   style_version: number | null; lut: boolean;
+  /** Etkin stil kılavuzunun çizim türü (kılavuz yoksa 3d: eski davranış). */
+  style_medium?: Medium;
   continuity: { pairs: ContinuityPair[] } | null;
   asset_counts: Record<string, number>;
 }
@@ -372,15 +376,23 @@ export interface Asset {
 
 /* ---------- stil ---------- */
 
+/** Stil kılavuzunun çizim türü: video istemindeki ortam cümlesi ve varlıkların varsayılan render kuralları. */
+export type Medium = "2d" | "3d";
+
 export interface StyleVersion {
   version: number; is_active: boolean; lighting_prefix: string | null; motion_style: string | null;
   rules: Record<string, string>; negative: string | null; palette: string[]; notes: string | null;
   created_at: number | null; prefix: string;
+  /** Çizim türü (030 öncesi sürümler 3d) ve video istemine giren stil cümlesi (ışık + hareket + ortam cümlesi). */
+  medium: Medium; video_line: string;
 }
 
 export interface StyleState {
   active: StyleVersion | null; versions: StyleVersion[]; defaults: Record<string, string>;
   render_styles: Record<string, string>; example: Partial<StyleVersion>;
+  /** Çizim türüne göre varsayılan render kuralları, örnek doldurma, Türkçe ad ve video istemindeki ortam cümlesi. */
+  defaults_by_medium: Record<Medium, Record<string, string>>; examples: Record<Medium, Partial<StyleVersion>>;
+  media: Record<Medium, string>; medium_default: Medium; video_lines: Record<Medium, string>;
 }
 
 export interface StyleImpact {

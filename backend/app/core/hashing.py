@@ -81,6 +81,14 @@ def grade_settings(raw: dict | None) -> dict:
     return {k: (int(round(merged[k])) if k == "temperature" else round(float(merged[k]), 3)) for k in GRADE_IDENTITY}
 
 
+def film_grade_token(lut_hash: str | None, project_settings: dict | None) -> str | None:
+    """Film geneli renk girdileri: LUT ve kare tutma (on twos, proje ayarı). Kare tutma kapalıyken LUT özeti aynen döner:
+    eski renk özetleri değişmez. Açıkken her çekimin renk özeti değişir: yalnızca GRADE + MUX çalışır."""
+    if not (project_settings or {}).get("on_twos"):
+        return lut_hash
+    return stable_hash({"lut": lut_hash, "hold": 2})
+
+
 def grade_fingerprint(scene, lut_hash: str | None) -> str | None:
     """Renk aşamasını belirleyen her şey: çekimin ayarı ve film geneli LUT. Etkisiz ayar ve LUT yoksa None: GRADE
     aşaması hiç gerekmez (Faz 16 öncesi sahnelerin planı değişmez)."""

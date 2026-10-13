@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
 from app.config import project_settings, settings
+from app.core.hashing import film_grade_token
 from app.core.rerender import plan_rerender, stage_names
 from app.core.state import load_assets, load_characters
 from app.curation import curated
@@ -27,7 +28,7 @@ def _stages(s: Session, sc: Scene, force_visual: bool) -> list[str]:
     tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
     project = s.get(Project, sc.project_id)
     stages, _ = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
-                              bible.active_version(s, sc.project_id), project.lut_hash)
+                              bible.active_version(s, sc.project_id), film_grade_token(project.lut_hash, project.settings))
     names = stage_names(stages)
     if force_visual and "VISUAL" not in names:
         names = ["VISUAL", *[n for n in ("LIPSYNC", "GRADE", "MUX") if n not in names]]

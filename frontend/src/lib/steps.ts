@@ -94,7 +94,10 @@ export function pageBadges(ov: Overview | undefined): Partial<Record<StepPage, P
   const assetsTotal = Object.values(c).reduce((x, y) => x + y, 0);
   const blocked = scenes.filter((s) => s.status === "blocked").length;
   const jumps = ov.project.continuity?.pairs.filter((x) => x.jump).length ?? 0;
-  if (ov.project.style_version) badge.style = { text: `s${ov.project.style_version}`, title: `Etkin stil sürümü ${ov.project.style_version}` };
+  if (ov.project.style_version) {
+    const medium = ov.project.style_medium === "3d" ? "3D" : ov.project.style_medium === "2d" ? "2D" : "";
+    badge.style = { text: `s${ov.project.style_version}${medium ? ` · ${medium}` : ""}`, title: `Etkin stil sürümü ${ov.project.style_version}${medium ? `, çizim türü ${medium}` : ""}` };
+  }
   if (assetsTotal) badge.assets = { text: `${c.locked || 0}/${assetsTotal}`, tone: c.locked === assetsTotal ? "ok" : blocked ? "bad" : "", title: "Kilitli varlıklar" };
   if (scenes.length) {
     const approved = scenes.filter((s) => s.board_status === "approved").length;

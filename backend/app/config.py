@@ -198,6 +198,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "h3max_resolution": None,      # proje: H3 Max çözünürlüğü; None = Ayarlar'daki H3MAX_RESOLUTION (480P)
     "seedance25_draft": None,      # proje: Seedance 2.5 taslak (480p); None = Ayarlar'daki SEEDANCE25_DRAFT (açık)
     "seedance25_resolution": None, # proje: taslak kapalıyken Seedance çözünürlüğü; None = Ayarlar'daki SEEDANCE25_RESOLUTION
+    "on_twos": False,              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX
     "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
                                    # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }

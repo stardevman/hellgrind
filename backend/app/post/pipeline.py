@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app import storage
 from app.budget import pricing
 from app.config import project_settings, settings
-from app.core.hashing import stable_hash
+from app.core.hashing import film_grade_token, stable_hash
 from app.core.rerender import Fingerprints, fingerprints
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
@@ -63,7 +63,8 @@ def _snapshot(scene_id: str) -> Snapshot:
                                 .order_by(AudioTrack.start_offset_s, AudioTrack.kind)))
         project = s.get(Project, scene.project_id)
         fp = fingerprints(scene, load_characters(s, scene_id), tracks, load_assets(s, scene_id),
-                          bible.active_version(s, scene.project_id), project.lut_hash)
+                          bible.active_version(s, scene.project_id),
+                          film_grade_token(project.lut_hash, project.settings))
         cfg = project_settings(project.settings)
         lut_key = project.lut_key
         s.expunge_all()
@@ -292,8 +293,8 @@ def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = 
 # ---------- GRADE ----------
 
 def grade_scene(scene_id: str) -> str:
-    """Dudak senkronlu videoya film geneli LUT'u ve çekimin renk ayarını uygular. Etkisizse ayarı temizler (montaj dudak
-    senkronlu videoyu kullanır). Çıktı içerik-adreslidir. Dönen: anahtar, "identity" ya da "skip (...)"."""
+    """Dudak senkronlu videoya film geneli LUT'u, çekimin renk ayarını ve (proje ayarıysa) kare tutmayı uygular. Etkisizse
+    ayarı temizler (montaj dudak senkronlu videoyu kullanır). Çıktı içerik-adreslidir. Dönen: anahtar, "identity" ya da "skip (...)"."""
     snap = _snapshot(scene_id)
     scene, project_id = snap.scene, str(snap.scene.project_id)
     if scene.status in SKIP_STATUSES:
@@ -309,7 +310,8 @@ def grade_scene(scene_id: str) -> str:
         with workspace() as tmp:
             video = storage.download(scene.lipsync_video_key, os.path.join(tmp, "video.mp4"))
             lut = storage.download(snap.lut_key, os.path.join(tmp, "film.cube")) if snap.lut_key else None
-            out = grade.grade_video(video, os.path.join(tmp, "graded.mp4"), scene.grade, lut)
+            out = grade.grade_video(video, os.path.join(tmp, "graded.mp4"), scene.grade, lut,
+                                    on_twos=bool(snap.cfg.get("on_twos")))
             storage.put_file(out, out_key)
     advance_scene(project_id, scene_id, graded_video_key=out_key, grade_hash=snap.fp.grade)
     return out_key

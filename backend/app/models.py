@@ -230,6 +230,7 @@ class StyleBible(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    medium: Mapped[str] = mapped_column(Text, default="2d")      # çizim türü: 2d | 3d (030; eski sürümler 3d)
 
 
 class PromptCache(Base):

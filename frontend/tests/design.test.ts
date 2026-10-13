@@ -76,5 +76,7 @@ describe("documented Turkish texts", () => {
     "Model ve uç noktalar", "Fiyat tablosu", "Doğrula ve kaydet", "Değişiklik kaydı",
     "MiniMax H3 denemesi", "Deneme senaryosu", "Yalnızca MiniMax H3 (", "RunPod uç noktası", "gerekmez",
     "MiniMax H3 · vast.ai", "yalnızca seçtiğiniz çekimlerde", "Video motoru", "makinenin boşta geçen süresi",
+    // Animasyon dizisi: çizim türü ve kare tutma
+    "Çizim türü", "On twos (12 çizim/sn görünümü)", "Kareler", "her çizim iki kare",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

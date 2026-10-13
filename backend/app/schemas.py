@@ -66,6 +66,7 @@ SETTING_RULES = {
     "h3max_resolution": (lambda v: v in (None, "480P", "768P", "1080P"), "480P, 768P, 1080P ya da boş"),
     "seedance25_draft": (lambda v: v is None or type(v) is bool, "true, false ya da boş"),
     "seedance25_resolution": (lambda v: v in (None, "480p", "720p", "1080p"), "480p, 720p, 1080p ya da boş"),
+    "on_twos": (lambda v: type(v) is bool, "true ya da false"),
 }
 
 
@@ -265,6 +266,7 @@ class StyleIn(BaseModel):
     negative: str = Field("", max_length=2000)
     palette: list[str] = Field([], max_length=12)
     notes: str | None = Field(None, max_length=4000)
+    medium: Literal["2d", "3d"] = "2d"               # çizim türü: video istemindeki ortam cümlesi ve varsayılan render kuralları
 
     @field_validator("rules")
     @classmethod
@@ -292,6 +294,10 @@ class StyleVersionIn(BaseModel):
 
 class StyleActivateIn(StyleVersionIn):
     render: bool = False                             # etkilenen çekimleri hemen yeniden üret
+
+
+class OnTwosIn(BaseModel):
+    enabled: bool                                    # kare tutma (on twos): renk aşamasında her çizim iki kare
 
 
 # ---------- sekanslar ve film düzeyinde ses (Faz 11) ----------

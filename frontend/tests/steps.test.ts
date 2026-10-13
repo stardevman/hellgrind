@@ -1,6 +1,6 @@
 /* Adım modeli: dört adımın durumu ve sıradaki iş (saf fonksiyonlar). */
 import { describe, expect, it } from "vitest";
-import { nextTodo, STEPS, stepOf, stepReadiness } from "@/lib/steps";
+import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness } from "@/lib/steps";
 import type { Overview, Scene } from "@/lib/types";
 
 const scene = (over: Partial<Scene>): Scene => ({ id: Math.random().toString(36).slice(2), scene_code: "S001_SH01", status: "done", engine: "h3max", sequence_id: null,
@@ -56,5 +56,11 @@ describe("steps", () => {
   it("a frozen project marks production as blocked", () => {
     const st = stepReadiness(ov([scene({ status: "frozen" })], { frozen: true }));
     expect(st[2].state).toBe("blocked");
+  });
+
+  it("the style badge names the active version and its drawing medium", () => {
+    expect(pageBadges(ov([scene({})], { style_version: 2, style_medium: "2d" })).style).toMatchObject({ text: "s2 · 2D" });
+    expect(pageBadges(ov([scene({})], { style_version: 1, style_medium: "3d" })).style?.title).toContain("çizim türü 3D");
+    expect(pageBadges(ov([scene({})], { style_version: null })).style).toBeUndefined();
   });
 });

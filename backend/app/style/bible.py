@@ -16,6 +16,12 @@ from app.models import Project, Scene, StyleBible
 
 # Hareket eden şeyler temiz 3D, çevre boyalı: yoğun boyalı doku hareket halinde bozulur.
 DEFAULT_RULES = {"character": "clean_3d", "prop": "clean_3d", "location": "painterly"}
+# 2D animasyonda karakter ve nesneler temiz çizgi + düz gölge (cel), arka planlar boyalı: sektörün yerleşik ayrımı.
+DEFAULT_RULES_2D = {"character": "stylized_2d", "prop": "stylized_2d", "location": "painterly"}
+MEDIA = ("2d", "3d")
+MEDIUM_TR = {"2d": "2D", "3d": "3D"}
+# Kılavuzu olmayan proje ve 030 öncesi sürümler: eski davranış (3D cümlesi ve kuralları).
+LEGACY_MEDIUM = "3d"
 
 # Panelde "Örnek" düğmesinin doldurduğu, profesyonel ekibin her çekimde tekrarladığı formül.
 EXAMPLE = {
@@ -26,7 +32,27 @@ EXAMPLE = {
     "negative": "photorealistic skin, motion blur smear, flickering textures",
     "palette": ["#E4A23E", "#C2573F", "#2A2D31", "#86A5B8"],
     "notes": "Suluboya mekân + altın saat ışığı; hareket eden karakter ve nesneler temiz 3D.",
+    "medium": "3d",
 }
+# Aynı formülün 2D hâli (animasyon dizisi): boyalı arka plan, temiz çizgili ve düz gölgeli karakterler.
+EXAMPLE_2D = {
+    **EXAMPLE,
+    "rules": dict(DEFAULT_RULES_2D),
+    "negative": "3D render, photorealistic skin, motion blur smear, flickering line art",
+    "notes": "Suluboya arka plan + altın saat ışığı; karakter ve nesneler temiz çizgi, düz gölge (cel).",
+    "medium": "2d",
+}
+
+
+def medium_of(style) -> str:
+    """Kılavuzun çizim türü; kılavuz yoksa ya da alan boşsa eski davranış (3d)."""
+    value = getattr(style, "medium", None) if style is not None else None
+    return value if value in MEDIA else LEGACY_MEDIUM
+
+
+def default_rules(style) -> dict:
+    """Çizim türünün varsayılan render kuralları (kılavuzda o tür için kural yoksa kullanılır)."""
+    return dict(DEFAULT_RULES_2D if medium_of(style) == "2d" else DEFAULT_RULES)
 
 
 def active(s, project_id) -> StyleBible | None:
@@ -96,9 +122,9 @@ def style_held(sc, fresh: str) -> bool:
 
 
 def effective_style(asset, bible) -> str:
-    """Varlığın render stili: varlığa özel istisna, yoksa kılavuzun tür kuralı, o da yoksa varsayılan."""
+    """Varlığın render stili: varlığa özel istisna, yoksa kılavuzun tür kuralı, o da yoksa çizim türünün varsayılanı."""
     rules = (bible.rules if bible is not None else None) or {}
-    return asset.render_style or rules.get(asset.type) or DEFAULT_RULES[asset.type]
+    return asset.render_style or rules.get(asset.type) or default_rules(bible)[asset.type]
 
 
 def visual_cost(cfg: dict, engine: str, duration: float) -> tuple[float, float]:

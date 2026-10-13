@@ -301,6 +301,24 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 - **Etkin sürüm görsel özete girer.** Bu yüzden değişiklik iki adımdır: `POST /api/projects/{id}/style/preview` hangi üretilmiş çekimlerin yeniden üretileceğini ve tahmini sanal maliyeti (beklenen: bir test turu + bir tam dalga; en kötü: tüm düzeltme turları + `full_n`) döner, hiçbir şey yazmaz. Yönetmen onaylarsa `POST /api/projects/{id}/style/activate` (`render: true` ile etkilenen çekimler hemen kuyruğa girer). Sürüm kaydetmek (`POST /api/projects/{id}/style`) hiçbir çekimi etkilemez.
 - Ücretsiz modda bile stilin etkisi görünür: prosedürel motor ışık önekindeki anahtar kelimeleri yorumlar. `golden-hour` (ya da "altın saat") sıcak ve alçak bir güneş, uzun gölgeler ve ufka yakın sıcak parıltı verir; `night`/`moonlight` ay ışığı, `overcast` yumuşak ve soluk ışık. Tanınmayan bir önek render'ı hiç değiştirmez.
 
+## Animasyon dizisi üretim standartları
+
+Müşteriye teslim edilen 2D animasyon dizisi için sektörün üretim alışkanlıkları panele taşındı. Hepsi ücretsiz modda çalışır ve sınanır.
+
+### 2D stil ayarı (Stil sayfası)
+
+- **Çizim türü: 2D / 3D.** Stil kılavuzunun her sürümünde bir çizim türü vardır (`style_bibles.medium`, migration 030). Video isteminin başındaki stil cümlesi buradan gelir:
+  - 2D: "Render every character and environment in the same hand-drawn 2D animation style: clean line art, flat cel shading on characters and props, painted backgrounds."
+  - 3D: eski sabit cümle ("…same 3D animated style as the characters").
+- 2D kılavuzda varsayılan render kuralları da 2D'dir: karakter ve nesneler `stylized_2d` (temiz çizgi, düz gölge), mekânlar `painterly` (boyalı arka plan). Formda tür değişince elle değiştirilmemiş kurallar yeni türün varsayılanına geçer.
+- Yeni sürümler 2D başlar. 030 öncesi sürümler 3D olarak işaretlendi: o istemlerle üretildiler. Stil kılavuzu olmayan projede de eski davranış (3D) sürer.
+- Tür değişikliği yeni bir stil sürümüdür. Etki önizlemesi ve onay akışı aynen çalışır: önce hangi çekimlerin yeniden üretileceği görünür, onay olmadan hiçbir şey üretilmez.
+- **On twos (12 çizim/sn görünümü)**, yönetici modunda:
+  - Stil sürümüne girmez; proje ayarıdır (`on_twos`). `POST /api/projects/{id}/on-twos {"enabled": true}` ile açılıp kapanır.
+  - Renk aşamasında FFmpeg her ikinci kareyi atıp kaynak hızına geri doldurur (`framestep=2,fps=…`). Kare sayısı ve süre değişmez, her çizim iki kare görünür.
+  - Renk özetine girdiği için biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz, harcama değişmez. Karar kürasyon kaydına `on_twos_change` olarak düşer.
+- **Renk sayfası › Kareler**, kare tutma açıkken ya da yönetici modunda: art arda altı kare önce ve sonra yan yana gösterilir (`GET /api/scenes/{id}/grade/strip.jpg?before=true` / `?twos=true`). Altlarındaki numaralar karede görünen çizimdir: 1 2 3 4 5 6 → 1 1 2 2 3 3.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.

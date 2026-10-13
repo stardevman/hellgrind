@@ -35,6 +35,12 @@ ENGINE_TR = {"h3max": "MiniMax H3 Max (fal.ai)", "seedance25": "Seedance 2.5 (fa
              "higgsfield": "Higgsfield"}
 MODE_TR = {"i2v": "image-to-video", "ref": "reference-to-video"}
 STYLE_SENTENCE = "Render every environment in the same 3D animated style as the characters."
+# Ortam cümlesi stil kılavuzunun çizim türünden gelir (style_bibles.medium); kılavuz yoksa eski 3D cümlesi.
+MEDIUM_SENTENCE = {
+    "3d": STYLE_SENTENCE,
+    "2d": "Render every character and environment in the same hand-drawn 2D animation style: clean line art, flat cel "
+          "shading on characters and props, painted backgrounds.",
+}
 H3_SECONDS = (0.92, 15.0)
 SEEDANCE_SECONDS = (4, 30)
 H3_MAX_REFERENCES = 9                 # reference_image_urls (görsel + video + ses toplam en çok 12)
@@ -266,10 +272,12 @@ def choose_mode(scene, frame_key: str | None, frame_source: str | None, refs: li
 # ---------- istem ve gövde ----------
 
 def style_line(style) -> str:
-    """Proje stilinin tarifi (kılavuzun ışık dili ve hareket tarzı) + ortamların karakterlerle aynı 3D stilde olması."""
+    """Proje stilinin tarifi (kılavuzun ışık dili ve hareket tarzı) + kılavuzun çizim türünün ortam cümlesi (2D: temiz
+    çizgi, düz gölge, boyalı arka plan; 3D: ortamlar karakterlerle aynı 3D stilde)."""
+    from app.style.bible import medium_of
     parts = [getattr(style, "lighting_prefix", "") or "", getattr(style, "motion_style", "") or ""] if style else []
     head = " ".join(" ".join(p.split()).rstrip(" .") + "." for p in parts if p.strip())
-    return f"{head} {STYLE_SENTENCE}".strip()
+    return f"{head} {MEDIUM_SENTENCE[medium_of(style)]}".strip()
 
 
 def build_prompt(engine: str, mode: str, composed, refs: list[Ref], style, names: list[str]) -> tuple[str, list[str]]:
