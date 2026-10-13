@@ -62,9 +62,10 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 
 ## Kullanım
 
-Panel bir yapım stüdyosu gibi düzenlenmiştir ve bütün denetimler üsttedir: üst bantta tek satırda proje, üretim sırasını
+Panel bir yapım stüdyosu gibi düzenlenmiştir ve bütün denetimler alttadır (logo dahil); çalışma alanı en üstten başlar. En
+alttaki bantta tek satırda proje, üretim sırasını
 izleyen dört **adım**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), **Ayarlar** ve üretimi
-durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister); hemen altındaki şeritte bulunulan adımın sayfaları
+durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister); hemen üstündeki şeritte bulunulan adımın sayfaları
 (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>8</kbd>), o adımda eksik olanlar ve en sağda **Sıradaki**:
 
 | Adım | Sayfalar | Bir sonraki adıma geçmek için |
@@ -74,12 +75,12 @@ durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister); hemen alt�
 | 3 Üretim | Kurgu, Karşılaştır | engelli, plan onayı ya da inceleme bekleyen çekim yok, hepsi hazır |
 | 4 Bitirme | Renk, Teslim | renk sıçraması kalmamış, film birleştirilmiş |
 
-Üst banttaki her adımın noktası durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli; dar ekranda yalnızca
+Alt banttaki her adımın noktası durumunu gösterir (yeşil tamamlandı, mavi bu adım, kırmızı engelli; dar ekranda yalnızca
 bulunulan adımın adı yazılır); şeridin sağındaki **Sıradaki** bağlantısı ilk eksik işe götürür. Şeritteki eksikler tıklanınca onları çözecek sayfa açılır; adım tamamlanınca "Bu adım
 tamam" görünür. Sayfa sekmelerindeki rozetler durumu özetler (kilitli varlık, onaylı kare, hazır ya da engelli çekim, renk
 sıçraması, film).
 
-Üst banttaki **Ayarlar** düğmesi herkese açıktır; Ayarlar'ın **Kullanıcı ve yönetici** bölümü modu seçer. **Kullanıcı modu** son kullanıcı içindir: her sayfada yalnızca
+Alt banttaki **Ayarlar** düğmesi herkese açıktır; Ayarlar'ın **Kullanıcı ve yönetici** bölümü modu seçer. **Kullanıcı modu** son kullanıcı içindir: her sayfada yalnızca
 filmi yapmak için gerekenler (senaryo, varlık onayı, storyboard, kurgu, renk, teslim, bütçe ve **Üretimi durdur**) kalır.
 **Yönetici modu** bütün ayrıntıları açar: **Ayarlar** (ücretli servisler, anahtarlar, model ve uç noktalar, çalışma modu,
 fiyat tablosu), **Geçmiş** (servis çağrıları ve harcama), mod ve kalite skoru rozetleri, motor ve plan ayrıntıları, üretim
@@ -158,7 +159,7 @@ aynı görünüm açılır.
    şeridinde sıçramalar kırmızı çentikle işaretlidir. Üretim durdurulmuşken renk uygulanamaz; sayfa bunu söyler.
 8. **Teslim** sayfası: **Tamamlanan N sahneyi birleştir** (ya da kaba kurgu), film ve kesme şeridi; dışa aktarma kuyruğu (EDL,
    OpenTimelineIO, çekim paketi, storyboard PDF'i, kürasyon kaydı) ve verimlilik raporu.
-9. Üst banttaki **Üretimi durdur** düğmesi Kill-Switch'tir: kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**
+9. Alt banttaki **Üretimi durdur** simgesi Kill-Switch'tir (önce onay sorar): kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**
    kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
 
 API'yi doğrudan da kullanabilirsiniz:
@@ -311,7 +312,7 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
 ## Servis geçmişi (panelin Geçmiş sayfası)
 
 Ücretli servislere yapılan her çağrı ayrıntılı bir kayıt bırakır; ücretsiz modda aynı iş, ücretli modda harcanacak tutarla
-**sanal** olarak kaydedilir. Yönetici modunda üst banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
+**sanal** olarak kaydedilir. Yönetici modunda alt banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
 
 - **Çağrılar:** zaman, işlem (video üretimi, ilk kare, storyboard karesi, varlık referansı, hareket testi, previs rehberinden
   video, düzenlenmiş kareden video, dudak senkronu, diyalog seslendirme, senaryo ayrıştırma), proje ve çekim ya da varlık,
@@ -332,7 +333,7 @@ işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/his
 
 ## Ücretli servisler (panelin Ayarlar sayfası)
 
-Üst banttaki **Ayarlar** düğmesi (ya da mod rozeti) yönetici modunda bütün ücretli servisleri tek yerde gösterir ve düzenletir:
+Alt banttaki **Ayarlar** düğmesi (ya da mod rozeti) yönetici modunda bütün ücretli servisleri tek yerde gösterir ve düzenletir:
 
 - **Servisler:** MiniMax H3 · vast.ai (video; kendi GPU sunucunuz), fal.ai (isteğe bağlı: Seedance, Flux kareleri, previs
   aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
@@ -1112,7 +1113,7 @@ comfy-workflows/               MiniMax H3 ComfyUI iş akışları: i2v, r2v, key
                                exported/: dışa aktarılan hâller ve make_templates.py), panel yazar
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (üst bant, sayfa çubuğu), SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (alt bant, adım şeridi), SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi

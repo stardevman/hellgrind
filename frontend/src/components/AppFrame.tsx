@@ -1,6 +1,7 @@
 "use client";
-/* Stüdyo çerçevesi, her şey üstte: üst bantta proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi; altındaki
-   şeritte adımın sayfaları, eksikleri ve "Sıradaki"; altında etkin sayfa (Shift+1…8 sayfalar arasında geçer). Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
+/* Stüdyo çerçevesi, bütün denetimler altta: en üstte etkin sayfa; altında uyarılar, adımın sayfaları, eksikleri ve
+   "Sıradaki" şeridi; en altta uygulama bandı (logo, proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi).
+   Bandın menüleri yukarı açılır. Shift+1…8 sayfalar arasında geçer. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
    gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
    (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
@@ -122,7 +123,7 @@ function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
   );
 }
 
-function TopBar() {
+function AppBar() {
   const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
@@ -136,7 +137,7 @@ function TopBar() {
     if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
   };
   return (
-    <header className="topbar">
+    <footer className="appbar">
       <div className="tb-main">
         <div className="logo"><Icon.logo />Hell Grind</div>
         <ProjectSwitcher onRemove={remove} />
@@ -180,7 +181,7 @@ function TopBar() {
         )}
       </div>
       {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
-    </header>
+    </footer>
   );
 }
 
@@ -304,13 +305,15 @@ export function AppFrame() {
   const View = target === "history" && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
   return (
     <div className="app">
-      <TopBar />
-      <Alerts />
-      <StepHeader hasShots={hasShots} />
       <main className="workspace">
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
+      <div className="dock">
+        <Alerts />
+        <StepHeader hasShots={hasShots} />
+        <AppBar />
+      </div>
       <Tour />
       <AdminLogin />
     </div>

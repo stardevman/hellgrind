@@ -10,7 +10,7 @@ import type { AdminState, Meta, Overview, ProjectListItem, Scene, Sequence } fro
 export const POLL_MS = 2000;
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
 export const PAGES = ["script", "style", "assets", "board", "edit", "compare", "color", "deliver"] as const;
-/** Sayfa çubuğunda olmayan, üst banttan açılan sayfalar. */
+/** Sayfa çubuğunda olmayan, alt banttan açılan sayfalar. */
 export const EXTRA_PAGES = ["settings", "history"] as const;
 export type Page = (typeof PAGES)[number] | (typeof EXTRA_PAGES)[number];
 const ALL_PAGES: readonly string[] = [...PAGES, ...EXTRA_PAGES];

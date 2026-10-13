@@ -1,6 +1,6 @@
 "use client";
-/* Üretim adımları, hepsi üstte: üst bantta dört adım (numara, ad, durum noktası; StepRail), hemen altındaki şeritte
-   bulunulan adımın sayfa sekmeleri, bu adımın eksikleri ve en sağda "Sıradaki" bağlantısı (StepHeader). Ayarlar ve
+/* Üretim adımları, hepsi altta: en alttaki uygulama bandında dört adım (numara, ad, durum noktası; StepRail), hemen
+   üstündeki şeritte bulunulan adımın sayfa sekmeleri, bu adımın eksikleri ve en sağda "Sıradaki" bağlantısı (StepHeader). Ayarlar ve
    Geçmiş gibi adım dışı sayfalarda şerit sayfanın adını ve "Sıradaki"yi gösterir. Shift+1…8 sayfalar arasında geçer. */
 import { useMemo } from "react";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
@@ -20,7 +20,7 @@ function stepTitle(st: StepStatus, hint: string): string {
   return st.todos.length ? `${head}\n${st.todos.map((t) => `• ${t.text}`).join("\n")}` : `${head}\n${hint}`;
 }
 
-/** Üst banttaki dört üretim adımı; tıklanınca adımın ilk açılabilir sayfası açılır. */
+/** Alt banttaki dört üretim adımı; tıklanınca adımın ilk açılabilir sayfası açılır. */
 export function StepRail({ hasShots }: { hasShots: boolean }) {
   const { page, setPage, ov } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);
@@ -60,7 +60,7 @@ function NextUp({ next }: { next: ReturnType<typeof nextTodo> }) {
   );
 }
 
-/** Üst bandın altındaki şerit: adımın sayfaları (sekme), bu adımın eksikleri (tıklanınca ilgili sayfa) ve "Sıradaki". */
+/** Alt bandın üstündeki şerit: adımın sayfaları (sekme), bu adımın eksikleri (tıklanınca ilgili sayfa) ve "Sıradaki". */
 export function StepHeader({ hasShots }: { hasShots: boolean }) {
   const { page, setPage, ov, admin } = usePanel();
   const status = useMemo(() => stepReadiness(ov), [ov]);

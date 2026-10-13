@@ -119,8 +119,11 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .loading { padding: 24px 12px; color: var(--text-3); text-align: center; }
 
 /* ---------- uygulama çerçevesi ---------- */
-.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100vh; height: 100dvh; }
-.topbar { display: flex; flex-direction: column; background: var(--panel); border-bottom: 1px solid var(--line); min-width: 0; }
+.app { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
+/* Bütün denetimler altta: .dock = uyarılar + adım şeridi + uygulama bandı. */
+.dock { display: flex; flex-direction: column; min-width: 0; }
+.appbar { display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line); min-width: 0; }
+.appbar .menu { top: auto; bottom: calc(100% + 6px); max-height: min(70vh, 560px); overflow-y: auto; }
 .tb-main { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; min-width: 0; }
 .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; }
 .logo svg { width: 20px; height: 20px; }
@@ -167,15 +170,15 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .modal h2.bad svg { color: var(--bad); }
 .kill.resume { border-color: rgba(61, 204, 145, .5); background: rgba(61, 204, 145, .1); color: var(--ok); }
 .kill.resume::before { width: 0; height: 0; border-radius: 0; background: none; border-left: 8px solid var(--ok); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-.topbar { grid-row: 1; } .alerts { grid-row: 2; } .stephead { grid-row: 3; } .workspace { grid-row: 4; }   /* boş uyarı şeridi satırları kaydırmasın */
+.workspace { grid-row: 1; } .dock { grid-row: 2; }
 .alerts:empty { display: none; }
-.alert { padding: 5px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.alert { padding: 5px 12px; font-size: 12px; border-top: 1px solid var(--line); }
 .alert.frozen { background: rgba(255, 92, 85, .14); color: #ffb3ae; }
 .alert.soft { background: rgba(243, 180, 67, .12); color: #f6d08a; }
 .alert.offline { background: var(--raised); color: var(--text-2); }
 .workspace { min-height: 0; padding: var(--gap); overflow: hidden; }
 /* Adım rayı (altta, 30 px): dört adım ve sıradaki iş. */
-/* Üst banttaki üretim adımları (dar ekranda yalnızca bulunulan adımın adı yazılır). */
+/* Alt banttaki üretim adımları (dar ekranda yalnızca bulunulan adımın adı yazılır). */
 .tb-steps { display: flex; align-items: center; min-width: 0; flex: none; }
 .stp-list { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .stp button { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid transparent; border-radius: 13px; background: none; color: var(--text-3); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
@@ -198,12 +201,12 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .nx-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Adım şeridi (çalışma alanının üstünde): adım adı, sayfa sekmeleri, eksik işler. */
-.stephead { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; background: var(--bg); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
+.stephead { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; background: var(--bg); border-top: 1px solid var(--line); min-width: 0; overflow: hidden; }
 .sh-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .sh-tabs button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: var(--r); background: none; color: var(--text-3); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .sh-tabs button svg { width: 15px; height: 15px; }
 .sh-tabs button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-.sh-tabs button[aria-selected="true"] { color: var(--text); background: var(--raised); box-shadow: inset 0 -2px 0 var(--accent); }
+.sh-tabs button[aria-selected="true"] { color: var(--text); background: var(--raised); box-shadow: inset 0 2px 0 var(--accent); }   /* çizgi içeriğe (üste) bakar */
 .sh-tabs button:disabled { opacity: .35; cursor: not-allowed; }
 .sh-tabs .badge { min-width: 16px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 9.5px; line-height: 13px; }
 .sh-tabs .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
@@ -565,7 +568,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .steps > li { display: grid; gap: 4px; padding: 7px 8px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
 .steps summary { cursor: pointer; color: var(--text-2); }
 
-/* Orta genişlik: üst bant sığsın diye adım adları yalnızca bulunulan adımda yazılır (numara ve durum noktası kalır). */
+/* Orta genişlik: alt bant sığsın diye adım adları yalnızca bulunulan adımda yazılır (numara ve durum noktası kalır). */
 @media (max-width: 1480px) {
   body[data-admin="1"] .stp:not(.on) .stp-l { display: none; }
   body[data-admin="1"] .stp:not(.on) button { padding: 0 7px; }
@@ -601,14 +604,16 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .switch-btn .sw-title { flex: 1; text-align: left; }
   .menu { right: 0; max-width: none; }
   .vsep { display: none; }
-  .tb-steps { order: 4; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .tb-steps { order: 4; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .dock { position: sticky; bottom: 0; z-index: 20; }   /* sayfa kayarken denetimler ekranın altında kalır */
   .stp button { padding: 0 7px; }
   .stp-l { display: none; }
   .stp.on .stp-l { display: inline; }
   .nextup { max-width: 100%; }
-  .stephead { height: auto; flex-wrap: wrap; padding: 6px 10px; gap: 6px; }
+  .stephead { height: 36px; padding: 0 10px; gap: 6px; }
   .sh-tabs { overflow-x: auto; scrollbar-width: none; }
-  .sh-todos { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .sh-todos { display: none; }                  /* dar ekranda eksikler adım ipucunda ve "Sıradaki"de */
+  .nextup { min-width: 0; flex: 0 1 auto; }
   .budget-wrap { order: 5; }
   .cmp-grid, .cmp-grid.n3, .cmp-grid.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
