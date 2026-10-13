@@ -9,7 +9,7 @@ import { promoteText } from "@/lib/mixing";
 import { EMOTION_COLOR, ENGINE_TR, WORKING } from "@/lib/i18n";
 import { resolutionBadge } from "@/lib/finishing";
 import { pickMedia, posterOf } from "@/lib/media";
-import { usePanel } from "@/lib/panel";
+import { readFlag, usePanel, writeFlag } from "@/lib/panel";
 import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
@@ -19,6 +19,7 @@ import { Inspector } from "./Inspector";
 import { Panel, StatusDot, shortcutTarget } from "./ui";
 
 type Mode = "shot" | "film";
+const INSP_KEY = "hg-inspector";     // denetçi açık mı (tarayıcıda hatırlanır; varsayılan kapalı)
 
 /* ---------- oynatıcı durumu (izleyici ile zaman çizelgesi paylaşır) ---------- */
 
@@ -483,6 +484,8 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
 export function EditPage() {
   const { ov, scene, selectScene, varId, filmKind, assembling, setAssembling } = usePanel();
   const [mode, setMode] = useState<Mode>("shot");
+  const [inspOpen, setInspOpen] = useState(() => readFlag(INSP_KEY));
+  const toggleInsp = (on: boolean) => { writeFlag(INSP_KEY, on); setInspOpen(on); };
   const player = usePlayer();
   const lay = useMemo(() => layout(ov?.scenes ?? [], ov?.sequences ?? []), [ov?.scenes, ov?.sequences]);
   const film = (filmKind === "draft" ? ov?.draft_timeline : ov?.timeline) ?? null;
@@ -553,12 +556,17 @@ export function EditPage() {
     : scene ? `${scene.scene_code} · ${media?.label ?? "video yok"}` : "";
   const filmLabel = waiting ? "film birleştiriliyor…" : ov.timeline ? `film ${timecode(ov.timeline.cut?.clips?.at(-1)?.out_s ?? 0)}` : "film yok";
   return (
-    <div className="page edit">
+    <div className={`page edit${inspOpen ? "" : " insp-closed"}`}>
       <ShotBin />
       <Viewer mode={filmMode ? "film" : "shot"} setMode={setMode} player={player} src={src} poster={filmMode ? null : media?.poster ?? null}
         label={label} right={scene && !filmMode ? `${Number(scene.duration_s).toFixed(1)} sn · ${FPS} kare/sn` : ""} />
       <Takes onPick={() => setMode("shot")} />
-      <Inspector className="insp" />
+      {inspOpen ? <Inspector className="insp" onClose={() => toggleInsp(false)} />
+        : <aside className="insp-rail" aria-label="Denetçi kapalı">
+          <button type="button" className="btn ghost" onClick={() => toggleInsp(true)} title="Denetçiyi aç: seçili çekimin ayrıntıları, ses ve üretim ayarları">
+            <Icon.chevron />Denetçi{scene?.status === "blocked" || scene?.status === "plan_review" ? <span className="tag warn">!</span> : null}
+          </button>
+        </aside>}
       <Timeline lay={lay} pos={pos} onRuler={goTo} onClip={onClip} filmLabel={filmLabel} />
     </div>
   );

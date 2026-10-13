@@ -258,6 +258,11 @@ body[data-advanced="0"] .adv { display: none !important; }
 
 /* ---------- sayfa ızgaraları ---------- */
 .page { display: grid; gap: var(--gap); height: 100%; min-height: 0; }
+.edit.insp-closed { grid-template-columns: 268px minmax(0, 1fr) 150px 34px; }
+.insp-rail { grid-area: insp; display: flex; align-items: flex-start; justify-content: center; padding-top: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); }
+.insp-rail .btn { writing-mode: vertical-rl; height: auto; padding: 10px 0; gap: 8px; }
+.insp-rail .btn svg { transform: rotate(90deg); }
+.insp .pnl-h .icon-btn svg { transform: rotate(-90deg); }
 .edit { grid-template-columns: 268px minmax(0, 1fr) 150px 350px; grid-template-rows: minmax(0, 1fr) minmax(190px, 34%); grid-template-areas: "bin viewer takes insp" "tl tl tl tl"; }
 .edit > .bin { grid-area: bin; } .edit > .viewer { grid-area: viewer; } .edit > .takes { grid-area: takes; }
 .edit > .insp { grid-area: insp; } .edit > .tl { grid-area: tl; }
@@ -536,6 +541,9 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .workspace { overflow: visible; }
   .page, .edit, .three, .two, .two-l, .color, .deliver, .history { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
   .edit > *, .color > * { grid-area: auto !important; }
+  .insp-rail { padding: 6px; }
+  .insp-rail .btn { writing-mode: horizontal-tb; width: 100%; padding: 0 10px; height: 28px; }
+  .insp-rail .btn svg { transform: none; }
   .strip { flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: flex-start; }
   .strip .gap { width: 10px; height: auto; align-self: stretch; border-top: 0; border-left: 1px dashed var(--line-2); }
   .take-pop { display: none; }

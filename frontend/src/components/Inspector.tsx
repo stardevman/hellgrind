@@ -9,6 +9,7 @@ import { audioValue, defaultResolution, engineChoices, engineShort, isFal, modeV
 import { ANOMALY_TR, ASTATUS_TR, BOARD_SOURCE_TR, EMOTION_COLOR, EMOTION_TR, ENGINE_TR, FAL_MODE_CHOICES, FAL_MODE_TR, FAL_STATUS_TR, H3_MODE_TR, KEYFRAME_MODEL_TR, METHOD_TR, TRANSITION_TR, MOVE_TR, SHOT_TR, TYPE_TR } from "@/lib/i18n";
 import { BOUNDARY_NOTE, SHOT_ONLY_LABEL, adoptText, boundarySources, cutsText, mixActions, promoteText, sceneEngineText, shotBoundaries, shotEngineText, wholeSceneSwitch } from "@/lib/mixing";
 import { usePanel } from "@/lib/panel";
+import { Icon } from "./icons";
 import { needsUpscale, resolutionBadge } from "@/lib/finishing";
 import { approveText, clock, dispatchedText, gateLines, planWarnings, promptSourceText, resultText, sec1, segmentText, stagesText, upgradeText, usd, usdExact, usdTr } from "@/lib/text";
 import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, PromptRerender, PromptWriteResult, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
@@ -1340,10 +1341,11 @@ export function ClipSplit({ sc }: { sc: Scene }) {
 }
 
 
-export function Inspector({ className = "" }: { className?: string }) {
+export function Inspector({ className = "", onClose }: { className?: string; onClose?: () => void }) {
   const { scene: sc, sequence: q, varId, meta, advanced } = usePanel();
   const [tab, setTab] = useState<InspTab>("shot");
-  if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2></header><p className="empty">Çekim seçin.</p></section>;
+  const closeBtn = onClose && <button type="button" className="btn ghost icon-btn" aria-label="Denetçiyi kapat" title="Denetçiyi kapat" onClick={onClose}><Icon.chevron /></button>;
+  if (!sc) return <section className={`pnl ${className}`}><header className="pnl-h"><h2>Denetçi</h2><span className="grow" />{closeBtn}</header><p className="empty">Çekim seçin.</p></section>;
   const chosen = varId ? sc.variations.find((v) => v.id === varId) : undefined;
   const revTarget = chosen ?? sc.variations.find((v) => v.rank === 1);
   const fal = isFal(sc.engine);
@@ -1353,7 +1355,7 @@ export function Inspector({ className = "" }: { className?: string }) {
   else if (sc.method_hint) badge.gen = { text: "öneri", tone: "info" };
   return (
     <section className={`pnl ${className}`} aria-label="Denetçi" data-tour="inspector">
-      <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span></header>
+      <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span><span className="grow" />{closeBtn}</header>
       <div className="pnl-tabs" role="tablist" aria-label="Denetçi bölümleri">
         {(Object.keys(TAB_TR) as InspTab[]).map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
