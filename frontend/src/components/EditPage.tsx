@@ -114,7 +114,7 @@ function PlanTotal({ projectId }: { projectId: string }) {
 
 function ShotBin({ onPick }: { onPick: () => void }) {
   const { ov, scene, selectScene, projectId, busy, frozen, act, note } = usePanel();
-  const [tab, setTab] = useState<"shots" | "takes" | "events">("shots");
+  const [tab, setTab] = useState<"shots" | "takes" | "events">("takes");
   if (!ov) return null;
   const codes = Object.fromEntries(ov.scenes.map((s) => [s.id, s.scene_code]));
   const groups = ov.sequences.map((q) => ({ q, scenes: ov.scenes.filter((s) => s.sequence_id === q.id) }))
@@ -129,8 +129,8 @@ function ShotBin({ onPick }: { onPick: () => void }) {
   return (
     <section className="pnl bin" data-tour="edit-bin">
       <div className="pnl-tabs" role="tablist" aria-label="Havuz">
-        <button type="button" role="tab" aria-selected={tab === "shots"} onClick={() => setTab("shots")}>Çekimler <span className="faint mono">{ov.scenes.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "takes"} onClick={() => setTab("takes")}>Adaylar{scene ? <span className="faint mono"> {scene.variations.filter(playable).length}</span> : null}</button>
+        <button type="button" role="tab" aria-selected={tab === "shots"} onClick={() => setTab("shots")}>Çekimler <span className="faint mono">{ov.scenes.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Olay akışı</button>
       </div>
       <div className={`pnl-b${tab === "takes" ? " takes" : ""}`}>
