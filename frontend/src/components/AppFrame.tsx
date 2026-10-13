@@ -126,6 +126,7 @@ function TopBar() {
   const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
+  const frozenReason = (ov?.events.find((e) => e.kind === "frozen") as { reason?: string } | undefined)?.reason;
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
   const current = projects?.find((p) => p.id === projectId);
   const remove = async () => {
@@ -162,6 +163,11 @@ function TopBar() {
         <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
           aria-label="Ayarlar" data-tour="settings"
           title={admin ? "Kullanıcı / yönetici seçimi, ücretli servisler, mod ve fiyat tablosu" : "Ayarlar: kullanıcı / yönetici seçimi"}><Icon.gear /></button>
+        {frozen && (
+          <span className="chip paid" role="alert" title={`Üretim durduruldu${frozenReason ? ` (${frozenReason})` : ""}. Çekimler donduruldu; devam edene kadar yeni iş başlamaz.`}>
+            Üretim durduruldu
+          </span>
+        )}
         {ov && (
           <button type="button" className={`kill${frozen ? " resume" : ""}`} onClick={kill}
             title={frozen ? "Kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Kill-Switch: kuyruktaki işler iptal olur, yeni iş başlamaz"}>
@@ -176,16 +182,10 @@ function TopBar() {
 function Alerts() {
   const { ov, offline, notes } = usePanel();
   const p = ov?.project;
-  const frozenEvent = ov?.events.find((e) => e.kind === "frozen") as { reason?: string } | undefined;
   const g = notes.global;
   return (
     <div className="alerts">
       {offline && <div className="alert offline" role="status">Sunucuya ulaşılamıyor; yeniden deniyorum…</div>}
-      {p?.frozen && (
-        <div className="alert frozen" role="alert">
-          Üretim durduruldu{frozenEvent?.reason ? ` (${frozenEvent.reason})` : ""}. Çekimler donduruldu; devam edene kadar yeni iş başlamaz.
-        </div>
-      )}
       {p?.soft_limited && !p.frozen && (
         <div className="alert soft">Yumuşak bütçe sınırı aşıldı: yeni tam dalga başlatılmıyor, çekimler eldeki adaylarla tamamlanıyor.</div>
       )}
