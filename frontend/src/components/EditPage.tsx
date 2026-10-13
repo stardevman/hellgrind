@@ -266,13 +266,15 @@ const Tile = memo(function Tile({ v, prev, selected, picked, onPick, sceneId, on
   );
 });
 
-/** Üzerine gelinen adayın büyük önizlemesi ve ayrıntısı: sütunun dışında, izleyicinin üstünde açılır (kırpılmaz). */
+/** Üzerine gelinen adayın büyük önizlemesi ve ayrıntısı: sütunun dışında, izleyicinin üstünde açılır (kırpılmaz); video varsa
+    sessiz ve döngülü oynar, yoksa küçük resim. */
 function TakePop({ v, prev, top, right }: { v: Variation; prev?: Variation; top: number; right: number }) {
   const t = tileSpec(v, prev);
   const badge = resolutionBadge(v);
   return (
     <div className="take-pop" style={{ top, right }} role="tooltip">
-      {v.thumb_url ? <img src={v.thumb_url} alt="" /> : <span className="ph" />}
+      {v.video_url ? <video src={v.video_url} poster={v.thumb_url ?? undefined} muted autoPlay loop playsInline preload="auto" />
+        : v.thumb_url ? <img src={v.thumb_url} alt="" /> : <span className="ph" />}
       <div className="tp-body">
         <b>{v.rank === 1 ? "Filmde bu klip oynuyor" : t.label}</b>
         {!t.label.includes(t.fate) && <span className="dim">{t.fate}</span>}
