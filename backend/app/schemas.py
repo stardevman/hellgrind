@@ -68,6 +68,7 @@ SETTING_RULES = {
     "seedance25_resolution": (lambda v: v in (None, "480p", "720p", "1080p"), "480p, 720p, 1080p ya da boş"),
     "on_twos": (lambda v: type(v) is bool, "true ya da false"),
     "voice_first": (lambda v: type(v) is bool, "true ya da false"),
+    "revision_rounds": (_int(0, 20), "0 ile 20 arasında tam sayı"),
 }
 
 
@@ -296,6 +297,46 @@ class StyleVersionIn(BaseModel):
 
 class StyleActivateIn(StyleVersionIn):
     render: bool = False                             # etkilenen çekimleri hemen yeniden üret
+
+
+# ---------- müşteri onay döngüsü ----------
+
+Gate = Literal["script", "design", "animatic", "draft", "final", "acceptance"]
+
+
+class VersionIn(BaseModel):
+    gate: Literal["animatic", "draft", "final", "acceptance"]     # sürüm o kapının filmini taşır
+
+
+class ReviewLinkIn(BaseModel):
+    version_id: UUID
+    days: int = Field(7, ge=1, le=30)
+
+
+class GateIn(BaseModel):
+    status: Literal["pending", "approved", "changes_requested"]
+    note: str | None = Field(None, max_length=2000)
+
+
+class NoteResolveIn(BaseModel):
+    resolved: bool
+
+
+class ClientNoteIn(BaseModel):
+    at_s: float | None = Field(None, ge=0, le=36000)
+    text: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def _text(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Not boş olamaz")
+        return v
+
+
+class ClientDecisionIn(BaseModel):
+    decision: Literal["approve", "changes"]
+    note: str | None = Field(None, max_length=2000)
 
 
 class VoiceLockIn(BaseModel):

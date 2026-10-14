@@ -358,3 +358,60 @@ class H3Output(Base):
     error: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     stored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClientGate(Base):
+    """Müşteri onay kapısı (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul): durum ve revizyon turu sayısı."""
+    __tablename__ = "client_gates"
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    gate: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, default="pending")          # pending | approved | changes_requested
+    rounds: Mapped[int] = mapped_column(Integer, default=0)               # değişiklik istekleri
+    note: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FilmVersion(Base):
+    """Müşteriye gönderilen birleştirilmiş film (v001, v002…): gönderildiği anki film ve harcama."""
+    __tablename__ = "film_versions"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    number: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str] = mapped_column(Text)
+    gate: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text)                                # animatic | draft | final
+    video_key: Mapped[str] = mapped_column(Text)
+    cut: Mapped[dict | None] = mapped_column(JSONB)
+    spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=0)
+    status: Mapped[str] = mapped_column(Text, default="sent")             # sent | approved | changes_requested
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReviewLink(Base):
+    """Müşteri inceleme bağlantısı: belirteçli, süreli, salt okunur."""
+    __tablename__ = "review_links"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("film_versions.id"))
+    token: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ClientNote(Base):
+    """Müşterinin zaman kodlu notu; filmdeki zamandan çekime bağlanır."""
+    __tablename__ = "client_notes"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("film_versions.id"))
+    gate: Mapped[str] = mapped_column(Text)
+    at_s: Mapped[float | None] = mapped_column(Float)
+    shot_offset_s: Mapped[float | None] = mapped_column(Float)
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id"))
+    scene_code: Mapped[str | None] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -352,6 +352,28 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
   - **Dudak senkronu durumu** (ücretsiz modda atlanır).
   - Ses referansı yalnızca istek planında ve kuru çalıştırmada görünür; karışım üretimde yerel olarak birleştirilip yüklenir. Bu görevde hiçbir ağ çağrısı yapılmadı.
 
+### Müşteri onay döngüsü (Teslim › Müşteri, inceleme sayfası)
+
+- **Onay kapıları:** Senaryo, Tasarım (varlıklar), Animatik, Taslak kurgu, Final ve Kabul.
+  - Her kapının durumu: bekliyor, onaylandı ya da değişiklik istendi (`client_gates`, migration 032).
+  - Kapılar adım çubuğunda ilgili adımın yanında renkli işaretler, şeritte etiketli çipler olarak görünür: yeşil onaylandı, kırmızı değişiklik istendi, amber müşteride.
+  - "Sıradaki" iki şeyi gösterir: değişiklik istenen kapıyı (adımı tamamlanmamış sayar) ve müşteride bekleyen sürümü.
+- **Sürüm etiketi:** müşteriye gönderilen her birleştirilmiş film `v001`, `v002`… diye etiketlenir (`POST /api/projects/{id}/versions {"gate": "final"}`).
+  - Sürüm, gönderildiği anki filmi gösterir; sonradan birleştirilen film onu değiştirmez.
+  - Teslim › Müşteri'de sürüm listesi ve hangi sürümün onaylandığı görünür.
+- **İnceleme bağlantısı oluştur** (video kapıları): süreli, salt okunur, belirteçli bağlantı verir: `/panel/review/?token=…` (`POST /api/projects/{id}/review-links`; 1–30 gün; `DELETE /api/review-links/{id}` kapatır).
+  - Sayfada yalnızca oynatıcı, proje ve sürüm adı, zaman kodlu not alanı (oynatıcının o anki zamanı otomatik alınır), "Onayla" ve "Değişiklik iste" var.
+  - Belirteçli uçlar (`/api/review/{token}`, `…/video`, `…/notes`, `…/decision`) bütçe, motor, maliyet ya da iç ayrıntı döndürmez. Süresi dolan ya da kapatılan bağlantı 410 döner.
+- Senaryo ve Tasarım kapıları video değildir. Müşterinin başka kanaldan gelen kararı Teslim › Müşteri'de "Müşteri onayladı" ya da "Değişiklik istedi" ile işaretlenir.
+- **Notlar panele döner:**
+  - Müşteri notu filmdeki zamandan çekime bağlanır.
+  - Kurgu zaman çizelgesinde "MN Müşteri" izinde işaretçi olarak görünür: amber çözülmedi, yeşil çözüldü.
+  - Kurgu › Notlar listesinde çözüldü / çözülmedi diye izlenir.
+- **Revizyon turu sayacı:**
+  - Kapının değişiklik isteği sayısı, sözleşmedeki sınırla gösterilir: "Revizyon 1/2". Sınır proje ayarıdır (`revision_rounds`, varsayılan 2); aşılınca kırmızı yazar ve yeni sürüm göndermek onay ister.
+  - Her turun sanal maliyeti, önceki gönderimden bu yana yapılan harcamadır.
+- **Kürasyon kaydı:** `client_note`, `client_approve`, `client_reject`, ayrıca `client_send`, `review_link`, `review_link_revoke`, `client_note_resolve`.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.

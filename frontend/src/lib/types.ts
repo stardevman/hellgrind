@@ -372,6 +372,8 @@ export interface Overview {
   timeline: Film | null; draft_timeline: Film | null;
   /** Animatik: onaylı kareler (yoksa çekim kartı) sesle, sesin süresine göre. */
   animatic?: Film | null;
+  /** Müşteri onay döngüsü özeti: kapılar (adım çubuğu çipleri) ve müşteri notları (Kurgu işaretçileri). */
+  client?: { gates: ClientGateSummary[]; notes: ClientNote[] };
 }
 
 /* ---------- varlıklar ---------- */
@@ -684,3 +686,27 @@ export interface VoiceState {
 export interface VoiceLockResult { sequence_id: string; code: string; locked: boolean; locked_at: number | null; retimed?: string[]; drift?: string[]; clamped?: string[] }
 /** POST /projects/{id}/voice/upload. */
 export interface VoiceUpload { key: string; duration_s: number; filename: string; match: { scene_code?: string; n?: number } }
+
+/* ---------- müşteri onay döngüsü ---------- */
+
+export interface ClientGateSummary { gate: string; status: string; rounds: number; limit: number; sent?: boolean }
+export interface ClientNote {
+  id: string; version_id: string | null; gate: string; gate_tr: string; at_s: number | null; shot_offset_s: number | null;
+  scene_id: string | null; scene_code: string | null; text: string; resolved: boolean; created_at: number | null; label?: string | null;
+}
+export interface FilmVersionRow {
+  id: string; number: number; label: string; gate: string; gate_tr: string; kind: string; url: string; status: string;
+  created_at: number | null; decided_at: number | null; cost_usd: number | null; duration_s?: number | null;
+}
+export interface ReviewLinkRow { id: string; token: string; url: string; version_id?: string; label: string | null; expires_at: number; revoked?: boolean; expired?: boolean }
+export interface ClientGateRow extends ClientGateSummary {
+  label: string; over_limit: boolean; note: string | null; video: boolean; versions: FilmVersionRow[]; cost_usd: number;
+}
+/** GET /projects/{id}/client: Teslim › Müşteri. */
+export interface ClientState { gates: ClientGateRow[]; versions: FilmVersionRow[]; round_limit: number; links: ReviewLinkRow[]; notes: ClientNote[] }
+/** GET /review/{token}: müşterinin gördüğü her şey (bütçe, motor, maliyet yok). */
+export interface ReviewState {
+  title: string; label: string; gate: string; gate_tr: string; status: string; video_url: string; expires_at: number;
+  sent_at: number | null; clips: { scene_code: string; in_s: number; out_s: number }[];
+  notes: { id: string; at_s: number | null; scene_code: string | null; text: string; created_at: number | null }[];
+}

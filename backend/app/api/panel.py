@@ -16,6 +16,7 @@ from app import storage
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
 from app.api.projects import display_status
+from app.api import review
 from app.api.sequences import sequences_out
 from app.budget import killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
@@ -400,7 +401,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
-        "draft_timeline": draft_timeline, "animatic": animatic,
+        "draft_timeline": draft_timeline, "animatic": animatic, "client": review.summary(s, project_id),
     }
 
 

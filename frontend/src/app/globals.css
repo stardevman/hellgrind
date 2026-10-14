@@ -190,6 +190,15 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .stp.current .stp-n, .stp.on .stp-n { border-color: var(--accent); color: #cfe0ff; }
 .stp.blocked .stp-n { border-color: var(--bad); color: var(--bad); }
 .stp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); flex: none; }
+/* Müşteri onay kapıları: rayda adımın yanında küçük işaretler, şeritte etiketli çipler (yeşil onaylı, kırmızı değişiklik,
+   amber müşteride, gri gönderilmedi). */
+.stp-gates { display: inline-flex; gap: 2px; margin-left: 2px; }
+.gm { width: 5px; height: 9px; border-radius: 1.5px; background: var(--line-2); }
+.gm.ok { background: var(--ok); } .gm.bad { background: var(--bad); } .gm.warn { background: var(--warn); }
+.gate-chips { display: inline-flex; gap: 4px; margin-left: 8px; }
+.gchip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.gchip.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .gchip.bad { color: var(--bad); border-color: rgba(255, 92, 85, .4); }
+.gchip.warn { color: var(--warn); border-color: rgba(243, 180, 67, .4); }
 .stp-dot.done { background: var(--ok); } .stp-dot.current { background: var(--accent); } .stp-dot.blocked { background: var(--bad); }
 .nextup { display: flex; align-items: center; flex: none; max-width: 320px; min-width: 0; }
 .nx { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 4px 0 9px; border: 1px solid var(--line-2); border-radius: 11px; background: var(--field); color: var(--text-2); font-size: 11.5px; min-width: 0; }
@@ -463,6 +472,42 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .cv figure { position: relative; margin: 0; min-height: 0; display: grid; place-items: center; }
 .cv figure img { width: 100%; height: 100%; object-fit: contain; }
 .cv figcaption { position: absolute; top: 8px; left: 8px; padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .65); font-size: 11px; }
+/* Müşteri notları: Kurgu'da işaretçi ve liste; Teslim › Müşteri: kapılar, turlar, bağlantılar. */
+.trk.notes { position: relative; }
+.cmark { position: absolute; top: 4px; width: 10px; height: 16px; margin-left: -5px; padding: 0; border: 0; background: var(--warn); clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%); cursor: pointer; }
+.cmark.done { background: var(--ok); opacity: .6; }
+.cmark:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cnotes { list-style: none; margin: 0; padding: 0; }
+.bin .pnl-tabs { overflow-x: auto; scrollbar-width: none; }
+.bin .pnl-tabs button { white-space: nowrap; }
+.cnotes li { display: flex; gap: 6px; align-items: flex-start; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.cnotes li.done .cn-body span:last-child { color: var(--text-3); text-decoration: line-through; }
+.cn-body { display: grid; gap: 2px; text-align: left; border: 0; background: none; color: var(--text); padding: 0; font-size: 12px; cursor: pointer; }
+.client .gates { list-style: none; margin: 0; padding: 0 10px; display: grid; gap: 6px; }
+.client .gate { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raised); display: grid; gap: 6px; }
+.client .gate.approved { box-shadow: inset 3px 0 0 var(--ok); } .client .gate.changes_requested { box-shadow: inset 3px 0 0 var(--bad); }
+.client .rounds { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12px; }
+.client .rounds li, .client .link-row { display: flex; align-items: center; gap: 6px; }
+.client .links { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.client .link-row input { flex: 1; min-width: 0; }
+.mono.warn { color: var(--warn); }
+/* Müşteri inceleme sayfası: stüdyo çerçevesi yok; sade, okunaklı, kaydırılabilir. */
+.review { height: 100vh; overflow: auto; max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 16px; align-content: start; }
+.review-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.review-h h1 { font-size: 20px; margin: 0 0 4px; }
+.review-player { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+.review-player video { width: 100%; display: block; max-height: 62vh; }
+.review-tc { position: absolute; top: 8px; right: 8px; padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .65); font-size: 12px; }
+.review-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+.review-body h2 { font-size: 14px; margin: 0 0 8px; }
+.review-form { display: grid; gap: 8px; margin-bottom: 12px; }
+.review-form .btn { justify-self: start; }
+.review-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.review-notes li { display: flex; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); font-size: 13px; }
+.review-notes button { border: 0; background: none; color: var(--accent); padding: 0; cursor: pointer; }
+.review-decide { display: grid; gap: 10px; align-content: start; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.review-msg { margin: 30vh auto 0; text-align: center; color: var(--text-2); }
+
 /* Ses sayfası: solda replikler (sekans > çekim > satır), sağda toplu yükleme. */
 .voice { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 6px; }
 .vq + .vq { border-top: 1px solid var(--line); }
@@ -633,6 +678,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   body { overflow: auto; }
   .app { height: auto; min-height: 100vh; }
   .workspace { overflow: visible; }
+  .review-body { grid-template-columns: 1fr; }
   .page, .edit, .three, .two, .two-l, .color, .deliver, .history, .voice, .animatic { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
   .vl-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
   .vl-row .vl-text, .vl-row .wave, .vl-row .vl-warn { grid-column: 1 / -1; }

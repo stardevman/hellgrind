@@ -24,6 +24,8 @@ Kontroller:
      (on twos) açılıp kapanınca yalnızca GRADE ve MUX çalışır, harcama değişmez
   O. Ses-önce: geçici ses ölçülür; final kayıt dosya adıyla repliğe bağlanır; voice_first açıkken kilitsiz sekansta
      görüntü üretilmez; kilit süreyi sesten hesaplar ve replik düzenlemeyi kapatır; animatik sesle birleşir
+  L. Müşteri onay döngüsü: film v001 olarak gönderilir; belirteçli sayfa bütçe ve motor göstermez; not çekime bağlanır;
+     değişiklik isteği revizyon turudur; v002 onaylanır; kapatılan bağlantı 410 döner; kararlar kürasyon kaydında
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
      düzeltme uygulanınca uyarı kalkar (Faz 16)
   K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
@@ -367,6 +369,7 @@ def main() -> int:
 
     check_series_style(pid)
     check_voice_first(meta)
+    check_client_review(pid)
     check_curation_and_exports(pid)
     check_history(pid)
 
@@ -762,6 +765,40 @@ def check_voice_first(meta: dict) -> None:
     c.post(f"/sequences/{seqs[0]['id']}/voice-lock", json={"locked": False}).raise_for_status()
     actions = {e["action"] for e in curation(pid)}
     check({"voice_lock", "voice_unlock", "voice_temp", "animatic"} <= actions, "kilit, kilidin açılması ve animatik kürasyon kaydında")
+
+
+def check_client_review(pid: str) -> None:
+    """Müşteri onay döngüsü: film v001 olarak gönderilir; belirteçli sayfa bütçe ve motor göstermez; not çekime bağlanır;
+    değişiklik isteği revizyon turudur; yeni sürüm v002 onaylanır; kararlar kürasyon kaydında."""
+    print("L) Müşteri onay döngüsü: sürüm, inceleme bağlantısı, not, karar")
+    v1 = c.post(f"/projects/{pid}/versions", json={"gate": "final"}).json()
+    link = c.post(f"/projects/{pid}/review-links", json={"version_id": v1["id"], "days": 7}).json()
+    page = c.get(f"/review/{link['token']}")
+    raw = page.text.lower().replace(link["token"].lower(), "")
+    check(page.status_code == 200 and v1["label"] == "v001" and link["url"].startswith("/panel/review/?token=")
+          and not any(w in raw for w in ("usd", "budget", "bütçe", "engine", "motor", "spent", pid)),
+          "v001 için süreli bağlantı oluştu; müşteri sayfası bütçe, motor ve maliyet göstermiyor")
+    clips = page.json()["clips"]
+    at = round((clips[1]["in_s"] + clips[1]["out_s"]) / 2, 2)
+    c.post(f"/review/{link['token']}/notes", json={"at_s": at, "text": "Bu kesmede ışık daha sıcak olsun"}).raise_for_status()
+    notes = overview(pid)["client"]["notes"]
+    check(notes and notes[-1]["scene_code"] == clips[1]["scene_code"] and not notes[-1]["resolved"],
+          f"müşteri notu {at} sn'den {clips[1]['scene_code']} çekimine bağlandı ve Kurgu'da görünüyor")
+    c.post(f"/review/{link['token']}/decision", json={"decision": "changes", "note": "Sonu kısalt"}).raise_for_status()
+    v2 = c.post(f"/projects/{pid}/versions", json={"gate": "final"}).json()
+    link2 = c.post(f"/projects/{pid}/review-links", json={"version_id": v2["id"]}).json()
+    c.post(f"/review/{link2['token']}/decision", json={"decision": "approve"}).raise_for_status()
+    st = c.get(f"/projects/{pid}/client").json()
+    final = next(g for g in st["gates"] if g["gate"] == "final")
+    check([(v["label"], v["status"]) for v in final["versions"]] == [("v001", "changes_requested"), ("v002", "approved")]
+          and final["rounds"] == 1 and final["status"] == "approved",
+          f"değişiklik isteği 1 revizyon turu ({final['rounds']}/{final['limit']}); v002 onaylandı")
+    c.patch(f"/client-notes/{notes[-1]['id']}", json={"resolved": True}).raise_for_status()
+    c.delete(f"/review-links/{link['id']}").raise_for_status()
+    check(c.get(f"/review/{link['token']}").status_code == 410, "kapatılan bağlantı artık açılmıyor (410)")
+    actions = [e["action"] for e in curation(pid)]
+    check({"client_note", "client_reject", "client_approve", "client_send", "review_link"} <= set(actions),
+          "müşteri notu, değişiklik isteği ve onay kürasyon kaydında")
 
 
 def check_sequences(pid: str) -> None:

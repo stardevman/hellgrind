@@ -4,6 +4,7 @@
    Geçmiş gibi adım dışı sayfalarda şerit sayfanın adını ve "Sıradaki"yi gösterir. Shift+1…9 sayfalar arasında geçer. */
 import { useMemo } from "react";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
+import { gateChips, GATE_STATUS_TR, type GateChip } from "@/lib/client";
 import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, type StepStatus } from "@/lib/steps";
 import { Icon } from "./icons";
 
@@ -15,9 +16,22 @@ export const PAGE_LABEL: Record<Page, string> = {
 const ADMIN_PAGES: ReadonlySet<Page> = new Set(["compare"]);
 const STATE_TR = { todo: "sırada", current: "bu adımdasınız", done: "tamamlandı", blocked: "engelli" } as const;
 
-function stepTitle(st: StepStatus, hint: string): string {
+function stepTitle(st: StepStatus, hint: string, chips: GateChip[]): string {
   const head = `${STEPS.find((s) => s.id === st.id)!.label}: ${STATE_TR[st.state]}`;
-  return st.todos.length ? `${head}\n${st.todos.map((t) => `• ${t.text}`).join("\n")}` : `${head}\n${hint}`;
+  const gates = chips.length ? `\nMüşteri: ${chips.map((c) => `${c.label} ${c.tone === "warn" ? "müşteride" : GATE_STATUS_TR[c.status]}`).join(" · ")}` : "";
+  return (st.todos.length ? `${head}\n${st.todos.map((t) => `• ${t.text}`).join("\n")}` : `${head}\n${hint}`) + gates;
+}
+
+/** Adımın müşteri onay kapıları: rayda küçük işaretler, şeritte etiketli çipler. */
+function GateMarks({ chips, labels }: { chips: GateChip[]; labels?: boolean }) {
+  if (!chips.length) return null;
+  return labels ? (
+    <span className="gate-chips" aria-label="Müşteri onay kapıları" data-tour="client-gates">
+      {chips.map((c) => <span key={c.gate} className={`gchip ${c.tone}`} title={c.title}>{c.label}</span>)}
+    </span>
+  ) : (
+    <span className="stp-gates" aria-hidden="true">{chips.map((c) => <i key={c.gate} className={`gm ${c.tone}`} />)}</span>
+  );
 }
 
 /** Alt banttaki dört üretim adımı; tıklanınca adımın ilk açılabilir sayfası açılır. */
@@ -31,11 +45,13 @@ export function StepRail({ hasShots }: { hasShots: boolean }) {
         {STEPS.map((s, i) => {
           const st = status[i];
           const first = s.pages.find((x) => !NEEDS_SHOTS.has(x) || hasShots) ?? s.pages[0];
+          const chips = gateChips(ov, s.id);
           return (
             <li key={s.id} className={`stp ${st.state}${current === s.id ? " on" : ""}`}>
               <button type="button" aria-current={current === s.id ? "step" : undefined} disabled={NEEDS_SHOTS.has(first) && !hasShots}
-                title={stepTitle(st, s.hint)} onClick={() => setPage(first)}>
+                title={stepTitle(st, s.hint, chips)} onClick={() => setPage(first)}>
                 <span className="stp-n">{i + 1}</span><span className="stp-l">{s.label}</span><span className={`stp-dot ${st.state}`} aria-label={STATE_TR[st.state]} />
+                <GateMarks chips={chips} />
               </button>
             </li>
           );
@@ -97,6 +113,7 @@ export function StepHeader({ hasShots }: { hasShots: boolean }) {
           );
         })}
       </div>
+      <GateMarks chips={gateChips(ov, step.id)} labels />
       <span className="grow" />
       <div className="sh-todos" aria-label="Bu adımda eksikler">
         {st.state === "done" && ov ? <span className="todo ok"><Icon.check />Bu adım tamam</span>

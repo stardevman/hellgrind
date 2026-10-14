@@ -1,6 +1,6 @@
 "use client";
 /* Teslim sayfası (dışa aktarma sayfaları gibi): solda birleştirme ve dışa aktarma kuyruğu, ortada film ve kesme şeridi,
-   sağda verimlilik raporu ve son kürasyon kararları. */
+   sağda sekmeler: Müşteri (onay kapıları, sürümler, inceleme bağlantıları) ve Rapor (verimlilik, son kürasyon kararları). */
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
@@ -9,6 +9,7 @@ import { POLL_MS, usePanel } from "@/lib/panel";
 import { pct, ratio, usd } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import type { CurationItem, Metrics } from "@/lib/types";
+import { ClientPanel } from "./ClientPanel";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -42,6 +43,7 @@ export function DeliverPage() {
   const { data: curation } = useSWR<CurationItem[]>(projectId ? `/projects/${projectId}/curation?limit=40` : null, fetcher, { refreshInterval: POLL_MS });
   const video = useRef<HTMLVideoElement | null>(null);
   const [now, setNow] = useState(0);
+  const [side, setSide] = useState<"client" | "report">("client");
   const draft = filmKind === "draft";
   const film = (draft ? ov?.draft_timeline : ov?.timeline) ?? null;
   const waiting = Boolean(assembling && !(film && film.url !== assembling.before) && Date.now() - assembling.at < 90000);
@@ -130,8 +132,12 @@ export function DeliverPage() {
         </div>
       </section>
 
-      <Panel title="Rapor" meta={m ? `${m.variations} varyasyon, ${m.accepted_shots} kabul edilen çekim` : ""}>
-        {!m ? <p className="loading">Yükleniyor…</p> : (
+      <Panel title={side === "client" ? "Müşteri" : "Rapor"} meta={side === "report" && m ? `${m.variations} varyasyon, ${m.accepted_shots} kabul edilen çekim` : ""}
+        tools={<div className="seg" role="tablist" aria-label="Teslim yan paneli">
+          <button type="button" role="tab" aria-selected={side === "client"} aria-pressed={side === "client"} onClick={() => setSide("client")}>Müşteri</button>
+          <button type="button" role="tab" aria-selected={side === "report"} aria-pressed={side === "report"} onClick={() => setSide("report")}>Rapor</button>
+        </div>}>
+        {side === "client" ? <ClientPanel /> : !m ? <p className="loading">Yükleniyor…</p> : (
           <>
             <div className="kpis">
               <Kpi value={ratio(m.variations_per_accepted_shot)} label="Kabul edilen çekim başına varyasyon" hint={`${m.variations} varyasyon / ${m.accepted_shots} çekim`} />

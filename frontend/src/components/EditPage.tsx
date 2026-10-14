@@ -11,6 +11,7 @@ import { resolutionBadge } from "@/lib/finishing";
 import { pickMedia, posterOf } from "@/lib/media";
 import { readFlag, usePanel, writeFlag } from "@/lib/panel";
 import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
+import { noteAt } from "@/lib/client";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
@@ -112,9 +113,34 @@ function PlanTotal({ projectId }: { projectId: string }) {
   );
 }
 
+/** Müşteri notları: sürüm, zaman kodu, çekim ve metin; çözüldü / çözülmedi. Nota tıklamak çekimi seçer. */
+function ClientNotes() {
+  const { ov, selectScene, busy, act, note } = usePanel();
+  const notes = ov?.client?.notes ?? [];
+  const resolve = (id: string, resolved: boolean) => act(async () => {
+    await api.patch(`/client-notes/${id}`, { resolved });
+    note("inspector", resolved ? "Müşteri notu çözüldü olarak işaretlendi." : "Müşteri notu yeniden açıldı.", "ok");
+  }, "inspector");
+  return (
+    <ol className="cnotes">
+      {notes.map((n) => (
+        <li key={n.id} className={n.resolved ? "done" : ""}>
+          <label className="check" title={n.resolved ? "Çözüldü" : "Çözülmedi"}>
+            <input type="checkbox" checked={n.resolved} disabled={busy} onChange={(e) => void resolve(n.id, e.target.checked)} aria-label={`${n.text} çözüldü`} />
+          </label>
+          <button type="button" className="cn-body" disabled={!n.scene_id} onClick={() => n.scene_id && selectScene(n.scene_id)}>
+            <span className="mono small faint">{n.label ?? n.gate_tr}{n.at_s != null ? ` · ${timecode(n.at_s)}` : ""}{n.scene_code ? ` · ${n.scene_code}` : ""}</span>
+            <span>{n.text}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function ShotBin({ onPick }: { onPick: () => void }) {
   const { ov, scene, selectScene, projectId, busy, frozen, act, note } = usePanel();
-  const [tab, setTab] = useState<"shots" | "takes" | "events">("takes");
+  const [tab, setTab] = useState<"shots" | "takes" | "events" | "notes">("takes");
   if (!ov) return null;
   const codes = Object.fromEntries(ov.scenes.map((s) => [s.id, s.scene_code]));
   const groups = ov.sequences.map((q) => ({ q, scenes: ov.scenes.filter((s) => s.sequence_id === q.id) }))
@@ -139,9 +165,14 @@ function ShotBin({ onPick }: { onPick: () => void }) {
         <button type="button" role="tab" aria-selected={tab === "takes"} onClick={() => setTab("takes")}>Adaylar{scene ? <span className="faint mono"> {scene.variations.filter(playable).length}</span> : null}</button>
         <button type="button" role="tab" aria-selected={tab === "shots"} onClick={() => setTab("shots")}>Çekimler <span className="faint mono">{ov.scenes.length}</span></button>
         <button type="button" role="tab" aria-selected={tab === "events"} onClick={() => setTab("events")}>Olay akışı</button>
+        {(ov.client?.notes.length ?? 0) > 0 && (
+          <button type="button" role="tab" aria-selected={tab === "notes"} onClick={() => setTab("notes")} data-tour="client-notes">
+            Notlar <span className={`mono ${ov.client!.notes.some((x) => !x.resolved) ? "warn" : "faint"}`}>{ov.client!.notes.filter((x) => !x.resolved).length}</span>
+          </button>
+        )}
       </div>
       <div className={`pnl-b${tab === "takes" ? " takes" : ""}`}>
-        {tab === "takes" ? <Takes onPick={onPick} /> : tab === "events" ? (
+        {tab === "notes" ? <ClientNotes /> : tab === "takes" ? <Takes onPick={onPick} /> : tab === "events" ? (
           <ol className="ev">
             {ov.events.length ? ov.events.map((e, i) => {
               const x = eventText(e, codes);
@@ -438,6 +469,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
     if (e.buttons & 1) rulerAt(e.currentTarget, e.clientX);
   };
   const hasFx = lay.effects.length > 0;
+  const marks = (ov.client?.notes ?? []).map((n) => ({ n, t: noteAt(n, lay.shots) })).filter((m): m is { n: typeof m.n; t: number } => m.t != null);
   return (
     <section className="pnl tl" aria-label="Zaman çizelgesi">
       <header className="pnl-h">
@@ -461,6 +493,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
           <div className="h-aud"><b>A1</b>Diyalog</div>
           <div className="h-aud"><b>A2</b>Müzik</div>
           {hasFx && <div className="h-aud"><b>A3</b>Efekt</div>}
+          {marks.length > 0 && <div className="h-aud" title="Müşteri notları: ilgili çekimin üstünde"><b>MN</b>Müşteri</div>}
         </div>
         <div className="tl-scroll" ref={scroller}>
           <div className="tl-canvas" style={{ width: total }}>
@@ -496,6 +529,15 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
             {hasFx && (
               <div className="trk aud">
                 {lay.effects.map((c) => <span key={c.id} className="clip sfx" style={{ left: x(c.start), width: Math.max(3, x(c.end - c.start) - 1) }} title={c.title}>{c.label}</span>)}
+              </div>
+            )}
+            {marks.length > 0 && (
+              <div className="trk aud notes">
+                {marks.map(({ n, t }) => (
+                  <button key={n.id} type="button" className={`cmark${n.resolved ? " done" : ""}`} style={{ left: x(t) }}
+                    title={`${n.label ?? ""} ${n.scene_code ?? ""} · ${n.text}${n.resolved ? " (çözüldü)" : ""}`} aria-label={`Müşteri notu: ${n.text}`}
+                    onClick={() => onRuler(t)} />
+                ))}
               </div>
             )}
             {pos != null && <div className="playhead" style={{ left: x(pos) }} />}

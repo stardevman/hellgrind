@@ -1,5 +1,6 @@
 /* Üretim adımları: sayfa çubuğundaki dokuz sayfa, üretim sırasını izleyen dört adım altında toplanır. `stepReadiness`
    her adım için durumu ve bir sonraki adıma geçmek için eksik olanları çıkarır; saf fonksiyondur (tarayıcı gerekmez). */
+import { GATE_PAGE, GATE_STEP, GATE_TR, type Gate } from "./client";
 import type { Overview } from "./types";
 
 export type StepId = "prep" | "approve" | "produce" | "finish";
@@ -64,6 +65,8 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     if (!ov!.timeline) todos.finish.push({ text: "Film henüz birleştirilmedi", page: "deliver" });
   }
 
+  for (const t of clientTodos(ov)) todos[t.step].push(t.todo);
+
   let currentFound = false;
   return STEPS.map((s) => {
     const list = todos[s.id];
@@ -76,6 +79,21 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     else state = "todo";
     return { id: s.id, state, todos: list };
   });
+}
+
+/** Müşteri onay döngüsü: değişiklik istenen kapı ilgili adımı tamamlanmamış sayar; müşteride bekleyen sürüm ve çözülmemiş
+    müşteri notları uyarıdır. Hiç gönderilmemiş kapı eksik sayılmaz. */
+export function clientTodos(ov: Overview | undefined): { step: StepId; todo: Todo }[] {
+  const out: { step: StepId; todo: Todo }[] = [];
+  for (const g of ov?.client?.gates ?? []) {
+    const gate = g.gate as Gate;
+    if (!GATE_STEP[gate]) continue;
+    if (g.status === "changes_requested") out.push({ step: GATE_STEP[gate], todo: { text: `Müşteri değişiklik istedi: ${GATE_TR[gate]}`, page: GATE_PAGE[gate], tone: "bad" } });
+    else if (g.status === "pending" && g.sent) out.push({ step: GATE_STEP[gate], todo: { text: `Müşteri onayı bekleniyor: ${GATE_TR[gate]}`, page: "deliver", tone: "warn" } });
+  }
+  const open = (ov?.client?.notes ?? []).filter((x) => !x.resolved).length;
+  if (open) out.push({ step: "produce", todo: { text: n(open, "müşteri notu çözülmedi", "müşteri notu çözülmedi"), page: "edit", tone: "warn" } });
+  return out;
 }
 
 /** Ses-önce (proje ayarı voice_first): final sesi olmayan replikler (uyarı) ve sesi kilitlenmemiş sekanslar (görüntü

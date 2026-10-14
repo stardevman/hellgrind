@@ -199,7 +199,8 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "seedance25_draft": None,      # proje: Seedance 2.5 taslak (480p); None = Ayarlar'daki SEEDANCE25_DRAFT (açık)
     "seedance25_resolution": None, # proje: taslak kapalıyken Seedance çözünürlüğü; None = Ayarlar'daki SEEDANCE25_RESOLUTION
     "on_twos": False,
-    "voice_first": False,          # ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX
+    "voice_first": False,          # ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz
+    "revision_rounds": 2,          # müşteri onay kapısı başına sözleşmedeki revizyon turu (değişiklik isteği) sınırı              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX
     "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
                                    # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }

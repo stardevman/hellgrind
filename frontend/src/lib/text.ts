@@ -343,6 +343,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     };
     case "grade_changed": return { t: `${x.code}: renk ayarı değişti` };
     case "lut_changed": return { t: x.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${x.name})` };
+    case "version_sent": return { t: `Müşteriye sürüm hazırlandı: ${x.label}` };
+    case "client_note": return { t: `Müşteri notu (${x.label}${x.code ? ` · ${x.code}` : ""})` };
+    case "client_decision": return x.status === "approved" ? { t: `Müşteri ${x.label} sürümünü onayladı`, c: "good" } : { t: `Müşteri ${x.label} için değişiklik istedi`, c: "bad" };
+    case "gate_changed": return { t: `Müşteri kapısı: ${x.gate} ${x.status === "approved" ? "onaylandı" : x.status === "changes_requested" ? "değişiklik istendi" : "bekliyor"}` };
     case "voice_locked": return { t: `${x.code}: ses kilitlendi${(x.retimed as string[] | undefined)?.length ? `; sesten süre: ${(x.retimed as string[]).join(", ")}` : ""}${(x.drift as string[] | undefined)?.length ? `; süre farkı (uyarı): ${(x.drift as string[]).join(", ")}` : ""}`, c: "good" };
     case "voice_unlocked": return { t: `${x.code}: ses kilidi açıldı` };
     case "voice_temp": return { t: `Geçici sesler üretildi${(x.shots as string[] | undefined)?.length ? `: ${(x.shots as string[]).join(", ")}` : " (eksik yoktu)"}` };

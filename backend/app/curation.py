@@ -48,6 +48,10 @@ ACTIONS_TR = {
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "on_twos_change": "Kare tutma (on twos)",
     "voice_lock": "Sekansın sesi kilitlendi", "voice_unlock": "Sekansın ses kilidi açıldı",
+    "client_send": "Müşteriye sürüm gönderildi", "review_link": "İnceleme bağlantısı oluşturuldu",
+    "review_link_revoke": "İnceleme bağlantısı kapatıldı", "client_note": "Müşteri notu",
+    "client_approve": "Müşteri onayladı", "client_reject": "Müşteri değişiklik istedi",
+    "client_gate_reset": "Müşteri kapısı sıfırlandı", "client_note_resolve": "Müşteri notu çözüldü işareti",
     "voice_temp": "Geçici sesler istendi", "voice_upload": "Ses kaydı yüklendi", "animatic": "Animatik birleştirme",
     "keyframe_upload": "İlk kare yüklendi (H3)", "keyframe_clear": "Yüklenen ilk kare kaldırıldı (H3)",
     "plan_approve": "Kuru çalıştırma planı onaylandı", "upgrade_final": "Final motoruyla yükseltme onaylandı",
@@ -80,6 +84,8 @@ def _ids(kw: dict, result) -> dict:
     ids = {k: str(kw[k]) for k in ID_FIELDS if kw.get(k)}
     if "project_id" not in ids and isinstance(result, dict) and result.get("id") and "settings" in result:
         ids["project_id"] = str(result["id"])          # proje oluşturma: kimlik yanıttadır
+    if "project_id" not in ids and isinstance(result, dict) and result.get("project_id"):
+        ids["project_id"] = str(result["project_id"])  # kimliği yolda olmayan uç (ör. müşteri notu, bağlantı): yanıtta
     return ids
 
 

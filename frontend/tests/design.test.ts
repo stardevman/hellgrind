@@ -8,7 +8,7 @@ const CSS = readFileSync(join(root, "app", "globals.css"), "utf8");
 const LAYOUT = readFileSync(join(root, "app", "layout.tsx"), "utf8");
 const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(join(root, "components", f), "utf8")).join("\n")
   + readFileSync(join(root, "lib", "text.ts"), "utf8") + readFileSync(join(root, "lib", "steps.ts"), "utf8") + readFileSync(join(root, "lib", "tour.ts"), "utf8")
-  + readFileSync(join(root, "lib", "voice.ts"), "utf8");
+  + readFileSync(join(root, "lib", "voice.ts"), "utf8") + readFileSync(join(root, "lib", "client.ts"), "utf8");
 
 describe("design contract", () => {
   it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
@@ -82,5 +82,8 @@ describe("documented Turkish texts", () => {
     // Ses-önce akışı
     "Ses", "Geçici", "Final", "Sesi kilitle", "Kilidi aç", "Kilitli", "sesten", "Animatik", "Kayıtları buraya sürükle",
     "Replik süresi çekimden belirgin farklı; görüntünün yeniden üretilmesi gerekebilir.", "Ses referansı", "Dudak senkronu",
+    // Müşteri onay döngüsü
+    "Müşteri", "İnceleme bağlantısı oluştur", "Müşteri onayladı", "Değişiklik istedi", "Sürümler", "İnceleme bağlantıları", "Notlar",
+    "Değişiklik iste", "Notu ekle", "Karar", "Revizyon",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });
