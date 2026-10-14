@@ -15,6 +15,7 @@ import { noteAt } from "@/lib/client";
 import { qcMarks } from "@/lib/delivery";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
+import { SafeAreas, SafeToggle } from "./Broadcast";
 import { Icon } from "./icons";
 import { UpscaleConfirm } from "./Finishing";
 import { Inspector } from "./Inspector";
@@ -241,6 +242,7 @@ function Viewer({ mode, setMode, player, src, poster, label, right }: {
 }) {
   const { ov, filmKind, setFilmKind, varId, setVar } = usePanel();
   const p = player;
+  const screen = useRef<HTMLDivElement>(null);
   return (
     <section className="pnl viewer">
       <header className="pnl-h">
@@ -253,13 +255,15 @@ function Viewer({ mode, setMode, player, src, poster, label, right }: {
             onClick={() => { setFilmKind("draft"); setMode("film"); }}>Kaba kurgu</button>
         </div>
         <span className="grow" />
+        <SafeToggle />
         {mode === "shot" && varId && <button className="btn ghost" type="button" onClick={() => setVar(null)}>Sonuca dön</button>}
       </header>
-      <div className="screen">
+      <div className="screen" ref={screen}>
         {src
           ? <video key={src} ref={p.bind} src={src} poster={poster ?? undefined} preload="metadata" playsInline {...p.events}
               onClick={p.toggle} />
           : <p className="none">{mode === "film" ? "Henüz film yok. Teslim sayfasından birleştirin." : "Henüz video yok."}</p>}
+        {src && <SafeAreas box={screen} />}
         <div className="osd"><span>{label}</span>{right && <span className="mono">{right}</span>}</div>
       </div>
       <div className="transport">

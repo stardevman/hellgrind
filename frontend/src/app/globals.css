@@ -297,7 +297,7 @@ body[data-admin="0"] .adv { display: none !important; }
 .two { grid-template-columns: minmax(0, 1fr) 360px; }
 .two-l { grid-template-columns: 300px minmax(0, 1fr); }
 .two-l > .script { grid-row: 1 / -1; grid-column: 2; }
-.color { grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: minmax(0, 1fr) 132px; grid-template-areas: "cv cc" "cs cc"; }
+.color { grid-template-columns: minmax(0, 1fr) 330px; grid-template-rows: minmax(0, 1fr) 196px; grid-template-areas: "cv cc" "cs cc"; }
 .color > .cv { grid-area: cv; } .color > .cc { grid-area: cc; } .color > .cs { grid-area: cs; }
 .deliver { grid-template-columns: 300px minmax(0, 1fr) 440px; }
 .history { grid-template-columns: 330px minmax(0, 1fr) 390px; }
@@ -472,6 +472,40 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .cv figure { position: relative; margin: 0; min-height: 0; display: grid; place-items: center; }
 .cv figure img { width: 100%; height: 100%; object-fit: contain; }
 .cv figcaption { position: absolute; top: 8px; left: 8px; padding: 2px 6px; border-radius: 3px; background: rgba(0, 0, 0, .65); font-size: 11px; }
+/* 2D yayın güvenliği: güvenli alan katmanı, boy sıralaması, renk betiği. */
+.safe { position: absolute; pointer-events: none; z-index: 2; }
+.safe-a, .safe-t { position: absolute; border: 1px dashed rgba(255, 255, 255, .55); }
+.safe-t { border-color: rgba(243, 180, 67, .8); }
+.safe-a span, .safe-t span { position: absolute; top: 2px; left: 4px; font-size: 9.5px; color: rgba(255, 255, 255, .7); text-shadow: 0 0 2px #000; }
+.safe-t span { top: auto; bottom: 2px; color: rgba(243, 180, 67, .9); }
+.board .safe span { display: none; }               /* küçük karede yalnızca çizgiler: yazılar çekim koduyla çakışmasın */
+.safe-c { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  background: linear-gradient(rgba(255, 255, 255, .55), rgba(255, 255, 255, .55)) center / 1px 100% no-repeat,
+              linear-gradient(rgba(255, 255, 255, .55), rgba(255, 255, 255, .55)) center / 100% 1px no-repeat; }
+.lineup { padding: 12px; display: grid; gap: 8px; }
+.lu-stage { position: relative; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
+.lu-grid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--line); }
+.lu-grid span { position: absolute; left: 2px; top: -14px; font-size: 10px; color: var(--text-3); }
+.lu-row { position: absolute; left: 44px; right: 0; bottom: 0; display: flex; align-items: flex-end; gap: 14px; }
+.lu-item { display: grid; justify-items: center; border: 0; background: none; color: var(--text); padding: 0; cursor: pointer; }
+.lu-lab { display: grid; align-content: start; justify-items: center; padding-top: 3px; }
+.lu-item:hover .lu-name { color: var(--accent); }
+.lu-fig { display: block; min-width: 18px; border-radius: 3px; overflow: hidden; }
+.lu-fig img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center bottom; }
+.lu-sil { width: 22px; height: 100%; border-radius: 11px 11px 2px 2px; background: var(--raised); border: 1px solid var(--line-2); }
+.lu-name { font-size: 12px; font-weight: 500; }
+.cscript { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.cs-seqs { display: flex; gap: 8px; min-width: 0; overflow-x: auto; }
+.cs-seq { flex: 1 1 160px; min-width: 140px; display: grid; gap: 3px; }
+.cs-l { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-bar { display: flex; height: 18px; border-radius: 3px; overflow: hidden; border: 1px solid var(--line-2); }
+.cs-bar i { display: block; min-width: 2px; }
+.cs-shots { display: flex; gap: 2px; }
+.cs-shot { display: flex; flex: 1; height: 8px; border-radius: 2px; overflow: hidden; }
+.cs-shot i { display: block; }
+.cs-target { display: grid; gap: 3px; align-content: start; }
+.color > .cs .pnl-b { display: grid; grid-template-rows: auto 1fr; }
+
 /* Müşteri notları: Kurgu'da işaretçi ve liste; Teslim › Müşteri: kapılar, turlar, bağlantılar. */
 .trk.notes { position: relative; }
 .cmark { position: absolute; top: 4px; width: 10px; height: 16px; margin-left: -5px; padding: 0; border: 0; background: var(--warn); clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%); cursor: pointer; }
@@ -691,6 +725,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .app { height: auto; min-height: 100vh; }
   .workspace { overflow: visible; }
   .review-body { grid-template-columns: 1fr; }
+  .cscript { grid-template-columns: 1fr; }
   .page, .edit, .three, .two, .two-l, .color, .deliver, .history, .voice, .animatic { grid-template-columns: 1fr; grid-template-rows: none; grid-template-areas: none; height: auto; }
   .vl-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
   .vl-row .vl-text, .vl-row .wave, .vl-row .vl-warn { grid-column: 1 / -1; }

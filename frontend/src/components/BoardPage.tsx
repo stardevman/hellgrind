@@ -12,6 +12,7 @@ import { passText, stripText } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
 import type { DispatchAll, Film, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
+import { SafeAreas, SafeToggle } from "./Broadcast";
 import { NoteBox, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
@@ -77,6 +78,7 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
       <div className="frame">
         {sc.board_url ? <img src={sc.board_url} alt={`${sc.scene_code} storyboard karesi`} loading="lazy" />
           : refMode ? <HoverClip sc={sc} /> : <div className="ph">Kare yok · "Kareleri hazırla"</div>}
+        <SafeAreas />
         <span className="code">{sc.scene_code}</span>
         <button className="open" type="button" onClick={() => { selectScene(sc.id); setPage("edit"); }}>Kurguda aç</button>
       </div>
@@ -205,6 +207,7 @@ export function BoardPage() {
             const r = await api.post<{ queued: string[] }>(`/projects/${projectId}/storyboard`);
             note("board", r.queued.length ? `Kareler hazırlanıyor: ${r.queued.join(", ")}.` : "Bütün kareler güncel.", "ok");
           }, "board")}>Kareleri hazırla</button>}
+          <SafeToggle />
           <a className="btn" href={`/api/projects/${projectId}/storyboard.pdf`} download="storyboard.pdf">PDF indir</a>
           <span className="vsep" />
           {!refMode && <label className="check">

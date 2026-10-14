@@ -9,6 +9,7 @@ import { ANOMALY_TR, ASTATUS_ORDER, ASTATUS_TR, REF_ACCEPT, REF_KINDS, REF_TR, T
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { dispatchText, lowerTr, usd } from "@/lib/text";
 import type { Asset, DispatchAll } from "@/lib/types";
+import { LineUp } from "./Broadcast";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section, reducedMotion } from "./ui";
 
@@ -255,6 +256,7 @@ export function AssetsPage() {
   const [status, setStatus] = useState("");
   const [newType, setNewType] = useState("prop");
   const [newName, setNewName] = useState("");
+  const [view, setView] = useState<"cards" | "lineup">("cards");
   const cards = useRef<Record<string, HTMLButtonElement | null>>({});
   useEffect(() => { if (flashAsset) { setType(""); setStatus(""); } }, [flashAsset]);   // hedef kart görünsün
   useEffect(() => {
@@ -321,8 +323,12 @@ export function AssetsPage() {
         </form>
       </Panel>
 
-      <Panel title="Varlıklar" meta={assets ? `${list.length} gösteriliyor` : ""}>
-        {!assets ? <p className="loading">Yükleniyor…</p> : list.length ? (
+      <Panel title="Varlıklar" meta={assets ? (view === "lineup" ? `${all.filter((a) => a.type === "character").length} karakter` : `${list.length} gösteriliyor`) : ""}
+        tools={<div className="seg" role="group" aria-label="Görünüm">
+          <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>Kartlar</button>
+          <button type="button" aria-pressed={view === "lineup"} onClick={() => setView("lineup")} title="Karakterlerin boy sıralaması (line-up)">Boy sıralaması</button>
+        </div>}>
+        {!assets ? <p className="loading">Yükleniyor…</p> : view === "lineup" ? <LineUp assets={all} onPick={selectAsset} /> : list.length ? (
           <div className="grid-cards">
             {list.map((a) => {
               const th = thumbOf(a);

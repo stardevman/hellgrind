@@ -10,6 +10,7 @@ import { posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
 import { jumpText, resultText } from "@/lib/text";
 import type { ContinuityPair, Grade, Scene, StageResult } from "@/lib/types";
+import { ColorScriptStrip } from "./Broadcast";
 import { NoteBox, Panel, Section, UploadForm, useSynced } from "./ui";
 
 const FIELDS: Record<string, { label: string; min: number; max: number; step: number; neutral: number; unit?: string }> = {
@@ -220,7 +221,8 @@ export function ColorPage() {
         <div className="pad"><NoteBox id="color" /></div>
       </Panel>
 
-      <Panel className="cs" title="Klip şeridi" meta="kırmızı çentik: önceki çekime göre renk sıçraması · sarı nokta: renk uygulanmış">
+      <Panel className="cs" title="Klip şeridi" meta="üstte renk betiği: sekansların baskın paleti ve stil hedefi · kırmızı çentik: renk sıçraması · sarı nokta: renk uygulanmış">
+        <ColorScriptStrip />
         <div className="clipstrip">
           {ov.scenes.map((x) => {
             const th = posterOf(x);

@@ -1,7 +1,7 @@
 "use client";
 /* Stüdyo çerçevesi, bütün denetimler altta: en üstte etkin sayfa; altında uyarılar, adımın sayfaları, eksikleri ve
    "Sıradaki" şeridi; en altta uygulama bandı (logo, proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi).
-   Bandın menüleri yukarı açılır. Shift+1…9 sayfalar arasında geçer. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
+   Bandın menüleri yukarı açılır. Shift+1…9 sayfalar arasında geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
    gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
    (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
@@ -287,6 +287,17 @@ function AdminGate() {
 export function AppFrame() {
   const { projectId, ov, creating, offline, page, setPage, projects, admin, adminState } = usePanel();
   const hasShots = Boolean(ov?.scenes.length);
+
+  const { safeAreas, setSafeAreas } = usePanel();
+  useEffect(() => {                                       // G: yayın güvenli alanları
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey || !shortcutTarget(e) || (e.key !== "g" && e.key !== "G")) return;
+      e.preventDefault();
+      setSafeAreas(!safeAreas);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [safeAreas, setSafeAreas]);
 
   useEffect(() => {                                       // Shift+1…9: sayfalar arasında geçiş
     const onKey = (e: KeyboardEvent) => {

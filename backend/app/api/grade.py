@@ -209,6 +209,15 @@ def run_continuity(project_id: ProjectId, s: Session = Depends(get_session)):
     return {"queued": True}
 
 
+@router.get("/projects/{project_id}/color-script")
+def color_script(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Renk betiği: her sekansın baskın paleti ve çekimlerin paletleri, stil kılavuzunun hedef paleti ve hedefe uzaklık.
+    Klipler değişmedikçe önbellekten gelir; para harcamaz."""
+    project_or_404(s, project_id)
+    from app.post import colorscript
+    return colorscript.compute(s, project_id)
+
+
 @router.get("/projects/{project_id}/continuity")
 def get_continuity(project_id: ProjectId, s: Session = Depends(get_session)):
     return project_or_404(s, project_id).continuity or {"pairs": []}

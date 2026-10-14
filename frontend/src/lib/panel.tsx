@@ -28,6 +28,7 @@ export type FilmKind = "final" | "draft";
 const STORE_KEY = "hg-project";              // eski panelle aynı anahtar: son açılan proje iki panelde de hatırlanır
 const ADMIN_KEY = "hg-advanced";           // Basit/Gelişmiş anahtarının eski adı: "Gelişmiş" seçenler yönetici görünümünde açar
 export const TOUR_DONE_KEY = "hg-tour-done";
+export const SAFE_KEY = "hg-safe-areas";
 function recall(): string | null { try { return localStorage.getItem(STORE_KEY); } catch { return null; } }
 function store(id: string | null) {
   try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch { /* depolama kapalı */ }
@@ -91,6 +92,9 @@ interface PanelState {
   /** Rehber turu açık mı; ilk açılışta kendiliğinden başlar, bitince tarayıcıda "görüldü" olarak kalır. */
   tour: boolean;
   setTour: (on: boolean) => void;
+  /** Yayın güvenli alanları (action safe %93, title safe %90) izleyicide ve storyboard'da; G kısayolu, tarayıcıda hatırlanır. */
+  safeAreas: boolean;
+  setSafeAreas: (on: boolean) => void;
 }
 
 const Ctx = createContext<PanelState | null>(null);
@@ -122,7 +126,9 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [wantAdmin, setWantAdmin] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [tour, setTour] = useState(false);
-  useEffect(() => { setRemembered(recall()); setWantAdmin(readFlag(ADMIN_KEY)); }, []);
+  const [safeAreas, setSafe] = useState(false);
+  useEffect(() => { setRemembered(recall()); setWantAdmin(readFlag(ADMIN_KEY)); setSafe(readFlag(SAFE_KEY)); }, []);
+  const setSafeAreas = useCallback((on: boolean) => { writeFlag(SAFE_KEY, on); setSafe(on); }, []);
 
   // Yönetici modu = tarayıcının seçimi + sunucunun izni (şifre yoksa her zaman, varsa geçerli giriş çereziyle). Oturum
   // süresi dolunca sunucu izni kalkar ve panel kendiliğinden kullanıcı moduna döner.
@@ -232,7 +238,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     compareRaw: search.get("cmp"), openCompare, setCompare, history, setHistory,
     busy, frozen: Boolean(ov?.project.frozen), act, notes, note, refresh,
     flashAsset, gotoAsset, clearFlash, filmKind, setFilmKind, assembling, setAssembling,
-    admin, adminState, setAdmin, login, loginOpen, setLoginOpen, tour, setTour,
+    admin, adminState, setAdmin, login, loginOpen, setLoginOpen, tour, setTour, safeAreas, setSafeAreas,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

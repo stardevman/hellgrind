@@ -740,3 +740,12 @@ export interface DeliverySummary {
   spec: boolean; package: boolean; rights_missing: string[];
   qc: { passed: boolean; stale: boolean; failed: string[]; issues: (QcIssue & { check: string; name: string })[] } | null;
 }
+
+/* ---------- renk betiği ---------- */
+
+export interface Swatch { hex: string; weight: number }
+/** GET /projects/{id}/color-script: sekansların baskın paleti (çekimlerinkiyle), stil kılavuzunun hedef paleti. */
+export interface ColorScript {
+  sequences: { id: string; code: string; title: string; palette: Swatch[]; shots: { code: string; palette: Swatch[] }[]; distance: number | null }[];
+  target: string[]; style_version: number | null;
+}

@@ -9,7 +9,7 @@ const LAYOUT = readFileSync(join(root, "app", "layout.tsx"), "utf8");
 const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(join(root, "components", f), "utf8")).join("\n")
   + readFileSync(join(root, "lib", "text.ts"), "utf8") + readFileSync(join(root, "lib", "steps.ts"), "utf8") + readFileSync(join(root, "lib", "tour.ts"), "utf8")
   + readFileSync(join(root, "lib", "voice.ts"), "utf8") + readFileSync(join(root, "lib", "client.ts"), "utf8")
-  + readFileSync(join(root, "lib", "delivery.ts"), "utf8");
+  + readFileSync(join(root, "lib", "delivery.ts"), "utf8") + readFileSync(join(root, "lib", "safe.ts"), "utf8");
 
 describe("design contract", () => {
   it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
@@ -89,5 +89,7 @@ describe("documented Turkish texts", () => {
     // Teslim şartnamesi, QC ve hak zinciri
     "Teslim şartnamesi", "TV (Türkiye, 25 fps)", "Platform (yüksek)", "Şartnameyi kaydet", "QC raporu", "QC çalıştır", "Paket içeriği",
     "Paketi oluştur", "Hak zinciri", "Altyazı (SRT)", "M&amp;E mix", "Yazısız sürüm",
+    // 2D yayın güvenliği
+    "Güvenli alanlar", "action safe %93", "title safe %90", "Boy sıralaması", "Renk betiği", "Hedef",
   ])("%s", (text) => expect(SOURCES).toContain(text));
 });

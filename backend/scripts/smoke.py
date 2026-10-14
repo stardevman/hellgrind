@@ -26,6 +26,7 @@ Kontroller:
      görüntü üretilmez; kilit süreyi sesten hesaplar ve replik düzenlemeyi kapatır; animatik sesle birleşir
   L. Müşteri onay döngüsü: film v001 olarak gönderilir; belirteçli sayfa bütçe ve motor göstermez; not çekime bağlanır;
      değişiklik isteği revizyon turudur; v002 onaylanır; kapatılan bağlantı 410 döner; kararlar kürasyon kaydında
+  H. Renk betiği: her sekansın baskın paleti ve çekim paletleri, stil kılavuzunun hedef paleti ve hedefe uzaklık
   E. Teslim: şartname (TV, 25 fps, -23 LUFS) final filmi besler; QC raporu 5 kontrolle ve PDF; eksik hak zinciri paketi
      engellemez; paket master (ProRes), izleme kopyası, stem'ler, M&E, SRT, EDL, QC raporu ve hak zincirini içerir
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
@@ -374,6 +375,7 @@ def main() -> int:
     check_client_review(pid)
     check_curation_and_exports(pid)
     check_history(pid)
+    check_color_script(pid)
     check_delivery(pid)                             # şartnameyi 25 fps'e çeker: EDL denetiminden (K) sonra
 
     print("T) Sekans tavanı: yalnızca o sekans durur")
@@ -805,6 +807,17 @@ def check_client_review(pid: str) -> None:
     actions = [e["action"] for e in curation(pid)]
     check({"client_note", "client_reject", "client_approve", "client_send", "review_link"} <= set(actions),
           "müşteri notu, değişiklik isteği ve onay kürasyon kaydında")
+
+
+def check_color_script(pid: str) -> None:
+    """Renk betiği: her sekansın baskın paleti, çekim paletleri, stil kılavuzunun hedefi ve hedefe uzaklık."""
+    print("H) Renk betiği")
+    cs = c.get(f"/projects/{pid}/color-script").json()
+    target = c.get(f"/projects/{pid}/style").json()["active"]["palette"]
+    seqs = cs["sequences"]
+    check([q["code"] for q in seqs] == ["SEQ01", "SEQ02"] and all(q["palette"] and q["shots"] for q in seqs)
+          and cs["target"] == target and all(q["distance"] is not None for q in seqs),
+          "renk betiği: " + "; ".join(f"{q['code']} {' '.join(x['hex'] for x in q['palette'][:3])} (ΔE {q['distance']})" for q in seqs))
 
 
 def check_delivery(pid: str) -> None:

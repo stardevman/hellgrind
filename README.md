@@ -402,6 +402,20 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
   - **Yapay zekâ kullanım beyanı** servis geçmişinden otomatik üretilen tablodur: çekim, motor, işlem, tarih, mod (`GET /api/projects/{id}/rights/ai-declaration?format=csv`).
   - Eksik madde varken "Paketi oluştur" uyarır ama engellemez; eksikler pakette `BENIOKU.txt`'de işaretlenir. "Sıradaki" şeridi eksik belgeleri ve kalan QC kontrollerini gösterir.
 
+### 2D yayın güvenliği görünümleri
+
+- **Güvenli alanlar:** action safe %93 (beyaz kesikli) ve title safe %90 (amber kesikli), ortada artı işareti.
+  - Kurgu izleyicisinde görüntünün gerçek dikdörtgenine oturur (letterbox/pillarbox dahil); Storyboard karelerinde de görünür.
+  - "Güvenli alanlar" anahtarı ya da her sayfada **G** tuşu açıp kapatır; seçim tarayıcıda hatırlanır.
+- **Renk betiği** (Renk sayfası, klip şeridinin üstü):
+  - Her sekansın baskın paleti yan yana; renk genişliği payıdır. Altında çekimlerin paleti, sağda stil kılavuzunun hedef paleti.
+  - Paletler, her çekimin filmdeki klibinin orta karesinden deterministik k-ortalamalarla (LAB) çıkarılır.
+  - ΔE, sekans paletinin hedefe ağırlıklı uzaklığıdır.
+  - `GET /api/projects/{id}/color-script` klipler değişmedikçe önbellekten gelir; para harcamaz.
+- **Boy sıralaması (line-up)** (Varlıklar › Boy sıralaması): karakterler uzundan kısaya, ortak taban çizgisinde ve 0,5 m'lik ızgarayla durur.
+  - Boy, varlığın mevcut "Gerçek boyut" metninden okunur; yeni alan yok. Sıra: ölçü ("1,70 m", "30 cm"), sonra sözcük ("palm-sized", "çocuk", "dev"), yoksa varsayılan (insan 1,70 m, insan olmayan 1 m).
+  - Tahminî boylar "~" ile işaretlenir.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.
