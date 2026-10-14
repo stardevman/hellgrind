@@ -48,6 +48,8 @@ settings.prompt_translation = "off"
 # ortamda aynı sonucu versin. Okur ve Duyu-small testleri ayarları kendi içinde açar (tests/test_voice_models.py).
 settings.tts_engine = "espeak"
 settings.voice_check = "off"
+# Hareket testi akışını (üretim, kalite, onay) sınamak için yerel test açık; kapalı hâli test_assets.py sınar.
+settings.local_motion_test = True
 
 # Aynı nedenle nesne deposu da ayrı bir kova kullanır (geliştirme kovasındaki medya silinmesin).
 settings.s3_bucket = "hellgrind-test"

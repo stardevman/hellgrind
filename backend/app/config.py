@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     dry_run_score_sd: float = 0.05
     dry_run_defect_rate: float = 0.12     # bilerek bozuk (siyah/donmuş) klip oranı
     local_render_fps: int = 24
+    # Ücretsiz modda hareket testi üretilmez: yerel çizici referansı kullanmaz, siluet bir şey göstermez. Durağan onaylı
+    # varlık doğrudan kilitlenir. True: eski davranış (testler akışı sınamak için açar).
+    local_motion_test: bool = False
     # okur (ücretsiz, yerel Türkçe sinir ağı modeli; model dosyası yoksa espeak) | espeak | tone | elevenlabs (ücretli;
     # ücretsiz modda ya da projede ücretli ses kapalıyken yerel motor kullanılır)
     tts_engine: str = "okur"

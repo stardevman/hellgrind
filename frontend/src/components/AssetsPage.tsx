@@ -165,6 +165,7 @@ function Detail({ a }: { a: Asset }) {
   const [shown, setShown] = useState<Shown | null>(null);
   const hasVisual = ["still", "turnaround", "expressions"].some((k) => a.references?.[k]);
   const t = a.motion_test, locked = a.status === "locked";
+  const testable = meta?.motion_test !== false;         // ücretsiz modda hareket testi yok: durağan onaydan kilit
   const running = Boolean(t && ["queued", "running"].includes(t.status));
   const run = (x: Act) => act(async () => note("assets", await ASSET_ACTS[x](a.id, projectId ?? ""), "ok"), "assets");
   const upload = (e: FormEvent<HTMLFormElement>) => {
@@ -239,13 +240,13 @@ function Detail({ a }: { a: Asset }) {
           )}
           <div className="row">
             {a.status === "draft" && <button className="btn good" type="button" disabled={busy || !hasVisual} onClick={() => run("approve-still")}>Durağanı onayla</button>}
-            {(a.status === "still_approved" || a.status === "motion_tested") && (
+            {testable && (a.status === "still_approved" || a.status === "motion_tested") && (
               <button className="btn" type="button" disabled={busy || frozen || running} onClick={() => run("motion-test")}>{t ? "Hareket testini yenile" : "Hareket testi üret"}</button>
             )}
             {a.status === "still_approved" && t?.status === "passed" && t.current && (
               <button className="btn good" type="button" disabled={busy} onClick={() => run("approve-motion")}>Hareket testini onayla</button>
             )}
-            {a.status === "motion_tested" && <button className="btn primary" type="button" disabled={busy} onClick={() => run("lock")}>Kilitle</button>}
+            {(a.status === "motion_tested" || (!testable && a.status === "still_approved")) && <button className="btn primary" type="button" disabled={busy} onClick={() => run("lock")}>Kilitle</button>}
             {locked && <button className="btn" type="button" disabled={busy} onClick={() => run("unlock")}>Kilidi aç</button>}
           </div>
           <NoteBox id="assets" />
@@ -298,7 +299,7 @@ function Detail({ a }: { a: Asset }) {
             </form>
           )}
         </Section>
-        <Section title="Hareket testi" meta={!t ? "yok" : ({ passed: "temiz", rejected: "kusurlu", failed: "üretilemedi" } as Record<string, string>)[t.status] ?? "sürüyor"}>
+        {testable && <Section title="Hareket testi" meta={!t ? "yok" : ({ passed: "temiz", rejected: "kusurlu", failed: "üretilemedi" } as Record<string, string>)[t.status] ?? "sürüyor"}>
           {!t ? <p className="faint">{a.status === "draft" ? "Önce durağanı onayla." : "Henüz hareket testi yok."}</p> : (
             <div className="motion stack">
               {t.video_url && <video controls preload="none" playsInline poster={t.thumb_url ?? undefined} src={t.video_url} />}
@@ -308,7 +309,7 @@ function Detail({ a }: { a: Asset }) {
               </p>
             </div>
           )}
-        </Section>
+        </Section>}
         <Section title="Kullanım" meta={`${a.scenes.length} çekim`} open={false}>
           <p className="small">{a.scenes.length ? "Kullanıldığı çekimler: " + a.scenes.join(", ") : "Henüz bir çekimde kullanılmıyor."}</p>
           {a.character?.voice_id && <p className="small dim">Ses kimliği {a.character.voice_id}</p>}

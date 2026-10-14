@@ -11,6 +11,8 @@ export interface Preset {
 
 export interface Meta {
   dry_run: boolean;
+  /** Hareket testi üretilir mi? Ücretsiz modda hayır: durağan onaylı varlık doğrudan kilitlenir. */
+  motion_test?: boolean;
   /** Kendi barındırdığımız MiniMax H3'ün platformu: kapali (varsayılan; video fal.ai'de), runpod ya da vast (deneysel). */
   h3_platform?: H3Platform;
   /** Storyboard ve zincir karelerinin çizildiği yer (fal: Qwen-Image / Qwen-Image-Edit). */

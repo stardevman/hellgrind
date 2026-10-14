@@ -349,13 +349,13 @@ Bu bölüm, Blender ve üretken yapay zekâyı birlikte kullanan profesyonel bir
   - Sahne `blocked` durumuna geçer (`scene_status` enum'una eklenir) ve `last_error` alanına neyin eksik olduğu Türkçe yazılır.
   - `lint_strictness` proje ayarıyla (`off` / `warn` / `block`) kontrol edilir; varsayılan `block`.
   - Kadroda olmayan kişilerin üretilmemesi için prompt oluşturucuya "yalnızca listelenen karakterler" kısıtı eklenir.
-- **Hareket testi kapısı:** bir varlık `locked` olmadan önce kısa, düşük çözünürlüklü bir hareket testi üretilir (`POST /assets/{id}/motion-test`) ve yönetmen panelden onaylar.
+- **Hareket testi kapısı:** bir varlık `locked` olmadan önce kısa, düşük çözünürlüklü bir hareket testi üretilir (`POST /assets/{id}/motion-test`) ve yönetmen panelden onaylar. Ücretsiz modda hareket testi üretilmez (yerel çizici referansı kullanmaz); durağan onaylı varlık doğrudan kilitlenir.
 - **Panel:** "Varlıklar" sekmesi; tür ve durum filtresi, referans yükleme, hareket testi ve onay düğmeleri. Engellenen sahnelerde eksik varlıklar tıklanabilir bağlantı olarak gösterilir.
 
 **Kabul:**
 - Referansı eksik bir nesne içeren çekim `blocked` olur ve hiçbir harcama yapılmaz.
 - Varlık kilitlenip sahne yeniden render edilince üretim başlar.
-- Hareket testi onaylanmadan varlık kilitlenemez.
+- Hareket testi onaylanmadan varlık kilitlenemez (ücretli modda; ücretsiz modda test yoktur).
 
 ## Faz 13 — Stil kılavuzu, ışık dili ve hareket tarzı
 **Neden:** Çekimlerin aynı filme ait görünmesini en çok tutarlı ışık dili sağlar. Profesyonel ekip "suluboya mekân + altın saat ışığı" formülünü bulup her çekimde aynı ifadeyle tekrarlamıştır. Hareket eden nesnelerde yoğun boyalı doku bozulur; bu nesneler temiz 3D, çevre ise boyalı olmalıdır.

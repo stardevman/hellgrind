@@ -349,6 +349,24 @@ def test_an_asset_cannot_be_locked_before_its_motion_test_is_approved(api, prop,
     assert api.post(f"/api/assets/{aid}/lock").json()["status"] == "locked"
 
 
+def test_free_mode_skips_the_motion_test_and_locks_from_the_approved_still(api, prop, eager, monkeypatch):
+    """Ücretsiz modda yerel çizici referansı kullanmaz: test üretilmez, harcama olmaz, durağan onaylı varlık kilitlenir."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "local_motion_test", False)
+    pid, a = prop
+    aid = a["id"]
+    assert api.get("/api/meta").json()["motion_test"] is False
+    api.post(f"/api/assets/{aid}/references/placeholder")
+    api.post(f"/api/assets/{aid}/approve-still")
+    spent = api.get(f"/api/projects/{pid}/budget").json()["spent"]
+    r = api.post(f"/api/assets/{aid}/motion-test")
+    assert r.status_code == 409 and "ücretsiz modda hareket testi üretilmez" in r.json()["detail"]
+    assert api.get(f"/api/assets/{aid}").json()["motion_test"] is None
+    assert api.post(f"/api/assets/{aid}/lock").json()["status"] == "locked"
+    assert api.get(f"/api/projects/{pid}/budget").json()["spent"] == spent
+    assert api.post(f"/api/assets/{aid}/unlock").json()["status"] == "still_approved"   # testsiz kilit durağana döner
+
+
 def test_a_defective_motion_test_cannot_be_approved(api, prop, eager, monkeypatch):
     _, a = prop
     aid = a["id"]

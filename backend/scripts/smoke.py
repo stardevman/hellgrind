@@ -550,9 +550,9 @@ def check_history(pid: str) -> None:
           f"{len(calls)} çağrının işlenen toplamı harcamayla aynı (${total:.4f} / ${spent(pid):.4f})")
     check(all(x["mode"] == "virtual" for x in calls), "hepsi sanal: ücretsiz modda hiçbir servis çağrılmadı")
     check(all(x["model"] and x["service"] in ("runpod", "fal") for x in calls), "her satırda ücretli modda çağrılacak model var")
-    h3 = [x for x in calls if x["operation"] in ("video", "motion_test")]
+    h3 = [x for x in calls if x["operation"] == "video"]
     check(bool(h3) and all(x["service"] == "runpod" and x["model"] == "MiniMaxAI/MiniMax-H3" for x in h3),
-          f"video ve hareket testi MiniMax H3'e (RunPod Serverless) yazıldı ({len(h3)} çağrı)")
+          f"video MiniMax H3'e (RunPod Serverless) yazıldı ({len(h3)} çağrı)")
     rp = c.get("/settings/runpod").json()
     check(rp["platform"] == "kapali" and rp["disabled"] and rp["disabled_message"].startswith("RunPod: kapalı")
           and rp["allowed_datacenters"] == ["CA-MTL-1", "CA-MTL-2", "CA-MTL-3"],
@@ -570,7 +570,7 @@ def check_history(pid: str) -> None:
           f"ekonomik ön ayarla tahmini maliyet: ${est['expected_usd']:.3f} (en çok ${est['max_usd']:.3f}), "
           f"{len(generated)} üretilen çekim, çekim başına 6 klip")
     ops = {x["operation"] for x in calls}
-    check({"video", "storyboard", "reference", "motion_test"} <= ops, f"işlemler: {sorted(ops)}")
+    check({"video", "storyboard", "reference"} <= ops, f"işlemler: {sorted(ops)}")
     s = c.get("/history/summary", params={"project_id": pid}).json()
     check(s["totals"]["real_usd"] == 0 and abs(s["totals"]["virtual_usd"] - total) < 1e-3, "özet: gerçek harcama 0, sanal toplam tutuyor")
     import csv
@@ -1009,6 +1009,10 @@ def lock_asset(asset: dict, upload: str | None = None) -> dict:
         r = c.post(f"/assets/{aid}/references/placeholder")
     r.raise_for_status()
     c.post(f"/assets/{aid}/approve-still").raise_for_status()
+    if not c.get("/meta").json()["motion_test"]:               # ücretsiz mod: hareket testi yok, durağandan kilit
+        r = c.post(f"/assets/{aid}/lock")
+        r.raise_for_status()
+        return r.json()
     for _ in range(4):                                         # ~%12 kusur oranı: kusurlu test yenilenir
         c.post(f"/assets/{aid}/motion-test").raise_for_status()
         t0 = time.time()

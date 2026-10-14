@@ -374,6 +374,11 @@ def approve_still(asset_id: AssetId, s: Session = Depends(get_session)):
     return _changed(s, a, "approve_still")
 
 
+def motion_tests_enabled() -> bool:
+    """Hareket testi yalnızca ücretli modda üretilir (ya da yerel test açıkça açılmışsa)."""
+    return not settings.dry_run or settings.local_motion_test
+
+
 @router.post("/assets/{asset_id}/motion-test", status_code=202)
 @curated("motion_test")
 def start_motion_test(asset_id: AssetId, project_id: str | None = Query(None), s: Session = Depends(get_session)):
@@ -384,6 +389,9 @@ def start_motion_test(asset_id: AssetId, project_id: str | None = Query(None), s
     ensure_editable(a)
     if a.status == "draft":
         raise HTTPException(409, f"{a.name}: önce durağan referansı onayla.")
+    if not motion_tests_enabled():
+        raise HTTPException(409, f"{a.name}: ücretsiz modda hareket testi üretilmez (yerel çizim referansı kullanmaz); "
+                                 "durağan onaylı varlığı doğrudan kilitleyebilirsin.")
     current = s.get(Variation, a.motion_test_variation_id) if a.motion_test_variation_id else None
     if (current is not None and current.status in ("queued", "running")
             and current.created_at > dt.datetime.now(dt.timezone.utc) - STALE_TEST):
@@ -430,7 +438,7 @@ def lock_asset(asset_id: AssetId, project_id: str | None = Query(None), s: Sessi
     """Varlığı kilitler. Engeli kalkan sahneler bildirilir; üretim, sahne yeniden render edilince başlar."""
     a = asset_or_404(s, asset_id, lock=True)
     if a.status != "locked":
-        if a.status != "motion_tested":
+        if a.status != "motion_tested" and not (a.status == "still_approved" and not motion_tests_enabled()):
             raise HTTPException(409, f"{a.name}: hareket testi onaylanmadan varlık kilitlenemez.")
         a.status = "locked"
         _changed(s, a, "lock")
@@ -448,7 +456,7 @@ def unlock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
     a = asset_or_404(s, asset_id, lock=True)
     if a.status != "locked":
         return asset_out(s, a)
-    a.status = "motion_tested"
+    a.status = "motion_tested" if a.motion_test_variation_id else "still_approved"     # testsiz kilit: durağan onaya döner
     return _changed(s, a, "unlock")
 
 

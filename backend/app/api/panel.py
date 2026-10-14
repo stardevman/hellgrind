@@ -109,7 +109,8 @@ def fal_request_view(req: dict | None) -> dict | None:
 
 @router.get("/meta")
 def meta():
-    return {"dry_run": settings.dry_run, "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
+    return {"dry_run": settings.dry_run, "motion_test": not settings.dry_run or settings.local_motion_test,
+            "hermes_mode": settings.hermes_mode, "tts_engine": settings.tts_engine,
             "h3_platform": settings.h3_platform, "keyframe_platform": settings.keyframe_platform,
             "video_input_mode": settings.video_input_mode, "scene_render_mode": settings.scene_render_mode,
             "video": {"draft_engine": settings.video_draft_engine, "final_engine": settings.video_final_engine,
