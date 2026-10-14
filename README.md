@@ -63,8 +63,9 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 ## Kullanım
 
 Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır**. Solda
-logo, **Proje yöneticisi** (ev simgesi: diziler sezon sezon, bağımsız filmler, "Yeni film" kartı) ve proje (dizi bölümüyse
-`Dizi › Sezon › Bölüm` kırıntısı; her parça kendi menüsünü yukarı açar). Ortada küçük simgeli sayfalar; sağda
+logo ve proje (dizi bölümüyse `Dizi › Sezon › Bölüm` kırıntısı). Proje ya da dizi adına tıklamak **Proje yöneticisini**
+açar (diziler sezon sezon, bağımsız filmler, "Yeni film", "Yeni dizi", sezon başına "Yeni bölüm", açık projeyi diziye
+bağlama ve silme); hiç proje yokken bu ekran kendiliğinden açılır. Sezon ve bölüm parçaları kendi menülerini yukarı açar. Ortada küçük simgeli sayfalar; sağda
 **Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), üretimi durdurma / devam ettirme
 simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli). Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
 Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>). Her
@@ -96,7 +97,7 @@ Yönetici modu `.env`'deki `ADMIN_PASSWORD` ile korunur: tanımlıysa **Yönetic
 hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazılamaz; `.env`'i elle düzenleyin. Boşsa yönetici
 modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
 
-Rehber turu ilk açılışta kendiliğinden başlar: sayfa çubuğunu, Proje yöneticisini, Yapılacaklar'ı, sayfaları, bütçe göstergesini ve Ayarlar düğmesini sırayla gösterir
+Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, bütçe göstergesini ve Ayarlar düğmesini sırayla gösterir
 (<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
 
 Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca
@@ -426,7 +427,7 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 
 Tasarım notu: [docs/dizi-hiyerarsisi.md](docs/dizi-hiyerarsisi.md). **Bölüm, bugünkü projedir:** bütçe, Kill-Switch, sürümler (v001…), müşteri kapıları, teslim ve kürasyon kaydı bölüm başına çalışır. Sezonu olmayan proje bağımsız film olarak kalır.
 
-- **Kırıntı yolu** (alt bandın solu): `Dizi › Sezon 1 › Bölüm 3`. Her parça kendi menüsünü yukarı açar; Proje yöneticisi (yanındaki ev simgesi) aynı ağacı kart kart gösterir.
+- **Kırıntı yolu** (alt bandın solu): `Dizi › Sezon 1 › Bölüm 3`. Dizi adı Proje yöneticisini, sezon ve bölüm parçaları kendi menülerini yukarı açar; Proje yöneticisi aynı ağacı kart kart gösterir.
   - Dizi menüsü: diziler (ilk bölüme gider), bağımsız filmler, "Yeni dizi…" (ilk sezonu ve 1. bölümüyle açılır) ve bağımsız filmi bir diziye bölüm olarak ekleme.
   - Sezon menüsü: sezonlar ve "Yeni sezon". Bölüm menüsü: numara, ad, durum ve teslim rozeti; "Yeni bölüm…".
   - URL'de yalnızca `?p=<bölüm>` kalır; dizi ve sezon bölümden türetilir.

@@ -78,7 +78,7 @@ describe("documented Turkish texts", () => {
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
     // Sayfa çubuğu, Yapılacaklar, Proje yöneticisi, görünüm anahtarı ve rehber turu
-    "Proje yöneticisi", "Yeni film", "Bağımsız filmler", "Yapılacaklar", "Her şey tamam", "Müşteri onayları", "önce senaryo işlenmeli",
+    "Proje yöneticisi", "Yeni film", "Yeni dizi", "Yeni bölüm", "Bağımsız filmler", "Henüz proje yok.", "Yapılacaklar", "Her şey tamam", "Müşteri onayları", "önce senaryo işlenmeli",
     "Kullanıcı", "Yönetici", "Yönetici girişi", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)

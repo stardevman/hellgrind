@@ -191,12 +191,19 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pm-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--raised); }
 .pm-h h2 { font-size: 14px; }
 .pm-h > svg { width: 18px; height: 18px; color: var(--accent); }
+.pm-h .btn svg { width: 14px; height: 14px; }
 .pm-q { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; padding: 0 8px; height: 26px; border: 1px solid var(--line-2); border-radius: 13px; background: var(--field); color: var(--text-3); }
 .pm-q svg { width: 14px; height: 14px; }
 .pm-q input { height: 24px; width: 180px; border: 0; background: none; padding: 0; color: var(--text); font-size: 12px; }
 .pm-q input:focus { outline: none; }
 .pm-b { overflow: auto; padding: 14px 16px 16px; display: grid; gap: 16px; align-content: start; }
-.pm-sec h3 { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.pm-sec h3 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.pm-sec h3 .btn { height: 24px; }
+.pm-season + .pm-season { margin-top: 12px; }
+.pm-more { margin-top: 8px; }
+.pm-form { display: grid; gap: 8px; max-width: 360px; padding: 10px; margin-bottom: 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--raised); }
+.pm-current { padding-top: 10px; border-top: 1px solid var(--line); }
+.pm-current select { max-width: 260px; }
 .pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .pm-card { display: grid; gap: 5px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: inherit; text-align: left; align-content: start; }
 .pm-card:hover { border-color: var(--line-2); background: var(--hover); }

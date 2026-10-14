@@ -1,6 +1,7 @@
 "use client";
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
-   gibi): solda logo, Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı; ortada küçük simgeli sayfa menüsü; sağda
+   gibi): solda logo ve Dizi › Sezon › Bölüm kırıntısı (proje adı Proje yöneticisini açar; proje hiç yokken yönetici
+   kendiliğinden açılır); ortada küçük simgeli sayfa menüsü; sağda
    Yapılacaklar, bütçe, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar. Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
@@ -78,28 +79,20 @@ function BudgetChip() {
   );
 }
 
-function Dock({ hasShots, onHome }: { hasShots: boolean; onHome: () => void }) {
-  const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
+function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => void }) {
+  const { projectId, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const frozenReason = (ov?.events.find((e) => e.kind === "frozen") as { reason?: string } | undefined)?.reason;
   const [confirmStop, setConfirmStop] = useState(false);
   const kill = () => act(() => api.post(`/projects/${projectId}/killswitch`, frozen ? { action: "resume" } : { action: "freeze", reason: "panelden durduruldu" }), "global");
-  const current = projects?.find((p) => p.id === projectId);
-  const remove = async () => {
-    if (!projectId || !current) return;
-    if (!window.confirm(`"${current.title}" ${current.season_id ? "bölümü" : "projesi"} ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz. Servis geçmişi (harcama kaydı) silinmez.`)) return;
-    if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
-  };
   return (
     <footer className="dock">
       <Alerts />
       <div className="pagebar">
         <div className="pb-l">
           <div className="logo" title="Hell Grind Stüdyo"><Icon.logo /><span>Hell Grind</span></div>
-          <button type="button" className="pb-btn" onClick={onHome} aria-label="Proje yöneticisi" data-tour="home"
-            title="Proje yöneticisi: diziler, bölümler ve bağımsız filmler; yeni proje"><Icon.home /></button>
-          <Breadcrumb onRemove={remove} />
+          <Breadcrumb onOpenManager={onManager} />
           {admin && (
             <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
               title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
@@ -297,6 +290,8 @@ export function AppFrame() {
   const hasShots = Boolean(ov?.scenes.length);
   const [manager, setManager] = useState(false);
   const closeManager = useCallback(() => setManager(false), []);
+  const none = Boolean(projects && projects.length === 0 && !creating);   // hiç proje yok: yönetici açık kalır
+  useEffect(() => { if (none) setManager(true); }, [none]);
 
   const { safeAreas, setSafeAreas } = usePanel();
   useEffect(() => {                                       // G: yayın güvenli alanları
@@ -331,8 +326,8 @@ export function AppFrame() {
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
-      <Dock hasShots={hasShots} onHome={() => setManager(true)} />
-      {manager && <ProjectManager onClose={closeManager} />}
+      <Dock hasShots={hasShots} onManager={() => setManager(true)} />
+      {(manager || none) && <ProjectManager onClose={closeManager} locked={none} />}
       <Tour />
       <AdminLogin />
     </div>

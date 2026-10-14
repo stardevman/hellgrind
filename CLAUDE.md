@@ -256,14 +256,15 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: üretim sırasıyla sayfalar (Senaryo, Ses,
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
-solda logo, **Proje yöneticisi** ev simgesi, `Dizi › Sezon › Bölüm` kırıntısı ve yönetici rozetleri; ortada küçük simgeli
+solda logo, `Dizi › Sezon › Bölüm` kırıntısı (proje ya da dizi adı **Proje yöneticisini** açar; proje hiç yokken
+yönetici kendiliğinden açılır ve kapatılamaz) ve yönetici rozetleri; ortada küçük simgeli
 sayfa menüsü (`Pages`); sağda **Yapılacaklar**, bütçe çipi, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi. Uyarılar bandın
 hemen üstünde, menüler yukarı açılır. Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
 çekim gerektirenler senaryo işlenene dek kapalıdır; simgenin köşesindeki rozet sayfanın özetidir, nokta bekleyen iş olduğunu
 söyler. Eksikler arka planda dört üretim grubuna göre hesaplanır (`lib/steps.ts`: hazırlık, onay, üretim, bitirme) ama
 panelde adım olarak gösterilmez; **Yapılacaklar** (`Todos`) onları çözüldükleri sayfaya göre listeler ve altında müşteri
-onay kapılarını gösterir. **Proje yöneticisi** (`ProjectManager`) dizileri sezon sezon, bağımsız filmleri ve "Yeni film"
-kartını gösterir. Ayarlar düğmesi herkese açıktır; **Kullanıcı / Yönetici** seçimi Ayarlar sayfasındadır: kullanıcı modu son kullanıcı içindir
+onay kapılarını gösterir. **Proje yöneticisi** (`ProjectManager`) dizileri sezon sezon, bağımsız filmleri, "Yeni film" ve "Yeni dizi"
+kartlarını, sezon başına "Yeni bölüm", diziye bağlama ve silmeyi taşır (`lib/seriesActions.ts`, kırıntı menüleriyle ortak). Ayarlar düğmesi herkese açıktır; **Kullanıcı / Yönetici** seçimi Ayarlar sayfasındadır: kullanıcı modu son kullanıcı içindir
 (yalnızca ana eylemler); yönetici modunda Ayarlar (ücretli servisler, mod, fiyat tablosu), servis geçmişi, mod ve skor
 rozetleri, motor ve plan ayrıntıları, tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası açılır. `.env`'de
 `ADMIN_PASSWORD` tanımlıysa yönetici modu şifreyle açılır ve `/api/settings*`, `/api/history*` sunucuda da yönetici çerezi

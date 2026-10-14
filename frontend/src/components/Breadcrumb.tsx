@@ -1,15 +1,14 @@
 "use client";
 /* Alt banttaki kırıntı yolu: Dizi › Sezon 1 › Bölüm 3 (docs/dizi-hiyerarsisi.md). Bölüm bugünkü projedir; URL'de yalnızca
-   ?p=<bölüm> kalır, dizi ve sezon bölümden türetilir. Bağımsız film tek parça görünür. Her kırıntı kendi menüsünü yukarı
-   açar: diziler, sezonlar, bölümler (numara, ad, durum ve teslim rozeti) ve "Yeni …" formları. Teslim edilmiş bölümün
-   yanında "Sürüm sabit · v004" rozeti durur. */
+   ?p=<bölüm> kalır, dizi ve sezon bölümden türetilir. Bağımsız film tek parça görünür. İlk parça (dizi ya da film adı)
+   Proje yöneticisini açar; sezon ve bölüm parçaları kendi menülerini yukarı açar (sezonlar, bölümler, "Yeni …" formları,
+   silme). Teslim edilmiş bölümün yanında "Sürüm sabit · v004" rozeti durur. */
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import useSWR from "swr";
-import { api, fetcher } from "@/lib/api";
 import { PROJECT_STATUS_TR } from "@/lib/i18n";
-import { POLL_MS, usePanel } from "@/lib/panel";
+import { usePanel } from "@/lib/panel";
 import { episodeLabel, lockLabel } from "@/lib/series";
-import type { EpisodeItem, SeriesItem } from "@/lib/types";
+import { useSeriesActions } from "@/lib/seriesActions";
+import type { EpisodeItem } from "@/lib/types";
 import { Icon } from "./icons";
 
 /** Menülü kırıntı: dışarı tıklama ve Esc kapatır. `children` menüyü kapatma işleviyle çizer. */
@@ -67,107 +66,38 @@ function EpisodeRow({ e, on, pick }: { e: EpisodeItem; on: boolean; pick: () => 
   );
 }
 
-export function Breadcrumb({ onRemove }: { onRemove: () => void }) {
-  const { projects, projectId, selectProject, setCreating, setPage, ov, act } = usePanel();
-  const { data: tree, mutate } = useSWR<SeriesItem[]>("/series", fetcher, { refreshInterval: POLL_MS * 5 });
-  const [form, setForm] = useState<"series" | "episode" | null>(null);
-  const current = projects?.find((p) => p.id === projectId);
+export function Breadcrumb({ onOpenManager }: { onOpenManager: () => void }) {
+  const { projects, projectId, selectProject, ov } = usePanel();
+  const { tree, current, newEpisode, newSeason, remove } = useSeriesActions();
+  const [form, setForm] = useState<"episode" | null>(null);
   const ep = ov?.project.episode;
   const series = ep?.series ? tree?.find((x) => x.id === ep.series!.id) : undefined;
   const season = series?.seasons.find((z) => z.id === ep?.season?.id);
-  const loose = (projects ?? []).filter((p) => !p.season_id);
-  const budget = ov?.project.budget_limit_usd ?? 50;
-
   const open = (id: string) => { selectProject(id); setForm(null); };
-  const firstOf = (q: SeriesItem) => q.seasons.flatMap((z) => z.episodes)[0];
-  const newEpisode = (seasonId: string, title: string) => act(async () => {
-    const r = await api.post<{ project_id: string }>(`/seasons/${seasonId}/episodes`, { title, budget_limit_usd: budget, settings: {} });
-    await mutate();
-    open(r.project_id);
-    setPage("script");
-  }, "global");
-  const newSeries = (title: string) => act(async () => {
-    const q = await api.post<SeriesItem>("/series", { title });
-    const r = await api.post<{ project_id: string }>(`/seasons/${q.seasons[0].id}/episodes`, { title: "Bölüm 1", budget_limit_usd: budget, settings: {} });
-    await mutate();
-    open(r.project_id);
-    setPage("script");
-  }, "global");
-  const newSeason = (q: SeriesItem) => act(async () => {
-    const z = await api.post<{ id: string; number: number }>(`/series/${q.id}/seasons`, {});
-    const r = await api.post<{ project_id: string }>(`/seasons/${z.id}/episodes`, { title: "Bölüm 1", budget_limit_usd: budget, settings: {} });
-    await mutate();
-    open(r.project_id);
-    setPage("script");
-  }, "global");
-  const attach = (q: SeriesItem) => act(async () => {
-    const last = q.seasons[q.seasons.length - 1];
-    await api.post(`/projects/${projectId}/episode`, { season_id: last.id });
-    await mutate();
-  }, "global");
-
-  /** Dizi menüsü: diziler (ilk bölüme gider), bağımsız filmler ve "Yeni dizi" / "Yeni proje". */
-  const scopeMenu = (close: () => void) => (
-    <>
-      {form === "series" ? (
-        <MenuForm label="Dizi adı" placeholder="ör. Döküm Hanesi" onCancel={() => setForm(null)} onSubmit={(v) => { close(); void newSeries(v); }} />
-      ) : (
-        <>
-          {tree?.map((q) => {
-            const first = firstOf(q);
-            return (
-              <button key={q.id} type="button" role="menuitem" className={q.id === series?.id ? "on" : ""} disabled={!first}
-                onClick={() => { if (first) { open(first.id); close(); } }}>
-                <span className="mi-ck">{q.id === series?.id && <Icon.check />}</span>
-                <span className="mi-t">{q.title}</span>
-                <span className="mi-s">{q.seasons.length} sezon · {q.seasons.reduce((n, z) => n + z.episodes.length, 0)} bölüm</span>
-              </button>
-            );
-          })}
-          {tree?.length ? <div className="menu-sep" /> : null}
-          {loose.map((p) => (
-            <button key={p.id} type="button" role="menuitem" className={p.id === projectId ? "on" : ""} onClick={() => { open(p.id); close(); }}>
-              <span className="mi-ck">{p.id === projectId && <Icon.check />}</span>
-              <span className="mi-t">{p.title}</span>
-              <span className="mi-s">{p.locked ? "Sürüm sabit" : PROJECT_STATUS_TR[p.display_status ?? p.status] || p.status}</span>
-            </button>
-          ))}
-          {loose.length ? <div className="menu-sep" /> : null}
-          <button type="button" role="menuitem" onClick={() => setForm("series")}>
-            <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni dizi…</span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => { close(); setCreating(true); setPage("script"); }}>
-            <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni bağımsız film</span>
-          </button>
-          {current && !current.season_id && tree?.map((q) => (
-            <button key={`a-${q.id}`} type="button" role="menuitem" onClick={() => { close(); void attach(q); }}>
-              <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Bu filmi “{q.title}” dizisine bölüm olarak ekle</span>
-            </button>
-          ))}
-          {current && (
-            <button type="button" role="menuitem" className="danger" onClick={() => { close(); onRemove(); }}>
-              <span className="mi-ck"><Icon.trash /></span><span className="mi-t">{current.season_id ? "Bölümü sil…" : "Projeyi sil…"}</span>
-            </button>
-          )}
-        </>
-      )}
-    </>
+  const status = current ? (current.locked ? "Sürüm sabit" : PROJECT_STATUS_TR[current.display_status ?? current.status] || current.status) : undefined;
+  /** İlk parça: dizi ya da film adı; tıklanınca Proje yöneticisi açılır. */
+  const root = (label: string, sub?: string) => (
+    <div className="switcher crumb" data-tour="project">
+      <button type="button" className="switch-btn" aria-haspopup="dialog" aria-label="Proje yöneticisi" onClick={onOpenManager}
+        title="Proje yöneticisi: diziler, bölümler, bağımsız filmler; yeni proje">
+        <span className="sw-title">{label}</span>
+        {sub && <span className="sw-status">{sub}</span>}
+        <Icon.chevron />
+      </button>
+    </div>
   );
 
   if (!ep?.series || !ep.season) {
     return (
-      <nav className="crumbs" aria-label="Proje" data-tour="project">
-        <Crumb aria="Proje seçici" label={current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok"}
-          sub={current ? (current.locked ? "Sürüm sabit" : PROJECT_STATUS_TR[current.display_status ?? current.status] || current.status) : undefined}>
-          {scopeMenu}
-        </Crumb>
+      <nav className="crumbs" aria-label="Proje">
+        {root(current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok", status)}
         <LockChip />
       </nav>
     );
   }
   return (
-    <nav className="crumbs" aria-label="Dizi, sezon ve bölüm" data-tour="project">
-      <Crumb aria="Dizi seçici" label={ep.series.title}>{scopeMenu}</Crumb>
+    <nav className="crumbs" aria-label="Dizi, sezon ve bölüm">
+      {root(ep.series.title)}
       <span className="crumb-sep" aria-hidden="true">›</span>
       <Crumb aria="Sezon seçici" label={`Sezon ${ep.season.number}`} fixed>
         {(close) => (
@@ -185,7 +115,7 @@ export function Breadcrumb({ onRemove }: { onRemove: () => void }) {
             })}
             <div className="menu-sep" />
             {series && (
-              <button type="button" role="menuitem" onClick={() => { close(); void newSeason(series); }}>
+              <button type="button" role="menuitem" onClick={() => { close(); void newSeason(series.id); }}>
                 <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni sezon (ilk bölümüyle)</span>
               </button>
             )}
@@ -203,7 +133,7 @@ export function Breadcrumb({ onRemove }: { onRemove: () => void }) {
             <button type="button" role="menuitem" onClick={() => setForm("episode")}>
               <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni bölüm…</span>
             </button>
-            <button type="button" role="menuitem" className="danger" onClick={() => { close(); onRemove(); }}>
+            <button type="button" role="menuitem" className="danger" onClick={() => { close(); void remove(); }}>
               <span className="mi-ck"><Icon.trash /></span><span className="mi-t">Bölümü sil…</span>
             </button>
           </>
