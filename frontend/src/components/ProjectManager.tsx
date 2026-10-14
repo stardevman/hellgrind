@@ -1,7 +1,7 @@
 "use client";
-/* Proje yöneticisi (Resolve'daki gibi, alt çubuğun solundaki ev simgesiyle açılır): diziler sezon sezon, bağımsız filmler
+/* Proje yöneticisi (Resolve'daki gibi, alt banttaki ev simgesiyle açılır): diziler sezon sezon, bağımsız filmler
    ve "Yeni film" kartı. Kartta durum, harcanan / limit ve teslim kilidi görünür; açık projenin kartında ilk hazır çekimin
-   karesi durur. Yeni dizi, sezon ve bölüm üst banttaki Dizi › Sezon › Bölüm menülerinden açılır. */
+   karesi durur. Yeni dizi, sezon ve bölüm alt banttaki Dizi › Sezon › Bölüm menülerinden açılır. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
@@ -76,7 +76,7 @@ export function ProjectManager({ onClose }: { onClose: () => void }) {
               {loose.map((p) => <Card key={p.id} p={p} sub="Bağımsız film" on={p.id === projectId} thumb={p.id === projectId ? thumb : null} pick={() => open(p.id)} />)}
             </div>
           </section>
-          <p className="faint small">Yeni dizi, sezon ve bölüm üst banttaki Dizi › Sezon › Bölüm menülerinden açılır. Teslim edilmiş bölümler “Sürüm sabit” rozetiyle görünür.</p>
+          <p className="faint small">Yeni dizi, sezon ve bölüm alt banttaki Dizi › Sezon › Bölüm menülerinden açılır. Teslim edilmiş bölümler “Sürüm sabit” rozetiyle görünür.</p>
         </div>
       </div>
     </div>

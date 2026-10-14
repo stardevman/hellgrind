@@ -46,7 +46,7 @@ function Controls({ sc, values, setValues, numeric }: {
         );
       })}
       <p className="faint tiny">Kaydırıcıya çift tıklamak o ayarı nötre döndürür.</p>
-      {frozen && <div className="note err">Üretim durduruldu (Kill-Switch): renk uygulanamaz. Önce üst banttaki <b>Üretime devam et</b> düğmesine basın.</div>}
+      {frozen && <div className="note err">Üretim durduruldu (Kill-Switch): renk uygulanamaz. Önce alt banttaki <b>Üretime devam et</b> düğmesine basın.</div>}
       <div className="row">
         <button className="btn primary" type="submit" disabled={busy || frozen}>Rengi uygula</button>
         <button className="btn" type="button" disabled={busy || frozen} onClick={() => apply({}, "Nötr renk. ")}>Nötre dön</button>

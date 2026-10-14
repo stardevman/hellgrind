@@ -1,5 +1,5 @@
 "use client";
-/* Yapılacaklar (üst bant): eksik işler, çözüldükleri sayfaya göre gruplanmış bir açılır listedir; maddeye tıklamak o
+/* Yapılacaklar (alt bant): eksik işler, çözüldükleri sayfaya göre gruplanmış bir açılır listedir; maddeye tıklamak o
    sayfayı açar. Altında müşteri onay kapıları (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul) durur. Sıra
    dayatmaz: dört üretim grubu yalnızca arka planda eksikleri hesaplar (lib/steps.ts). */
 import { useCallback, useMemo, useRef, useState } from "react";

@@ -45,12 +45,15 @@ describe("design contract", () => {
     expect(CSS).toContain(".strip .gap");                 // test turu ile tam tur arasındaki ayraç
   });
 
-  it("lays the frame out like Resolve: top bar, workspace, page bar; the old step rail is gone", () => {
-    expect(CSS).toMatch(/\.app \{[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto/);
-    for (const sel of [".topbar", ".tb-c", ".pagebar", ".pb-btn", ".pg[aria-current=\"page\"]", ".pg:disabled", ".pg .badge", ".pg .pdot",
+  it("keeps every control in one bottom dock with small page icons and upward menus; the old step rail is gone", () => {
+    expect(CSS).toMatch(/\.app \{[^}]*grid-template-rows: minmax\(0, 1fr\) auto/);
+    expect(CSS).toMatch(/\.dock \.menu \{[^}]*bottom: calc\(100% \+ 6px\)/);
+    expect(CSS).toMatch(/\.pg-i svg \{ width: 16px/);
+    expect(CSS).not.toContain(".topbar");
+    for (const sel of [".dock", ".pagebar", ".pb-l", ".pb-c", ".pb-r", ".pb-btn", ".pg[aria-current=\"page\"]", ".pg:disabled", ".pg .badge", ".pg .pdot",
       ".todos-btn", ".todos-pop", ".td-item", ".td-ok", ".gchip", ".pm-card", ".pm-card.new", ".budget-chip",
       'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
-    for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".dock", ".appbar"]) expect(CSS).not.toContain(sel);
+    for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".appbar"]) expect(CSS).not.toContain(sel);
   });
 });
 

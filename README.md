@@ -62,12 +62,13 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 
 ## Kullanım
 
-Panel DaVinci Resolve'un düzenini izler. **Üst bant:** solda logo, ortada proje (dizi bölümüyse `Dizi › Sezon › Bölüm`
-kırıntısı; her parça kendi menüsünü açar), sağda **Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve
-yumuşak sınır) ve üretimi durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister). **Alt sayfa çubuğu:** solda
-**Proje yöneticisi** (ev simgesi: diziler sezon sezon, bağımsız filmler, "Yeni film" kartı), ortada simgeli sayfalar, sağda
-**Ayarlar** (dişli). Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil, Varlıklar, Storyboard, Kurgu, (yönetici
-modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>). Her sayfa her an açılır; yalnızca çekim
+Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır**. Solda
+logo, **Proje yöneticisi** (ev simgesi: diziler sezon sezon, bağımsız filmler, "Yeni film" kartı) ve proje (dizi bölümüyse
+`Dizi › Sezon › Bölüm` kırıntısı; her parça kendi menüsünü yukarı açar). Ortada küçük simgeli sayfalar; sağda
+**Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), üretimi durdurma / devam ettirme
+simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli). Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
+Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>). Her
+sayfa her an açılır; yalnızca çekim
 gerektirenler senaryo işlenene dek kapalıdır. Simgenin köşesindeki rozet sayfanın özetidir (kilitli varlık, onaylı kare,
 hazır ya da engelli çekim, renk sıçraması, film); nokta o sayfada bekleyen bir iş olduğunu söyler (kırmızı engelleyici,
 amber uyarı, gri sıradan).
@@ -83,10 +84,10 @@ olarak durur. Eksikler arka planda dört üretim grubuna göre hesaplanır (`fro
 | Üretim | Kurgu, Karşılaştır | engelli, plan onayı ya da inceleme bekleyen çekim; bitmemiş çekim; çözülmemiş müşteri notu |
 | Bitirme | Renk, Teslim | renk sıçraması; birleştirilmemiş film; kalan QC kontrolü; eksik hak zinciri belgesi |
 
-Sayfa çubuğunun sağındaki **Ayarlar** düğmesi herkese açıktır; Ayarlar'ın **Kullanıcı ve yönetici** bölümü modu seçer. **Kullanıcı modu** son kullanıcı içindir: her sayfada yalnızca
+Alt bandın sağındaki **Ayarlar** düğmesi herkese açıktır; Ayarlar'ın **Kullanıcı ve yönetici** bölümü modu seçer. **Kullanıcı modu** son kullanıcı içindir: her sayfada yalnızca
 filmi yapmak için gerekenler (senaryo, varlık onayı, storyboard, kurgu, renk, teslim, bütçe ve **Üretimi durdur**) kalır.
 **Yönetici modu** bütün ayrıntıları açar: **Ayarlar** (ücretli servisler, anahtarlar, model ve uç noktalar, çalışma modu,
-fiyat tablosu), **Geçmiş** (servis çağrıları ve harcama, üst banttaki makbuz simgesi), mod ve kalite skoru rozetleri, motor ve plan ayrıntıları, üretim
+fiyat tablosu), **Geçmiş** (servis çağrıları ve harcama, alt banttaki makbuz simgesi), mod ve kalite skoru rozetleri, motor ve plan ayrıntıları, üretim
 yoğunluğu ve tahmini maliyet, Seedance tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası.
 
 Yönetici modu `.env`'deki `ADMIN_PASSWORD` ile korunur: tanımlıysa **Yönetici** seçeneği şifre sorar ve Ayarlar ile Geçmiş uçları
@@ -162,7 +163,7 @@ aynı görünüm açılır.
    şeridinde sıçramalar kırmızı çentikle işaretlidir. Üretim durdurulmuşken renk uygulanamaz; sayfa bunu söyler.
 8. **Teslim** sayfası: **Tamamlanan N sahneyi birleştir** (ya da kaba kurgu), film ve kesme şeridi; dışa aktarma kuyruğu (EDL,
    OpenTimelineIO, çekim paketi, storyboard PDF'i, kürasyon kaydı) ve verimlilik raporu.
-9. Üst banttaki **Üretimi durdur** simgesi Kill-Switch'tir (önce onay sorar): kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**
+9. Alt banttaki **Üretimi durdur** simgesi Kill-Switch'tir (önce onay sorar): kuyruktaki işler iptal olur, yeni iş başlamaz. **Üretime devam et**
    kaldığı yerden sürdürür; tamamlanmış klipler yeniden üretilmez ve yeniden ücretlendirilmez.
 
 API'yi doğrudan da kullanabilirsiniz:
@@ -425,7 +426,7 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 
 Tasarım notu: [docs/dizi-hiyerarsisi.md](docs/dizi-hiyerarsisi.md). **Bölüm, bugünkü projedir:** bütçe, Kill-Switch, sürümler (v001…), müşteri kapıları, teslim ve kürasyon kaydı bölüm başına çalışır. Sezonu olmayan proje bağımsız film olarak kalır.
 
-- **Kırıntı yolu** (üst bandın ortası): `Dizi › Sezon 1 › Bölüm 3`. Her parça kendi menüsünü açar; Proje yöneticisi (alt çubuğun solundaki ev) aynı ağacı kart kart gösterir.
+- **Kırıntı yolu** (alt bandın solu): `Dizi › Sezon 1 › Bölüm 3`. Her parça kendi menüsünü yukarı açar; Proje yöneticisi (yanındaki ev simgesi) aynı ağacı kart kart gösterir.
   - Dizi menüsü: diziler (ilk bölüme gider), bağımsız filmler, "Yeni dizi…" (ilk sezonu ve 1. bölümüyle açılır) ve bağımsız filmi bir diziye bölüm olarak ekleme.
   - Sezon menüsü: sezonlar ve "Yeni sezon". Bölüm menüsü: numara, ad, durum ve teslim rozeti; "Yeni bölüm…".
   - URL'de yalnızca `?p=<bölüm>` kalır; dizi ve sezon bölümden türetilir.
@@ -456,7 +457,7 @@ Tasarım notu: [docs/dizi-hiyerarsisi.md](docs/dizi-hiyerarsisi.md). **Bölüm, 
 ## Servis geçmişi (panelin Geçmiş sayfası)
 
 Ücretli servislere yapılan her çağrı ayrıntılı bir kayıt bırakır; ücretsiz modda aynı iş, ücretli modda harcanacak tutarla
-**sanal** olarak kaydedilir. Yönetici modunda üst banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
+**sanal** olarak kaydedilir. Yönetici modunda alt banttaki **Geçmiş** düğmesi (ya da Ayarlar'daki servis sayfasından **Geçmiş**) açar:
 
 - **Çağrılar:** zaman, işlem (video üretimi, ilk kare, storyboard karesi, varlık referansı, hareket testi, previs rehberinden
   video, düzenlenmiş kareden video, dudak senkronu, diyalog seslendirme, senaryo ayrıştırma), proje ve çekim ya da varlık,
@@ -477,7 +478,7 @@ işaretlenir. API: `GET /api/history`, `GET /api/history/summary`, `GET /api/his
 
 ## Ücretli servisler (panelin Ayarlar sayfası)
 
-Sayfa çubuğundaki **Ayarlar** düğmesi (ya da üst banttaki mod rozeti) yönetici modunda bütün ücretli servisleri tek yerde gösterir ve düzenletir:
+Alt banttaki **Ayarlar** düğmesi (ya da mod rozeti) yönetici modunda bütün ücretli servisleri tek yerde gösterir ve düzenletir:
 
 - **Servisler:** MiniMax H3 · vast.ai (video; kendi GPU sunucunuz), fal.ai (isteğe bağlı: Seedance, Flux kareleri, previs
   aktarımı, dudak senkronu), ElevenLabs (seslendirme) ve Anthropic (Hermes LLM). Her biri için anahtarın durumu (yalnızca maskeli: son 4 hane), **Bağlantıyı sına**, model ve uç nokta kimlikleri
@@ -1257,7 +1258,7 @@ comfy-workflows/               MiniMax H3 ComfyUI iş akışları: i2v, r2v, key
                                exported/: dışa aktarılan hâller ve make_templates.py), panel yazar
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (üst bant), PageBar (sayfa çubuğu), Todos (yapılacaklar), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (alt bant), PageBar (sayfa menüsü), Todos (yapılacaklar), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi

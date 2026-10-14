@@ -255,10 +255,10 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 **Panel** (`/` adresi `/panel/` adresine yönlenir; 2 saniyede bir overview çeker). İlk sürüm tek HTML dosyasıydı; Next.js'e
 geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: üretim sırasıyla sayfalar (Senaryo, Ses,
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
-açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: **üst bant** (solda logo ve
-yönetici rozetleri, ortada `Dizi › Sezon › Bölüm` kırıntısı, sağda **Yapılacaklar**, bütçe çipi, Geçmiş ve durdurma
-düğmesi; altında uyarılar), ortada çalışma alanı, altta **sayfa çubuğu** (`PageBar`: solda **Proje yöneticisi** ev simgesi,
-ortada simgeli sayfalar, sağda Ayarlar dişlisi). Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
+açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
+solda logo, **Proje yöneticisi** ev simgesi, `Dizi › Sezon › Bölüm` kırıntısı ve yönetici rozetleri; ortada küçük simgeli
+sayfa menüsü (`Pages`); sağda **Yapılacaklar**, bütçe çipi, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi. Uyarılar bandın
+hemen üstünde, menüler yukarı açılır. Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
 çekim gerektirenler senaryo işlenene dek kapalıdır; simgenin köşesindeki rozet sayfanın özetidir, nokta bekleyen iş olduğunu
 söyler. Eksikler arka planda dört üretim grubuna göre hesaplanır (`lib/steps.ts`: hazırlık, onay, üretim, bitirme) ama
 panelde adım olarak gösterilmez; **Yapılacaklar** (`Todos`) onları çözüldükleri sayfaya göre listeler ve altında müşteri
@@ -270,7 +270,7 @@ rozetleri, motor ve plan ayrıntıları, tamamlama ve upscale, elle düzeltme ve
 ister (`app/admin.py`); şifre panelden yazılamaz. **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
 bağlı tur (`lib/tour.ts`, `components/Tour.tsx`). Denetçi üç sekmedir: Çekim, Ses, Üretim. İşlevler ve metinler aşağıdaki
 gibidir:
-- **Üst bant:** marka, proje kırıntısı, "Yeni proje" (kırıntı menüsü ve Proje yöneticisi) ve (yönetici modunda) "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
+- **Alt bant:** marka, proje kırıntısı, "Yeni proje" (kırıntı menüsü ve Proje yöneticisi) ve (yönetici modunda) "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
 - **Bütçe rayı:** harcanan ve ayrılan tutar; "Üretimi durdur" ve "Üretime devam et" düğmeleri; dondurulmuşsa uyarı bandı.
 - **Sahne satırları:** kod, durum, açıklama, **film şeridi** ve harcama.
   - Şeritte test turu karelerinden sonra tam tur kareleri gelir.

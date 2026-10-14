@@ -1,7 +1,8 @@
 "use client";
-/* Stüdyo çerçevesi, DaVinci Resolve düzeninde: üstte araç bandı (solda logo, ortada Dizi › Sezon › Bölüm, sağda
-   Yapılacaklar, bütçe ve durdurma düğmesi; altında uyarılar), ortada etkin sayfa, altta sayfa çubuğu (solda Proje
-   yöneticisi, ortada simgeli sayfa menüsü, sağda Ayarlar). Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
+/* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
+   gibi): solda logo, Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı; ortada küçük simgeli sayfa menüsü; sağda
+   Yapılacaklar, bütçe, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar. Uyarılar bandın hemen üstünde, menüler yukarı
+   açılır. Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
    yapmak için gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici
    modundadır (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
@@ -21,7 +22,7 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { PageBar } from "./PageBar";
+import { Pages } from "./PageBar";
 import { ProjectManager } from "./ProjectManager";
 import { Todos } from "./Todos";
 import { StylePage } from "./StylePage";
@@ -77,7 +78,7 @@ function BudgetChip() {
   );
 }
 
-function TopBar() {
+function Dock({ hasShots, onHome }: { hasShots: boolean; onHome: () => void }) {
   const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
@@ -91,10 +92,14 @@ function TopBar() {
     if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
   };
   return (
-    <header className="topbar">
-      <div className="tb-main">
-        <div className="tb-l">
+    <footer className="dock">
+      <Alerts />
+      <div className="pagebar">
+        <div className="pb-l">
           <div className="logo" title="Hell Grind Stüdyo"><Icon.logo /><span>Hell Grind</span></div>
+          <button type="button" className="pb-btn" onClick={onHome} aria-label="Proje yöneticisi" data-tour="home"
+            title="Proje yöneticisi: diziler, bölümler ve bağımsız filmler; yeni proje"><Icon.home /></button>
+          <Breadcrumb onRemove={remove} />
           {admin && (
             <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
               title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
@@ -110,12 +115,12 @@ function TopBar() {
             </span>
           )}
         </div>
-        <div className="tb-c"><Breadcrumb onRemove={remove} /></div>
-        <div className="tb-r">
+        <Pages hasShots={hasShots} />
+        <div className="pb-r">
           <Todos />
           <BudgetChip />
           {admin && (
-            <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
+            <button type="button" className="pb-btn" aria-current={page === "history" ? "page" : undefined}
               onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
               title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
           )}
@@ -125,17 +130,19 @@ function TopBar() {
             </span>
           )}
           {ov && (
-            <button type="button" className={`btn ghost icon-only kill-ico${frozen ? " resume" : ""}`} onClick={frozen ? kill : () => setConfirmStop(true)}
+            <button type="button" className={`pb-btn kill-ico${frozen ? " resume" : ""}`} onClick={frozen ? kill : () => setConfirmStop(true)}
               aria-label={frozen ? "Üretime devam et" : "Üretimi durdur"}
               title={frozen ? "Üretime devam et: kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Üretimi durdur: önce onay sorulur"}>
               {frozen ? <Icon.play /> : <Icon.stop />}
             </button>
           )}
+          <button type="button" className="pb-btn" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
+            aria-label="Ayarlar" data-tour="settings"
+            title={admin ? "Ayarlar: kullanıcı / yönetici seçimi, ücretli servisler, mod ve fiyat tablosu" : "Ayarlar: kullanıcı / yönetici seçimi"}><Icon.gear /></button>
         </div>
       </div>
-      <Alerts />
       {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
-    </header>
+    </footer>
   );
 }
 
@@ -320,12 +327,11 @@ export function AppFrame() {
   const View = target === "history" && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
   return (
     <div className="app">
-      <TopBar />
       <main className="workspace">
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
-      <PageBar hasShots={hasShots} onHome={() => setManager(true)} />
+      <Dock hasShots={hasShots} onHome={() => setManager(true)} />
       {manager && <ProjectManager onClose={closeManager} />}
       <Tour />
       <AdminLogin />
