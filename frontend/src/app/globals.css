@@ -760,7 +760,6 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 /* Orta genişlik: alt bant sığsın diye Yapılacaklar yalnızca simge ve sayaç, logo yalnızca simge olur. */
 @media (max-width: 1480px) {
   .todos-btn .td-l { display: none; }
-  .logo span { display: none; }
   .crumbs .crumb .switch-btn { max-width: 200px; }
   .sw-status { display: none; }
 }

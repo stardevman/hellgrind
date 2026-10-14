@@ -63,7 +63,7 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 ## Kullanım
 
 Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır**. Solda
-logo ve proje (dizi bölümüyse `Dizi › Sezon › Bölüm` kırıntısı). Proje ya da dizi adına tıklamak **Proje yöneticisini**
+ev simgesi ve proje (dizi bölümüyse `Dizi › Sezon › Bölüm` kırıntısı). Ev simgesi ya da proje adı **Proje yöneticisini**
 açar (diziler sezon sezon, bağımsız filmler, "Yeni film", "Yeni dizi", sezon başına "Yeni bölüm", açık projeyi diziye
 bağlama ve silme); hiç proje yokken bu ekran kendiliğinden açılır. Sezon ve bölüm parçaları kendi menülerini yukarı açar. Ortada küçük simgeli sayfalar; sağda
 **Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), üretimi durdurma / devam ettirme

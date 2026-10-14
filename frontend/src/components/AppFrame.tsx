@@ -1,6 +1,6 @@
 "use client";
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
-   gibi): solda logo ve Dizi › Sezon › Bölüm kırıntısı (proje adı Proje yöneticisini açar; proje hiç yokken yönetici
+   gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
    kendiliğinden açılır); ortada küçük simgeli sayfa menüsü; sağda
    Yapılacaklar, bütçe, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar. Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
@@ -91,7 +91,8 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
       <Alerts />
       <div className="pagebar">
         <div className="pb-l">
-          <div className="logo" title="Hell Grind Stüdyo"><Icon.logo /><span>Hell Grind</span></div>
+          <button type="button" className="pb-btn" onClick={onManager} aria-label="Proje yöneticisi" data-tour="home"
+            title="Proje yöneticisi: diziler, bölümler ve bağımsız filmler; yeni proje"><Icon.home /></button>
           <Breadcrumb onOpenManager={onManager} />
           {admin && (
             <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}

@@ -256,7 +256,7 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: üretim sırasıyla sayfalar (Senaryo, Ses,
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
-solda logo, `Dizi › Sezon › Bölüm` kırıntısı (proje ya da dizi adı **Proje yöneticisini** açar; proje hiç yokken
+solda ev simgesi ve `Dizi › Sezon › Bölüm` kırıntısı (ikisi de **Proje yöneticisini** açar; proje hiç yokken
 yönetici kendiliğinden açılır ve kapatılamaz) ve yönetici rozetleri; ortada küçük simgeli
 sayfa menüsü (`Pages`); sağda **Yapılacaklar**, bütçe çipi, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi. Uyarılar bandın
 hemen üstünde, menüler yukarı açılır. Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
