@@ -374,6 +374,34 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
   - Her turun sanal maliyeti, önceki gönderimden bu yana yapılan harcamadır.
 - **Kürasyon kaydı:** `client_note`, `client_approve`, `client_reject`, ayrıca `client_send`, `review_link`, `review_link_revoke`, `client_note_resolve`.
 
+### Teslim şartnamesi, QC ve hak zinciri (Teslim › Teslim)
+
+- **Teslim şartnamesi:**
+  - Seçenekler: çözünürlük (1280×720 / 1920×1080 / 3840×2160), kare hızı (23,976 / 24 / 25), master kodeği (H.264 / ProRes 422 HQ), loudness hedefi (LUFS), altyazı (SRT), M&E mix ve yazısız sürüm.
+  - Hazır ayarlar: "TV (Türkiye, 25 fps)" (1080p, 25, ProRes, -23 LUFS), "Web" (1080p, 24, H.264, -14 LUFS), "Platform (yüksek)" (2160p, 23,976, ProRes, -27 LUFS).
+  - Kayıt: `PUT /api/projects/{id}/delivery` (`projects.delivery`, migration 033).
+  - Final film bir sonraki birleştirmede bu biçimle çıkar: `post/timeline.py` çözünürlüğü, kare hızını ve loudness hedefini şartnameden alır, EDL/OTIO zaman tabanı da ona uyar.
+  - Şartname yoksa eski sabitler (1280×720 ya da upscale edilmişse 1080p, 24 fps) sürer; mevcut filmler yeniden birleşmez.
+- **QC raporu** (`POST /api/projects/{id}/qc`, final film üzerinde, yerel FFmpeg). Her kontrol geçti/kaldı ve zaman koduyla listelenir:
+  - Siyah kare: `blackdetect`.
+  - Donma: `freezedetect`.
+  - Loudness: `ebur128`; entegre değer hedefin ±1 LU içinde, gerçek tepe ≤ -1 dBTP.
+  - Fotosensitif: tam ekran ortalama parlaklıkta en az %10'luk zıt iki değişim bir parlama sayılır; herhangi bir saniyede 3'ten fazlası kalır. Harding / ITU-R BT.1702'nin yaklaşık karşılığıdır.
+  - Çizgi titremesi: art arda üç karede açık-kapalı-açık salınan kenar piksellerinin payı yarım saniye boyunca %25'i aşarsa şüphe. Son karar gözle verilir.
+  - PDF olarak indirilir (`GET /api/projects/{id}/qc.pdf`).
+  - Kalan kontroller Kurgu zaman çizelgesinde "QC Kontrol" izinde kırmızı işaretçi olarak görünür.
+- **Paket içeriği:** dosya listesi önce gösterilir:
+  - master (`master.mov` ProRes ya da `master.mp4`) ve izleme kopyası (H.264, 720p);
+  - stem'ler (diyalog, müzik, efekt) ve M&E;
+  - `altyazi.srt` (replikler, ölçülen sesin süresiyle) ve yazısız sürüm;
+  - EDL/OTIO ve QC raporu;
+  - hak zinciri belgeleri, yapay zekâ beyanı, gerekirse `MINIMAX_H3.txt` ve `BENIOKU.txt`.
+  - "Paketi oluştur" (`POST /api/projects/{id}/delivery/package`) zip'i yerel olarak kurar; QC güncel değilse önce QC çalışır.
+- **Hak zinciri:** senaryo hak devri, ses oyuncusu sözleşmesi/rızası, müzik lisansı, model kullanım koşulları.
+  - Her madde için belge yüklenebilir (`POST /api/projects/{id}/rights/{madde}?filename=…`).
+  - **Yapay zekâ kullanım beyanı** servis geçmişinden otomatik üretilen tablodur: çekim, motor, işlem, tarih, mod (`GET /api/projects/{id}/rights/ai-declaration?format=csv`).
+  - Eksik madde varken "Paketi oluştur" uyarır ama engellemez; eksikler pakette `BENIOKU.txt`'de işaretlenir. "Sıradaki" şeridi eksik belgeleri ve kalan QC kontrollerini gösterir.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.

@@ -445,6 +445,51 @@ def assemble_animatic(project_id: str):
     return result
 
 
+@celery.task(name="hg.qc")
+def qc_task(project_id: str):
+    """QC raporu: final film üzerinde siyah, donma, loudness, fotosensitif, çizgi titremesi (yerel FFmpeg)."""
+    import datetime as dt
+    import json
+    import os
+    import tempfile
+    from app import storage
+    from app.config import settings
+    from app.db import session_scope
+    from app.models import Project
+    from app.post import delivery
+    with session_scope() as s:
+        p = s.get(Project, project_id)
+        key, spec = p.timeline_key, delivery.spec_of(p)
+    if not key:
+        return {"error": "film yok"}
+    cut = json.loads(storage.read_bytes(key[:-4] + ".json"))
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        report = delivery.run_qc(storage.download(key, os.path.join(tmp, "film.mp4")), spec, cut)
+    report.update(film_key=key, checked_at=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+    with session_scope() as s:
+        s.get(Project, project_id).qc = report
+    killswitch.event(project_id, "qc", passed=report["passed"],
+                     failed=[c["name"] for c in report["checks"] if not c["passed"]])
+    return {"passed": report["passed"]}
+
+
+@celery.task(name="hg.delivery_package")
+def delivery_package(project_id: str):
+    """Teslim paketi (zip): master, izleme kopyası, stem'ler, M&E, SRT, EDL/OTIO, QC raporu, hak zinciri."""
+    from app.post import delivery
+    try:
+        result = delivery.build(project_id)
+    except Exception as e:
+        killswitch.event(project_id, "delivery_failed", error=f"{type(e).__name__}: {e}")
+        raise
+    if "error" in result:
+        killswitch.event(project_id, "delivery_failed", error=result["error"])
+    else:
+        killswitch.event(project_id, "delivery_package", files=len(result["files"]), qc_passed=result["qc_passed"])
+    return result
+
+
 # ---------- sahne istemi yazıcı ----------
 
 @celery.task(name="hg.write_prompt")

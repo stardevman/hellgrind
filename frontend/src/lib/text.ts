@@ -343,6 +343,10 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     };
     case "grade_changed": return { t: `${x.code}: renk ayarı değişti` };
     case "lut_changed": return { t: x.removed ? "Film LUT'u kaldırıldı" : `Film LUT'u yüklendi (${x.name})` };
+    case "delivery_spec": return { t: `Teslim şartnamesi: ${String(x.resolution).replace("x", "×")}, ${x.fps} fps` };
+    case "qc": return x.passed ? { t: "QC raporu: bütün kontroller geçti", c: "good" } : { t: `QC raporu: ${(x.failed as string[]).join(", ")} kaldı`, c: "bad" };
+    case "delivery_package": return { t: `Teslim paketi hazır (${x.files} dosya${x.qc_passed ? "" : ", QC kaldı"})`, c: "good" };
+    case "delivery_failed": return { t: `Teslim paketi oluşturulamadı: ${x.error}`, c: "bad" };
     case "version_sent": return { t: `Müşteriye sürüm hazırlandı: ${x.label}` };
     case "client_note": return { t: `Müşteri notu (${x.label}${x.code ? ` · ${x.code}` : ""})` };
     case "client_decision": return x.status === "approved" ? { t: `Müşteri ${x.label} sürümünü onayladı`, c: "good" } : { t: `Müşteri ${x.label} için değişiklik istedi`, c: "bad" };

@@ -374,6 +374,8 @@ export interface Overview {
   animatic?: Film | null;
   /** Müşteri onay döngüsü özeti: kapılar (adım çubuğu çipleri) ve müşteri notları (Kurgu işaretçileri). */
   client?: { gates: ClientGateSummary[]; notes: ClientNote[] };
+  /** Teslim özeti: şartname var mı, QC sonucu ve sorunları (Kurgu işaretçileri), eksik hak zinciri maddeleri. */
+  delivery?: DeliverySummary;
 }
 
 /* ---------- varlıklar ---------- */
@@ -709,4 +711,32 @@ export interface ReviewState {
   title: string; label: string; gate: string; gate_tr: string; status: string; video_url: string; expires_at: number;
   sent_at: number | null; clips: { scene_code: string; in_s: number; out_s: number }[];
   notes: { id: string; at_s: number | null; scene_code: string | null; text: string; created_at: number | null }[];
+}
+
+/* ---------- teslim: şartname, QC, paket, hak zinciri ---------- */
+
+export interface DeliverySpec {
+  resolution: string; fps: string; codec: string; loudness_lufs: number; srt: boolean; me_mix: boolean; textless: boolean;
+  preset: string | null;
+}
+export interface QcIssue { start: number; end: number; tc: string; scene_code: string | null; detail: string }
+export interface QcCheck { id: string; name: string; passed: boolean; summary: string; issues: QcIssue[] }
+export interface QcReport {
+  duration_s: number; fps: number; target_lufs: number; passed: boolean; checks: QcCheck[]; film_key: string; checked_at: string;
+  stale?: boolean;
+}
+export interface RightsFile { id: string; filename: string; note: string | null; url: string; created_at: number | null }
+export interface RightsKind { kind: string; label: string; files: RightsFile[]; auto?: boolean; rows?: number }
+export interface PackageFile { path: string; label: string; ready: boolean }
+/** GET /projects/{id}/delivery. */
+export interface DeliveryState {
+  spec: DeliverySpec; custom: boolean; presets: Record<string, Partial<DeliverySpec> & { label: string }>;
+  options: { resolution: string[]; fps: string[]; codec: Record<string, string> };
+  film: { key: string | null; url: string | null }; qc: QcReport | null;
+  rights: { items: RightsKind[]; missing: string[]; ai_rows: number };
+  package: { files: PackageFile[]; url: string | null };
+}
+export interface DeliverySummary {
+  spec: boolean; package: boolean; rights_missing: string[];
+  qc: { passed: boolean; stale: boolean; failed: string[]; issues: (QcIssue & { check: string; name: string })[] } | null;
 }

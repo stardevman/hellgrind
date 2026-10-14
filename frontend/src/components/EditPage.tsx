@@ -12,6 +12,7 @@ import { pickMedia, posterOf } from "@/lib/media";
 import { readFlag, usePanel, writeFlag } from "@/lib/panel";
 import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text";
 import { noteAt } from "@/lib/client";
+import { qcMarks } from "@/lib/delivery";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
 import { Icon } from "./icons";
@@ -470,6 +471,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
   };
   const hasFx = lay.effects.length > 0;
   const marks = (ov.client?.notes ?? []).map((n) => ({ n, t: noteAt(n, lay.shots) })).filter((m): m is { n: typeof m.n; t: number } => m.t != null);
+  const qcs = qcMarks(ov.delivery, ov.timeline?.cut?.clips ?? [], lay.shots);
   return (
     <section className="pnl tl" aria-label="Zaman çizelgesi">
       <header className="pnl-h">
@@ -494,6 +496,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
           <div className="h-aud"><b>A2</b>Müzik</div>
           {hasFx && <div className="h-aud"><b>A3</b>Efekt</div>}
           {marks.length > 0 && <div className="h-aud" title="Müşteri notları: ilgili çekimin üstünde"><b>MN</b>Müşteri</div>}
+          {qcs.length > 0 && <div className="h-aud" title="QC raporunda kalan kontroller (final film)"><b>QC</b>Kontrol</div>}
         </div>
         <div className="tl-scroll" ref={scroller}>
           <div className="tl-canvas" style={{ width: total }}>
@@ -537,6 +540,14 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
                   <button key={n.id} type="button" className={`cmark${n.resolved ? " done" : ""}`} style={{ left: x(t) }}
                     title={`${n.label ?? ""} ${n.scene_code ?? ""} · ${n.text}${n.resolved ? " (çözüldü)" : ""}`} aria-label={`Müşteri notu: ${n.text}`}
                     onClick={() => onRuler(t)} />
+                ))}
+              </div>
+            )}
+            {qcs.length > 0 && (
+              <div className="trk aud notes">
+                {qcs.map((q) => (
+                  <button key={q.key} type="button" className="cmark qc" style={{ left: x(q.t) }} title={`QC · ${q.name}: ${q.detail} (${q.tc})`}
+                    aria-label={`QC sorunu: ${q.name}`} onClick={() => onRuler(q.t)} />
                 ))}
               </div>
             )}

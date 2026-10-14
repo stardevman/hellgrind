@@ -476,6 +476,18 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .trk.notes { position: relative; }
 .cmark { position: absolute; top: 4px; width: 10px; height: 16px; margin-left: -5px; padding: 0; border: 0; background: var(--warn); clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%); cursor: pointer; }
 .cmark.done { background: var(--ok); opacity: .6; }
+.cmark.qc { background: var(--bad); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+/* Teslim › Teslim: QC listesi, paket içeriği, hak zinciri. */
+.delivery .qc, .delivery .pkg, .delivery .rights { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.delivery .qc li { display: grid; gap: 2px; padding: 6px 8px; border-radius: var(--r); background: var(--raised); }
+.delivery .qc li.bad { box-shadow: inset 3px 0 0 var(--bad); } .delivery .qc li.ok { box-shadow: inset 3px 0 0 var(--ok); }
+.qc-h { display: flex; align-items: center; gap: 6px; }
+.qc-h svg { width: 13px; height: 13px; color: var(--ok); } .qc-h .x { color: var(--bad); font-size: 11px; }
+.qc-i { color: var(--text-2); padding-left: 19px; }
+.delivery .pkg li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.delivery .pkg li.missing .mono { color: var(--warn); }
+.delivery .rights li { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); display: grid; gap: 4px; }
+.delivery .rights li.missing { border-color: rgba(243, 180, 67, .4); }
 .cmark:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cnotes { list-style: none; margin: 0; padding: 0; }
 .bin .pnl-tabs { overflow-x: auto; scrollbar-width: none; }

@@ -37,7 +37,7 @@ from app.engine.storyboard import chain_enabled, clean_key, parent_token
 from app.hermes import lint
 from app.style import bible
 from app.models import Asset, AudioTrack, Character, Revision, Scene, SceneAsset, SceneCharacter, Variation
-from app.post import voice
+from app.post import delivery, voice
 from app.schemas import EstimateIn, ScriptIn
 
 router = APIRouter(tags=["panel"])
@@ -68,7 +68,7 @@ Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
-                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/", "animatic/")
+                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/", "animatic/", "delivery/", "rights/")
 MUTABLE_PREFIXES = ("storyboard/",)             # içerik-adresli değil: yeniden çizim aynı anahtara yazar
 EVENT_LIMIT = 30
 
@@ -402,6 +402,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                                                    .group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
         "draft_timeline": draft_timeline, "animatic": animatic, "client": review.summary(s, project_id),
+        "delivery": delivery.overview(s, p),
     }
 
 

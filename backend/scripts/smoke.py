@@ -26,6 +26,8 @@ Kontroller:
      görüntü üretilmez; kilit süreyi sesten hesaplar ve replik düzenlemeyi kapatır; animatik sesle birleşir
   L. Müşteri onay döngüsü: film v001 olarak gönderilir; belirteçli sayfa bütçe ve motor göstermez; not çekime bağlanır;
      değişiklik isteği revizyon turudur; v002 onaylanır; kapatılan bağlantı 410 döner; kararlar kürasyon kaydında
+  E. Teslim: şartname (TV, 25 fps, -23 LUFS) final filmi besler; QC raporu 5 kontrolle ve PDF; eksik hak zinciri paketi
+     engellemez; paket master (ProRes), izleme kopyası, stem'ler, M&E, SRT, EDL, QC raporu ve hak zincirini içerir
   C. Renk değişince yalnızca GRADE ve MUX çalışır; bilerek farklı renklendirilen çekim süreklilik uyarısı üretir, önerilen
      düzeltme uygulanınca uyarı kalkar (Faz 16)
   K. Kürasyon kayıtları, metrikler ve dışa aktarma (Faz 17): her panel eylemi bir kürasyon olayı üretir; metrikler
@@ -372,6 +374,7 @@ def main() -> int:
     check_client_review(pid)
     check_curation_and_exports(pid)
     check_history(pid)
+    check_delivery(pid)                             # şartnameyi 25 fps'e çeker: EDL denetiminden (K) sonra
 
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
@@ -761,7 +764,10 @@ def check_voice_first(meta: dict) -> None:
     r = c.post(f"/projects/{pid}/render-all").json()
     check(all("VISUAL" in r["planned"][k] for k in rest) and not r["awaiting_voice"], "bütün sekanslar kilitlenince kalan çekimler üretime girdi")
     ov = wait_scenes(pid)
-    check(all(x["status"] == "done" for x in ov["scenes"]), "sesten süreli çekimler üretildi")
+    # Ücretsiz modun kalite kapısı rastgeledir (şanssız bir seed kümesi needs_review bırakabilir): ölçülen, görüntü
+    # motorunun kilitten sonra her çekimde çalışmasıdır.
+    check(all(x["variations"] and x["status"] in ("done", "needs_review") for x in ov["scenes"]),
+          "sesten süreli çekimler üretildi: " + ", ".join(f"{x['scene_code']}={x['status']}" for x in ov["scenes"]))
     c.post(f"/sequences/{seqs[0]['id']}/voice-lock", json={"locked": False}).raise_for_status()
     actions = {e["action"] for e in curation(pid)}
     check({"voice_lock", "voice_unlock", "voice_temp", "animatic"} <= actions, "kilit, kilidin açılması ve animatik kürasyon kaydında")
@@ -799,6 +805,55 @@ def check_client_review(pid: str) -> None:
     actions = [e["action"] for e in curation(pid)]
     check({"client_note", "client_reject", "client_approve", "client_send", "review_link"} <= set(actions),
           "müşteri notu, değişiklik isteği ve onay kürasyon kaydında")
+
+
+def check_delivery(pid: str) -> None:
+    """Teslim: şartname final filmi besler (25 fps, hedef loudness); QC raporu ve PDF; hak zinciri; paket içeriği."""
+    import io
+    import zipfile
+    print("E) Teslim şartnamesi, QC, hak zinciri ve paket")
+    st = c.get(f"/projects/{pid}/delivery").json()
+    tv = {k: v for k, v in st["presets"]["tv_tr"].items() if k != "label"}
+    c.put(f"/projects/{pid}/delivery", json={**tv, "resolution": "1280x720", "preset": "tv_tr"}).raise_for_status()
+    before = overview(pid)["timeline"]["url"]
+    c.post(f"/projects/{pid}/assemble").raise_for_status()
+    film = None
+    for _ in range(120):
+        film = overview(pid)["timeline"]
+        if film["url"] != before and film["cut"]:
+            break
+        time.sleep(1)
+    fmt = (film["cut"] or {}).get("format") or {}
+    check(film["url"] != before and fmt.get("fps") == 25 and fmt.get("loudness_lufs") == -23.0,
+          f"şartname final filmi besledi: {fmt.get('width')}x{fmt.get('height')}, {fmt.get('fps')} fps, {fmt.get('loudness_lufs')} LUFS")
+    c.post(f"/projects/{pid}/qc").raise_for_status()
+    qc = None
+    for _ in range(120):
+        qc = c.get(f"/projects/{pid}/delivery").json()["qc"]
+        if qc and not qc["stale"]:
+            break
+        time.sleep(1)
+    pdf = c.get(f"/projects/{pid}/qc.pdf")
+    loud = next((x for x in (qc or {}).get("checks", []) if x["id"] == "loudness"), {})
+    check(bool(qc) and not qc["stale"] and len(qc["checks"]) == 5 and loud.get("passed") and pdf.content.startswith(b"%PDF"),
+          f"QC raporu: {', '.join(f'{x['name']} {x['summary']}' for x in (qc or {}).get('checks', []))}; PDF indirildi")
+    c.post(f"/projects/{pid}/rights/script_rights", params={"filename": "hak_devri.pdf"}, content=b"%PDF-1.4 hak devri",
+           headers={"content-type": "application/pdf"}).raise_for_status()
+    r = c.post(f"/projects/{pid}/delivery/package").json()
+    check(r["queued"] and len(r["missing"]) == 3, f"eksik hak zinciri maddesi paketi engellemedi ({', '.join(r['missing'])})")
+    url = None
+    for _ in range(180):
+        url = c.get(f"/projects/{pid}/delivery").json()["package"]["url"]
+        if url:
+            break
+        time.sleep(1)
+    names = set()
+    if url:
+        z = zipfile.ZipFile(io.BytesIO(c.get(url.removeprefix("/api")).content))
+        names = set(z.namelist())
+    need = {"master.mov", "izleme_kopyasi.mp4", "stems/diyalog.wav", "me_mix.wav", "altyazi.srt", "film.edl", "qc_raporu.pdf",
+            "hak_zinciri/yapay_zeka_beyani.csv", "hak_zinciri/script_rights/hak_devri.pdf", "BENIOKU.txt"}
+    check(need <= names, f"teslim paketi {len(names)} dosya; eksik: {sorted(need - names)}")
 
 
 def check_sequences(pid: str) -> None:

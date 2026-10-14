@@ -15,7 +15,8 @@ def character_shot(pid) -> str:
     """Örnek senaryoda karakteri olan ilk çekim; karaktere referans görseli verilir (kimlik ölçülebilsin)."""
     with session_scope() as s:
         sid, cid = s.execute(select(SceneCharacter.scene_id, SceneCharacter.character_id)
-                             .join(Scene, Scene.id == SceneCharacter.scene_id).where(Scene.project_id == pid)).first()
+                             .join(Scene, Scene.id == SceneCharacter.scene_id).where(Scene.project_id == pid)
+                             .order_by(Scene.seq_order, SceneCharacter.role, SceneCharacter.character_id)).first()
         s.get(Character, cid).reference_images = ["assets/x/still/a.png"]
         return str(sid)
 

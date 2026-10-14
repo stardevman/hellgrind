@@ -47,6 +47,9 @@ class Project(Base):
     lut_key: Mapped[str | None] = mapped_column(Text)
     lut_hash: Mapped[str | None] = mapped_column(Text)
     animatic_key: Mapped[str | None] = mapped_column(Text)        # 031: storyboard kareleri + ses (animatik)
+    delivery: Mapped[dict | None] = mapped_column(JSONB)          # 033: teslim şartnamesi (boşsa eski sabitler)
+    qc: Mapped[dict | None] = mapped_column(JSONB)                # 033: son QC raporu (filmin anahtarına bağlı)
+    delivery_key: Mapped[str | None] = mapped_column(Text)        # 033: son teslim paketi (zip)
     continuity: Mapped[dict | None] = mapped_column(JSONB)
     script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -414,4 +417,16 @@ class ClientNote(Base):
     text: Mapped[str] = mapped_column(Text)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RightsItem(Base):
+    """Hak zinciri belgesi: senaryo hak devri, ses oyuncusu sözleşmesi/rızası, müzik lisansı, model kullanım koşulları."""
+    __tablename__ = "rights_items"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    filename: Mapped[str] = mapped_column(Text)
+    file_key: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

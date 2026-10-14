@@ -48,6 +48,8 @@ ACTIONS_TR = {
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "on_twos_change": "Kare tutma (on twos)",
     "voice_lock": "Sekansın sesi kilitlendi", "voice_unlock": "Sekansın ses kilidi açıldı",
+    "delivery_spec": "Teslim şartnamesi", "qc_run": "QC raporu istendi", "rights_upload": "Hak zinciri belgesi yüklendi",
+    "rights_remove": "Hak zinciri belgesi kaldırıldı", "delivery_package": "Teslim paketi istendi",
     "client_send": "Müşteriye sürüm gönderildi", "review_link": "İnceleme bağlantısı oluşturuldu",
     "review_link_revoke": "İnceleme bağlantısı kapatıldı", "client_note": "Müşteri notu",
     "client_approve": "Müşteri onayladı", "client_reject": "Müşteri değişiklik istedi",

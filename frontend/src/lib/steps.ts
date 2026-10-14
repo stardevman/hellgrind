@@ -63,6 +63,7 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     const jumps = p!.continuity?.pairs.filter((x) => x.jump).length ?? 0;
     if (jumps) todos.finish.push({ text: n(jumps, "renk sıçraması", "renk sıçraması"), page: "color", tone: "warn" });
     if (!ov!.timeline) todos.finish.push({ text: "Film henüz birleştirilmedi", page: "deliver" });
+    else todos.finish.push(...deliveryTodos(ov!));
   }
 
   for (const t of clientTodos(ov)) todos[t.step].push(t.todo);
@@ -79,6 +80,18 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     else state = "todo";
     return { id: s.id, state, todos: list };
   });
+}
+
+/** Teslim: QC'de kalan kontroller (uyarı; rapor eski filme aitse yeniden çalıştırma önerisi) ve eksik hak zinciri
+    belgeleri (uyarı: paket yine de oluşturulabilir). Film birleşmeden gösterilmez. */
+export function deliveryTodos(ov: Overview): Todo[] {
+  const d = ov.delivery;
+  if (!d) return [];
+  const out: Todo[] = [];
+  if (d.qc?.stale) out.push({ text: "QC raporu eski filme ait", page: "deliver", tone: "warn" });
+  else if (d.qc && !d.qc.passed) out.push({ text: `QC kaldı: ${d.qc.failed.join(", ")}`, page: "deliver", tone: "warn" });
+  if (d.rights_missing.length) out.push({ text: n(d.rights_missing.length, "hak zinciri belgesi eksik", "hak zinciri belgesi eksik"), page: "deliver", tone: "warn" });
+  return out;
 }
 
 /** Müşteri onay döngüsü: değişiklik istenen kapı ilgili adımı tamamlanmamış sayar; müşteride bekleyen sürüm ve çözülmemiş

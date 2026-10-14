@@ -89,11 +89,12 @@ def export_project(project_id: ProjectId, format: str = Query(..., pattern="^(ed
     p = project_or_404(s, project_id)
     cut, title = _cut(p), p.title
     jumps = {x["to"] for x in (p.continuity or {}).get("pairs", []) if x.get("jump")}
+    fps = int((cut.get("format") or {}).get("timebase") or export.FPS)      # teslim şartnamesinin zaman tabanı
     if format == "edl":
-        return Response(export.edl(cut, title), media_type="text/plain; charset=utf-8",
+        return Response(export.edl(cut, title, fps), media_type="text/plain; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="film.edl"'})
     if format == "otio":
-        return Response(json.dumps(export.otio(cut, title, jumps=jumps), ensure_ascii=False, indent=2),
+        return Response(json.dumps(export.otio(cut, title, fps, jumps=jumps), ensure_ascii=False, indent=2),
                         media_type="application/json", headers={"Content-Disposition": 'attachment; filename="film.otio"'})
     lines, _ = curation_lines(s, project_id, training=True)          # pakette de eğitim verisi H3'süz
     notice = licensing.notice(licensing.restricted(s, project_id))

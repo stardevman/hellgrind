@@ -339,6 +339,18 @@ class ClientDecisionIn(BaseModel):
     note: str | None = Field(None, max_length=2000)
 
 
+class DeliverySpecIn(BaseModel):
+    """Teslim şartnamesi. preset yalnızca bilgi içindir (formu dolduran hazır ayar)."""
+    resolution: Literal["1280x720", "1920x1080", "3840x2160"] = "1280x720"
+    fps: Literal["23.976", "24", "25"] = "24"
+    codec: Literal["h264", "prores_hq"] = "h264"
+    loudness_lufs: float = Field(-23.0, ge=-40, le=-10)
+    srt: bool = False
+    me_mix: bool = False
+    textless: bool = False
+    preset: Literal["tv_tr", "web", "platform"] | None = None
+
+
 class VoiceLockIn(BaseModel):
     locked: bool                                     # true: sekansın sesi kilitlenir; false: kilit açılır
 

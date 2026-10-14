@@ -46,13 +46,13 @@ def video_duration(path: str) -> float:
         return probe_duration(path)
 
 
-def normalize(src: str, dst: str, size: tuple[int, int] | None = None) -> str:
+def normalize(src: str, dst: str, size: tuple[int, int] | None = None, fps: str | int = FPS) -> str:
     """Klibi ortak biçime çevirir. Ses, görüntü süresine eşitlenir: kısaysa sessizlikle tamamlanır, uzunsa kesilir.
     Eşitleme -t ile yapılır; -shortest kare hassasiyetli değildir (ses görüntüden yarım saniye uzun çıkabilir) ve
     concat -c copy her dosyayı süresi kadar ileri taşıdığından, her klipte ses biraz daha kayardı."""
     width, height = size or (WIDTH, HEIGHT)
     video = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={FPS},format=yuv420p")
+             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p")
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src]
     if has_audio(src):
         cmd += ["-vf", video, "-af", "apad", "-map", "0:v", "-map", "0:a"]
@@ -77,11 +77,12 @@ def concat(paths: list[str], out: str) -> str:
     return out
 
 
-def crossfade_join(paths: list[str], durations: list[float], seams: list[bool], frames: int, out: str) -> list[float]:
+def crossfade_join(paths: list[str], durations: list[float], seams: list[bool], frames: int, out: str,
+                   fps: float = FPS) -> list[float]:
     """Klipleri birleştirir; seams[i] (i. klip ile öncesi arasında continuous dikiş) için `frames` karelik geçiş
     (görüntüde xfade, seste acrossfade), diğer dikişler düz kesme. Yeniden kodlar. Her klibin filmdeki başlangıcı döner
     (geçiş, klibi öncekinin son karelerinin üstüne bindirir)."""
-    d = frames / FPS
+    d = frames / fps
     inputs, parts, starts = [], [], []
     for p in paths:
         inputs += ["-i", p]
@@ -181,14 +182,18 @@ def assemble(project_id: str, kind: str = "final") -> dict:
         tiers = {sc.scene_code: ("draft" if clip == sc.draft_video_key else sc.cut_tier or "final") for sc, clip in scenes}
         titles = {q.code: q.title for q in sequences.values()}
         tracks = active_tracks(s, project_id, sequences)
-        cfg = project_settings(s.get(Project, project_id).settings)
+        project = s.get(Project, project_id)
+        cfg = project_settings(project.settings)
         loudness = cfg["loudness_lufs"]
+        from app.post import delivery                 # teslim şartnamesi (yalnızca final film; yoksa eski sabitler)
+        fmt = delivery.film_format(delivery.spec_of(project)) if kind == "final" else None
         fade = int(cfg.get("seam_crossfade_frames") or 0) if any(seams) else 0
     if not items:
         return {"error": "Henüz tamamlanmış sahne yok"}
 
     # Kesme listesinin içeriği anahtarla her zaman tutarlı. Kanal yoksa (Faz 11 öncesi) yalnızca sahneler özetlenir.
-    basis = [[WIDTH, HEIGHT, FPS], items, titles] + ([kind] if kind != "final" else []) + \
+    frame = [list(fmt["size"]), fmt["fps"], "spec", fmt["loudness"]] if fmt else [WIDTH, HEIGHT, FPS]
+    basis = [frame, items, titles] + ([kind] if kind != "final" else []) + \
         ([{"crossfade": fade, "seams": seams}] if fade else [])
     if tracks:
         basis.append(sorted(t["spec"] for t in tracks) + [loudness])
@@ -201,12 +206,15 @@ def assemble(project_id: str, kind: str = "final") -> dict:
             sources = [storage.download(video_key, os.path.join(work, f"src{i}.mp4"))
                        for i, (code, video_key, description, emotion, seq) in enumerate(items)]
             from app.engine.finishing import film_size
-            size = film_size(sources)          # bütün klipler upscale edildiyse film 1080p, değilse 720p
+            # şartname varsa onun çözünürlüğü; yoksa bütün klipler upscale edildiyse 1080p, değilse 720p
+            size = fmt["size"] if fmt else film_size(sources)
+            rate = fmt["fps"] if fmt else FPS
             for i, src in enumerate(sources):
-                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4"), size))
+                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4"), size, rate))
                 durations.append(probe_duration(normalized[-1]))
             if fade:                                                    # continuous dikişlerde kısa geçiş
-                starts = crossfade_join(normalized, durations, seams, fade, os.path.join(work, "cut.mp4"))
+                starts = crossfade_join(normalized, durations, seams, fade, os.path.join(work, "cut.mp4"),
+                                        fmt["fps_value"] if fmt else FPS)
                 film = os.path.join(work, "cut.mp4")
             else:
                 starts = [sum(durations[:i]) for i in range(len(durations))]
@@ -224,9 +232,13 @@ def assemble(project_id: str, kind: str = "final") -> dict:
                 beds = [AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"],
                                    p["fade_out_s"]) for p in placed]
                 film = mux(film, [AudioInput(film)], beds, os.path.join(work, "film.mp4"), loudness)
+            if fmt:                                                     # şartnamenin loudness hedefi
+                film = delivery.loudnorm(film, os.path.join(work, "film_lufs.mp4"), fmt["loudness"])
             cutlist = os.path.join(work, "cut.json")
             with open(cutlist, "w") as f:
                 json.dump({"kind": kind, "duration_s": round(t, 3), "clips": clips,
+                           **({"format": {"width": fmt["size"][0], "height": fmt["size"][1], "fps": fmt["fps_value"],
+                                          "timebase": fmt["timebase"], "loudness_lufs": fmt["loudness"]}} if fmt else {}),
                            "sequences": [{"code": c, "title": titles.get(c, c), "in_s": round(a, 3), "out_s": round(b, 3)}
                                          for c, (a, b) in spans.items()],
                            "tracks": [{"id": p["id"], "sequence": p["sequence"], "kind": p["kind"], "source": p["source"],
