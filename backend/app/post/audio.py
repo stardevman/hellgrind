@@ -1,6 +1,7 @@
 """Ücretsiz ses üretimi.
 
-Diyalog: espeak-ng (çevrimdışı, Türkçe). Kurulu değilse ya da metin boşsa yapay bir konuşma tonuna düşer.
+Diyalog: Okur (yerel Türkçe sinir ağı modeli, app/post/okur) ya da espeak-ng (çevrimdışı, Türkçe). Okur'un model
+dosyası yoksa espeak-ng'ye, o da kurulu değilse ya da metin boşsa yapay bir konuşma tonuna düşer.
 Müzik: duyguya göre akor; FFmpeg aevalsrc ile 0,25 Hz tremolo, fade-in ve lowpass.
 Ücretli ElevenLabs yolu app/live altındadır ve DRY_RUN=1 iken çağrılmaz.
 Bu modül ayar okumaz; motor ve parametreler çağıranın verdiği değerlerdir, böylece tek başına test edilir.
@@ -22,6 +23,10 @@ CHORDS = {          # duygu -> üç ses (Hz)
     "fear": (116.5, 138.6, 164.8), "anger": (82.4, 123.5, 164.8), "tension": (146.8, 155.6, 220.0),
     "surprise": (261.6, 329.6, 415.3), "disgust": (138.6, 146.8, 207.7),
 }
+# Okur tek sesle konuşur (erkek, ~115 Hz). Karakterler perde kaydırmasıyla ayrılır: sıra espeak varyantlarıyla aynıdır
+# (erkek/kadın), değerler yarım ton. Duygu hızı ve perdeyi hafifçe değiştirir (EMOTION_VOICE'tan, yumuşatılarak).
+OKUR_SHIFTS = [0.0, 4.0, -2.5, 6.0, -4.5, 2.0]
+OKUR_SPEED_GAIN, OKUR_PITCH_PER_STEP = 0.5, 0.06
 TREMOLO_HZ = 0.25
 MUSIC_SAMPLE_RATE = 44100
 
@@ -42,6 +47,35 @@ def voice_for(emotion: str, voice_seed: int) -> tuple[str, int, int]:
     return VOICE_VARIANTS[voice_seed % len(VOICE_VARIANTS)], pitch, speed
 
 
+def okur_voice(emotion: str, voice_seed: int) -> tuple[float, float]:
+    """(perde kaydırma yarım ton, hız). Kaydırma karakter tohumundan (karakterin sesi hep aynı kalır), hız ve küçük bir
+    perde payı duygudan gelir."""
+    pitch, speed = EMOTION_VOICE.get(emotion or "neutral", EMOTION_VOICE["neutral"])
+    base_pitch, base_speed = EMOTION_VOICE["neutral"]
+    shift = OKUR_SHIFTS[voice_seed % len(OKUR_SHIFTS)] + (pitch - base_pitch) * OKUR_PITCH_PER_STEP
+    return round(shift, 2), round(1 + (speed / base_speed - 1) * OKUR_SPEED_GAIN, 3)
+
+
+def synthesize_okur(text: str, out_path: str, model_dir: str, emotion: str = "neutral", voice_seed: int = 0) -> float:
+    """Okur ile diyalog sesi (48 kHz mono WAV). Perde, süre değişmeden kaydırılır (asetrate + atempo). Okunacak bir şey
+    yoksa 0 döner (çağıran yedeğe düşer)."""
+    from app.post import okur
+    shift, speed = okur_voice(emotion, voice_seed)
+    audio = okur.voice(model_dir).say(text, speed=speed, seed=voice_seed)
+    if not audio.size:
+        return 0.0
+    if not shift:
+        okur.write_wav(out_path, audio)
+    else:
+        raw = out_path + ".raw.wav"
+        okur.write_wav(raw, audio)
+        ratio = 2 ** (shift / 12)
+        _ffmpeg("-i", raw, "-af", f"asetrate={okur.SAMPLE_RATE * ratio:.0f},aresample={okur.SAMPLE_RATE},"
+                f"atempo={1 / ratio:.5f}", "-ac", "1", out_path)
+        os.remove(raw)
+    return round(probe_duration(out_path), 2)
+
+
 def synthesize_tone(text: str, out_path: str) -> float:
     """Yapay konuşma tonu: espeak-ng yokken ya da metin boşken. Süre kelime sayısından hesaplanır."""
     duration = speech_duration(text)
@@ -51,8 +85,13 @@ def synthesize_tone(text: str, out_path: str) -> float:
 
 
 def synthesize(text: str, out_path: str, emotion: str = "neutral", voice_seed: int = 0,
-               engine: str = "espeak", lang: str = "tr") -> float:
-    """Diyalog sesi yazar, süresini (sn) döndürür."""
+               engine: str = "espeak", lang: str = "tr", model_dir: str | None = None) -> float:
+    """Diyalog sesi yazar, süresini (sn) döndürür. engine="okur" model_dir ({kök}/tts/okur) ister."""
+    if engine == "okur" and model_dir and (text or "").strip():
+        duration = synthesize_okur(text, out_path, model_dir, emotion, voice_seed)
+        if duration > 0:
+            return duration
+        engine = "espeak"
     if engine == "espeak" and shutil.which("espeak-ng") and (text or "").strip():
         variant, pitch, speed = voice_for(emotion, voice_seed)
         # "--": "- Nereye gidiyorsun?" gibi tireyle başlayan satırlar seçenek sanılıp sessizce ses üretmezdi

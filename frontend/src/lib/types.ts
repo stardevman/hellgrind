@@ -698,6 +698,8 @@ export interface VoiceLine {
   track_id: string; n: number; character_id: string | null; character: string | null; text: string | null; emotion: string | null;
   source: string; final: boolean; engine: string | null; url: string | null; duration_s: number | null;
   start_offset_s: number; slot_s: number; drift: boolean; filename: string | null; version: number;
+  /** Ses denetimi (Duyu-small): ses yazıya döküldü ve metinle karşılaştırıldı; cer = harf hata oranı (0-1). */
+  check: { ok: boolean; cer: number; heard: string } | null;
 }
 export interface VoiceShot {
   scene_id: string; scene_code: string; heading: string; description: string | null; duration_s: number;
@@ -711,7 +713,10 @@ export interface VoiceSequence {
 /** GET /projects/{id}/voice: Ses sayfası. */
 export interface VoiceState {
   sequences: VoiceSequence[]; voice_first: boolean;
-  counts: { lines: number; final: number; temp: number; unmeasured: number; drift: number; unlocked: number };
+  /** Ses denetimi açık ve Duyu-small modeli kurulu. */
+  checker: boolean;
+  counts: { lines: number; final: number; temp: number; unmeasured: number; drift: number; unlocked: number;
+    mismatch: number; unchecked: number };
   pads: { in: number; gap: number; out: number; drift: number }; drift_text: string;
 }
 /** POST /sequences/{id}/voice-lock. */

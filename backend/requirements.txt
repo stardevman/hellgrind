@@ -13,3 +13,8 @@ PyYAML>=6.0
 pytest>=8.0
 Pillow>=10.0
 numpy>=1.26
+# Ses modelleri (Okur geçici ses, Duyu-small ses denetimi): ONNX çalıştırıcı ve sözcük ayırıcı
+onnxruntime>=1.20
+sentencepiece>=0.2
+# Okur'un sayı/tarih okuyucusu; Linux/arm64 tekerleği yok (ör. Apple silikonunda Docker): orada yedek okuyucu çalışır
+normalizer-tr==0.4.0; platform_machine != "aarch64"

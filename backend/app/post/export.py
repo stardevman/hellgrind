@@ -167,6 +167,9 @@ def package(project_id: str, cut: dict, out_zip: str, work: str, curation_jsonl:
         z.writestr("BENIOKU.txt", README.format(title=title))
         if notice:
             z.writestr("MINIMAX_H3.txt", notice)
+        if any(t.kind == "dialogue" and (t.file_key or "").startswith("audio/okur/") for ts in audio.values() for t in ts):
+            from app.post.voice import OKUR_NOTICE
+            z.writestr("OKUR_TTS.txt", OKUR_NOTICE)
         for n, clip in enumerate(cut["clips"], start=1):
             sc, base = scenes[clip["scene_code"]], folder(n, clip["scene_code"])
             duration = clip["out_s"] - clip["in_s"]

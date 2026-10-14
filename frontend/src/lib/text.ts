@@ -357,6 +357,11 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "episode_unlocked": return { t: `Teslim kilidi açıldı${x.was ? ` (${x.was})` : x.label ? ` (${x.label})` : ""}`, c: "bad" };
     case "series_asset_upgrade": return { t: `${x.name}: dizi varlığının v${x.version} sürümüne geçildi${(x.affected as string[] | undefined)?.length ? `; yeniden üretilecek: ${(x.affected as string[]).join(", ")}` : ""}` };
     case "voice_temp": return { t: `Geçici sesler üretildi${(x.shots as string[] | undefined)?.length ? `: ${(x.shots as string[]).join(", ")}` : " (eksik yoktu)"}` };
+    case "voice_check": {
+      const bad = (x.mismatch as string[] | undefined) ?? [];
+      return bad.length ? { t: `Ses denetimi: ${x.checked} replik; uyuşmayan: ${bad.join(", ")}`, c: "bad" }
+        : { t: `Ses denetimi: ${x.checked} replik, hepsi metinle uyuşuyor`, c: "good" };
+    }
     case "animatic": return { t: `Animatik birleşti: ${x.shots} çekim, ${Number(x.duration_s).toFixed(1).replace(".", ",")} sn`, c: "good" };
     case "animatic_failed": return { t: `Animatik birleştirilemedi: ${x.error}`, c: "bad" };
     case "on_twos_changed": return { t: x.enabled ? "Kare tutma açıldı (12 çizim/sn görünümü): yalnızca renk ve montaj" : "Kare tutma kapatıldı: yalnızca renk ve montaj" };

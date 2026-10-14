@@ -163,6 +163,9 @@ def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_ses
                        start_offset_s=body.start_offset_s, gain_db=body.gain_db, is_active=True, version=version)
     s.add(track)
     s.commit()
+    if body.kind == "dialogue" and body.source == "upload" and voice.checker_on():
+        from app.worker.tasks import voice_check          # final kayıt replikle uyuşuyor mu (yerel, ücretsiz)
+        voice_check.delay(str(sc.project_id), [str(track.id)])
     return {"version": version, "track_id": str(track.id), **dispatch_result(s, sc, post_only=True)}
 
 

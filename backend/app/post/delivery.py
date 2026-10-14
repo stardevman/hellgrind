@@ -28,6 +28,7 @@ from app.config import settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
 from app.models import AudioTrack, Project, RightsItem, Scene, Sequence
+from app.post import voice
 
 RESOLUTIONS = {"1280x720": (1280, 720), "1920x1080": (1920, 1080), "3840x2160": (3840, 2160)}
 # kare hızı -> (FFmpeg yazımı, sayı, EDL zaman tabanı)
@@ -453,6 +454,8 @@ def plan(s, project_id: str) -> list[dict]:
             rows.append({"path": f"hak_zinciri/{item['kind']}/", "label": f"{item['label']} (eksik)", "ready": False})
     if licensing.restricted(s, project_id):
         rows.append({"path": "MINIMAX_H3.txt", "label": "MiniMax H3 lisans bildirimi", "ready": True})
+    if voice.okur_used(s, project_id):
+        rows.append({"path": "OKUR_TTS.txt", "label": "Okur TTS kaynak bildirimi (geçici sesler)", "ready": True})
     rows.append({"path": "BENIOKU.txt", "label": "Paket açıklaması", "ready": True})
     return rows
 
@@ -474,12 +477,13 @@ def build(project_id: str) -> dict:
         keys = {f["id"]: s.get(RightsItem, f["id"]).file_key for _, f in files}
         listing = plan(s, project_id)
         notice = licensing.notice(licensing.restricted(s, project_id))
+        okur = voice.okur_used(s, project_id)
         report = p.qc if p.qc and p.qc.get("film_key") == film_key else None
         srt = None
     cut = json.loads(storage.read_bytes(film_key[:-4] + ".json"))
     with session_scope() as s:
         srt = subtitles(s, project_id, cut) if spec["srt"] else None
-    digest = stable_hash([film_key, spec, sorted(keys.values()), len(rights["ai_rows"]), bool(notice)])
+    digest = stable_hash([film_key, spec, sorted(keys.values()), len(rights["ai_rows"]), bool(notice), okur])
     key = f"delivery/{project_id}/{digest}.zip"
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as work:
@@ -521,6 +525,8 @@ def build(project_id: str) -> dict:
                     z.write(storage.download(keys[f["id"]], os.path.join(work, f"r_{f['id']}")), f"hak_zinciri/{kind}/{f['filename']}")
                 if notice:
                     z.writestr("MINIMAX_H3.txt", notice)
+                if okur:
+                    z.writestr("OKUR_TTS.txt", voice.OKUR_NOTICE)
                 z.writestr("BENIOKU.txt", readme(title, spec, listing, report))
             storage.put_file(out, key, "application/zip")
     with session_scope() as s:

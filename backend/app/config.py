@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     dry_run_score_sd: float = 0.05
     dry_run_defect_rate: float = 0.12     # bilerek bozuk (siyah/donmuş) klip oranı
     local_render_fps: int = 24
-    tts_engine: str = "espeak"            # espeak (ücretsiz, Türkçe) | tone | elevenlabs (ücretli; ücretsiz modda espeak kullanılır)
+    # okur (ücretsiz, yerel Türkçe sinir ağı modeli; model dosyası yoksa espeak) | espeak | tone | elevenlabs (ücretli;
+    # ücretsiz modda ya da projede ücretli ses kapalıyken yerel motor kullanılır)
+    tts_engine: str = "okur"
     hermes_mode: str = "rules"            # rules (ücretsiz) | llm (ücretli, ANTHROPIC_API_KEY ister)
 
     # Kademe 2 anahtarları: DRY_RUN=1 iken hiçbiri okunmaz
@@ -156,6 +158,9 @@ class Settings(BaseSettings):
     # Prompt çevirisi (Türkçe -> İngilizce, yerel opus-mt-tr-en, ücretsiz): auto = yalnızca ücretli modda, sağlayıcıya
     # giden prompt'a; on = her zaman (ücretsiz modda prompt'ları görmek için); off = hiç
     prompt_translation: str = "auto"
+    # Ses denetimi (yerel Duyu-small konuşma tanıma, ücretsiz): auto = model varsa geçici sesler ve yüklenen kayıtlar
+    # yazıya dökülüp replik metniyle karşılaştırılır; off = hiç
+    voice_check: str = "auto"
 
 
 settings = Settings()

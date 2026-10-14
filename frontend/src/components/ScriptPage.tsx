@@ -127,7 +127,7 @@ export function ScriptPage() {
                   <label className="choice">
                     <input type="radio" name="intensity" value="trial" checked={intensity === "trial"} onChange={() => pickIntensity("trial")} />
                     <span><b>MiniMax H3 denemesi</b><small>
-                      {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır; ses yerel (espeak), dudak senkronu yok.`}
+                      {`${trial.probe_n} test ve ${trial.full_n} tam klip, 480p, düzeltme turu yok; varlık onayı ve hareket testleri atlanır; ses yerel (Okur), dudak senkronu yok.`}
                       {perShot != null && ` Çekim başına en çok ~$${perShot.toFixed(3)} GPU süresi (3 sn'lik çekim 4 sn üretilir).`}
                       {" "}Yalnızca MiniMax H3 ({meta?.h3_platform === "vast" ? "vast.ai makinesi" : "RunPod uç noktası"}) gerekir.
                     </small></span>

@@ -60,7 +60,7 @@ ACTIONS_TR = {
     "review_link_revoke": "İnceleme bağlantısı kapatıldı", "client_note": "Müşteri notu",
     "client_approve": "Müşteri onayladı", "client_reject": "Müşteri değişiklik istedi",
     "client_gate_reset": "Müşteri kapısı sıfırlandı", "client_note_resolve": "Müşteri notu çözüldü işareti",
-    "voice_temp": "Geçici sesler istendi", "voice_upload": "Ses kaydı yüklendi", "animatic": "Animatik birleştirme",
+    "voice_temp": "Geçici sesler istendi", "voice_check": "Ses denetimi istendi", "voice_upload": "Ses kaydı yüklendi", "animatic": "Animatik birleştirme",
     "keyframe_upload": "İlk kare yüklendi (H3)", "keyframe_clear": "Yüklenen ilk kare kaldırıldı (H3)",
     "plan_approve": "Kuru çalıştırma planı onaylandı", "upgrade_final": "Final motoruyla yükseltme onaylandı",
     "draft_complete": "Seedance taslağı 1080p'ye tamamlandı (onaylı)", "upscale": "Upscale (1080p) onaylandı",

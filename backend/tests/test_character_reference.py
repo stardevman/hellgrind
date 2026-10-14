@@ -150,7 +150,7 @@ def test_without_paid_audio_a_dialogue_shot_is_voiced_locally_and_never_lip_sync
     assert key.endswith("_unsynced.mp4") and storage.exists(key)
     with session_scope() as s:
         tracks = s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sid, AudioTrack.kind == "dialogue")).all()
-        assert tracks and all(t.file_key.startswith("audio/espeak/") for t in tracks)
+        assert tracks and all(t.file_key.startswith(f"audio/{pipeline.local_tts_engine()}/") for t in tracks)
     assert commits(pid, "fal:lipsync") == [] and commits(pid, "elevenlabs") == []
 
 

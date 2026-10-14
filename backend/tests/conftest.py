@@ -44,6 +44,10 @@ for _name, _value in LEGACY_VIDEO.items():
 # Prompt çevirisi testlerde kapalı: ücretli modu sahteyle açan testler yerel çeviri modelini yüklemesin (CI'da model yok).
 # Çeviri testleri ayarı kendi içinde açar (tests/test_translate.py).
 settings.prompt_translation = "off"
+# Geçici ses testlerde espeak ile üretilir ve ses denetimi kapalıdır: Bölüm A-B testleri modelsiz (CI) ve modelli (imaj)
+# ortamda aynı sonucu versin. Okur ve Duyu-small testleri ayarları kendi içinde açar (tests/test_voice_models.py).
+settings.tts_engine = "espeak"
+settings.voice_check = "off"
 
 # Aynı nedenle nesne deposu da ayrı bir kova kullanır (geliştirme kovasındaki medya silinmesin).
 settings.s3_bucket = "hellgrind-test"

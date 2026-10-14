@@ -26,6 +26,7 @@ celery.conf.update(
         "hg.grade_scene": {"queue": "post"},
         "hg.mux_scene": {"queue": "post"},
         "hg.voice_temp": {"queue": "post"},
+        "hg.voice_check": {"queue": "post"},         # ses denetimi (yerel Duyu-small)
         "hg.assemble_animatic": {"queue": "post"},
         "hg.qc": {"queue": "post"},
         "hg.delivery_package": {"queue": "post"},

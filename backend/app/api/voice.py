@@ -1,4 +1,4 @@
-"""Ses-önce akışı uç noktaları: Ses sayfasının verisi, geçici ses, final kayıt yükleme, sekans ses kilidi ve animatik.
+"""Ses-önce akışı uç noktaları: Ses sayfasının verisi, geçici ses, ses denetimi, final kayıt yükleme, sekans ses kilidi ve animatik.
 
 Final kayıt iki adımda bağlanır: dosya `POST /projects/{id}/voice/upload` ile içerik-adresli depoya yüklenir, sonra
 mevcut `PUT /scenes/{id}/audio` (kind: dialogue, source: upload, replaces: replik) ile repliğin yerine geçer. Kilitli
@@ -52,11 +52,23 @@ def track_peaks(track_id: TrackId, s: Session = Depends(get_session)):
 @router.post("/projects/{project_id}/voice/temp")
 @curated("voice_temp")
 def make_temp(project_id: ProjectId, sequence_id: str | None = None, s: Session = Depends(get_session)):
-    """Seslendirilmemiş sentez repliklerinin geçici sesini kuyruğa verir (ücretsiz modda espeak)."""
+    """Seslendirilmemiş sentez repliklerinin geçici sesini kuyruğa verir (yerel Okur; model yoksa espeak)."""
     project_or_404(s, project_id)
     ensure_not_frozen(project_id)
     from app.worker.tasks import voice_temp
     voice_temp.delay(project_id, sequence_id)
+    return {"queued": True}
+
+
+@router.post("/projects/{project_id}/voice/check")
+@curated("voice_check")
+def check_lines(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Ses denetimini kuyruğa verir: sesi olan ama denetlenmemiş replikler yazıya dökülür ve metinle karşılaştırılır."""
+    project_or_404(s, project_id)
+    if not voice.checker_on():
+        raise HTTPException(409, "Ses denetimi kapalı ya da Duyu-small modeli kurulu değil.")
+    from app.worker.tasks import voice_check
+    voice_check.delay(project_id)
     return {"queued": True}
 
 

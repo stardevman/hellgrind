@@ -422,11 +422,24 @@ def assemble_timeline(project_id: str, kind: str = "final", rematch: bool = True
 
 @celery.task(name="hg.voice_temp")
 def voice_temp(project_id: str, sequence_id: str | None = None):
-    """Seslendirilmemiş sentez repliklerinin geçici sesi (Ses sayfası; ücretsiz modda espeak)."""
-    from app.post.voice import ensure_temp
+    """Seslendirilmemiş sentez repliklerinin geçici sesi (Ses sayfası; yerel Okur, model yoksa espeak), ardından ses
+    denetimi (Duyu-small; açıksa)."""
+    from app.post.voice import ensure_checks, ensure_temp
     done = ensure_temp(project_id, sequence_id)
     killswitch.event(project_id, "voice_temp", shots=done)
+    checked = ensure_checks(project_id)
+    if checked["checked"]:
+        killswitch.event(project_id, "voice_check", **checked)
     return done
+
+
+@celery.task(name="hg.voice_check")
+def voice_check(project_id: str, track_ids: list[str] | None = None):
+    """Ses denetimi: sesi olan replikler yerelde yazıya dökülür ve metinle karşılaştırılır (Duyu-small, ücretsiz)."""
+    from app.post.voice import ensure_checks
+    result = ensure_checks(project_id, track_ids)
+    killswitch.event(project_id, "voice_check", **result)
+    return result
 
 
 @celery.task(name="hg.assemble_animatic")

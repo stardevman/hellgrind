@@ -17,7 +17,7 @@ from app.db import session_scope
 from app.engine.providers import TransientError
 from app.live import PaidCallBlocked
 from app.models import AudioTrack, Character
-from app.post import audio, mux
+from app.post import audio, mux, pipeline
 from app.post.pipeline import effective_tts_engine, mux_scene, voice_and_lipsync
 from app.quality.anomaly import probe_duration
 from tests.media_utils import band_db, make_tone, pcm, probe
@@ -216,7 +216,8 @@ def test_free_mode_never_reaches_a_paid_provider_even_when_elevenlabs_is_configu
     monkeypatch.setattr(settings, "dry_run", True)
     before = ledger(pid)
     voice_and_lipsync(sid)
-    assert effective_tts_engine() == "espeak" and dialogue_track(sid).file_key.startswith("audio/espeak/")
+    local = pipeline.local_tts_engine()                              # Okur (model varsa) ya da espeak
+    assert effective_tts_engine() == local and dialogue_track(sid).file_key.startswith(f"audio/{local}/")
     assert fakes.tts_calls == [] and fakes.lipsync_calls == [] and ledger(pid) == before
 
 

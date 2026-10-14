@@ -716,13 +716,18 @@ def check_voice_first(meta: dict) -> None:
     check(sorted(r["awaiting_voice"]) == CODES and variation_count(pid) == 0 and spent(pid) == 0,
           "voice_first: ses kilitlenmeden hiçbir görüntü üretilmedi")
     c.post(f"/projects/{pid}/voice/temp").raise_for_status()
-    for _ in range(60):
+    for _ in range(90):
         st = c.get(f"/projects/{pid}/voice").json()
-        if st["counts"]["unmeasured"] == 0:
+        if st["counts"]["unmeasured"] == 0 and st["counts"]["unchecked"] == 0:
             break
         time.sleep(1)
     lines = [(sh, ln) for q in st["sequences"] for sh in q["shots"] for ln in sh["lines"]]
-    check(all(ln["duration_s"] and ln["engine"] == "espeak" for _, ln in lines), "geçici sesler espeak ile üretildi ve ölçüldü")
+    engine = lines[0][1]["engine"] if lines else None
+    check(engine in ("okur", "espeak") and all(ln["duration_s"] and ln["engine"] == engine for _, ln in lines),
+          f"geçici sesler yerelde ({engine}) üretildi ve ölçüldü")
+    if st["checker"]:
+        check(all(ln["check"] for _, ln in lines),
+              f"ses denetimi (Duyu-small): {len(lines)} replik yazıya döküldü, {st['counts']['mismatch']} uyuşmuyor")
     shot, line = lines[0]
     name = f"{shot['scene_code']}_{line['n']}.wav"
     with tempfile.TemporaryDirectory() as tmp:
@@ -736,6 +741,14 @@ def check_voice_first(meta: dict) -> None:
     final = c.get(f"/projects/{pid}/voice").json()["sequences"][0]["shots"][0]["lines"][0]
     check(up["match"] == {"scene_code": shot["scene_code"], "n": line["n"]} and final["final"] and abs(final["duration_s"] - 1.8) < 0.1,
           f"final kayıt dosya adıyla ({name}) repliğe bağlandı, süresi ölçüldü")
+    if st["checker"]:                                  # yüklenen kayıt bir ton: konuşma yok, replikle uyuşmaz
+        for _ in range(30):
+            final = c.get(f"/projects/{pid}/voice").json()["sequences"][0]["shots"][0]["lines"][0]
+            if final["check"]:
+                break
+            time.sleep(1)
+        check(final["check"] is not None and not final["check"]["ok"],
+              "yüklenen kayıt kendiliğinden denetlendi; konuşma içermeyen kayıt 'uyuşmuyor' işaretlendi")
     seqs = [q for q in st["sequences"] if q["id"]]
     first = c.post(f"/sequences/{seqs[0]['id']}/voice-lock", json={"locked": True}).json()
     r = c.post(f"/projects/{pid}/render-all").json()

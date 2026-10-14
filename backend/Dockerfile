@@ -28,6 +28,9 @@ RUN if [ "$QUALITY" = "1" ]; then \
       pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \
       && pip install --no-cache-dir -r requirements-quality.txt; fi
 COPY scripts/fetch_models.py scripts/
+# Ses modelleri (~80 MB, her imajda): Okur (geçici diyalog sesi) ve Duyu-small (ses denetimi). onnxruntime ile CPU'da
+# çalışır; çalıştırıcıları repodadır (app/post/okur, app/quality/duyu), buradan yalnızca sabitlenmiş veri dosyaları iner.
+RUN python scripts/fetch_models.py /models --voice
 RUN if [ "$QUALITY" = "1" ]; then python scripts/fetch_models.py /models && python scripts/fetch_models.py /models --warm; fi
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 

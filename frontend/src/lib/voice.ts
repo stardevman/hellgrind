@@ -42,13 +42,29 @@ export function matchFiles(files: File[], state: VoiceState): { matched: Matched
 /** Saniye, bir ondalık, Türkçe: "2,4 sn". */
 export const secTr = (x: number | null | undefined) => x == null ? "—" : `${Number(x).toFixed(1).replace(".", ",")} sn`;
 
-/** Kaynak rozeti: final (yüklendi) ya da geçici (espeak / ElevenLabs / ton; henüz sentezlenmediyse "seslendirilmedi"). */
+/** Kaynak rozeti: final (yüklendi) ya da geçici (Okur / espeak / ElevenLabs / ton; henüz sentezlenmediyse "seslendirilmedi"). */
 export function sourceBadge(line: VoiceLine): { text: string; tone: "ok" | "warn" | ""; title: string } {
   if (line.final) return { text: "Final", tone: "ok", title: `Yüklendi${line.filename ? `: ${line.filename}` : ""}` };
-  const engine = line.engine === "elevenlabs" ? "ElevenLabs" : line.engine === "espeak" ? "espeak" : line.engine === "tone" ? "ton" : null;
+  const engine = ({ okur: "Okur", elevenlabs: "ElevenLabs", espeak: "espeak", tone: "ton" } as Record<string, string>)[line.engine ?? ""] ?? null;
   return engine ? { text: `Geçici: ${engine}`, tone: "warn", title: "Sentezlenmiş geçici ses; final kayıt yüklenince yerini alır" }
     : { text: "Seslendirilmedi", tone: "", title: "Geçici ses henüz üretilmedi" };
 }
+
+/** Yüzde, Türkçe: 0.083 -> "%8". */
+const pctTr = (x: number) => `%${Math.round(x * 100)}`;
+
+/** Ses denetimi rozeti (Duyu-small yazıya döktü, metinle karşılaştırdı); denetlenmediyse null. */
+export function checkBadge(line: VoiceLine): { text: string; tone: "ok" | "warn"; title: string } | null {
+  if (!line.check) return null;
+  const heard = `Duyulan: “${line.check.heard || "—"}” (harf hatası ${pctTr(line.check.cer)})`;
+  return line.check.ok ? { text: "Uyuşuyor", tone: "ok", title: `Ses replikle uyuşuyor. ${heard}` }
+    : { text: "Uyuşmuyor", tone: "warn", title: `Ses replik metniyle uyuşmuyor. ${heard}` };
+}
+
+/** Uyuşmayan replik için uyarı satırı. */
+export const mismatchText = (line: VoiceLine) => line.check && !line.check.ok
+  ? `${line.final ? "Kayıt" : "Ses"} replikle uyuşmuyor; duyulan: “${line.check.heard || "(konuşma duyulmadı)"}”. Yanlış repliğe yüklenmiş ya da metinden sapmış olabilir.`
+  : null;
 
 /** Elle atama listesi: kilitsiz sekanslardaki replikler, "S001_SH01 · 2 · Kerem: …" etiketiyle. */
 export function assignable(state: VoiceState): { value: string; label: string; line: VoiceLine; shot: VoiceShot }[] {

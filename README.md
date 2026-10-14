@@ -14,7 +14,7 @@ Senaryodan film üreten otonom bir animasyon hattı. Bu aşamada hattın **tamam
 6. **Çekimleri üretir.** Her çekim için önce hızlı bir *test turu*, sonra dalgalar halinde *tam tur* klip üretir. Ücretsiz modda klipler yerel bir prosedürel motorla çizilir; ücretli modda taslak **MiniMax H3 Max**, final **Seedance 2.5** ile fal.ai'de üretilir (kendi barındırdığımız MiniMax H3 / RunPod kapalıdır).
 7. **Kalite kontrolünden geçirir.** Siyah ya da donmuş klipleri gerçek FFmpeg filtreleriyle bulur, eşiği geçemeyeni anında eler ve geriye en iyi birkaç klibi *rafine havuz* olarak bırakır.
 8. **Rengi ve sürekliliği denetler.** Film geneli bir LUT ve çekim bazında renk ayarı uygular; ardışık çekimler arasındaki renk sıçramalarını bulur ve tek tıkla uygulanabilir bir düzeltme önerir.
-9. **Sesi ve montajı yapar.** Türkçe konuşma (espeak-ng), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
+9. **Sesi ve montajı yapar.** Türkçe geçici konuşma (yerel Okur modeli; yedek espeak-ng), sesin replikle uyuştuğunun denetimi (yerel Duyu-small), diyalog altında müziğin kısılması, ses seviyesi dengeleme.
 10. **Filmi birleştirir.** Hazır sahneleri sekanslarına göre sırayla tek videoda toplar. Müzik sekans düzeyindedir ve çekimler arasında kesilmeden akar. Tıklanabilir bir kesme listesi üretir.
 11. **Yönetmenin zevkini kaydeder.** Her seçim, eleme, iyileştirme işareti ve onay bir *kürasyon olayı* olarak saklanır; *Teslim* sayfasının raporu aynı kaliteye kaç üretimle ulaşıldığını gösterir, film DaVinci Resolve ya da Premiere'e EDL, OpenTimelineIO ya da çekim paketi olarak aktarılır.
 12. **Parayı korur.** Her çağrı önce bütçeden rezervasyon alır. Limit aşılacaksa proje anında donar (Kill-Switch). Ücretsiz modda harcama, gerçek sağlayıcı fiyatlarıyla *sanal* olarak tutulur.
@@ -38,7 +38,7 @@ Bir şeyi değiştirdiğinizde yalnızca etkilenen aşamalar yeniden çalışır
 - Docker ve Docker Compose
 - Boş portlar: `8000` (panel ve API), `9000` ve `9001` (MinIO), `5555` (Flower), `5433` (PostgreSQL), `6379` (Redis)
 
-FFmpeg, espeak-ng, yazı tipleri ve kalite skorlayıcısının modelleri Docker imajının içindedir; makinenize bir şey kurmanız
+FFmpeg, espeak-ng, yazı tipleri, ses modelleri (Okur, Duyu-small) ve kalite skorlayıcısının modelleri Docker imajının içindedir; makinenize bir şey kurmanız
 gerekmez. İmaj, gerçek kalite skorlayıcısı (CPU'luk torch ve ~1,5 GB model) yüzünden ~3,4 GB'tır; ilk kurulum modelleri
 indirir. Skorlayıcısız hafif imaj (~0,9 GB; yalnızca sahte skorla ücretsiz mod): `docker compose build --build-arg QUALITY=0`.
 
@@ -293,7 +293,7 @@ Kalite kapısı her klibi (ücretli modda önce ilk kareyi) **birleşik skorla**
   - **Birleşik skor** = stil ve istem uyumu; yüz görünüyorsa %60 uyum + %40 kimlik (`SCORE_FACE_WEIGHT`). Eşikler proje ayarlarındaki `clip_threshold` (0,85) ve `excellent_threshold` (0,92) değerleridir.
   - Ölçüm dökümü varyasyonla saklanır (`params.score_detail`) ve panelde kare açıklamasında görünür: ör. "stil 0,91, tarif 0,97, Kerem yüzü 0,66".
 - Ölçümler: altın saat stilindeki kareler 0,81–0,98, aynı sahnenin başka paletli kareleri çoğunlukla 0,25'in altında; bir portre kendi Türkçe tarifiyle 1,00, ilgisiz bir tarifle 0,005; siyah, tek renk ve gürültü ~0; aynı kişinin beş yıl arayla çekilmiş iki fotoğrafı kimlikte 0,997, başka biri 0,005. **Kalibrasyon gerçek üretimle henüz sınanmadı**: ilk ücretli partide eşikler, rakip metinler ve yüz payı gözden geçirilmeli; kürasyon kayıtları bunun verisidir. Yüz modelleri insan yüzüyle eğitilmiştir; çok stilize karakterlerde kimlik ölçümü zayıf kalabilir.
-- **Lisanslar**: OpenCLIP modeli (LAION) ve YuNet MIT, SFace Apache 2.0; ticari kullanıma açıktır. Spesifikasyonda adı geçen InsightFace'in hazır modelleri (buffalo_l) yalnızca ticari olmayan araştırma lisanslı olduğu için kullanılmadı. Model dosyaları sürüme ve SHA-256 özetine sabitlenmiştir (`scripts/fetch_models.py`).
+- **Lisanslar**: OpenCLIP modeli (LAION) ve YuNet MIT, SFace Apache 2.0; ticari kullanıma açıktır. Ses modelleri: Okur ağırlıkları CC BY 4.0 (ticari kullanım serbest, kaynak belirtmek şart: Okur sesi filme girdiyse teslim ve dışa aktarma paketine `OKUR_TTS.txt` eklenir; çalıştırıcı kodu Apache 2.0, `app/post/okur/LICENSE` ve `NOTICE`), Duyu-small Apache 2.0 (`app/quality/duyu/LICENSE`). Piper'ın tek Türkçe sesi (dfki) ticari olmayan lisanslı (CC BY-NC-SA) olduğu için kullanılmadı. Spesifikasyonda adı geçen InsightFace'in hazır modelleri (buffalo_l) yalnızca ticari olmayan araştırma lisanslı olduğu için kullanılmadı. Model dosyaları sürüme ve SHA-256 özetine sabitlenmiştir (`scripts/fetch_models.py`).
 
 ## Stil kılavuzu
 
@@ -330,11 +330,30 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 
 - **Replikler** sekans ve çekim başlıkları altında listelenir. Her satırda şunlar var:
   - karakter ve metin;
-  - kaynak rozeti: **Geçici** (espeak ya da ElevenLabs) veya **Final** (yüklendi);
+  - kaynak rozeti: **Geçici** (Okur, espeak ya da ElevenLabs) veya **Final** (yüklendi);
+  - denetim rozeti: **Uyuşuyor** ya da **Uyuşmuyor** (üstüne gelince modelin duyduğu metin ve harf hatası oranı);
   - dalga formu ve oynat düğmesi;
   - ölçülen ses süresi / repliğin çekimdeki yeri.
 - Fark 0,5 sn'yi aşarsa amber uyarı çıkar: "Replik süresi çekimden belirgin farklı; görüntünün yeniden üretilmesi gerekebilir."
-- **Geçici sesleri üret** seslendirilmemiş replikleri sentezler (`POST /api/projects/{id}/voice/temp`; ücretsiz modda espeak). Ardından her replik ölçülür.
+- **Geçici sesleri üret** seslendirilmemiş replikleri sentezler (`POST /api/projects/{id}/voice/temp`). Ardından her replik ölçülür ve denetlenir.
+  - Motor **Okur** (ahakan/okur-tts v1.0): 9,8 M parametreli, açık verilerle eğitilmiş Türkçe metinden-sese modeli. CPU'da
+    çalışır (bir replik ~0,1 sn), 48 kHz. Sayıları, saati, yüzdeyi ve sıra sayılarını kelimeyle okur; şapkalı yazımı
+    (kâr, hâlâ) geri getirir. Model dosyası yoksa espeak-ng'ye düşer; rozet gerçekten kullanılan motoru gösterir.
+  - Okur'un tek bir sesi vardır (erkek). Karakterler sabit bir perde kaydırmasıyla ayrılır (karakter kimliğinden; süre
+    değişmez), duygu hızı hafifçe değiştirir. Bu geçici ses içindir: final ses kayıttan ya da ElevenLabs'ten gelir.
+  - Çalıştırıcı repodadır (`app/post/okur`, Okur deposunun torch'suz uyarlaması); imaja yalnızca sürüme ve SHA-256'ya
+    sabitlenmiş ONNX dosyaları iner. Sayı okuyucu `normalizer-tr`'nin Linux/arm64 tekerleği yoktur (Apple silikonunda
+    Docker): orada yerleşik yedek okuyucu çalışır.
+- **Ses denetimi** (Duyu-small, KaanAydinli/Duyu-small): repliğin sesi yerelde yazıya dökülür ve senaryodaki metinle
+  karşılaştırılır. Geçici sesler üretilince ve final kayıt yüklenince kendiliğinden çalışır; eski projeler için
+  **Sesleri denetle** düğmesi vardır (`POST /api/projects/{id}/voice/check`).
+  - İki metin aynı biçime getirilir (model sayıyı rakamla yazar: "3. kat" ile "üçüncü kat" uyuşur), Türkçe küçük harf,
+    noktalama ve şapka atılır. Harf hata oranı %25'i aşarsa replik **Uyuşmuyor** olur ve satırın altında duyulan metin
+    yazar: yanlış repliğe yüklenmiş ya da metinden sapan kayıt animatiğe girmeden görünür. Kilidi engellemez.
+  - Sonuç kanalın `params.check` alanındadır (dosya anahtarı ve metinle; ses ya da metin değişince eskir). Döküm
+    içerik-adresli önbellektedir (`asr/{özet}.json`). `VOICE_CHECK=off` denetimi kapatır.
+  - Model 19 M etkin parametreli, int8 ONNX (~56 MB), CPU'da gerçek zamanın ~14 katı hızlıdır; çalıştırıcısı repodadır
+    (`app/quality/duyu`, değiştirilmeden alındı).
 - **Toplu yükleme:** dosyalar sürükle-bırak ile, birden çok seçilebilir.
   - Adı `S001_SH01_2.wav` biçimindeki dosya o çekimin 2. repliğine kendiliğinden eşlenir; eşlenemeyenler ayrı listede elle atanır.
   - Dosya önce `POST /api/projects/{id}/voice/upload?filename=…` ile içerik-adresli depoya gider, süresi ölçülür.
@@ -506,7 +525,7 @@ ElevenLabs, Anthropic ve fal.ai olmadan, yalnızca kendi H3 sunucunuzla gerçek 
 1. **Ayarlar › MiniMax H3 · RunPod**: RunPod API anahtarını ve uç nokta kimliğini girip kaydedin (volume, worker imajı ve
    uç nokta kurulumu: `backend/runpod/README.md`), ardından **Bağlantıyı sına**: bakiye, uç noktanın veri merkezi (izinli
    liste) ve worker durumu görünmeli. Ücretli moda geçtikten sonra **Ayarları uç noktaya uygula** GPU tiplerini, veri merkezini,
-   volume'u, en az 0 worker'ı ve boşta bekleme süresini uç noktaya yazar. Konuşma motoru `espeak`, Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
+   volume'u, en az 0 worker'ı ve boşta bekleme süresini uç noktaya yazar. Konuşma motoru yerel (`okur` ya da `espeak`), Hermes `rules` ve fal.ai anahtarı boş kaldıkça diğer servisler
    çağrılmaz; Çalışma modu listesinde "gerekmez" görünür.
 2. **Ayarlar › Çalışma modu**: kutuya "ücretli moda geç" yazıp onaylayın (RunPod anahtarı ve uç noktası ya da kalite
    skorlayıcısı hazır değilse düğme kapalıdır).
@@ -544,7 +563,7 @@ Ref2VA'ya alınırsa çekimdeki bütün karakterlerin durağan görselleri (en �
 
 ### Ücretli ses kapalı (deneme)
 
-`paid_audio: false` proje ayarıyla (deneme ön ayarında kapalıdır) ücretli modda bile konuşma yerel espeak ile
+`paid_audio: false` proje ayarıyla (deneme ön ayarında kapalıdır) ücretli modda bile konuşma yerelde (Okur; model yoksa espeak)
 üretilir ve dudak senkronu çağrılmaz: replikli çekimde rafine video olduğu gibi kullanılır. ElevenLabs ve fal dudak
 senkronu bu projede hiç çağrılmaz. fal.ai anahtarı tanımlı değilse de dudak senkronu atlanır.
 
@@ -1209,7 +1228,8 @@ Bilinmesi gerekenler:
 | `DRY_RUN_FAIL_RATE` | `0` | Geçici hata oranı (yeniden deneme testi için) |
 | `GEN_CONCURRENCY` | `3` | Bir dalgada eşzamanlı üretim sayısı |
 | `PURGE_MODE` | `quarantine` | `quarantine`: elenenler `quarantine/` önekine taşınır; `hard`: silinir |
-| `TTS_ENGINE` | `espeak` | `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda espeak kullanılır) |
+| `TTS_ENGINE` | `okur` | `okur` (yerel Türkçe model; dosyası yoksa espeak), `espeak`, `tone` (yapay ton) ya da `elevenlabs` (ücretli; ücretsiz modda ya da projede ücretli ses kapalıyken yerel motor kullanılır) |
+| `VOICE_CHECK` | `auto` | `auto`: Duyu-small modeli varsa replik sesleri yazıya dökülüp metinle karşılaştırılır; `off`: denetim yok |
 | `QUALITY_SCORER` | `auto` | `auto`: ücretsiz modda sahte, ücretli modda gerçek skor; `dry`: her zaman sahte (ücretli modda üretim başlamaz); `real`: her zaman gerçek (ücretsiz modda da denenebilir) |
 | `SCORE_FACE_WEIGHT` | `0.4` | Birleşik skorda yüz kimliğinin payı (karede yüz görünüyorsa) |
 | `PROMPT_TRANSLATION` | `auto` | `auto`: ücretli modda Türkçe tarifler İngilizceye çevrilir; `on`: her zaman; `off`: hiç (senaryoyu İngilizce yazın) |

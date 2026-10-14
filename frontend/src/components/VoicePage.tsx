@@ -11,7 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { clock } from "@/lib/text";
 import type { VoiceLine, VoiceLockResult, VoiceSequence, VoiceShot, VoiceState, VoiceUpload } from "@/lib/types";
-import { assignable, DRIFT_TEXT, matchFiles, secTr, sourceBadge, uploadBody, type Matched } from "@/lib/voice";
+import { assignable, checkBadge, DRIFT_TEXT, matchFiles, mismatchText, secTr, sourceBadge, uploadBody, type Matched } from "@/lib/voice";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
@@ -34,15 +34,20 @@ function LineRow({ line, locked, playing, onPlay, onUpload }: {
 }) {
   const { busy } = usePanel();
   const badge = sourceBadge(line);
+  const check = checkBadge(line);
+  const mismatch = mismatchText(line);
   return (
-    <li className={`vl-row${line.drift ? " drift" : ""}`}>
+    <li className={`vl-row${line.drift || mismatch ? " drift" : ""}`}>
       <button type="button" className="btn ghost icon-only" disabled={!line.url} onClick={onPlay}
         aria-label={playing ? "Durdur" : `${line.character || "Anlatıcı"} repliğini oynat`} title={line.url ? "Oynat" : "Henüz ses yok"}>
         {playing ? <Icon.pause /> : <Icon.play />}
       </button>
       <span className="vl-who">{line.character || "Anlatıcı"}</span>
       <span className="vl-text">{line.text}</span>
-      <span className={`tag ${badge.tone}`} title={badge.title}>{badge.text}</span>
+      <span className="vl-tags">
+        <span className={`tag ${badge.tone}`} title={badge.title}>{badge.text}</span>
+        {check && <span className={`tag ${check.tone}`} title={check.title}>{check.text}</span>}
+      </span>
       <Wave line={line} />
       <span className={`vl-dur mono${line.drift ? " warn" : ""}`} title={line.drift ? DRIFT_TEXT : "Ölçülen ses süresi / repliğin çekimdeki yeri"}>
         {secTr(line.duration_s)} <span className="faint">/ {secTr(line.slot_s)}</span>
@@ -53,6 +58,7 @@ function LineRow({ line, locked, playing, onPlay, onUpload }: {
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onUpload(f); }} />
       </label>
       {line.drift && <span className="vl-warn" role="note">{DRIFT_TEXT}</span>}
+      {mismatch && <span className="vl-warn" role="note">{mismatch}</span>}
     </li>
   );
 }
@@ -208,11 +214,19 @@ export function VoicePage() {
   const c = st.counts;
   return (
     <div className="page voice" data-tour="voice">
-      <Panel title="Replikler" meta={`${c.lines} replik · ${c.final} final · ${c.temp} geçici${c.drift ? ` · ${c.drift} süre farkı` : ""}`}
-        tools={<button type="button" className="btn" disabled={busy || frozen || c.unmeasured === 0} onClick={() => act(async () => {
-          await api.post(`/projects/${projectId}/voice/temp`);
-          note("voice", "Geçici sesler kuyruğa alındı (ücretsiz modda espeak); bitince süreler ölçülür.", "ok");
-        }, "voice")} title="Seslendirilmemiş repliklerin geçici sesini üretir">{c.unmeasured ? `Geçici sesleri üret (${c.unmeasured})` : "Geçici sesler hazır"}</button>}>
+      <Panel title="Replikler" meta={`${c.lines} replik · ${c.final} final · ${c.temp} geçici${c.drift ? ` · ${c.drift} süre farkı` : ""}${c.mismatch ? ` · ${c.mismatch} uyuşmuyor` : ""}`}
+        tools={<div className="row">
+          {st.checker && c.unchecked > 0 && (
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => act(async () => {
+              await api.post(`/projects/${projectId}/voice/check`);
+              note("voice", "Ses denetimi kuyruğa alındı: sesler yazıya dökülüp replik metniyle karşılaştırılacak.", "ok");
+            }, "voice")} title="Sesi olan ama denetlenmemiş replikleri yazıya döker ve metinle karşılaştırır (yerel, ücretsiz)">Sesleri denetle ({c.unchecked})</button>
+          )}
+          <button type="button" className="btn" disabled={busy || frozen || c.unmeasured === 0} onClick={() => act(async () => {
+            await api.post(`/projects/${projectId}/voice/temp`);
+            note("voice", `Geçici sesler kuyruğa alındı; bitince süreler ölçülür${st.checker ? " ve sesler denetlenir" : ""}.`, "ok");
+          }, "voice")} title="Seslendirilmemiş repliklerin geçici sesini üretir (yerel Okur modeli)">{c.unmeasured ? `Geçici sesleri üret (${c.unmeasured})` : "Geçici sesler hazır"}</button>
+        </div>}>
         <div className="pad"><NoteBox id="voice" /></div>
         {st.sequences.map((q) => (
           <section key={q.id ?? "none"} className="vq">
@@ -240,6 +254,11 @@ export function VoicePage() {
             Ölçülen süre ile repliğin çekimdeki yeri karşılaştırılır; fark {String(st.pads.drift).replace(".", ",")} saniyeyi aşarsa
             amber uyarı çıkar. Kilitte çekim süresi: {String(st.pads.in).replace(".", ",")} sn giriş payı + replikler (aralarında {String(st.pads.gap).replace(".", ",")} sn)
             + {String(st.pads.out).replace(".", ",")} sn çıkış payı. Görüntüsü üretilmiş çekim yeniden üretilmez.
+          </p>
+          <p className="faint small">
+            Geçici sesler yerelde Okur TTS ile üretilir (ahakan/okur-tts, CC BY 4.0, Ahmet Hakan Beşel). Ses denetimi
+            yerelde Duyu-small ile yapılır (KaanAydinli/Duyu-small, Apache-2.0): ses yazıya dökülür, replik metniyle
+            karşılaştırılır; yüklenen kayıtlar da kendiliğinden denetlenir.
           </p>
         </div>
         <div className="adv"><Section title="Ses-önce ayarı" meta={st.voice_first ? "açık" : "kapalı"} open={false}>

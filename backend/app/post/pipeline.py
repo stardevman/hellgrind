@@ -124,9 +124,19 @@ def paid_lipsync(cfg: dict | None) -> bool:
     return paid_audio(cfg) and paid.available("fal_key")
 
 
+def local_tts_engine() -> str:
+    """Yerel konuşma motoru: Okur'un model dosyaları varsa okur, yoksa espeak."""
+    from app.post import okur
+    return "okur" if okur.available(settings.quality_model_dir) else "espeak"
+
+
 def effective_tts_engine(cfg: dict | None = None) -> str:
-    """Ücretsiz modda ya da projede ücretli ses kapalıyken "elevenlabs" seçilmiş olsa bile espeak kullanılır."""
-    return "espeak" if settings.tts_engine == "elevenlabs" and not paid_audio(cfg) else settings.tts_engine
+    """Seçilen motor; ücretsiz modda ya da projede ücretli ses kapalıyken "elevenlabs" yerine yerel motor. "okur"
+    seçiliyken model dosyaları yoksa espeak (dosya anahtarı gerçekten kullanılan motoru gösterir)."""
+    engine = settings.tts_engine
+    if engine == "elevenlabs" and not paid_audio(cfg):
+        return local_tts_engine()
+    return local_tts_engine() if engine == "okur" else engine
 
 
 def _paid_tts(t: AudioTrack, scene: Scene, path: str) -> float:
@@ -164,7 +174,8 @@ def ensure_dialogue_audio(t: AudioTrack, scene: Scene, tmp: str, cfg: dict | Non
             duration = _paid_tts(t, scene, path)
         else:
             duration = synthesize(t.text or "", path, emotion=t.emotion or scene.emotion,
-                                  voice_seed=voice_seed(t.character_id), engine=engine)
+                                  voice_seed=voice_seed(t.character_id), engine=engine,
+                                  model_dir=settings.quality_model_dir)
         storage.put_file(path, key, "audio/mpeg" if ext == ".mp3" else "audio/wav")
     _set_track(t.id, file_key=key, duration_s=duration)
 

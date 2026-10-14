@@ -1,9 +1,13 @@
 """Ses-önce akışı: diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten çıkar.
 
-Replikler sekans ve çekim sırasıyla listelenir. Her repliğin sesi geçici (espeak ya da ElevenLabs sentezi) ya da final
+Replikler sekans ve çekim sırasıyla listelenir. Her repliğin sesi geçici (Okur, espeak ya da ElevenLabs sentezi) ya da final
 (yüklenen kayıt) olabilir. Ölçülen süre, repliğin çekimdeki yeriyle karşılaştırılır: yer, ofsetinden sonraki repliğe ya da
 çekimin sonundaki paya kadardır. Fark DRIFT_S'yi aşarsa uyarı verilir. Planlayıcı değişmez: görüntüsü üretilmiş çekimde
 süre farkı yalnızca uyarıdır (CLAUDE.md Faz 3: diyalog değişince görüntü yeniden üretilmez).
+
+Ses denetimi (Duyu-small, app/quality/asr.py): geçici ses üretilince ve final kayıt yüklenince repliğin sesi yerelde
+yazıya dökülür ve metinle karşılaştırılır; sonuç kanalın params.check alanına yazılır (dosya anahtarı ve metinle
+birlikte, böylece ses ya da metin değişince eskir). Uyuşmayan replik panelde amber rozetle görünür; kilidi engellemez.
 
 Sekansın sesi kilitlenince görüntüsü henüz üretilmemiş çekimlerin süresi ve replik ofsetleri ölçülen sürelerden yeniden
 hesaplanır: giriş payı + replikler (aralarında boşlukla) + çıkış payı (scenes.duration_source = "voice"; panelde
@@ -128,7 +132,7 @@ def line_hash(t: AudioTrack) -> str:
 
 
 def engine_of(t: AudioTrack) -> str | None:
-    """Geçici sesin motoru, dosya anahtarından (audio/espeak/…, audio/elevenlabs/…, audio/tone/…)."""
+    """Geçici sesin motoru, dosya anahtarından (audio/okur/…, audio/espeak/…, audio/elevenlabs/…, audio/tone/…)."""
     if t.source != "tts" or not t.file_key:
         return None
     parts = t.file_key.split("/")
@@ -166,7 +170,7 @@ def shot_state(s, sc: Scene, names: dict) -> dict:
             "character": names.get(t.character_id), "text": t.text, "emotion": t.emotion, "source": t.source,
             "final": t.source == "upload", "engine": engine_of(t), "url": media(t.file_key), "duration_s": m,
             "start_offset_s": round(float(t.start_offset_s), 2), "slot_s": slot, "drift": drifts(m, slot),
-            "filename": (t.params or {}).get("filename"), "version": t.version})
+            "filename": (t.params or {}).get("filename"), "version": t.version, "check": check_view(t)})
     drift = voice_s is not None and abs(voice_s - float(sc.duration_s or 0)) > DRIFT_S
     return {"scene_id": str(sc.id), "scene_code": sc.scene_code, "heading": (sc.script_text or "").split("\n")[0],
             "description": sc.description, "duration_s": round(float(sc.duration_s or 0), 2),
@@ -194,10 +198,13 @@ def state(s, project_id) -> dict:
                        "final": sum(1 for x in shots for ln in x["lines"] if ln["final"])})
     lines = [ln for g in groups for x in g["shots"] for ln in x["lines"]]
     cfg = project_settings(p.settings)
-    return {"sequences": groups, "voice_first": bool(cfg.get("voice_first")),
+    checker = checker_on()
+    return {"sequences": groups, "voice_first": bool(cfg.get("voice_first")), "checker": checker,
             "counts": {"lines": len(lines), "final": sum(ln["final"] for ln in lines),
                        "temp": sum(not ln["final"] for ln in lines),
                        "unmeasured": sum(ln["duration_s"] is None for ln in lines),
+                       "mismatch": sum(1 for ln in lines if ln["check"] and not ln["check"]["ok"]),
+                       "unchecked": sum(1 for ln in lines if checker and ln["url"] and not ln["check"]),
                        "drift": sum(1 for g in groups for x in g["shots"] if x["drift"]),
                        "unlocked": sum(1 for g in groups if g["id"] and not g["locked"])},
             "pads": {"in": PAD_IN_S, "gap": GAP_S, "out": PAD_OUT_S, "drift": DRIFT_S},
@@ -208,7 +215,7 @@ def state(s, project_id) -> dict:
 
 def ensure_temp(project_id: str, sequence_id: str | None = None) -> list[str]:
     """Henüz seslendirilmemiş (ya da süresi ölçülmemiş) sentez repliklerinin geçici sesini üretir. Dönen: çekim kodları.
-    Ücretsiz modda espeak; ücretli modda ve projede ücretli ses açıkken ElevenLabs (bütçe rezervasyonundan geçer)."""
+    Yerel motor Okur (model yoksa espeak); ücretli modda ve projede ücretli ses açıkken ElevenLabs (bütçe rezervasyonundan geçer)."""
     from app.post.pipeline import ensure_dialogue_audio, workspace
     with session_scope() as s:
         cfg = project_settings(s.get(Project, project_id).settings)
@@ -226,6 +233,92 @@ def ensure_temp(project_id: str, sequence_id: str | None = None) -> list[str]:
                 ensure_dialogue_audio(t, sc, tmp, cfg)
             done.append(sc.scene_code)
     return done
+
+
+# ---------- Okur kaynak bildirimi ----------
+
+OKUR_NOTICE = """Geçici diyalog sesleri: Okur TTS v1.0 (https://huggingface.co/ahakan/okur-tts)
+Model ağırlıkları: Creative Commons Attribution 4.0 (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/
+Yapımcı: Ahmet Hakan Beşel, 2026. Ses: anonim bir Mozilla Common Voice gönüllüsü (CC0).
+Eğitim verisi: Mozilla Common Voice (CC0), ISSAI Turkish Speech Corpus (MIT), MediaSpeech ve Google FLEURS (CC BY 4.0).
+Sesler perde ve hız bakımından değiştirilmiştir (karakter başına perde kaydırma, duyguya göre hız).
+"""
+
+
+def okur_used(s, project_id) -> bool:
+    """Projenin aktif diyaloglarından biri Okur ile seslendirilmiş mi (teslim paketine OKUR_TTS.txt girer)."""
+    return s.scalar(select(AudioTrack.id).join(Scene, Scene.id == AudioTrack.scene_id)
+                    .where(Scene.project_id == project_id, AudioTrack.is_active, AudioTrack.kind == "dialogue",
+                           AudioTrack.file_key.like("audio/okur/%")).limit(1)) is not None
+
+
+# ---------- ses denetimi ----------
+
+def checker_on() -> bool:
+    """Ses denetimi açık mı: ayar kapalı değil ve Duyu-small'ın model dosyaları var."""
+    from app.quality import asr
+    return settings.voice_check != "off" and asr.available(settings.quality_model_dir)
+
+
+def check_of(t: AudioTrack) -> dict | None:
+    """Kanalın geçerli denetim sonucu: yalnızca bugünkü ses dosyası ve metin için yapılmışsa."""
+    c = (t.params or {}).get("check")
+    return c if c and t.file_key and c.get("file_key") == t.file_key and c.get("text") == (t.text or "") else None
+
+
+def check_view(t: AudioTrack) -> dict | None:
+    c = check_of(t)
+    return {"ok": c["ok"], "cer": c["cer"], "heard": c["heard"]} if c else None
+
+
+def heard(file_key: str, text: str) -> str:
+    """Ses dosyasının yazıya dökümü, içerik-adresli önbellekle (asr/{özet}.json: dosya, model ve dil)."""
+    from app.quality import asr
+    lang = asr.lang_for(text)
+    key = f"asr/{stable_hash([file_key, asr.MODEL_ID, lang])}.json"
+    if storage.exists(key):
+        return json.loads(storage.read_bytes(key))["text"]
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+        result = asr.transcribe(storage.download(file_key, os.path.join(tmp, "a" + os.path.splitext(file_key)[1])),
+                                settings.quality_model_dir, lang)
+    storage.client().put_object(Bucket=settings.s3_bucket, Key=key, ContentType="application/json",
+                                Body=json.dumps({"text": result, "model": asr.MODEL_ID, "lang": lang},
+                                                ensure_ascii=False).encode())
+    return result
+
+
+def ensure_checks(project_id: str, track_ids: list[str] | None = None) -> dict:
+    """Sesi olan ama denetlenmemiş (ya da sesi/metni değişmiş) aktif replikleri yazıya döker ve metinle karşılaştırır.
+    Dönen: {"checked": sayı, "mismatch": ["S001_SH01 · 2", ...]}. Denetim kapalıysa ya da model yoksa hiçbir şey yapmaz."""
+    from app.quality import asr
+    if not checker_on():
+        return {"checked": 0, "mismatch": []}
+    with session_scope() as s:
+        q = (select(AudioTrack, Scene.scene_code).join(Scene, Scene.id == AudioTrack.scene_id)
+             .where(Scene.project_id == project_id, AudioTrack.kind == "dialogue", AudioTrack.is_active,
+                    AudioTrack.file_key.is_not(None)).order_by(Scene.seq_order, AudioTrack.start_offset_s))
+        if track_ids:
+            q = q.where(AudioTrack.id.in_(track_ids))
+        rows = list(s.execute(q))
+        lines = {}
+        for t, code in rows:                          # repliğin çekimdeki sırası (panelde "S001_SH01 · 2")
+            lines.setdefault(code, []).append(t.id)
+        todo = [(t.id, t.file_key, t.text or "", f"{code} · {lines[code].index(t.id) + 1}")
+                for t, code in rows if check_of(t) is None]
+    checked, mismatch = 0, []
+    for track_id, file_key, text, label in todo:
+        result = {"file_key": file_key, "text": text, "heard": heard(file_key, text), "model": asr.MODEL_ID}
+        result.update(asr.compare(text, result["heard"]))
+        with session_scope() as s:
+            t = s.get(AudioTrack, track_id)
+            if t is None or t.file_key != file_key:   # bu arada yeni bir ses gelmiş: sonuç eskidir
+                continue
+            t.params = {**(t.params or {}), "check": result}
+        checked += 1
+        if not result["ok"]:
+            mismatch.append(label)
+    return {"checked": checked, "mismatch": mismatch}
 
 
 # ---------- kilit ----------

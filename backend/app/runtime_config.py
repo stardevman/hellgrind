@@ -181,7 +181,7 @@ FIELDS: tuple[Field, ...] = (
     Field("FAL_KONTEXT_ENDPOINT", "fal_kontext_endpoint", "model", "fal", "Karakter referansıyla kare (Flux Kontext)", url="https://fal.ai/models/{}"),
     Field("ELEVENLABS_API_KEY", "elevenlabs_api_key", "secret", "elevenlabs", "API anahtarı"),
     Field("ELEVENLABS_MODEL", "elevenlabs_model", "model", "elevenlabs", "Ses modeli"),
-    Field("TTS_ENGINE", "tts_engine", "choice", "elevenlabs", "Konuşma motoru", ("espeak", "tone", "elevenlabs")),
+    Field("TTS_ENGINE", "tts_engine", "choice", "elevenlabs", "Konuşma motoru", ("okur", "espeak", "tone", "elevenlabs")),
     Field("ANTHROPIC_API_KEY", "anthropic_api_key", "secret", "anthropic", "API anahtarı"),
     Field("HERMES_MODEL", "hermes_model", "model", "anthropic", "Hermes modeli"),
     Field("HERMES_MODE", "hermes_mode", "choice", "anthropic", "Senaryo ayrıştırma", ("rules", "llm")),

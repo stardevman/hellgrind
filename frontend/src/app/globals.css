@@ -622,6 +622,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .vl-row { display: grid; grid-template-columns: 28px 90px minmax(0, 1fr) auto 140px 92px auto; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .vl-row.drift { background: rgba(242, 199, 68, .04); }
 .vl-row .vl-warn { grid-column: 2 / -1; }
+.vl-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .vl-who { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vl-text { font-size: 12px; color: var(--text-2); }
 .vl-dur { font-size: 11px; text-align: right; white-space: nowrap; }

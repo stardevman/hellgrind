@@ -20,7 +20,7 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 ## Teknoloji yığını
 - **Python 3.12:** FastAPI, SQLAlchemy 2.0 (senkron, psycopg 3), Celery 5 + Redis, boto3 (MinIO/S3), Pillow, numpy, PyYAML, httpx, pytest.
 - **Altyapı:** PostgreSQL 16, Redis 7, MinIO (yerel S3).
-- **Medya:** FFmpeg ve ffprobe, espeak-ng (ücretsiz Türkçe konuşma), fonts-dejavu-core.
+- **Medya:** FFmpeg ve ffprobe, Okur TTS (ücretsiz yerel Türkçe konuşma, ONNX; yedek espeak-ng), Duyu-small (ücretsiz yerel konuşma tanıma: ses denetimi), fonts-dejavu-core.
 - **Panel:** Next.js (App Router) + TypeScript + SWR, `frontend/` altında. Statik dışa aktarım (`output: export`, `basePath: /panel`) Docker imajının ilk aşamasında Node 22 ile derlenir ve FastAPI tarafından `/panel` altında servis edilir; çalışma anında Node yoktur.
 - **Ücretli, kilitli entegrasyonlar** (ayrı `requirements-live.txt`): fal-client, langgraph, langchain-anthropic.
 - **Video motoru (ücretli modda, Ekim 2026'dan):** fal.ai kuyruğunda taslak **MiniMax H3 Max** (`h3max`, yeni çekimlerin varsayılanı), final **Seedance 2.5** (`seedance25`, "Seedance 2.5 ile yükselt"); kareler fal.ai'de Qwen-Image-2512 / Qwen-Image-Edit-2511 (`KEYFRAME_PLATFORM=fal`). Girdi varsayılan olarak **referans modu**dur (`VIDEO_INPUT_MODE=reference`: hiçbir kare ya da görsel üretilmez, video onaylı referans görselleri + senaryodan; `SCENE_RENDER_MODE=whole_scene`: sahnenin çekimleri tek istekte, render'dan önce plan onayı). Kendi barındırdığımız H3 **kapalıdır** (`H3_PLATFORM=kapali`; RunPod uç noktası ve volume silindi, kod duruyor). Eski açıklama:
@@ -58,7 +58,7 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 - `config.py` pydantic-settings ile yazılsın. Ayarlar ve varsayılanları:
   - Bağlantılar: `database_url`, `redis_url`, `s3_endpoint_url=http://minio:9000`, `s3_public_endpoint_url=http://localhost:9000`, `s3_bucket`.
   - Ücretsiz mod: `dry_run=True`, `dry_run_defect_rate=0.12`, `dry_run_fail_rate=0`, `dry_run_score_mean=0.89`, `dry_run_score_sd=0.05`, `local_render_fps=24`.
-  - Davranış: `gen_concurrency=3`, `purge_mode=quarantine`, `tts_engine=espeak`, `hermes_mode=rules`.
+  - Davranış: `gen_concurrency=3`, `purge_mode=quarantine`, `tts_engine=okur` (model dosyası yoksa espeak), `voice_check=auto`, `hermes_mode=rules`.
   - Kilitli anahtarlar: `fal_key`, `anthropic_api_key`, `elevenlabs_api_key`, `hermes_model`.
 - `DEFAULT_PROJECT_SETTINGS`:
   - Eşikler: `clip_threshold=0.85`, `excellent_threshold=0.92`, `min_pass_rate=0.3`.
@@ -209,7 +209,8 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
   - Sahne `refined` durumuna geçer ve visual_hash yazılır.
 
 ## Faz 7 — Ses ve montaj (ücretsiz)
-- **Konuşma:** `espeak-ng -v tr+<varyant> -p <perde> -s <hız>`.
+- **Konuşma:** Okur (ahakan/okur-tts, CC BY 4.0; çalıştırıcı `app/post/okur`, tek ses: karakterler perde kaydırmasıyla ayrılır). Model yoksa `espeak-ng -v tr+<varyant> -p <perde> -s <hız>`.
+  - Ses denetimi: Duyu-small (KaanAydinli/Duyu-small, Apache-2.0; çalıştırıcı `app/quality/duyu`) geçici sesi ve yüklenen kaydı yazıya döker, replik metniyle karşılaştırır; uyuşmayan replik panelde işaretlenir.
   - Duygu perde ve hızı belirler.
   - Karakter kimliğinin özetinden ses varyantı seçilir; böylece her karakterin sesi tutarlı kalır.
   - espeak-ng yoksa yapay tona düşülür.

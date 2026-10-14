@@ -1,6 +1,7 @@
 """Gerçek kalite skorlayıcısının model dosyalarını indirir ve doğrular (imaj kurulurken bir kez çalışır).
 
 Kullanım: python scripts/fetch_models.py /models          dosyaları indirir, SHA-256 özetlerini denetler
+          python scripts/fetch_models.py /models --voice  yalnızca ses modelleri (Okur, Duyu-small; torch gerekmez)
           python scripts/fetch_models.py /models --warm   modeli bir kez kurar: metin kodlayıcının yapılandırması ve
                                                           sözcük ayırıcısı HF önbelleğine (HF_HOME) iner; çalışma anında
                                                           ağ gerekmez (HF_HUB_OFFLINE=1)
@@ -11,6 +12,11 @@ Hepsi ücretsizdir ve ticari kullanıma açık lisanslıdır:
   SFace yüz tanıma                                Apache 2.0   OpenCV Zoo
   Helsinki-NLP opus-mt-tr-en (MarianMT)           Apache 2.0   prompt çevirisi: görüntü modelleri İngilizce istemi izler
   facebook/dinov2-small (DINOv2)                  Apache 2.0   robot/hayvan karakter benzerliği, kareler arası süreklilik
+Ses modelleri (imajın her sürümünde; onnxruntime ile CPU'da çalışır, torch gerekmez):
+  ahakan/okur-tts v1.0 (ONNX)                     CC BY 4.0    geçici diyalog sesi (Türkçe); kaynak belirtilir
+                                                               (teslim paketinde OKUR_TTS.txt)
+  KaanAydinli/Duyu-small (int8 ONNX)              Apache 2.0   ses denetimi: replik sesi yazıya dökülür
+Çalıştırıcıları repodadır (app/post/okur, app/quality/duyu); buradan yalnızca veri dosyaları iner, kod inmez.
 InsightFace'in hazır modelleri (buffalo_l) yalnızca ticari olmayan araştırma lisanslı olduğu için kullanılmaz.
 Dosyalar belirli bir sürüme sabitlenmiştir; özet tutmazsa kurulum durur.
 """
@@ -44,6 +50,30 @@ DINO_FILES = {   # dosya -> sha256
     "preprocessor_config.json": "14e780d86fa1861f8751f868d7f45425b5feb55c38ca26f152ca5097ab30f828",
     "model.safetensors": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1",
 }
+OKUR = "https://huggingface.co/ahakan/okur-tts/resolve/0c1ae1a9c5e7bcaa46bdff732bc7182c9ae7bd70/onnx"
+DUYU = "https://huggingface.co/KaanAydinli/Duyu-small/resolve/1f1c3274b89b0fef77f0e86b25b1b616d5ca4497"
+OKUR_DIR = "tts/okur"
+OKUR_FILES = {   # dosya -> sha256
+    "config.json": "7b62f4383f4d0ed0fd5f0087bdb078e9cfb9516e36a4e3e61530bf037b663860",
+    "text.6a21984ac693.onnx": "6a21984ac693d07ec0096fcfbc0bffebe23255891523090eaf24f232782a94c2",
+    "sample.3c2a91ee5faa.onnx": "3c2a91ee5faa5601ae53193c203fa558a28f7e031b82103af28ee3cf366a6c63",
+    "decoder.8f42fa31155e.onnx": "8f42fa31155e459e62f3cb2830d53c7c014e5c614b583b17440120d7fa7120c4",
+}
+DUYU_DIR = "asr/duyu-small"
+DUYU_FILES = {   # dosya -> sha256 (npz tabloları pickle'sız yüklenir: numpy'nin varsayılanı allow_pickle=False)
+    "engine.json": "66a661f4234fadac70d6e7910fd700be6307f2c2691563ff75553bb3c357b7dc",
+    "fbank.npz": "6d4f916ae5e170a56f73fc95f8f63b02e1d73c81b62cfd823609da9603bc7ad6",
+    "passes.npz": "feacbb3296889a175d274d0e7e5f7fcb019811d51e083ce8f6209e03af0115a2",
+    "spm.model": "3e2367ec7844d3ea222819bcb51a48068ae0169ef15e6b32d6cc57054b6e1205",
+    "int8/encoder_pre.onnx": "4953211efcf5ac624be5a78f7d5a8871355c0e0c5c78c7b4de554730c023274c",
+    "int8/encoder_pass.onnx": "2a43a3bd75ee7da8796f9c41e5b41a00f7a9518907f65c210ca9a76f2eff22bd",
+    "int8/encoder_post.onnx": "c0600b87e63596f60140c84c64836b9b40db9f3d10add2aab2067bb338b2bd03",
+    "int8/decoder.onnx": "d580c32ccfaeaf45439f8eaff6908181b3568d818a3b6c12658545ce0364cab6",
+}
+VOICE_MODELS = {
+    **{f"{OKUR_DIR}/{name}": (f"{OKUR}/{name}", digest) for name, digest in OKUR_FILES.items()},
+    **{f"{DUYU_DIR}/{name}": (f"{DUYU}/{name}", digest) for name, digest in DUYU_FILES.items()},
+}
 MODELS = {   # yerel yol -> (adres, sha256)
     CLIP_FILE: (f"{HF}/open_clip_pytorch_model.bin",
                  "a5412f19cca70db8d434f68361f7254bd322a553455a63dbb709bd6a650cf378"),
@@ -64,8 +94,8 @@ def sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def fetch(root: str) -> None:
-    for rel, (url, digest) in MODELS.items():
+def fetch(root: str, models: dict = MODELS) -> None:
+    for rel, (url, digest) in models.items():
         path = os.path.join(root, rel)
         if os.path.exists(path) and sha256(path) == digest:
             print(f"var: {rel}")
@@ -112,5 +142,7 @@ if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else "/models"
     if "--warm" in sys.argv:
         warm(target)
+    elif "--voice" in sys.argv:
+        fetch(target, VOICE_MODELS)
     else:
         fetch(target)
