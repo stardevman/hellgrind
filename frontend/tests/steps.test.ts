@@ -58,10 +58,8 @@ describe("steps", () => {
     expect(st[2].state).toBe("blocked");
   });
 
-  it("the style badge names the active version and its drawing medium", () => {
-    expect(pageBadges(ov([scene({})], { style_version: 2, style_medium: "2d" })).style).toMatchObject({ text: "s2 · 2D" });
-    expect(pageBadges(ov([scene({})], { style_version: 1, style_medium: "3d" })).style?.title).toContain("çizim türü 3D");
-    expect(pageBadges(ov([scene({})], { style_version: null })).style).toBeUndefined();
+  it("the style page carries no badge", () => {
+    expect(pageBadges(ov([scene({})], { style_version: 2, style_medium: "3d" })).style).toBeUndefined();
   });
 
   it("voice-first lists lines without a final recording (warn) and unlocked sequences (blocks preparation)", () => {

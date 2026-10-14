@@ -182,10 +182,6 @@ export function pageBadges(ov: Overview | undefined): Partial<Record<StepPage, P
     badge.voice = { text: `${finals}/${lines.length}`, tone: finals === lines.length ? "ok" : "",
       title: `Final sesli replikler${ov.sequences.length ? ` · ${locked}/${ov.sequences.length} sekansın sesi kilitli` : ""}` };
   }
-  if (ov.project.style_version) {
-    const medium = ov.project.style_medium === "3d" ? "3D" : ov.project.style_medium === "2d" ? "2D" : "";
-    badge.style = { text: `s${ov.project.style_version}${medium ? ` · ${medium}` : ""}`, title: `Etkin stil sürümü ${ov.project.style_version}${medium ? `, çizim türü ${medium}` : ""}` };
-  }
   if (assetsTotal) badge.assets = { text: `${c.locked || 0}/${assetsTotal}`, tone: c.locked === assetsTotal ? "ok" : blocked ? "bad" : "", title: "Kilitli varlıklar" };
   if (scenes.length) {
     const approved = scenes.filter((s) => s.board_status === "approved").length;
