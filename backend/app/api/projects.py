@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ProjectId, project_or_404
 from app.budget import killswitch
 from app.config import project_settings
+from app.core import series
 from app.curation import curated
 from app.db import get_session
 from app.engine.providers import route_engine
@@ -27,6 +28,7 @@ def project_out(p: Project, s: Session) -> dict:
         "soft_limited": killswitch.is_soft_limited(pid), "settings": project_settings(p.settings),
         "scene_status_counts": counts, "timeline_key": p.timeline_key,
         "script_source": p.script_source,                    # panelin senaryo sayfası yeniden düzenlemek için okur
+        "episode": series.episode_info(s, p),                # dizi › sezon › bölüm ve teslim kilidi ("sürüm sabit")
     }
 
 
@@ -37,7 +39,9 @@ def list_projects(s: Session = Depends(get_session)):
     for pid, st in s.execute(select(Scene.project_id, Scene.status)):
         statuses.setdefault(pid, []).append(st)
     return [{"id": str(p.id), "title": p.title, "status": p.status, "display_status": display_status(p.status, statuses.get(p.id, [])),
-             "spent_usd": float(p.spent_usd), "budget_limit_usd": float(p.budget_limit_usd)} for p in rows]
+             "spent_usd": float(p.spent_usd), "budget_limit_usd": float(p.budget_limit_usd),
+             "season_id": str(p.season_id) if p.season_id else None, "episode_no": p.episode_no,
+             "locked": p.locked_at is not None} for p in rows]
 
 
 ACTIVE_SCENE = ("pending", "storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing")
@@ -111,7 +115,7 @@ def delete_project(project_id: ProjectId, s: Session = Depends(get_session)):
 def create_character(project_id: ProjectId, body: CharacterIn, s: Session = Depends(get_session)):
     """Karakter ve ona bağlı taslak karakter varlığı (referansları Varlıklar sekmesinden yüklenir)."""
     project_or_404(s, project_id)
-    if s.scalar(select(Character.id).where(Character.project_id == project_id, Character.name == body.name)):
+    if s.scalar(series.episode_characters_q(project_id).where(Character.name == body.name).with_only_columns(Character.id)):
         raise HTTPException(409, f"Bu projede '{body.name}' adlı bir karakter zaten var.")
     ch = ensure_character(s, AssetBook(s, project_id), project_id, body.name, {}, **body.model_dump(exclude={"name"}))
     try:
@@ -142,7 +146,8 @@ def _sequence_for(s: Session, project_id: str, sequence_id) -> Sequence:
 def create_scene(project_id: ProjectId, body: SceneIn, s: Session = Depends(get_session)):
     project = project_or_404(s, project_id)
     wanted = set(body.character_ids)
-    known = set(s.scalars(select(Character.id).where(Character.project_id == project_id, Character.id.in_(wanted))))
+    known = set(s.scalars(series.episode_characters_q(project_id).where(Character.id.in_(wanted))
+                          .with_only_columns(Character.id)))
     if wanted - known:
         raise HTTPException(422, f"Sahnedeki karakterlerden biri bu projeye ait değil: {sorted(map(str, wanted - known))}")
     seq = _sequence_for(s, project_id, body.sequence_id)

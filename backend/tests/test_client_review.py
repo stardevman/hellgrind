@@ -150,7 +150,7 @@ def test_script_and_design_gates_are_marked_from_the_panel_and_rounds_have_a_lim
     for _ in range(2):
         r = api.post(f"/api/projects/{pid}/gates/script", json={"status": "changes_requested", "note": "Sahne 2 uzun"})
         assert r.status_code == 200
-    assert r.json() == {"gate": "script", "status": "changes_requested", "rounds": 2}
+    assert r.json() == {"gate": "script", "status": "changes_requested", "rounds": 2, "locked": False}   # yalnızca Kabul onayı bölümü kilitler
     api.post(f"/api/projects/{pid}/gates/design", json={"status": "approved"})
     st = api.get(f"/api/projects/{pid}/client").json()
     script = next(g for g in st["gates"] if g["gate"] == "script")

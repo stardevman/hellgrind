@@ -15,6 +15,7 @@ import zipfile
 from sqlalchemy import select
 
 from app import storage
+from app.core.series import episode_characters_q
 from app.core.hashing import grade_settings
 from app.db import session_scope
 from app.models import AudioTrack, Character, Project, Revision, Scene, Sequence, Variation
@@ -145,7 +146,7 @@ def package(project_id: str, cut: dict, out_zip: str, work: str, curation_jsonl:
         tracks = active_tracks(s, project_id, sequences)
         audio = {code: list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id, AudioTrack.is_active)
                                       .order_by(AudioTrack.start_offset_s))) for code, sc in scenes.items()}
-        names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
+        names = dict(s.execute(episode_characters_q(project_id).with_only_columns(Character.id, Character.name)).all())
         pools = {}                                   # kod -> [(sıra, varyasyon, video anahtarı, skor, revizyon sürümü)]
         for code, sc in scenes.items():
             pools[code] = []

@@ -50,10 +50,12 @@ def _real_h3():
 
 def restricted(s, project_id) -> Restricted:
     """Projenin gerçek H3 çıktıları (çekim varyasyonları ve varlık hareket testleri) ve bunların sahneleri."""
+    from app.core.series import linked_ids               # bölüme bağlı dizi varlıklarının hareket testleri de
     out = Restricted()
     rows = s.execute(select(Variation.id, Variation.scene_id, Variation.refined_rank, Variation.params, Scene.scene_code)
                      .outerjoin(Scene, Scene.id == Variation.scene_id).outerjoin(Asset, Asset.id == Variation.asset_id)
-                     .where(_real_h3(), or_(Scene.project_id == project_id, Asset.project_id == project_id))).all()
+                     .where(_real_h3(), or_(Scene.project_id == project_id, Asset.project_id == project_id,
+                                             Asset.id.in_(linked_ids(project_id))))).all()
     for vid, scene_id, rank, params, code in rows:
         out.variations.add(str(vid))
         if scene_id is not None:

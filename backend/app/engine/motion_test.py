@@ -50,10 +50,11 @@ def compose_for(asset, style):
                            "characters": [asset.name] if asset.type == "character" else []}, [asset], style)
 
 
-def create(s, asset: Asset, cfg: dict) -> Variation:
-    """Sıradaki testin varyasyon satırı (queued). Her test yeni bir seed alır; varlığın en son testi olarak işaretlenir."""
+def create(s, asset: Asset, cfg: dict, project_id=None) -> Variation:
+    """Sıradaki testin varyasyon satırı (queued). Her test yeni bir seed alır; varlığın en son testi olarak işaretlenir.
+    project_id: stilin geldiği bölüm (dizi varlığında panelin açık olduğu bölüm)."""
     n = s.scalar(select(func.count()).select_from(Variation).where(Variation.asset_id == asset.id)) or 0
-    style = bible.active(s, asset.project_id)
+    style = bible.active(s, project_id or asset.project_id)
     composed = compose_for(asset, style)
     v = Variation(asset_id=asset.id, scene_id=None, tier="probe", wave_no=n, engine=default_engine(cfg),   # filmin taslak motoru
                   seed=seed_for(str(asset.id), asset.version, "motion", n), prompt_revision=0, status="queued",

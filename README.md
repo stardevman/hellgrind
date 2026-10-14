@@ -418,6 +418,30 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
   - Boy, varlığın mevcut "Gerçek boyut" metninden okunur; yeni alan yok. Sıra: ölçü ("1,70 m", "30 cm"), sonra sözcük ("palm-sized", "çocuk", "dev"), yoksa varsayılan (insan 1,70 m, insan olmayan 1 m).
   - Tahminî boylar "~" ile işaretlenir.
 
+### Dizi › Sezon › Bölüm (kırıntı yolu, dizi kütüphanesi, sürüm sabit)
+
+Tasarım notu: [docs/dizi-hiyerarsisi.md](docs/dizi-hiyerarsisi.md). **Bölüm, bugünkü projedir:** bütçe, Kill-Switch, sürümler (v001…), müşteri kapıları, teslim ve kürasyon kaydı bölüm başına çalışır. Sezonu olmayan proje bağımsız film olarak kalır.
+
+- **Kırıntı yolu** (alt bant): `Dizi › Sezon 1 › Bölüm 3`. Her parça kendi menüsünü yukarı açar.
+  - Dizi menüsü: diziler (ilk bölüme gider), bağımsız filmler, "Yeni dizi…" (ilk sezonu ve 1. bölümüyle açılır) ve bağımsız filmi bir diziye bölüm olarak ekleme.
+  - Sezon menüsü: sezonlar ve "Yeni sezon". Bölüm menüsü: numara, ad, durum ve teslim rozeti; "Yeni bölüm…".
+  - URL'de yalnızca `?p=<bölüm>` kalır; dizi ve sezon bölümden türetilir.
+- **Dizi kütüphanesi** (Varlıklar › Kapsam: Tümü / Dizi kütüphanesi / Bu bölüm):
+  - Dizi varlığı bölüme kopyalanmaz, bağlanır. Senaryo işlenirken kütüphanede aynı adı taşıyan varlık kendiliğinden bağlanır; yoksa bölüme özel taslak açılır.
+  - Kütüphaneye varlık eklemek ("Dizi kütüphanesine ekle") onu bu bölüme de bağlar. "Bu bölüme bağla" / "Bağı kaldır" (çekimde kullanılan varlığın bağı kaldırılamaz).
+  - Dizi varlığının referans üretimi ve hareket testi panelin açık olduğu bölümün bütçesinden, ayarlarından ve stilinden yapılır.
+- **Sürüm sabitleme:** bölüm varsayılan olarak kütüphanedeki son sürümü kullanır.
+  - Dizi varlığının sürümü artınca (tarif, referans), o varlıkla görüntüsü üretilmiş bölümler eski sürüme sabitlenir: görsel özet sabit sürümü görür, hiçbir çekim kendiliğinden "değişmiş" olmaz.
+  - Varlıklar sayfasında "Yeni sürüm var" kutusu ve "Sıradaki" şeridinde uyarı çıkar. **Etkisini gör** yeniden üretilecek çekimleri ve tahmini sanal maliyeti gösterir (hiçbir şey yazmaz); **Yeni sürüme geç** bağı son sürüme taşır, **Geç ve yeniden üret** etkilenen çekimleri hemen kuyruğa verir.
+  - Geçilmeden o varlıkla yeni görüntü üretilmez (lint kapalı olsa da çekim `blocked` olur): eski özetle yeni referans karışmaz.
+- **Sürüm sabit (teslim kilidi):** Kabul kapısı onaylanınca (müşterinin inceleme bağlantısından ya da panelden) bölüm o film sürümüne ve dizi varlıklarının o anki sürümlerine kilitlenir.
+  - Kırıntıda `Sürüm sabit · v004` rozeti ve bantta açıklama görünür.
+  - Üretim, senaryo işleme, toplu ve taslak geçişler, stil etkinleştirme, bölüme özel varlık düzenlemesi ve dizi varlığının bağlanması 423 döner. Film birleştirme ve dışa aktarma açıktır.
+  - Kilidi yalnızca yönetici, "kilidi aç" onay ifadesiyle açar (`POST /api/projects/{id}/unlock`); karar kürasyon kaydına düşer. Sabit sürümler korunur, hiçbir çekim kendiliğinden yeniden üretilmez.
+- **Uç noktalar:** `GET/POST /api/series`, `POST /api/series/{id}/seasons`, `POST /api/seasons/{id}/episodes`, `POST /api/projects/{id}/episode` (sezona yerleştir / bağımsız filme dön), `GET/POST /api/projects/{id}/series-library`, `POST/DELETE /api/projects/{id}/series-assets/{asset}`, `GET/POST /api/projects/{id}/series-assets/{asset}/upgrade`, `POST /api/projects/{id}/unlock`.
+- **Migration'lar:** `035_series.sql` (dizi, sezon, bölüm numarası), `036_series_assets.sql` (dizi kütüphanesi ve `episode_assets` bağları, sabit sürüm), `037_episode_lock.sql` (teslim kilidi). Sezon ve dizi bütçe tavanı (`038_series_budget.sql`, isteğe bağlı) henüz yok: bütçe bölüm ve sekans başınadır.
+- **Kapsam dışı:** stil kılavuzu bölüm başına kalır; kürasyon kaydı, metrikler ve servis geçmişi bölüm başınadır.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.

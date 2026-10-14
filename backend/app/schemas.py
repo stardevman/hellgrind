@@ -444,3 +444,41 @@ class GradeIn(BaseModel):
     saturation: float = Field(1.0, ge=0, le=3)
     gamma: float = Field(1.0, ge=0.3, le=3)
     temperature: int = Field(6500, ge=2000, le=12000)    # Kelvin; düşük değer ısıtır
+
+
+# ---------- dizi hiyerarşisi (docs/dizi-hiyerarsisi.md) ----------
+
+class SeriesIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+    _title = field_validator("title")(ProjectIn._title.__func__)
+
+
+class SeasonIn(BaseModel):
+    number: int | None = Field(None, ge=1, le=999)            # boşsa sıradaki numara
+    title: str | None = Field(None, max_length=200)
+
+
+class EpisodeIn(ProjectIn):
+    """Yeni bölüm = yeni proje; sezondaki numarası boşsa sıradaki."""
+    episode_no: int | None = Field(None, ge=1, le=9999)
+
+
+class EpisodePlaceIn(BaseModel):
+    season_id: UUID | None = None                              # boş: bağımsız filme döner
+    episode_no: int | None = Field(None, ge=1, le=9999)
+
+
+class SeriesAssetIn(BaseModel):
+    type: AssetType
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(None, max_length=2000)
+    link: bool = True                                          # bu bölüme de bağla
+
+
+class SeriesUpgradeIn(BaseModel):
+    render: bool = False                                       # etkilenen çekimleri hemen yeniden üret
+
+
+class UnlockIn(BaseModel):
+    confirm: str = Field(max_length=50)

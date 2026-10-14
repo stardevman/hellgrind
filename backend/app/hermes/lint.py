@@ -65,13 +65,25 @@ def find_missing(items: list[tuple[str | None, str, str, str | None]], min_statu
     return sorted(out, key=lambda m: (order.index(m.type), m.name))
 
 
+BEHIND = "behind"               # dizi varlığının bölümdeki sabit sürümü kütüphanenin gerisinde
+
+
 def describe(missing: list[Missing], min_status: str) -> str:
     """Panelde ve `last_error` alanında gösterilen Türkçe açıklama."""
     if not missing:
         return ""
-    items = ", ".join(f"{m.name} ({TYPE_TR[m.type]}, {STATUS_TR.get(m.status, m.status)})" for m in missing)
-    return (f"Üretim engellendi: onaylı referansı olmayan varlıklar var: {items}. "
-            f"Gereken en az durum: {STATUS_TR[min_status]}.")
+    late = [m for m in missing if m.status == BEHIND]
+    rest = [m for m in missing if m.status != BEHIND]
+    parts = []
+    if rest:
+        items = ", ".join(f"{m.name} ({TYPE_TR[m.type]}, {STATUS_TR.get(m.status, m.status)})" for m in rest)
+        parts.append(f"Üretim engellendi: onaylı referansı olmayan varlıklar var: {items}. "
+                     f"Gereken en az durum: {STATUS_TR[min_status]}.")
+    if late:
+        names = ", ".join(m.name for m in late)
+        parts.append(f"{'Üretim engellendi: ' if not rest else ''}dizi kütüphanesinde yeni sürümü olan varlıklar var: "
+                     f"{names}. Bölüm eski sürüme sabit; Varlıklar sayfasında etkisini görüp yeni sürüme geçin.")
+    return " ".join(parts)
 
 
 def scene_items(s, scene_id) -> list[tuple[str | None, str, str, str | None]]:
@@ -92,6 +104,11 @@ def check_scene(s, scene_id, cfg: dict) -> LintResult:
     result = LintResult(strictness, min_status)
     if strictness != "off":
         result.missing = find_missing(scene_items(s, scene_id), min_status)
+    from app.core.series import behind                 # dizi varlığı: bölüm eski sürüme sabit, kütüphane ilerledi
+    late = behind(s, scene_id)
+    if late:                                           # lint kapalı olsa da: eski özetle yeni referans karışmasın
+        result.strictness = "block"
+        result.missing += [Missing(x["asset_id"], x["type"], x["name"], BEHIND) for x in late]
     return result
 
 

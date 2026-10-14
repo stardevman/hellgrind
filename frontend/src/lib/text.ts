@@ -353,6 +353,9 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "gate_changed": return { t: `Müşteri kapısı: ${x.gate} ${x.status === "approved" ? "onaylandı" : x.status === "changes_requested" ? "değişiklik istendi" : "bekliyor"}` };
     case "voice_locked": return { t: `${x.code}: ses kilitlendi${(x.retimed as string[] | undefined)?.length ? `; sesten süre: ${(x.retimed as string[]).join(", ")}` : ""}${(x.drift as string[] | undefined)?.length ? `; süre farkı (uyarı): ${(x.drift as string[]).join(", ")}` : ""}`, c: "good" };
     case "voice_unlocked": return { t: `${x.code}: ses kilidi açıldı` };
+    case "episode_locked": return { t: `Bölüm teslim edildi: sürüm sabit${x.label ? ` (${x.label})` : ""}${(x.pinned as string[] | undefined)?.length ? `; sabitlenen dizi varlıkları: ${(x.pinned as string[]).join(", ")}` : ""}`, c: "good" };
+    case "episode_unlocked": return { t: `Teslim kilidi açıldı${x.was ? ` (${x.was})` : x.label ? ` (${x.label})` : ""}`, c: "bad" };
+    case "series_asset_upgrade": return { t: `${x.name}: dizi varlığının v${x.version} sürümüne geçildi${(x.affected as string[] | undefined)?.length ? `; yeniden üretilecek: ${(x.affected as string[]).join(", ")}` : ""}` };
     case "voice_temp": return { t: `Geçici sesler üretildi${(x.shots as string[] | undefined)?.length ? `: ${(x.shots as string[]).join(", ")}` : " (eksik yoktu)"}` };
     case "animatic": return { t: `Animatik birleşti: ${x.shots} çekim, ${Number(x.duration_s).toFixed(1).replace(".", ",")} sn`, c: "good" };
     case "animatic_failed": return { t: `Animatik birleştirilemedi: ${x.error}`, c: "bad" };

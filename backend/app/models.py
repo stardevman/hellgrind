@@ -50,6 +50,10 @@ class Project(Base):
     delivery: Mapped[dict | None] = mapped_column(JSONB)          # 033: teslim şartnamesi (boşsa eski sabitler)
     qc: Mapped[dict | None] = mapped_column(JSONB)                # 033: son QC raporu (filmin anahtarına bağlı)
     delivery_key: Mapped[str | None] = mapped_column(Text)        # 033: son teslim paketi (zip)
+    season_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("seasons.id"))   # 035: bölüm
+    episode_no: Mapped[int | None] = mapped_column(Integer)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))        # 037: sürüm sabit
+    locked_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("film_versions.id"))
     continuity: Mapped[dict | None] = mapped_column(JSONB)
     script_source: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -59,7 +63,8 @@ class Project(Base):
 class Character(Base):
     __tablename__ = "characters"
     id: Mapped[uuid.UUID] = PK()
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    series_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("series.id"))   # 036
     name: Mapped[str] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
     lora_url: Mapped[str | None] = mapped_column(Text)
@@ -198,7 +203,8 @@ class Asset(Base):
     """Karakter, mekân ya da nesne. Durum akışı: draft -> still_approved -> motion_tested -> locked."""
     __tablename__ = "assets"
     id: Mapped[uuid.UUID] = PK()
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"))
+    series_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("series.id"))   # 036: dizi kütüphanesi
     type: Mapped[str] = mapped_column(AssetType)
     name: Mapped[str] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
@@ -430,3 +436,33 @@ class RightsItem(Base):
     file_key: Mapped[str] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Series(Base):
+    """Dizi (035): sezonların ve dizi kütüphanesinin (paylaşılan varlıklar) sahibi."""
+    __tablename__ = "series"
+    id: Mapped[uuid.UUID] = PK()
+    title: Mapped[str] = mapped_column(Text)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+    budget_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Season(Base):
+    __tablename__ = "seasons"
+    id: Mapped[uuid.UUID] = PK()
+    series_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("series.id"))
+    number: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str | None] = mapped_column(Text)
+    budget_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EpisodeAsset(Base):
+    """Dizi varlığının bölüme bağı (036): pinned_version boşsa son sürüm, doluysa sabit sürüm."""
+    __tablename__ = "episode_assets"
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), primary_key=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"), primary_key=True)
+    pinned_version: Mapped[int | None] = mapped_column(Integer)
+    pinned_embedding: Mapped[int | None] = mapped_column(Integer)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

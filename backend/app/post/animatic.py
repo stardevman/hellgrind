@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw
 from sqlalchemy import select
 
 from app import storage
+from app.core.series import episode_characters_q
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
@@ -39,7 +40,7 @@ def _still(sc: Scene) -> tuple[str | None, str]:
 
 def plan(s, project_id: str) -> list[dict]:
     """Çekim başına: kare, süre, replikler (çekim içi ofsetle), sekans. Ölçülmemiş replikli çekim kendi süresini korur."""
-    names = {c.id: c.name for c in s.scalars(select(Character).where(Character.project_id == project_id))}
+    names = {c.id: c.name for c in s.scalars(episode_characters_q(project_id))}
     seqs = {q.id: q for q in s.scalars(select(Sequence).where(Sequence.project_id == project_id))}
     out = []
     for sc in s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)):

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
 from app.budget import killswitch
+from app.core import series
 from app.curation import curated
 from app.db import get_session
 from app.engine.fal_plan import MEDIUM_SENTENCE, style_line
@@ -71,6 +72,7 @@ def activate_style(project_id: ProjectId, body: StyleActivateIn, s: Session = De
     """Yönetmen onayı: sürümü etkinleştirir. render=true ise etkilenen çekimler hemen kuyruğa girer."""
     project_or_404(s, project_id)
     version_or_404(s, project_id, body.version)
+    series.ensure_unlocked(s, project_id)               # teslim edilmiş bölümün stili değişmez
     if body.render:
         ensure_not_frozen(project_id)               # 423 dönen istek etkin sürümü değiştirmiş olmamalı
     impact = bible.impact(s, project_id, body.version)

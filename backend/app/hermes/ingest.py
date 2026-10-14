@@ -22,7 +22,7 @@ from app.core.hashing import stable_hash
 from app.db import session_scope
 from app.engine.providers import route_engine
 from app.hermes import rules
-from app.models import Asset, AudioTrack, Character, Project, Scene, SceneAsset, SceneCharacter, Sequence, TimelineTrack
+from app.models import Asset, AudioTrack, Character, EpisodeAsset, Project, Scene, SceneAsset, SceneCharacter, Sequence, TimelineTrack
 
 log = logging.getLogger("hellgrind.hermes")
 
@@ -58,15 +58,34 @@ def script_text(shot: dict) -> str:
 
 
 class AssetBook:
-    """Projenin varlıkları (tür, ad) -> satır; olmayanı `draft` olarak oluşturur."""
+    """Bölümün varlıkları (tür, ad) -> satır: bölüme özel olanlar ve bağlı dizi varlıkları (core/series.py). Bölüm bir
+    dizideyse ve adı dizi kütüphanesinde varsa o varlık bölüme bağlanır (kopyalanmaz); hiçbirinde yoksa bölüme özel
+    `draft` olarak oluşturulur."""
 
     def __init__(self, s, project_id: str):
-        self.s, self.project_id, self.created = s, project_id, []
-        self.rows = {(a.type, a.name): a for a in s.scalars(select(Asset).where(Asset.project_id == project_id))}
+        from app.core import series
+        self.s, self.project_id, self.created, self.linked = s, project_id, [], []
+        rows = sorted(s.scalars(series.episode_assets_q(project_id)), key=lambda a: a.project_id is not None)
+        self.rows = {(a.type, a.name): a for a in rows}          # aynı ad: bölüme özel olan önce gelir
+        q = series.series_of(s, project_id)
+        self.library = {(a.type, a.name): a for a in series.library(s, q.id)} if q else {}
+
+    def characters(self) -> dict:
+        """Ad -> karakter: bölümün karakterleri ve (henüz bağlı olmasalar da) dizi kütüphanesinin karakterleri."""
+        from app.core import series
+        out = {c.name: c for c in self.s.scalars(select(Character).where(
+            Character.asset_id.in_([a.id for (t, _), a in self.library.items() if t == "character"])))}
+        out.update({c.name: c for c in self.s.scalars(series.episode_characters_q(self.project_id))})
+        return out
 
     def get(self, type_: str, name: str, description: str | None = None) -> Asset:
         row = self.rows.get((type_, name))
-        if row is None:
+        if row is None and (type_, name) in self.library:
+            row = self.library[(type_, name)]
+            self.s.add(EpisodeAsset(project_id=self.project_id, asset_id=row.id))
+            self.rows[(type_, name)] = row
+            self.linked.append(f"{name} ({type_})")
+        elif row is None:
             # render_style boş: varlık stil kılavuzunun tür kuralını izler (style/bible.py)
             row = Asset(id=uuid.uuid4(), project_id=self.project_id, type=type_, name=name, description=description,
                         render_style=None, status="draft", version=1, references={})
@@ -77,7 +96,8 @@ class AssetBook:
 
 
 def ensure_character(s, book: AssetBook, project_id: str, name: str, chars: dict, **fields) -> Character:
-    """Karakteri ve ona bağlı karakter varlığını hazırlar (ses alanları karakterde kalır)."""
+    """Karakteri ve ona bağlı karakter varlığını hazırlar (ses alanları karakterde kalır). Dizi karakteri bölüme
+    bağlanır."""
     ch = chars.get(name)
     if ch is None:
         cid = uuid.uuid4()
@@ -86,6 +106,8 @@ def ensure_character(s, book: AssetBook, project_id: str, name: str, chars: dict
         chars[name] = ch
     if ch.asset_id is None:
         ch.asset_id = book.get("character", name, ch.description).id
+    elif ch.series_id is not None:
+        book.get("character", name)
     return ch
 
 
@@ -122,7 +144,7 @@ PRESERVED_ON_SAME_TEXT = ("duration_s", "camera", "emotion", "action_complexity"
 
 def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     with session_scope() as s:
-        known = list(s.scalars(select(Character.name).where(Character.project_id == project_id)))
+        known = list(AssetBook(s, project_id).characters())
     parsed = parse_script(text, project_id, known)     # DB işleminin dışında: LLM modunda uzun sürebilir
     lang = "tr" if rules.is_turkish_script(text) else "en"     # prompt çevirisi bunu esas alır (hermes/translate.py)
     created, updated, unchanged = [], [], []
@@ -133,7 +155,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
 
         seqs = _write_sequences(s, project_id, parsed)
         book = AssetBook(s, project_id)
-        chars = {c.name: c for c in s.scalars(select(Character).where(Character.project_id == project_id))}
+        chars = book.characters()
         for name in parsed["cast"]:
             ensure_character(s, book, project_id, name, chars)
         s.flush()
@@ -185,7 +207,7 @@ def ingest(project_id: str, text: str, auto_music: bool = True) -> dict:
     if orphaned:
         log.warning("senaryoda artık olmayan sahneler korunuyor (silinmedi): %s", orphaned)
     return {"cast": parsed["cast"], "shots": len(parsed["shots"]), "created": created, "updated": updated,
-            "unchanged": unchanged, "orphaned": orphaned, "assets_created": book.created,
+            "unchanged": unchanged, "orphaned": orphaned, "assets_created": book.created, "assets_linked": book.linked,
             "sequences": [{"code": q["code"], "title": q["title"],
                            "shots": sum(sh.get("sequence", DEFAULT_SEQUENCE["code"]) == q["code"] for sh in parsed["shots"])}
                           for q in parsed.get("sequences") or [DEFAULT_SEQUENCE]],

@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import storage
+from app.core.series import episode_characters_q
 from app.api.deps import SceneId, VariationId, ensure_not_frozen, scene_or_404
 from app.api.plan import dispatch_result, ensure_idle
 from app.core.hashing import film_grade_token, stable_hash
@@ -122,8 +123,8 @@ def replace_audio(scene_id: SceneId, body: AudioIn, s: Session = Depends(get_ses
     ensure_not_frozen(str(sc.project_id))           # 423 dönen istek ses kanallarını değiştirmiş olmamalı
     ensure_idle(sc)
 
-    if body.character_id and s.scalar(select(Character.id).where(
-            Character.id == body.character_id, Character.project_id == sc.project_id)) is None:
+    if body.character_id and s.scalar(episode_characters_q(sc.project_id).where(
+            Character.id == body.character_id).with_only_columns(Character.id)) is None:
         raise HTTPException(422, "Karakter bu projeye ait değil")
     if body.source == "upload" and not storage.exists(body.file_key):
         raise HTTPException(422, f"Ses dosyası depoda yok: {body.file_key}")

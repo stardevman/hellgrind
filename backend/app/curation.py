@@ -15,10 +15,11 @@ from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel
+from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
 from app.db import session_scope
-from app.models import Asset, CurationEvent, Scene, Sequence, TimelineTrack, Variation
+from app.models import Asset, CurationEvent, EpisodeAsset, Scene, Sequence, TimelineTrack, Variation
 
 log = logging.getLogger("hellgrind.curation")
 
@@ -26,6 +27,11 @@ log = logging.getLogger("hellgrind.curation")
 ACTIONS_TR = {
     "promote": "Rafine havuzdan seçim", "upgrade_request": "İyileştirme işareti", "upgrade_cancel": "İyileştirme işareti kaldırıldı",
     "board_approve": "Kare onayı", "board_reject": "Kare için değişiklik isteği", "board_reset": "Kare kararı geri alındı",
+    "episode_create": "Sezona yeni bölüm eklendi", "episode_place": "Bölüm sezona yerleştirildi",
+    "series_asset_create": "Dizi kütüphanesine varlık eklendi", "series_asset_link": "Dizi varlığı bölüme bağlandı",
+    "series_asset_unlink": "Dizi varlığının bölüm bağı kaldırıldı",
+    "series_asset_upgrade": "Bölüm dizi varlığının yeni sürümüne geçti (onaylı)",
+    "episode_unlock": "Teslim edilmiş bölümün kilidi açıldı (yönetici)", "episode_locked": "Bölüm teslim edildi: sürüm sabit",
     "asset_lock": "Varlık kilidi", "asset_unlock": "Varlık kilidi açıldı", "revision_upload": "Elle düzeltme yüklendi",
     "revision_activate": "Revizyon seçimi", "style_activate": "Stil sürümü etkinleştirildi", "style_create": "Stil sürümü kaydedildi",
     "force_rerender": "Baştan üretim", "render": "Üretim isteği", "render_all": "Bütün çekimleri üret",
@@ -114,7 +120,15 @@ def _context(s, ids: dict) -> dict:
     if ids.get("asset_id"):
         a = s.get(Asset, ids["asset_id"])
         if a is not None:
-            ids.setdefault("project_id", str(a.project_id))
+            if a.project_id is not None:
+                ids.setdefault("project_id", str(a.project_id))
+            elif not ids.get("project_id"):                # dizi varlığı, bölüm verilmedi: en son bağlandığı bölüm
+                last = s.scalar(select(EpisodeAsset.project_id).where(EpisodeAsset.asset_id == a.id)
+                                .order_by(EpisodeAsset.added_at.desc()).limit(1))
+                if last is not None:
+                    ids["project_id"] = str(last)
+            if a.series_id is not None:
+                ctx["series_id"] = str(a.series_id)
             ctx["asset"] = {"type": a.type, "name": a.name, "status": a.status, "version": a.version}
     if ids.get("scene_id"):
         sc = s.get(Scene, ids["scene_id"])

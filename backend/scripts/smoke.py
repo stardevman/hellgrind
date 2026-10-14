@@ -377,6 +377,7 @@ def main() -> int:
     check_history(pid)
     check_color_script(pid)
     check_delivery(pid)                             # şartnameyi 25 fps'e çeker: EDL denetiminden (K) sonra
+    check_series_hierarchy(meta)
 
     print("T) Sekans tavanı: yalnızca o sekans durur")
     capped = new_project("duman-testi-sekans-tavani", 100.0, lint_strictness="off")
@@ -867,6 +868,46 @@ def check_delivery(pid: str) -> None:
     need = {"master.mov", "izleme_kopyasi.mp4", "stems/diyalog.wav", "me_mix.wav", "altyazi.srt", "film.edl", "qc_raporu.pdf",
             "hak_zinciri/yapay_zeka_beyani.csv", "hak_zinciri/script_rights/hak_devri.pdf", "BENIOKU.txt"}
     check(need <= names, f"teslim paketi {len(names)} dosya; eksik: {sorted(need - names)}")
+
+
+def check_series_hierarchy(meta: dict) -> None:
+    """Dizi › Sezon › Bölüm: bölüm = proje; dizi varlığı bağlanır (kopyalanmaz); yeni sürüm üretilmiş bölümü eski sürüme
+    sabitler, geçiş önce etkisini gösterir; Kabul onayı bölümü kilitler ("sürüm sabit"), kilidi yönetici açar."""
+    print("Y) Dizi hiyerarşisi: sezon, bölüm, dizi kütüphanesi, sürüm sabitleme ve teslim kilidi")
+    q = c.post("/series", json={"title": f"duman-testi-dizi {int(time.time())}"}).json()
+    season = q["seasons"][0]["id"]
+    eps = [new_project("duman-testi-bolum", 100.0, lint_strictness="off") for _ in range(2)]
+    for pid in eps:
+        c.post(f"/projects/{pid}/episode", json={"season_id": season}).raise_for_status()
+    tree = next(x for x in c.get("/series").json() if x["id"] == q["id"])
+    check([e["episode_no"] for e in tree["seasons"][0]["episodes"]] == [1, 2]
+          and overview(eps[1])["project"]["episode"]["season"]["number"] == 1, "iki bölüm 1. sezonda 1 ve 2 numarayla")
+    kerem = c.post(f"/projects/{eps[0]}/series-library", json={"type": "character", "name": "Kerem", "link": False}).json()
+    linked = [c.post(f"/projects/{pid}/script", json={"text": meta["sample_script"], "auto_render": pid == eps[0]}).json()["assets_linked"]
+              for pid in eps]
+    check(all("Kerem (character)" in x for x in linked), "senaryodaki Kerem iki bölümde de dizi varlığına bağlandı (kopya yok)")
+    done = {s["scene_code"] for s in wait_scenes(eps[0], timeout=600)["scenes"] if s["status"] == "done"}
+    before = spent(eps[0])
+    c.patch(f"/assets/{kerem['asset_id']}", json={"description": "Yeni tasarım: kırmızı tulum"}).raise_for_status()
+    ups = [overview(pid)["project"]["series_updates"] for pid in eps]
+    planned = c.post(f"/projects/{eps[0]}/render-all").json().get("planned", {})
+    check([u["name"] for u in ups[0]] == ["Kerem"] and ups[1] == [] and not any("VISUAL" in planned.get(code, []) for code in done),
+          "yeni sürüm: üretilmiş 1. bölüm eski sürüme sabit, hiçbir çekim yeniden üretilmiyor; 2. bölüm son sürümü izliyor")
+    impact = c.get(f"/projects/{eps[0]}/series-assets/{kerem['asset_id']}/upgrade").json()
+    check(impact["affected"] and impact["expected_usd"] > 0 and spent(eps[0]) == before,
+          f"geçiş önizlemesi: {len(impact['affected'])} çekim, tahmini ${impact['expected_usd']:.3f}; harcama değişmedi")
+    c.post(f"/projects/{eps[0]}/series-assets/{kerem['asset_id']}/upgrade", json={"render": False}).raise_for_status()
+    check(overview(eps[0])["project"]["series_updates"] == [], "bölüm yeni sürüme geçti")
+    c.post(f"/projects/{eps[1]}/gates/acceptance", json={"status": "approved"}).raise_for_status()
+    locked = overview(eps[1])["project"]["episode"]["locked"]
+    sid = overview(eps[1])["scenes"][0]["id"]
+    r = c.post(f"/scenes/{sid}/render")
+    check(bool(locked) and r.status_code == 423, f"Kabul onayı bölümü kilitledi; üretim isteği {r.status_code}")
+    c.post(f"/projects/{eps[1]}/unlock", json={"confirm": "kilidi aç"}).raise_for_status()
+    actions = {e["action"] for e in curation(eps[1])} | {e["action"] for e in curation(eps[0])}
+    check(overview(eps[1])["project"]["episode"]["locked"] is None
+          and {"episode_place", "series_asset_create", "series_asset_upgrade", "client_approve", "episode_unlock"} <= actions,
+          "yönetici kilidi açtı; bölüm, dizi varlığı ve kilit kararları kürasyon kaydında")
 
 
 def check_sequences(pid: str) -> None:

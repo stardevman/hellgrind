@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import storage
+from app.core import series
 from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
 from app.api.plan import (AwaitingBoard, AwaitingPlan, AwaitingVoice, Blocked, Busy, SequenceCapped, dispatch_all,
                           dispatch_result, ensure_idle, plan_and_dispatch)
@@ -404,6 +405,7 @@ def draft_pass(project_id: ProjectId, s: Session = Depends(get_session)):
     """Taslak geçiş: görüntüsü üretilecek her çekim yalnızca test turuyla üretilir (onay zorunluysa yalnızca onaylılar).
     Son çekim bitince kaba kurgu kendiliğinden birleştirilir. Tam tur hiç çalışmaz."""
     project_or_404(s, project_id)
+    series.ensure_unlocked(s, project_id)           # teslim edilmiş bölüm: sürüm sabit
     ensure_not_frozen(project_id)
     result = dispatch_all(s, project_id, mode="draft")
     drafted = [code for code, stages in result["planned"].items() if "VISUAL" in stages]
@@ -417,6 +419,7 @@ def upgrade_pass(project_id: ProjectId, s: Session = Depends(get_session)):
     """İyileştirme geçişi: yalnızca "İyileştir" ile işaretli taslak çekimlerde tam tur. Test turu klipleri aynı seed'lerle
     yeniden kullanılır; yalnızca tam tur dalgaları ücretlendirilir."""
     project_or_404(s, project_id)
+    series.ensure_unlocked(s, project_id)           # teslim edilmiş bölüm: sürüm sabit
     ensure_not_frozen(project_id)
     planned, skipped, busy, blocked, awaiting, capped = {}, [], [], {}, [], []
     for sc in _scenes(s, project_id):

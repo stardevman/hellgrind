@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import ensure_not_frozen
 from app.budget import killswitch
 from app.config import project_settings
+from app.core import series
 from app.core.hashing import film_grade_token
 from app.core.rerender import PRODUCTION, Stage, board_stale, plan_rerender, stage_names
 from app.engine.storyboard import board_ready
@@ -232,6 +233,7 @@ def plan_and_dispatch(s: Session, sc: Scene, *, force_visual: bool = False, reru
         return []
     if allowed is not None and stages & ~allowed:
         return []
+    series.ensure_unlocked(s, sc.project_id)           # teslim edilmiş bölüm: sürüm sabit, üretim yok
     ensure_idle(sc)
     seq = s.get(Sequence, sc.sequence_id) if sc.sequence_id else None
     if seq is not None and seq.status == "capped" and stages & (Stage.STORYBOARD | Stage.VISUAL | Stage.LIPSYNC):

@@ -1,7 +1,7 @@
-# Dizi hiyerarşisi: tasarım notu (Paket 6, onay bekliyor)
+# Dizi hiyerarşisi: tasarım notu (Paket 6, onaylandı ve uygulandı)
 
 **Hedef yapı:** Dizi › Sezon › Bölüm › Sekans › Çekim.
-Bu not yalnızca tasarımdır; onay gelmeden kod yazılmayacak.
+Yönetmen üç noktayı da onayladı (2026-10-14); 035–037 uygulandı. 038 (sezon ve dizi bütçe tavanı) isteğe bağlıydı, henüz yapılmadı. Kullanım: README › "Dizi › Sezon › Bölüm".
 
 ## Temel karar: bölüm = bugünkü proje
 
@@ -66,7 +66,7 @@ Görsel özet (`visual_fingerprint`) bağlı varlıkların sürümünü içeriyo
 - **Stil kılavuzu** ilk adımda bölüm başına kalır. Dizi düzeyi stil, "dizi stilini bu bölüme kopyala" düğmesiyle başlar. Ortak sürümlü dizi stili, varlık sabitleme kanıtlandıktan sonra gelir.
 - **Kürasyon kaydı, metrikler ve servis geçmişi** proje (bölüm) başına kalır; dizi raporu bunları toplar.
 
-## Onay istediğim noktalar
+## Onaylanan noktalar
 
 1. Bölüm = mevcut proje eşlemesi.
 2. Varlık sürüm sabitleme (`pinned_version`), "son sürümü kullan" varsayılanıyla.

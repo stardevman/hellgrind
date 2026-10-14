@@ -11,7 +11,7 @@ import time
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.deps import AssetId, ProjectId, SceneId, ensure_not_frozen, paid_errors, project_or_404, scene_or_404
 from app.budget import killswitch
 from app.config import project_settings, settings
+from app.core import series
 from app.core.h3mode import suggest_kind
 from app.curation import curated
 from app.db import get_session, session_scope
@@ -26,7 +27,7 @@ from app.engine import motion_test, references
 from app.hermes import lint
 from app.hermes.ingest import AssetBook, ensure_character
 from app.hermes.rules import tr_title
-from app.models import Asset, Character, Project, Scene, SceneAsset, SceneCharacter, Variation
+from app.models import Asset, Character, EpisodeAsset, Project, Scene, SceneAsset, SceneCharacter, Variation
 from app.schemas import AssetIn, AssetPatch, SceneAssetIn
 from app.style import bible
 
@@ -51,6 +52,42 @@ def asset_or_404(s: Session, asset_id: str, lock: bool = False) -> Asset:
     if a is None:
         raise HTTPException(404, "Varlık bulunamadı")
     return a
+
+
+def ensure_episode_open(s: Session, a: Asset) -> None:
+    """Bölüme özel varlık teslim edilmiş (sürüm sabit) bölümde değişmez; dizi varlığı değişebilir: kilitli bölüm sabit
+    sürümde kalır."""
+    if a.project_id is not None:
+        series.ensure_unlocked(s, a.project_id)
+
+
+def context_project(s: Session, a: Asset, project_id: str | None = None) -> str:
+    """Varlığın bütçe, ayar ve stil bağlamı: bölüme özel varlıkta kendi bölümü; dizi varlığında panelin açık olduğu
+    bölüm (o dizinin bir bölümü olmalı), verilmemişse varlığın en son bağlandığı bölüm."""
+    if a.project_id is not None:
+        return str(a.project_id)
+    if project_id:
+        q = series.series_of(s, project_id)
+        if q is None or q.id != a.series_id:
+            raise HTTPException(422, "Bu bölüm varlığın dizisine ait değil")
+        return project_id
+    last = s.scalar(select(EpisodeAsset.project_id).where(EpisodeAsset.asset_id == a.id)
+                    .order_by(EpisodeAsset.added_at.desc()).limit(1))
+    if last is None:
+        raise HTTPException(409, f"{a.name} dizi kütüphanesinde ama hiçbir bölüme bağlı değil; önce bir bölüme bağlayın.")
+    return str(last)
+
+
+def event_projects(s: Session, a: Asset) -> list[str]:
+    """Varlık olayının yazılacağı bölümler: bölüme özel varlıkta kendi bölümü, dizi varlığında bağlı bütün bölümler."""
+    if a.project_id is not None:
+        return [str(a.project_id)]
+    return [str(p) for p in s.scalars(select(EpisodeAsset.project_id).where(EpisodeAsset.asset_id == a.id))]
+
+
+def embedding_of(s: Session, a: Asset) -> int | None:
+    ch = s.scalar(select(Character).where(Character.asset_id == a.id))
+    return ch.embedding_version if ch else None
 
 
 def ensure_editable(a: Asset) -> None:
@@ -78,30 +115,34 @@ def _test_out(v: Variation | None, version: int) -> dict | None:
             "video_url": _media(v.video_key), "thumb_url": _media(v.keyframe_key)}
 
 
-def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
-    """Varlık listesi; sorgu sayısı varlık sayısından bağımsızdır."""
+def assets_out(s: Session, assets: list[Asset], project_id=None) -> list[dict]:
+    """Varlık listesi; sorgu sayısı varlık sayısından bağımsızdır. project_id: stilin geldiği bölüm (dizi varlıkları
+    bölümün stil kılavuzuyla gösterilir)."""
     ids = [a.id for a in assets]
-    style = bible.active(s, assets[0].project_id) if assets else None
+    owner = project_id or next((a.project_id for a in assets if a.project_id), None)
+    style = bible.active(s, owner) if owner else None
     tests, chars, used = {}, {}, defaultdict(list)
     if ids:
         test_ids = [a.motion_test_variation_id for a in assets if a.motion_test_variation_id]
         if test_ids:
             tests = {v.id: v for v in s.scalars(select(Variation).where(Variation.id.in_(test_ids)))}
         chars = {c.asset_id: c for c in s.scalars(select(Character).where(Character.asset_id.in_(ids)))}
+        here = (Scene.project_id == owner) if owner else true()       # dizi varlığı: yalnızca bu bölümün çekimleri
         for aid, code in s.execute(select(SceneAsset.asset_id, Scene.scene_code)
                                    .join(Scene, Scene.id == SceneAsset.scene_id)
-                                   .where(SceneAsset.asset_id.in_(ids)).order_by(Scene.seq_order)):
+                                   .where(SceneAsset.asset_id.in_(ids), here).order_by(Scene.seq_order)):
             used[aid].append(code)
         for aid, code in s.execute(select(Character.asset_id, Scene.scene_code)
                                    .join(SceneCharacter, SceneCharacter.character_id == Character.id)
                                    .join(Scene, Scene.id == SceneCharacter.scene_id)
-                                   .where(Character.asset_id.in_(ids)).order_by(Scene.seq_order)):
+                                   .where(Character.asset_id.in_(ids), here).order_by(Scene.seq_order)):
             used[aid].append(code)
     out = []
     for a in assets:
         ch = chars.get(a.id)
         out.append({
-            "id": str(a.id), "project_id": str(a.project_id), "type": a.type, "name": a.name,
+            "id": str(a.id), "project_id": str(a.project_id) if a.project_id else None,
+            "series_id": str(a.series_id) if a.series_id else None, "type": a.type, "name": a.name,
             "description": a.description, "render_style": a.render_style, "status": a.status, "version": a.version,
             "invariants": list(a.invariants or []), "scale": a.scale,
             "effective_style": bible.effective_style(a, style),       # render_style boşsa kılavuzun tür kuralı
@@ -116,14 +157,15 @@ def assets_out(s: Session, assets: list[Asset]) -> list[dict]:
     return out
 
 
-def asset_out(s: Session, a: Asset) -> dict:
-    return assets_out(s, [a])[0]
+def asset_out(s: Session, a: Asset, project_id=None) -> dict:
+    return assets_out(s, [a], project_id)[0]
 
 
 def _changed(s: Session, a: Asset, action: str) -> dict:
     s.commit()
-    killswitch.event(str(a.project_id), "asset_status", asset_id=str(a.id), name=a.name, type=a.type,
-                     status=a.status, action=action)
+    for pid in event_projects(s, a):
+        killswitch.event(pid, "asset_status", asset_id=str(a.id), name=a.name, type=a.type, status=a.status,
+                         action=action)
     return asset_out(s, a)
 
 
@@ -133,14 +175,14 @@ def _changed(s: Session, a: Asset, action: str) -> dict:
 def list_assets(project_id: ProjectId, type: str | None = None, status: str | None = None,
                 s: Session = Depends(get_session)):
     project_or_404(s, project_id)
-    q = select(Asset).where(Asset.project_id == project_id)
+    q = series.episode_assets_q(project_id)              # bölüme özel varlıklar ve bağlı dizi varlıkları
     if type:
         q = q.where(Asset.type == type)
     if status:
         q = q.where(Asset.status == status)
     order = {"character": 0, "location": 1, "prop": 2}
     rows = sorted(s.scalars(q), key=lambda a: (order[a.type], a.name))
-    return assets_out(s, rows)
+    return assets_out(s, rows, project_id)
 
 
 @router.post("/projects/{project_id}/assets", status_code=201)
@@ -148,11 +190,13 @@ def list_assets(project_id: ProjectId, type: str | None = None, status: str | No
 def create_asset(project_id: ProjectId, body: AssetIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     name = normalize_name(body.name)
-    if s.scalar(select(Asset.id).where(Asset.project_id == project_id, Asset.type == body.type, Asset.name == name)):
+    if s.scalar(series.episode_assets_q(project_id).where(Asset.type == body.type, Asset.name == name)
+                .with_only_columns(Asset.id)):
         raise HTTPException(409, f"Bu projede '{name}' adlı bir varlık zaten var.")
     book = AssetBook(s, project_id)
+    book.library = {}                  # "Bu bölüm": bölüme özel varlık; dizi kütüphanesine Varlıklar › Dizi kütüphanesi
     if body.type == "character":       # karakter varlığı, ses alanlarını tutan karakter satırıyla birlikte
-        chars = {c.name: c for c in s.scalars(select(Character).where(Character.project_id == project_id))}
+        chars = {c.name: c for c in s.scalars(series.episode_characters_q(project_id))}
         ensure_character(s, book, project_id, name, chars, description=body.description)
     a = book.get(body.type, name, body.description)
     if body.render_style:
@@ -171,6 +215,8 @@ def get_asset(asset_id: AssetId, s: Session = Depends(get_session)):
 def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_session)):
     """Tarif ya da stil değişince sürüm artar ve hareket testi yeniden gerekir; ses kimliği görüntüyü etkilemez."""
     a = asset_or_404(s, asset_id, lock=True)
+    ensure_episode_open(s, a)
+    old_version, old_embedding = a.version, embedding_of(s, a)
     changes = body.model_dump(exclude_unset=True)
     if "scale" in changes:                              # boş: ölçek ifadesi kaldırılır
         changes["scale"] = " ".join((changes["scale"] or "").split()) or None
@@ -188,6 +234,7 @@ def patch_asset(asset_id: AssetId, body: AssetPatch, s: Session = Depends(get_se
         for key, value in visual.items():
             setattr(a, key, value)
         a.version += 1
+        series.on_version_bump(s, a, old_version, old_embedding)     # dizi varlığı: üretilmiş bölümler eski sürümde kalır
         if not guard_only:
             a.motion_test_variation_id = None
             if a.status == "motion_tested":
@@ -229,6 +276,8 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
         a = asset_or_404(s, asset_id, lock=True)
         if kind not in references.STATE_REF_KINDS:
             ensure_editable(a)
+        ensure_episode_open(s, a)
+        old_version, old_embedding = a.version, embedding_of(s, a)
         refs = dict(a.references or {})
         same = (refs.get(kind) or {}).get("sha") == entry["sha"]
         if not same:
@@ -245,6 +294,7 @@ def attach_reference(asset_id: str, kind: str, path: str, filename: str, content
                     ch.reference_images = references.visual_keys(refs)
                     if kind in ("turnaround", "still"):     # dönüş videosu vektörleri; durağan görsel ücretli karenin kaynağı
                         ch.embedding_version += 1
+                series.on_version_bump(s, a, old_version, old_embedding)
         out = _changed(s, a, f"reference:{kind}") if not same else asset_out(s, a)
     return out
 
@@ -276,7 +326,8 @@ async def upload_reference(asset_id: AssetId, request: Request, kind: str = Quer
 
 @router.post("/assets/{asset_id}/references/placeholder", status_code=201)
 @curated("asset_reference")
-def placeholder_reference(asset_id: AssetId, kind: str | None = Query(None), s: Session = Depends(get_session)):
+def placeholder_reference(asset_id: AssetId, kind: str | None = Query(None), project_id: str | None = Query(None),
+                          s: Session = Depends(get_session)):
     """Referans üretir. kind: still (durağan görsel) | turnaround (karakterin dönüş videosu; isteğe bağlı ikinci adım).
     Ücretli modda varsayılan durağan görseldir: RunPod'da Qwen-Image-2512 (karakter 1328x1328, düz arka plan, tam boy,
     yüz net; mekân 1664x928). Dönüş videosu MiniMax H3'ten, durağan görselden başlar. Ücretsiz modda prosedürel taslaktır
@@ -285,7 +336,7 @@ def placeholder_reference(asset_id: AssetId, kind: str | None = Query(None), s: 
     ensure_editable(a)
     if kind is not None and kind not in references.reference_kinds(a.type):
         raise HTTPException(422, f"{a.name} için üretilebilen referanslar: {', '.join(references.reference_kinds(a.type))}")
-    pid = str(a.project_id)
+    pid = context_project(s, a, project_id)                # dizi varlığı: bedel panelin açık olduğu bölüme
     ensure_not_frozen(pid)
     os.makedirs(settings.work_dir, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
@@ -325,10 +376,10 @@ def approve_still(asset_id: AssetId, s: Session = Depends(get_session)):
 
 @router.post("/assets/{asset_id}/motion-test", status_code=202)
 @curated("motion_test")
-def start_motion_test(asset_id: AssetId, s: Session = Depends(get_session)):
+def start_motion_test(asset_id: AssetId, project_id: str | None = Query(None), s: Session = Depends(get_session)):
     """Kısa, düşük çözünürlüklü hareket testi (worker'da). Onaylanmış bir test varsa yenisi onu geçersiz kılar."""
     a = asset_or_404(s, asset_id, lock=True)
-    pid = str(a.project_id)
+    pid = context_project(s, a, project_id)
     ensure_not_frozen(pid)
     ensure_editable(a)
     if a.status == "draft":
@@ -337,7 +388,7 @@ def start_motion_test(asset_id: AssetId, s: Session = Depends(get_session)):
     if (current is not None and current.status in ("queued", "running")
             and current.created_at > dt.datetime.now(dt.timezone.utc) - STALE_TEST):
         raise HTTPException(409, f"{a.name} için hareket testi zaten sürüyor.")
-    vid = str(motion_test.create(s, a, project_settings(s.get(Project, a.project_id).settings)).id)
+    vid = str(motion_test.create(s, a, project_settings(s.get(Project, pid).settings), pid).id)
     a.status = "still_approved"                         # yeni test yönetmen onayını bekler
     _changed(s, a, "motion_test")
     from app.worker.tasks import motion_test as task    # tasks -> celery_app döngüsünü önlemek için geç import
@@ -375,7 +426,7 @@ def approve_motion(asset_id: AssetId, s: Session = Depends(get_session)):
 
 @router.post("/assets/{asset_id}/lock")
 @curated("asset_lock")
-def lock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
+def lock_asset(asset_id: AssetId, project_id: str | None = Query(None), s: Session = Depends(get_session)):
     """Varlığı kilitler. Engeli kalkan sahneler bildirilir; üretim, sahne yeniden render edilince başlar."""
     a = asset_or_404(s, asset_id, lock=True)
     if a.status != "locked":
@@ -383,8 +434,9 @@ def lock_asset(asset_id: AssetId, s: Session = Depends(get_session)):
             raise HTTPException(409, f"{a.name}: hareket testi onaylanmadan varlık kilitlenemez.")
         a.status = "locked"
         _changed(s, a, "lock")
-    cfg = project_settings(s.get(Project, a.project_id).settings)
-    blocked = s.scalars(select(Scene).where(Scene.project_id == a.project_id, Scene.status == "blocked")
+    pid = context_project(s, a, project_id)
+    cfg = project_settings(s.get(Project, pid).settings)
+    blocked = s.scalars(select(Scene).where(Scene.project_id == pid, Scene.status == "blocked")
                         .order_by(Scene.seq_order)).all()
     unblocked = [sc.scene_code for sc in blocked if lint.check_scene(s, sc.id, cfg).ok]
     return {**asset_out(s, a), "unblocked": unblocked}
@@ -409,7 +461,8 @@ def link_asset(scene_id: SceneId, body: SceneAssetIn, s: Session = Depends(get_s
     sc = scene_or_404(s, scene_id)
     if body.asset_id:
         a = s.get(Asset, body.asset_id)
-        if a is None or a.project_id != sc.project_id:
+        if a is None or not s.scalar(series.episode_assets_q(sc.project_id).where(Asset.id == a.id)
+                                     .with_only_columns(Asset.id)):
             raise HTTPException(404, "Bu projede böyle bir varlık yok")
         if a.type == "character":
             raise HTTPException(422, "Karakterler sahneye senaryodaki kadrodan bağlanır")

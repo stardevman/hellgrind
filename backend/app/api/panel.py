@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import storage
+from app.core import series
 from app.api.deps import ProjectId, ensure_not_frozen, project_or_404
 from app.api.plan import dispatch_all
 from app.api.projects import display_status
@@ -131,6 +132,7 @@ def meta():
 @curated("script_upload")
 def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
+    series.ensure_unlocked(s, project_id)           # teslim edilmiş bölüm: sürüm sabit
     ensure_not_frozen(project_id)
     try:
         summary = ingest(project_id, body.text, auto_music=body.auto_music)
@@ -176,6 +178,7 @@ def render_all(project_id: ProjectId, restyle: bool = False, s: Session = Depend
     """restyle: "eski stil" işaretli çekimler de yeni stille yeniden üretilir (yönetmenin açık isteği); verilmezse
     işaretli kalırlar."""
     project_or_404(s, project_id)
+    series.ensure_unlocked(s, project_id)           # teslim edilmiş bölüm: sürüm sabit
     ensure_not_frozen(project_id)
     return dispatch_all(s, project_id, restyle=restyle)
 
@@ -248,7 +251,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     carried = defaultdict(list)                       # sahne -> zincirden gelen karakterler
     scaled: set = set()                               # gerçek boyutu yazılı karakter ya da nesnesi olan sahneler
     revisions = defaultdict(dict)                     # varyasyon -> {revizyon: sürüm}
-    names = dict(s.execute(select(Character.id, Character.name).where(Character.project_id == project_id)).all())
+    names = dict(s.execute(series.episode_characters_q(project_id).with_only_columns(Character.id, Character.name)).all())
     if ids:
         for v in s.scalars(select(Variation).where(Variation.scene_id.in_(ids))
                            .order_by(Variation.tier, Variation.wave_no, Variation.created_at)):
@@ -398,8 +401,10 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     "style_medium": bible.medium_of(bible.active(s, project_id)),
                     "lipsync": voice.lipsync_state(cfg),
                     "lut": bool(p.lut_key), "continuity": p.continuity,
-                    "asset_counts": dict(s.execute(select(Asset.status, func.count()).where(Asset.project_id == project_id)
-                                                   .group_by(Asset.status)).all())},
+                    "episode": series.episode_info(s, p),          # dizi › sezon › bölüm ve "sürüm sabit" kilidi
+                    "series_updates": series.updates(s, project_id),   # yeni sürümü olan dizi varlıkları
+                    "asset_counts": dict(s.execute(series.episode_assets_q(project_id)
+                                                   .with_only_columns(Asset.status, func.count()).group_by(Asset.status)).all())},
         "scenes": scenes_out, "sequences": sequences_out(s, project_id), "events": events, "timeline": timeline,
         "draft_timeline": draft_timeline, "animatic": animatic, "client": review.summary(s, project_id),
         "delivery": delivery.overview(s, p),

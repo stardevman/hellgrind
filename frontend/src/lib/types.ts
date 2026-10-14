@@ -195,7 +195,29 @@ export interface ProjectListItem {
   id: string; title: string; status: string; spent_usd: number; budget_limit_usd: number;
   /** Panelde görünen durum: "producing" yalnızca işlenen bir çekim varken; bitince completed ya da idle. */
   display_status?: string;
+  /** Dizi bölümüyse sezonu ve numarası (bağımsız filmde boş); teslim edilip kilitlendiyse locked. */
+  season_id?: string | null; episode_no?: number | null; locked?: boolean;
 }
+
+/* ---------- dizi hiyerarşisi: Dizi › Sezon › Bölüm (bölüm = proje) ---------- */
+
+export interface EpisodeItem { id: string; title: string; episode_no: number | null; status: string; locked: boolean; locked_label: string | null }
+export interface SeasonItem { id: string; number: number; title: string | null; episodes: EpisodeItem[] }
+export interface SeriesItem { id: string; title: string; library: number; seasons: SeasonItem[] }
+
+/** Projenin dizideki yeri ve teslim kilidi ("Sürüm sabit · v004"). Bağımsız filmde series/season boş. */
+export interface EpisodeInfo {
+  series: { id: string; title: string } | null;
+  season: { id: string; number: number; title: string | null } | null;
+  episode_no: number | null;
+  locked: { at: string; label: string | null } | null;
+}
+
+/** Bölümde yeni sürümü olan dizi varlığı: bölüm `pinned` sürümünde sabit, kütüphanede `current`. */
+export interface SeriesUpdate { asset_id: string; name: string; type: string; pinned: number; current: number }
+
+/** Yeni sürüme geçişin etkisi: yeniden üretilecek çekimler ve tahmini sanal maliyet. */
+export interface UpgradeImpact { asset_id: string; name: string; pinned: number | null; current: number; affected: string[]; expected_usd: number; worst_usd: number }
 
 export interface ProjectSettings {
   soft_budget_ratio: number;
@@ -232,6 +254,10 @@ export interface Project {
   lipsync?: { mode: "free" | "off" | "no_key" | "paid"; text: string };
   continuity: { pairs: ContinuityPair[] } | null;
   asset_counts: Record<string, number>;
+  /** Dizi › sezon › bölüm ve teslim kilidi. */
+  episode?: EpisodeInfo;
+  /** Yeni sürümü olan dizi varlıkları (bölüm eski sürüme sabit). */
+  series_updates?: SeriesUpdate[];
 }
 
 export interface Measure { alignment: Record<string, number>; identity: Record<string, number>; faces_seen: number }
@@ -399,6 +425,10 @@ export interface Asset {
   invariants?: string[];
   /** Gerçek boyut (ör. "tiny, palm-sized; much smaller than a hen"): istemlere ve ölçek kapısına girer. */
   scale?: string | null;
+  /** Dizi kütüphanesindeyse dizinin kimliği (bölüme özel varlıkta boş). */
+  series_id?: string | null;
+  /** Yalnızca dizi kütüphanesi listesinde: bu bölüme bağlı mı, hangi sürüme sabit. */
+  link?: { pinned: number | null; current: number; behind: boolean } | null;
 }
 
 /* ---------- stil ---------- */

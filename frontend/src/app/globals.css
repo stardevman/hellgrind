@@ -148,6 +148,23 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .menu .mi-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu .mi-s { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .menu-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+/* Dizi › Sezon › Bölüm kırıntısı ve teslim rozeti */
+.crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; margin-left: 6px; }
+.crumbs .crumb { margin-left: 0; min-width: 0; flex: 0 1 auto; }
+.crumbs .crumb .switch-btn { max-width: min(260px, 100%); }
+.crumbs .crumb.fixed { flex: none; }
+.crumb-sep { color: var(--text-3); padding: 0 2px; }
+.lock-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; color: var(--ok); border-color: rgba(61, 204, 145, .4); white-space: nowrap; }
+.lock-chip svg, .menu .lock-s svg, .alert.locked svg { width: 12px; height: 12px; flex: none; }
+.menu .lock-s { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); }
+.menu button:disabled { opacity: .5; cursor: default; }
+.menu-form { display: grid; gap: 8px; padding: 8px; }
+.alert.locked { display: flex; align-items: center; gap: 8px; background: #15241e; color: #a8e8c9; }
+.alert.locked .btn { height: 24px; }
+/* Varlıklar: dizi kütüphanesi */
+.tag.series { color: var(--accent); border-color: rgba(77, 141, 255, .45); }
+.series-up { display: grid; gap: 6px; padding: 8px 10px; margin: 0 10px 8px; border: 1px solid rgba(243, 180, 67, .35); border-radius: 6px; background: rgba(243, 180, 67, .07); }
+.series-up p { margin: 0; }
 .budget-wrap { position: relative; }
 .budget-chip { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: 13px; background: var(--field); color: var(--text-2); font-size: 11.5px; white-space: nowrap; }
 .budget-chip:hover { color: var(--text); border-color: #4a4d55; }
@@ -747,6 +764,12 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .switch-btn { width: 100%; max-width: none; }
   .switch-btn .sw-title { flex: 1; text-align: left; }
   .menu { right: 0; max-width: none; }
+  .crumbs { order: 3; width: 100%; margin: 0; flex-wrap: wrap; row-gap: 6px; }
+  .crumbs .switcher { order: 0; width: auto; flex: 1 1 0; min-width: 96px; }
+  .crumbs .lock-chip { margin-left: 0; }
+  .crumbs .crumb.fixed { flex: none; }
+  .crumbs .switch-btn { max-width: none; }
+  .crumbs .crumb .menu { position: fixed; left: 10px; right: 10px; bottom: 120px; }
   .vsep { display: none; }
   .tb-steps { order: 4; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .dock { position: sticky; bottom: 0; z-index: 20; }   /* sayfa kayarken denetimler ekranın altında kalır */

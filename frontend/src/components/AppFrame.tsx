@@ -6,11 +6,12 @@
    (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { api } from "@/lib/api";
-import { PROJECT_STATUS_TR } from "@/lib/i18n";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
+import { lockLabel } from "@/lib/series";
 import { usd } from "@/lib/text";
 import { AssetsPage } from "./AssetsPage";
 import { BoardPage } from "./BoardPage";
+import { Breadcrumb } from "./Breadcrumb";
 import { ColorPage } from "./ColorPage";
 import { ComparePage } from "./ComparePage";
 import { DeliverPage } from "./DeliverPage";
@@ -79,51 +80,6 @@ function BudgetChip() {
   );
 }
 
-function ProjectSwitcher({ onRemove }: { onRemove: () => void }) {
-  const { projects, projectId, selectProject, setCreating, setPage } = usePanel();
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  const current = projects?.find((p) => p.id === projectId);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
-  }, [open]);
-  return (
-    <div className="switcher" ref={box} data-tour="project">
-      <button type="button" className="switch-btn" aria-haspopup="menu" aria-expanded={open} aria-label="Proje seçici" onClick={() => setOpen((v) => !v)}>
-        <span className="sw-title">{current ? current.title : projects?.length ? "Proje seç" : "Henüz proje yok"}</span>
-        {current && <span className="sw-status">{PROJECT_STATUS_TR[current.display_status ?? current.status] || current.status}</span>}
-        <Icon.chevron />
-      </button>
-      {open && (
-        <div className="menu" role="menu">
-          {projects?.map((p) => (
-            <button key={p.id} type="button" role="menuitem" className={p.id === projectId ? "on" : ""}
-              onClick={() => { selectProject(p.id); setOpen(false); }}>
-              <span className="mi-ck">{p.id === projectId && <Icon.check />}</span>
-              <span className="mi-t">{p.title}</span>
-              <span className="mi-s">{PROJECT_STATUS_TR[p.display_status ?? p.status] || p.status}</span>
-            </button>
-          ))}
-          {projects?.length ? <div className="menu-sep" /> : null}
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); setCreating(true); setPage("script"); }}>
-            <span className="mi-ck"><Icon.plus /></span><span className="mi-t">Yeni proje</span>
-          </button>
-          {current && (
-            <button type="button" role="menuitem" className="danger" onClick={() => { setOpen(false); onRemove(); }}>
-              <span className="mi-ck"><Icon.trash /></span><span className="mi-t">Projeyi sil…</span>
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AppBar() {
   const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
@@ -134,14 +90,14 @@ function AppBar() {
   const current = projects?.find((p) => p.id === projectId);
   const remove = async () => {
     if (!projectId || !current) return;
-    if (!window.confirm(`"${current.title}" projesi ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz. Servis geçmişi (harcama kaydı) silinmez.`)) return;
+    if (!window.confirm(`"${current.title}" ${current.season_id ? "bölümü" : "projesi"} ve tüm sahneleri, varyasyonları ve kayıtları kalıcı olarak silinsin mi? Bu geri alınamaz. Servis geçmişi (harcama kaydı) silinmez.`)) return;
     if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
   };
   return (
     <footer className="appbar">
       <div className="tb-main">
         <div className="logo"><Icon.logo />Hell Grind</div>
-        <ProjectSwitcher onRemove={remove} />
+        <Breadcrumb onRemove={remove} />
         <span className="vsep" />
         <StepRail hasShots={Boolean(ov?.scenes.length)} />
         <span className="grow" />
@@ -187,16 +143,64 @@ function AppBar() {
 }
 
 function Alerts() {
-  const { ov, offline, notes } = usePanel();
+  const { ov, offline, notes, admin } = usePanel();
   const p = ov?.project;
   const g = notes.global;
+  const locked = p?.episode?.locked;
+  const [unlocking, setUnlocking] = useState(false);
   return (
     <div className="alerts">
       {offline && <div className="alert offline" role="status">Sunucuya ulaşılamıyor; yeniden deniyorum…</div>}
+      {locked && (
+        <div className="alert locked" role="status">
+          <Icon.lock /><span className="grow">Bölüm teslim edildi ({lockLabel(locked.label)}): Kabul’deki film sürümüne ve dizi varlıklarının o anki
+            sürümlerine sabit. Üretim, senaryo, stil ve bölüme özel varlıklar kilitli.</span>
+          {admin && <button type="button" className="btn ghost" onClick={() => setUnlocking(true)}>Kilidi aç…</button>}
+        </div>
+      )}
+      {unlocking && <UnlockConfirm onClose={() => setUnlocking(false)} />}
       {p?.soft_limited && !p.frozen && (
         <div className="alert soft">Yumuşak bütçe sınırı aşıldı: yeni tam dalga başlatılmıyor, çekimler eldeki adaylarla tamamlanıyor.</div>
       )}
       {g?.text && <div className={`alert ${g.kind === "err" ? "frozen" : "offline"}`} role="status">{g.text}</div>}
+    </div>
+  );
+}
+
+const UNLOCK_PHRASE = "kilidi aç";
+
+/** Teslim edilmiş bölümün kilidini açma (yalnızca yönetici): onay ifadesi yazılır; karar kürasyon kaydına düşer. */
+function UnlockConfirm({ onClose }: { onClose: () => void }) {
+  const { projectId, act, ov } = usePanel();
+  const [phrase, setPhrase] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void act(async () => { await api.post(`/projects/${projectId}/unlock`, { confirm: phrase }); onClose(); }, "global");
+  };
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <form className="modal" role="alertdialog" aria-modal="true" aria-labelledby="unlock-t" aria-describedby="unlock-d" onSubmit={submit}>
+        <h2 id="unlock-t"><Icon.lock />Teslim kilidi açılsın mı?</h2>
+        <p id="unlock-d" className="faint small">
+          {lockLabel(ov?.project.episode?.locked?.label)} kalkar; bölüm yeniden üretilebilir ve düzenlenebilir hâle gelir. Dizi varlıklarının sabit
+          sürümleri korunur, hiçbir çekim kendiliğinden yeniden üretilmez. Karar kürasyon kaydına yazılır. Onaylamak için “{UNLOCK_PHRASE}” yazın.
+        </p>
+        <label className="field">Onay ifadesi
+          <input ref={input} value={phrase} maxLength={50} onChange={(e) => setPhrase(e.target.value)} placeholder={UNLOCK_PHRASE} />
+        </label>
+        <div className="row">
+          <span className="grow" />
+          <button type="button" className="btn ghost" onClick={onClose}>Vazgeç</button>
+          <button type="submit" className="btn danger" disabled={phrase.trim().toLocaleLowerCase("tr") !== UNLOCK_PHRASE}>Kilidi aç</button>
+        </div>
+      </form>
     </div>
   );
 }

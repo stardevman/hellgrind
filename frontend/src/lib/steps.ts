@@ -39,6 +39,7 @@ export function stepReadiness(ov: Overview | undefined): StepStatus[] {
     if (strict && total && locked < total) todos.prep.push({ text: n(total - locked, "varlık kilitsiz", "varlık kilitsiz"), page: "assets", tone: scenes.some((s) => s.status === "blocked") ? "bad" : "warn" });
     if (!p!.style_version) todos.prep.push({ text: "Stil kılavuzu etkinleştirilmedi", page: "style", tone: "warn" });
     todos.prep.push(...voiceTodos(ov!));
+    todos.prep.push(...seriesTodos(ov!));
     // Hazırlıkta engelleyiciler önce: "Sıradaki" uyarıdan (stil, final ses) önce kilitsiz sekansı gösterir.
     const rank = (t: Todo) => (t.tone === "bad" ? 0 : t.tone === "warn" ? 2 : 1);
     todos.prep.sort((a, b) => rank(a) - rank(b));
@@ -120,6 +121,16 @@ export function voiceTodos(ov: Overview): Todo[] {
   if (unlocked) out.push({ text: n(unlocked, "sekansın sesi kilitlenmedi", "sekansın sesi kilitlenmedi"), page: "voice" });
   if (waiting) out.push({ text: n(waiting, "replik final sesi bekliyor", "replik final sesi bekliyor"), page: "voice", tone: "warn" });
   return out;
+}
+
+/** Dizi: kütüphanede yeni sürümü olan varlıklar (bölüm eski sürüme sabit; teslim edilmiş bölümde eksik sayılmaz). Etkisini görüp geçmek yönetmenin kararıdır;
+    o varlıkla yeni görüntü üretilemediği için kullanan çekim engelliyse kırmızı, değilse uyarıdır. */
+export function seriesTodos(ov: Overview): Todo[] {
+  const ups = ov.project.series_updates ?? [];
+  if (!ups.length || ov.project.episode?.locked) return [];     // teslim edilmiş bölüm geçemez: önce kilit açılır
+  const blocked = ov.scenes.some((s) => s.status === "blocked" && ups.some((u) => (s.last_error ?? "").includes(u.name)));
+  const names = ups.map((u) => `${u.name} (v${u.pinned} → v${u.current})`).join(", ");
+  return [{ text: `Dizi varlığında yeni sürüm: ${names}`, page: "assets", tone: blocked ? "bad" : "warn" }];
 }
 
 /** Sıradaki iş: ilk tamamlanmamış adımın ilk eksiği (çubuğun sağındaki "Sıradaki" bağlantısı). */

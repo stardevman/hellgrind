@@ -388,8 +388,9 @@ def sync_seams(s, project_id) -> list[str]:
     """Projenin bütün sekanslarını yeniden sınıflar: transition_auto ve gerekçesi yazılır, zincirden gelen karakterler
     scene_characters'a role='chain' ile eklenir (ya da artık gelmiyorsa çıkarılır). Değişen çekim kodları döner."""
     from sqlalchemy import delete
+    from app.core.series import episode_characters_q
     from app.models import Character, SceneCharacter
-    by_name = {c.name: c.id for c in s.scalars(select(Character).where(Character.project_id == project_id))}
+    by_name = {c.name: c.id for c in s.scalars(episode_characters_q(project_id))}
     changed = []
     for shots in sequence_shots(s, project_id).values():
         prev_cam = None

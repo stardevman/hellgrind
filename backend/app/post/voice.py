@@ -20,6 +20,7 @@ import numpy as np
 from sqlalchemy import select
 
 from app import storage
+from app.core.series import episode_characters_q
 from app.config import project_settings, settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
@@ -178,7 +179,7 @@ def shot_state(s, sc: Scene, names: dict) -> dict:
 def state(s, project_id) -> dict:
     """Ses sayfasının verisi: sekanslar (kilit), çekimler (süreler) ve replikler (kaynak, süre, yer)."""
     p = s.get(Project, project_id)
-    names = {c.id: c.name for c in s.scalars(select(Character).where(Character.project_id == project_id))}
+    names = {c.id: c.name for c in s.scalars(episode_characters_q(project_id))}
     seqs = list(s.scalars(select(Sequence).where(Sequence.project_id == project_id).order_by(Sequence.seq_order)))
     scenes = list(s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)))
     groups = []

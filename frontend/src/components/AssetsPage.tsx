@@ -1,14 +1,17 @@
 "use client";
 /* Varlıklar sayfası (yapım takip yazılımları gibi ana-ayrıntı düzeni): solda kütüphane süzgeçleri, ortada varlık
    ızgarası, sağda seçili varlığın onay akışı: referans, durağan onayı, hareket testi, kilit. Görseller kırpılmadan
-   sığdırılır; referansa tıklanınca tam boyu açılır ve indirilebilir. */
+   sığdırılır; referansa tıklanınca tam boyu açılır ve indirilebilir. Dizi bölümünde kapsam süzgeci (Dizi kütüphanesi / Bu
+   bölüm) gelir: dizi varlığı bölüme kopyalanmaz, bağlanır; kütüphanede yeni sürümü olan varlık için geçişin etkisi önce
+   gösterilir. */
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { ANOMALY_TR, ASTATUS_ORDER, ASTATUS_TR, REF_ACCEPT, REF_KINDS, REF_TR, TEST_TR, TYPE_TR } from "@/lib/i18n";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { dispatchText, lowerTr, usd } from "@/lib/text";
-import type { Asset, DispatchAll } from "@/lib/types";
+import { inScope, SCOPE_TR, upgradeText, type AssetScope } from "@/lib/series";
+import type { Asset, DispatchAll, UpgradeImpact } from "@/lib/types";
 import { LineUp } from "./Broadcast";
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section, reducedMotion } from "./ui";
@@ -67,38 +70,103 @@ function Pipeline({ a }: { a: Asset }) {
 
 type Act = "approve-still" | "motion-test" | "approve-motion" | "lock" | "unlock" | "placeholder" | "still" | "turnaround";
 
-/** Her eylem kendi uç noktasını çağırır ve kullanıcıya gösterilecek notu döndürür. */
-const ASSET_ACTS: Record<Act, (id: string) => Promise<string>> = {
+/** Her eylem kendi uç noktasını çağırır ve kullanıcıya gösterilecek notu döndürür. `pid`: açık bölüm; dizi varlığının
+    üretim bedeli, ayarları ve stili bu bölümden gelir. */
+const ASSET_ACTS: Record<Act, (id: string, pid: string) => Promise<string>> = {
   "approve-still": async (id) => { await api.post(`/assets/${id}/approve-still`); return "Durağan referans onaylandı. Sıradaki adım: hareket testi."; },
-  "motion-test": async (id) => { await api.post(`/assets/${id}/motion-test`); return "Hareket testi kuyruğa alındı; bitince burada izleyebilirsin."; },
+  "motion-test": async (id, pid) => { await api.post(`/assets/${id}/motion-test?project_id=${pid}`); return "Hareket testi kuyruğa alındı; bitince burada izleyebilirsin."; },
   "approve-motion": async (id) => { await api.post(`/assets/${id}/approve-motion`); return "Hareket testi onaylandı. Artık kilitleyebilirsin."; },
-  lock: async (id) => {
-    const r = await api.post<{ unblocked: string[] }>(`/assets/${id}/lock`);
+  lock: async (id, pid) => {
+    const r = await api.post<{ unblocked: string[] }>(`/assets/${id}/lock?project_id=${pid}`);
     return r.unblocked.length ? `Kilitlendi. Engeli kalkan çekimler: ${r.unblocked.join(", ")}. Üretmek için "Engellenen çekimleri yeniden dene"ye bas.` : "Kilitlendi.";
   },
   unlock: async (id) => { await api.post(`/assets/${id}/unlock`); return "Kilit açıldı: referans değiştirilebilir."; },
-  placeholder: async (id) => {
-    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder`);
+  placeholder: async (id, pid) => {
+    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?project_id=${pid}`);
     return `Yerel taslak referans üretildi (sürüm ${r.version}). Varlık taslakta; durağanı onayla.`;
   },
-  still: async (id) => {
-    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=still`);
+  still: async (id, pid) => {
+    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=still&project_id=${pid}`);
     return `Durağan referans üretildi (Qwen-Image, sürüm ${r.version}); eskisi geçmişte. Durağanı onayla.`;
   },
-  turnaround: async (id) => {
-    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=turnaround`);
+  turnaround: async (id, pid) => {
+    const r = await api.post<{ version: number }>(`/assets/${id}/references/placeholder?kind=turnaround&project_id=${pid}`);
     return `Dönüş videosu üretildi (MiniMax H3, sürüm ${r.version}).`;
   },
 };
 
+/** Dizi varlığının bölüm bağı: kütüphanede ama bölüme bağlı değilse "Bu bölüme bağla", bağlıysa "Bağı kaldır". */
+function SeriesLink({ a }: { a: Asset }) {
+  const { busy, act, note, projectId } = usePanel();
+  if (!a.series_id) return null;
+  const linked = a.link !== null;
+  const run = () => act(async () => {
+    if (linked) await api.del(`/projects/${projectId}/series-assets/${a.id}`);
+    else await api.post(`/projects/${projectId}/series-assets/${a.id}`);
+    note("assets", linked ? `${a.name} bu bölümden çözüldü; dizi kütüphanesinde duruyor.` : `${a.name} bu bölüme bağlandı (kopyalanmadı); son sürümü izler.`, "ok");
+  }, "assets");
+  return (
+    <div className="note small">
+      Dizi kütüphanesi varlığı: tarif ve referans değişiklikleri bütün bölümlere yansır. Görüntüsü üretilmiş bölümler eski
+      sürümde sabit kalır ve yeni sürüme geçişin etkisini önce görür.
+      {a.link?.behind && <> Bu bölüm v{a.link.pinned} sürümünde sabit.</>}
+      <div className="row mt8">
+        <button className="btn" type="button" disabled={busy} onClick={run}>{linked ? "Bağı kaldır" : "Bu bölüme bağla"}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Kütüphanede yeni sürümü olan dizi varlıkları: bölüm eski sürüme sabit. Önce etkisi (yeniden üretilecek çekimler ve
+    tahmini sanal maliyet) gösterilir, sonra yönetmen geçer; isterse etkilenen çekimler hemen yeniden üretilir. */
+function SeriesUpdates() {
+  const { ov, projectId, busy, frozen, act, note } = usePanel();
+  const [impact, setImpact] = useState<Record<string, UpgradeImpact>>({});
+  const ups = ov?.project.series_updates ?? [];
+  const locked = Boolean(ov?.project.episode?.locked);
+  if (!ups.length) return null;
+  const preview = (id: string) => act(async () => {
+    const x = await api.get<UpgradeImpact>(`/projects/${projectId}/series-assets/${id}/upgrade`);
+    setImpact((m) => ({ ...m, [id]: x }));
+  }, "assets");
+  const apply = (id: string, render: boolean) => act(async () => {
+    const r = await api.post<{ impact: UpgradeImpact; planned: Record<string, string[]> }>(`/projects/${projectId}/series-assets/${id}/upgrade`, { render });
+    const n = r.impact.affected.length;
+    note("assets", `${r.impact.name} v${r.impact.current} sürümüne geçildi. ` + (!n ? "Yeniden üretilecek çekim yok."
+      : render ? `${Object.keys(r.planned).length} çekim kuyruğa alındı.` : `Etkilenen ${n} çekim yeniden üretilince yeni sürümü kullanır.`), "ok");
+    setImpact((m) => { const c = { ...m }; delete c[id]; return c; });
+  }, "assets");
+  return (
+    <div data-tour="series-upgrade">
+      <div className="side-h">Yeni sürüm var</div>
+      {ups.map((u) => {
+        const x = impact[u.asset_id];
+        return (
+          <div className="series-up" key={u.asset_id}>
+            <p className="small"><b>{u.name}</b>: dizi kütüphanesinde v{u.current}, bu bölüm v{u.pinned} sürümüne sabit. Geçilmeden bu varlıkla yeni görüntü üretilmez.</p>
+            {x && <p className="small dim">{upgradeText(x)}</p>}
+            {locked ? <p className="small dim">Bölüm teslim edildi (sürüm sabit): geçmek için önce yönetici kilidi açmalı.</p> : <div className="row">
+              <button className="btn" type="button" disabled={busy} onClick={() => preview(u.asset_id)}>{x ? "Etkiyi yenile" : "Etkisini gör"}</button>
+              {x && <button className="btn primary" type="button" disabled={busy} onClick={() => apply(u.asset_id, false)}>Yeni sürüme geç</button>}
+              {x && x.affected.length > 0 && (
+                <button className="btn" type="button" disabled={busy || frozen} onClick={() => apply(u.asset_id, true)}>Geç ve yeniden üret</button>
+              )}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Detail({ a }: { a: Asset }) {
-  const { busy, frozen, act, note, meta } = usePanel();
+  const { busy, frozen, act, note, meta, projectId } = usePanel();
   const [kind, setKind] = useState(REF_KINDS[a.type][0]);
   const [shown, setShown] = useState<Shown | null>(null);
   const hasVisual = ["still", "turnaround", "expressions"].some((k) => a.references?.[k]);
   const t = a.motion_test, locked = a.status === "locked";
   const running = Boolean(t && ["queued", "running"].includes(t.status));
-  const run = (x: Act) => act(async () => note("assets", await ASSET_ACTS[x](a.id), "ok"), "assets");
+  const run = (x: Act) => act(async () => note("assets", await ASSET_ACTS[x](a.id, projectId ?? ""), "ok"), "assets");
   const upload = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -136,11 +204,13 @@ function Detail({ a }: { a: Asset }) {
     <section className="pnl" aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
       <header className="pnl-h">
         <h2>{a.name}</h2><span className="meta">{TYPE_TR[a.type]} · sürüm {a.version} · {a.effective_style}</span>
-        <span className="grow" /><span className={`tag ${TONE[a.status]}`}>{ASTATUS_TR[a.status]}</span>
+        <span className="grow" />{a.series_id && <span className="tag series" title="Dizi kütüphanesi varlığı">Dizi</span>}
+        <span className={`tag ${TONE[a.status]}`}>{ASTATUS_TR[a.status]}</span>
       </header>
       <div className="pnl-b">
         <div className="pad stack">
           <Pipeline a={a} />
+          <SeriesLink a={a} />
           {a.description && <p>{a.description}</p>}
           {a.type !== "location" && (
             <label className="field">Değişmez özellikler (her satır bir özellik; her kare ve video istemine eklenir)
@@ -252,13 +322,16 @@ function Detail({ a }: { a: Asset }) {
 export function AssetsPage() {
   const { ov, projectId, busy, frozen, act, note, assetId, selectAsset, flashAsset, clearFlash, gotoAsset } = usePanel();
   const { data: assets } = useSWR<Asset[]>(projectId ? `/projects/${projectId}/assets` : null, fetcher, { refreshInterval: POLL_MS });
+  const episode = Boolean(ov?.project.episode?.series);
+  const { data: library } = useSWR<{ assets: Asset[] }>(projectId && episode ? `/projects/${projectId}/series-library` : null, fetcher, { refreshInterval: POLL_MS });
+  const [scope, setScope] = useState<AssetScope>("");
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
   const [newType, setNewType] = useState("prop");
   const [newName, setNewName] = useState("");
   const [view, setView] = useState<"cards" | "lineup">("cards");
   const cards = useRef<Record<string, HTMLButtonElement | null>>({});
-  useEffect(() => { if (flashAsset) { setType(""); setStatus(""); } }, [flashAsset]);   // hedef kart görünsün
+  useEffect(() => { if (flashAsset) { setType(""); setStatus(""); setScope(""); } }, [flashAsset]);   // hedef kart görünsün
   useEffect(() => {
     if (!flashAsset || !assets?.some((a) => a.id === flashAsset)) return;
     cards.current[flashAsset]?.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
@@ -269,10 +342,12 @@ export function AssetsPage() {
   const add = (e: FormEvent) => {
     e.preventDefault();
     void act(async () => {
-      const a = await api.post<Asset>(`/projects/${projectId}/assets`, { type: newType, name: newName });
+      const toSeries = scope === "series";
+      const body = { type: newType, name: newName };
+      const a = toSeries ? await api.post<Asset>(`/projects/${projectId}/series-library`, body) : await api.post<Asset>(`/projects/${projectId}/assets`, body);
       setNewName("");
       gotoAsset(a.id);
-      note("assets", `${a.name} eklendi (taslak).`, "ok");
+      note("assets", toSeries ? `${a.name} dizi kütüphanesine eklendi ve bu bölüme bağlandı (taslak).` : `${a.name} eklendi (taslak).`, "ok");
     }, "assets");
   };
   const retry = () => act(async () => {
@@ -281,11 +356,11 @@ export function AssetsPage() {
     note("assets", x.text, x.bad ? "err" : "ok");
   }, "assets");
 
-  const all = assets ?? [];
+  const all = scope === "series" ? (library?.assets ?? []) : (assets ?? []).filter((a) => inScope(a, scope));
   const need = ov?.project.settings.asset_min_status ?? "locked";
   const list = all.filter((a) => (!type || a.type === type) && (!status || a.status === status));
   const ready = all.filter((a) => ASTATUS_ORDER.indexOf(a.status) >= ASTATUS_ORDER.indexOf(need)).length;
-  const selected = all.find((a) => a.id === assetId) ?? list[0];
+  const selected = all.find((a) => a.id === assetId) ?? (assets ?? []).find((a) => a.id === assetId) ?? list[0];
   const blocked = ov?.scenes.filter((x) => x.status === "blocked").length ?? 0;
   const count = (f: (a: Asset) => boolean) => all.filter(f).length;
   return (
@@ -294,9 +369,23 @@ export function AssetsPage() {
         <p className="pad faint small">
           Çekimde geçen her karakter, mekân ve nesnenin onaylı referansı olmadan görüntü üretilmez. Gereken en az durum: {ASTATUS_TR[need]}.
         </p>
-        {blocked > 0 && (
+        {blocked > 0 && !ov?.project.episode?.locked && (
           <div className="pad" style={{ paddingTop: 0 }}>
             <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry}>Engellenen çekimleri yeniden dene ({blocked})</button>
+          </div>
+        )}
+        <SeriesUpdates />
+        {episode && (
+          <div data-tour="assets-scope">
+            <div className="side-h">Kapsam</div>
+            <ul className="list">
+              {(Object.keys(SCOPE_TR) as AssetScope[]).map((k) => (
+                <li key={k}><button type="button" aria-current={scope === k} onClick={() => setScope(k)}
+                  title={k === "series" ? "Dizinin bütün bölümlerinde kullanılabilen varlıklar (bu bölüme bağlı olmayanlar dahil)" : k === "local" ? "Yalnızca bu bölümde görünen varlıklar" : "Bu bölümün varlıkları: bölüme özel olanlar ve bağlı dizi varlıkları"}>
+                  {SCOPE_TR[k]}<span className="count">{k === "series" ? library?.assets.length ?? "" : (assets ?? []).filter((a) => inScope(a, k)).length}</span>
+                </button></li>
+              ))}
+            </ul>
           </div>
         )}
         <div className="side-h">Tür</div>
@@ -313,7 +402,7 @@ export function AssetsPage() {
             </button></li>
           ))}
         </ul>
-        <div className="side-h">Yeni varlık</div>
+        <div className="side-h">{scope === "series" ? "Dizi kütüphanesine ekle" : "Yeni varlık"}</div>
         <form className="pad stack" style={{ paddingTop: 4 }} onSubmit={add}>
           <select aria-label="Yeni varlık türü" value={newType} onChange={(e) => setNewType(e.target.value)}>
             <option value="prop">Nesne</option><option value="location">Mekân</option><option value="character">Karakter</option>
@@ -336,7 +425,9 @@ export function AssetsPage() {
                 <button key={a.id} ref={(el) => { cards.current[a.id] = el; }} type="button" className={`card${flashAsset === a.id ? " flash" : ""}`}
                   aria-current={selected?.id === a.id} onClick={() => selectAsset(a.id)} aria-label={`${a.name} (${TYPE_TR[a.type]})`}>
                   {th ? <img className="th fit" src={th} alt="" loading="lazy" /> : <span className="th">Referans yok</span>}
-                  <span className="row"><h3 className="grow">{a.name}</h3><span className={`tag ${TONE[a.status]}`}>{ASTATUS_TR[a.status]}</span></span>
+                  <span className="row"><h3 className="grow">{a.name}</h3>
+                    {a.series_id && <span className={`tag series`} title={a.link === null ? "Dizi kütüphanesinde; bu bölüme bağlı değil" : "Dizi kütüphanesi varlığı"}>{a.link === null ? "Dizi · bağlı değil" : "Dizi"}</span>}
+                    <span className={`tag ${TONE[a.status]}`}>{ASTATUS_TR[a.status]}</span></span>
                   <span className="faint small">{TYPE_TR[a.type]} · sürüm {a.version} · {a.scenes.length} çekim</span>
                   <Pipeline a={a} />
                 </button>

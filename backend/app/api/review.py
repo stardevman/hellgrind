@@ -218,9 +218,15 @@ def set_gate(project_id: ProjectId, gate: str, body: GateIn, s: Session = Depend
     if body.status == "changes_requested":
         row.rounds += 1
     row.status, row.note, row.updated_at = body.status, body.note, now()
+    locked = gate == "acceptance" and body.status == "approved"
+    if locked:                                          # teslim: bölüm son Kabul sürümüne sabitlenir
+        from app.api.series import lock_after_acceptance
+        last = s.scalar(select(FilmVersion.id).where(FilmVersion.project_id == project_id, FilmVersion.gate == gate)
+                        .order_by(FilmVersion.created_at.desc()).limit(1))
+        lock_after_acceptance(s, project_id, last)
     s.commit()
     killswitch.event(project_id, "gate_changed", gate=gate, status=body.status, source="panel")
-    return {"gate": gate, "status": row.status, "rounds": row.rounds}
+    return {"gate": gate, "status": row.status, "rounds": row.rounds, "locked": locked}
 
 
 @router.patch("/client-notes/{note_id}")
@@ -319,6 +325,9 @@ def decide(token: str, body: ClientDecisionIn, s: Session = Depends(get_session)
         gate.rounds += 1
     if body.note:
         s.add(ClientNote(project_id=p.id, version_id=v.id, gate=v.gate, text=body.note.strip()))
+    if approved and v.gate == "acceptance":             # teslim: bölüm bu sürüme sabitlenir ("sürüm sabit")
+        from app.api.series import lock_after_acceptance
+        lock_after_acceptance(s, p.id, v.id)
     s.commit()
     record(str(p.id), "client_approve" if approved else "client_reject",
            payload={"version": v.label, "gate": v.gate, "note": body.note, "rounds": gate.rounds})
