@@ -50,6 +50,11 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
 
+  review:        # müşteri inceleme uygulaması: yalnızca /panel/review ve /api/review/{token}. Dışarıya YALNIZCA bu port
+    <<: *backend #   açılır (tünel, ters vekil); stüdyo (8000) giriş istemeyen uçlar taşır, asla açılmaz.
+    command: uvicorn app.review_main:app --host 0.0.0.0 --port 8100
+    ports: ["8100:8100"]
+
   worker:        # montaj, ses, renk ve kontrol görevleri (süreç havuzu)
     <<: *backend
     command: celery -A app.worker.celery_app worker -Q post,control -c 4 -n worker@%h --loglevel=INFO

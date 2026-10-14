@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     # Yönetici modunun şifresi (Ayarlar ve servis geçmişi). Boşsa yönetici modu şifresiz açılır; panelden yazılamaz.
     admin_password: str = ""
     s3_public_endpoint_url: str | None = "http://localhost:9000"   # tarayıcının MinIO'ya eriştiği adres
+    # Müşterinin inceleme uygulamasına (app.review_main, 8100) dışarıdan eriştiği adres, ör. https://inceleme.ornek.com.
+    # Doluysa inceleme bağlantıları bu adresle tam yazılır; boşsa yol döner ve panel kendi adresini ekler (yalnızca yerel).
+    review_public_url: str = ""
 
     purge_mode: str = "quarantine"   # hard | quarantine
     gen_concurrency: int = 3

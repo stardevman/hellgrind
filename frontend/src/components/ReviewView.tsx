@@ -12,6 +12,7 @@ import type { ReviewState } from "@/lib/types";
 const DECIDED: Record<string, string> = {
   approved: "Bu sürümü onayladınız. Teşekkürler.",
   changes_requested: "Değişiklik istediniz; notlarınız ekibe iletildi. Yeni sürüm hazır olunca yeni bir bağlantı alacaksınız.",
+  superseded: "Bu sürümün yerine daha yeni bir sürüm gönderildi. Bu bağlantıdan yalnızca izleyebilirsiniz; kararınızı yeni sürümün bağlantısından verin.",
 };
 
 export function ReviewView() {
@@ -56,7 +57,8 @@ export function ReviewView() {
       <header className="review-h">
         <div><h1>{data.title}</h1><p className="faint">{data.gate_tr} · <b className="mono">{data.label}</b></p></div>
         <span className={`tag ${data.status === "approved" ? "ok" : data.status === "changes_requested" ? "bad" : ""}`}>
-          {data.status === "approved" ? "Onaylandı" : data.status === "changes_requested" ? "Değişiklik istendi" : "İncelemenizi bekliyor"}
+          {data.status === "approved" ? "Onaylandı" : data.status === "changes_requested" ? "Değişiklik istendi"
+            : data.status === "superseded" ? "Yerini yenisi aldı" : "İncelemenizi bekliyor"}
         </span>
       </header>
       <section className="review-player">

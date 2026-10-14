@@ -50,7 +50,7 @@ docker compose up -d --build  # tüm servisleri derler ve başlatır
 curl localhost:8000/healthz   # {"ok":true,"dry_run":true}
 ```
 
-Servisler: `postgres`, `redis`, `minio`, `api`, `worker` (montaj, ses, kontrol), `worker-gen` (üretim: tek süreç, iş
+Servisler: `postgres`, `redis`, `minio`, `api`, `review` (müşteri inceleme uygulaması, 8100; dışarıya yalnızca bu açılır), `worker` (montaj, ses, kontrol), `worker-gen` (üretim: tek süreç, iş
 parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`, `flower`. Veritabanı şeması ilk açılışta kurulur; sonraki şema değişiklikleri API açılışında `backend/migrations/*.sql` dosyalarından, veritabanı silinmeden uygulanır.
 
 | Adres | Ne |
@@ -364,6 +364,8 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 - **İnceleme bağlantısı oluştur** (video kapıları): süreli, salt okunur, belirteçli bağlantı verir: `/panel/review/?token=…` (`POST /api/projects/{id}/review-links`; 1–30 gün; `DELETE /api/review-links/{id}` kapatır).
   - Sayfada yalnızca oynatıcı, proje ve sürüm adı, zaman kodlu not alanı (oynatıcının o anki zamanı otomatik alınır), "Onayla" ve "Değişiklik iste" var.
   - Belirteçli uçlar (`/api/review/{token}`, `…/video`, `…/notes`, `…/decision`) bütçe, motor, maliyet ya da iç ayrıntı döndürmez. Süresi dolan ya da kapatılan bağlantı 410 döner.
+  - **Müşteriye yalnızca inceleme uygulaması açılır:** `review` servisi (8100, `app.review_main`) yalnızca inceleme sayfasını ve belirteçli uçları sunar; başka her yol 404'tür. Stüdyo (8000) proje, bütçe, render ve durdurma uçlarını girişsiz taşıdığı için dışarıya asla açılmaz. Dış adres `.env` içinde `REVIEW_PUBLIC_URL` ile verilir (ör. 8100'e yönlenen bir tünel ya da ters vekil); doluysa panel bağlantıyı bu adresle kopyalar.
+  - Aynı kapıya yeni sürüm gönderilince kararı verilmemiş eski sürüm "yerini yenisi aldı" olur (migration 034): eski bağlantı yalnızca izlemeye açık kalır, karar ve not yeni sürümün bağlantısından verilir. Aynı sürüme aynı anda gelen iki karardan yalnızca biri geçer.
 - Senaryo ve Tasarım kapıları video değildir. Müşterinin başka kanaldan gelen kararı Teslim › Müşteri'de "Müşteri onayladı" ya da "Değişiklik istedi" ile işaretlenir.
 - **Notlar panele döner:**
   - Müşteri notu filmdeki zamandan çekime bağlanır.

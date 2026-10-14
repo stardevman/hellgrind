@@ -12,12 +12,14 @@ import type { ClientState, FilmVersionRow, ReviewLinkRow } from "@/lib/types";
 import { Icon } from "./icons";
 import { NoteBox, Section } from "./ui";
 
-const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
+const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "", superseded: "" };
+/** Sunucu dış inceleme adresi ayarlıysa (REVIEW_PUBLIC_URL) tam adres döner; yoksa yol, yerelde panelin adresiyle. */
+const absolute = (url: string) => (/^https?:\/\//.test(url) || typeof window === "undefined" ? url : `${window.location.origin}${url}`);
 const KIND_FILM: Record<string, string> = { animatic: "animatik", draft: "kaba kurgu", final: "final film", acceptance: "final film" };
 
 function LinkRow({ link }: { link: ReviewLinkRow }) {
   const { busy, act, note } = usePanel();
-  const full = typeof window === "undefined" ? link.url : `${window.location.origin}${link.url}`;
+  const full = absolute(link.url);
   const live = !link.revoked && !link.expired;
   return (
     <li className="link-row">
@@ -50,7 +52,7 @@ export function ClientPanel() {
     const v = reuse ?? await api.post<FilmVersionRow>(`/projects/${projectId}/versions`, { gate: g });
     const link = await api.post<ReviewLinkRow>(`/projects/${projectId}/review-links`, { version_id: v.id, days: Number(days) });
     await mutate();
-    const full = `${window.location.origin}${link.url}`;
+    const full = absolute(link.url);
     void navigator.clipboard?.writeText(full).catch(() => {});
     note("client", `${v.label} (${row.label}) için inceleme bağlantısı oluşturuldu ve kopyalandı: ${full}`, "ok");
   }, "client");

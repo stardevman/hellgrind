@@ -22,13 +22,16 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.api.deps import ProjectId, project_or_404
 from app.budget import killswitch
-from app.config import project_settings
+from app.config import project_settings, settings
 from app.curation import curated, record
 from app.db import get_session
 from app.models import ClientGate, ClientNote, FilmVersion, Project, ReviewLink, Scene
 from app.schemas import ClientDecisionIn, ClientNoteIn, GateIn, NoteResolveIn, ReviewLinkIn, VersionIn
 
 router = APIRouter(tags=["review"])
+# Müşterinin belirteçli uçları ayrı bir yönlendiricide: stüdyo uygulamasına (app.main) ve yalnızca inceleme sunan dış
+# uygulamaya (app.review_main) birlikte bağlanır. Dışarıya yalnızca o uygulamanın portu açılır.
+public_router = APIRouter(tags=["review-public"])
 
 GATES = ("script", "design", "animatic", "draft", "final", "acceptance")
 GATE_TR = {"script": "Senaryo", "design": "Tasarım", "animatic": "Animatik", "draft": "Taslak kurgu", "final": "Final",
@@ -36,7 +39,8 @@ GATE_TR = {"script": "Senaryo", "design": "Tasarım", "animatic": "Animatik", "d
 # Video kapılarının filmi: sürüm gönderildiği anki birleştirilmiş filmi taşır.
 GATE_FILM = {"animatic": ("animatic", "animatic_key"), "draft": ("draft", "draft_timeline_key"),
              "final": ("final", "timeline_key"), "acceptance": ("final", "timeline_key")}
-STATUS_TR = {"pending": "bekliyor", "approved": "onaylandı", "changes_requested": "değişiklik istendi"}
+STATUS_TR = {"pending": "bekliyor", "approved": "onaylandı", "changes_requested": "değişiklik istendi",
+             "superseded": "yerini yenisi aldı"}
 LINK_DAYS = 7
 
 
@@ -51,6 +55,11 @@ def _cut(key: str | None) -> dict | None:
         return json.loads(storage.read_bytes(key.rsplit(".", 1)[0] + ".json"))
     except Exception:                                   # kesme listesi okunamıyor: sürüm yine gönderilir
         return None
+
+
+def review_url(token: str) -> str:
+    """İnceleme bağlantısı: dış adres ayarlıysa tam adres (müşteriye yalnızca inceleme uygulaması açılır), değilse yol."""
+    return f"{settings.review_public_url.rstrip('/')}/panel/review/?token={token}"
 
 
 def gate_row(s: Session, project_id: str, gate: str, lock: bool = False) -> ClientGate:
@@ -114,7 +123,7 @@ def state(s: Session, project_id: str) -> dict:
     labels = {v.id: v.label for v in versions}
     notes = s.scalars(select(ClientNote).where(ClientNote.project_id == project_id).order_by(ClientNote.created_at))
     return {"gates": gates, "versions": [version_out(v, costs[v.id]) for v in versions], "round_limit": limit,
-            "links": [{"id": str(x.id), "token": x.token, "url": f"/panel/review/?token={x.token}",
+            "links": [{"id": str(x.id), "token": x.token, "url": review_url(x.token),
                        "version_id": str(x.version_id), "label": labels.get(x.version_id),
                        "expires_at": x.expires_at.timestamp(), "revoked": x.revoked_at is not None,
                        "expired": x.expires_at <= now()} for x in links],
@@ -154,6 +163,11 @@ def send_version(project_id: ProjectId, body: VersionIn, s: Session = Depends(ge
         what = {"animatic": "animatik", "draft": "kaba kurgu", "final": "film"}[kind]
         raise HTTPException(409, f"Önce {what} birleştirilmeli; gönderilecek film yok.")
     number = (s.scalar(select(func.max(FilmVersion.number)).where(FilmVersion.project_id == project_id)) or 0) + 1
+    # Kapının kararı verilmemiş eski sürümleri yerini yenisine bırakır: eski bağlantı yalnızca izlemeye açık kalır, kararı
+    # yeni sürümün kapısını ezemez.
+    for old in s.scalars(select(FilmVersion).where(FilmVersion.project_id == project_id, FilmVersion.gate == body.gate,
+                                                   FilmVersion.status == "sent").with_for_update()):
+        old.status = "superseded"
     v = FilmVersion(project_id=project_id, number=number, label=f"v{number:03d}", gate=body.gate, kind=kind,
                     video_key=key, cut=_cut(key), spent_usd=p.spent_usd, status="sent")
     s.add(v)
@@ -176,7 +190,7 @@ def create_link(project_id: ProjectId, body: ReviewLinkIn, s: Session = Depends(
                       expires_at=now() + dt.timedelta(days=body.days))
     s.add(link)
     s.commit()
-    return {"id": str(link.id), "token": link.token, "url": f"/panel/review/?token={link.token}", "label": v.label,
+    return {"id": str(link.id), "token": link.token, "url": review_url(link.token), "label": v.label,
             "expires_at": link.expires_at.timestamp()}
 
 
@@ -222,13 +236,21 @@ def resolve_note(note_id: str, body: NoteResolveIn, s: Session = Depends(get_ses
 
 # ---------- müşteri (belirteçli, salt okunur sayfa) ----------
 
-def link_or_error(s: Session, token: str) -> tuple[ReviewLink, FilmVersion, Project]:
+def link_or_error(s: Session, token: str, lock: bool = False) -> tuple[ReviewLink, FilmVersion, Project]:
+    """Geçerli bağlantı, sürümü ve projesi. lock: sürüm satırı kilitlenir (karar ve not aynı anda iki kez geçmesin)."""
     link = s.scalar(select(ReviewLink).where(ReviewLink.token == token)) if 16 <= len(token) <= 64 else None
     if link is None:
         raise HTTPException(404, "İnceleme bağlantısı bulunamadı.")
     if link.revoked_at is not None or link.expires_at <= now():
         raise HTTPException(410, "Bu inceleme bağlantısının süresi doldu ya da kapatıldı.")
-    return link, s.get(FilmVersion, link.version_id), s.get(Project, link.project_id)
+    v = s.get(FilmVersion, link.version_id, with_for_update=lock)
+    return link, v, s.get(Project, link.project_id)
+
+
+def closed(v: FilmVersion) -> HTTPException:
+    if v.status == "superseded":
+        return HTTPException(409, f"{v.label} yerini daha yeni bir sürüme bıraktı; karar ve not yeni sürümün bağlantısından verilir.")
+    return HTTPException(409, f"{v.label} için karar zaten verildi ({STATUS_TR[v.status]}).")
 
 
 def public(link: ReviewLink, v: FilmVersion, p: Project, notes: list) -> dict:
@@ -245,13 +267,13 @@ def _notes(s: Session, v: FilmVersion) -> list:
     return list(s.scalars(select(ClientNote).where(ClientNote.version_id == v.id).order_by(ClientNote.created_at)))
 
 
-@router.get("/review/{token}")
+@public_router.get("/review/{token}")
 def review(token: str, s: Session = Depends(get_session)):
     link, v, p = link_or_error(s, token)
     return public(link, v, p, _notes(s, v))
 
 
-@router.api_route("/review/{token}/video", methods=["GET", "HEAD"])
+@public_router.api_route("/review/{token}/video", methods=["GET", "HEAD"])
 def review_video(token: str, request: Request):
     """Sürümün filmi; medya ucuyla aynı (Range destekli) ama yalnızca geçerli belirteçle."""
     from app.api.panel import media
@@ -262,12 +284,12 @@ def review_video(token: str, request: Request):
     return media(request, key=key)
 
 
-@router.post("/review/{token}/notes", status_code=201)
+@public_router.post("/review/{token}/notes", status_code=201)
 def add_note(token: str, body: ClientNoteIn, s: Session = Depends(get_session)):
     """Müşterinin zaman kodlu notu: filmdeki zamandan çekime bağlanır; kürasyon kaydına client_note olarak düşer."""
-    link, v, p = link_or_error(s, token)
+    link, v, p = link_or_error(s, token, lock=True)
     if v.status != "sent":
-        raise HTTPException(409, f"{v.label} için karar verildi; yeni not eklenemez.")
+        raise closed(v)
     clip = clip_at(v.cut, body.at_s)
     code = clip["scene_code"] if clip else None
     sc = s.scalar(select(Scene).where(Scene.project_id == p.id, Scene.scene_code == code)) if code else None
@@ -283,12 +305,12 @@ def add_note(token: str, body: ClientNoteIn, s: Session = Depends(get_session)):
     return public(link, v, p, _notes(s, v))
 
 
-@router.post("/review/{token}/decision")
+@public_router.post("/review/{token}/decision")
 def decide(token: str, body: ClientDecisionIn, s: Session = Depends(get_session)):
     """Müşterinin kararı: sürüm ve kapı onaylanır ya da değişiklik istenir (yeni revizyon turu). Bir sürüm için bir kez."""
-    link, v, p = link_or_error(s, token)
+    link, v, p = link_or_error(s, token, lock=True)
     if v.status != "sent":
-        raise HTTPException(409, f"{v.label} için karar zaten verildi ({STATUS_TR[v.status]}).")
+        raise closed(v)
     approved = body.decision == "approve"
     v.status, v.decided_at = ("approved" if approved else "changes_requested"), now()
     gate = gate_row(s, str(p.id), v.gate, lock=True)
