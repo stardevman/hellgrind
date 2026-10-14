@@ -159,3 +159,47 @@ def test_script_and_design_gates_are_marked_from_the_panel_and_rounds_have_a_lim
     assert {g["gate"]: g["status"] for g in summary}["design"] == "approved"
     assert api.post(f"/api/projects/{pid}/gates/nope", json={"status": "approved"}).status_code == 404
     assert _actions(pid).count("client_reject") == 2 and "client_approve" in _actions(pid)
+
+
+def test_a_newer_version_supersedes_the_old_link_which_cannot_overwrite_the_gate(api, filmed):
+    pid, _ = filmed
+    _, old = _link(api, pid, "final")
+    _, new = _link(api, pid, "final")
+    page = api.get(f"/api/review/{old['token']}")
+    assert page.status_code == 200 and page.json()["status"] == "superseded"     # eski bağlantı izlemeye açık
+    r = api.post(f"/api/review/{old['token']}/decision", json={"decision": "approve"})
+    assert r.status_code == 409 and "yeni" in r.json()["detail"]
+    assert api.post(f"/api/review/{old['token']}/notes", json={"at_s": 1, "text": "eski"}).status_code == 409
+    st = api.get(f"/api/projects/{pid}/client").json()
+    assert next(g for g in st["gates"] if g["gate"] == "final")["status"] == "pending"
+    assert [(v["label"], v["status"]) for v in st["versions"]] == [("v001", "superseded"), ("v002", "sent")]
+    assert api.post(f"/api/review/{new['token']}/decision", json={"decision": "approve"}).json()["status"] == "approved"
+    assert "client_approve" in _actions(pid)
+
+
+def test_the_client_app_serves_only_the_review_page_and_its_endpoints(api, filmed, tmp_path, monkeypatch):
+    """Dışarıya açılan uygulama (app.review_main) stüdyonun uçlarını ve sayfalarını hiç sunmaz."""
+    from fastapi.testclient import TestClient
+
+    from app import review_main
+    web = tmp_path / "web"
+    for rel in ("index.html", "review/index.html", "_next/static/chunks/a.js", "settings/index.html"):
+        (web / rel).parent.mkdir(parents=True, exist_ok=True)
+        (web / rel).write_text(rel)
+    mount = next(r for r in review_main.app.routes if getattr(r, "path", None) == "/panel")
+    monkeypatch.setattr(mount, "app", review_main.ReviewFiles(web))
+    pid, _ = filmed
+    _, link = _link(api, pid, "final")
+    client = TestClient(review_main.app)
+    assert client.get(f"/api/review/{link['token']}").status_code == 200
+    assert client.get(f"/api/review/{link['token']}/video", headers={"Range": "bytes=0-9"}).status_code == 206
+    for path in (f"/api/projects/{pid}", f"/api/projects/{pid}/budget", f"/api/projects/{pid}/client", "/api/meta",
+                 "/api/admin", "/docs", "/openapi.json"):
+        assert client.get(path).status_code == 404, path
+    assert client.post(f"/api/projects/{pid}/killswitch", json={"action": "freeze"}).status_code == 404
+    assert client.post(f"/api/projects/{pid}/gates/final", json={"status": "approved"}).status_code == 404
+    assert client.get("/panel/review/").text == "review/index.html"
+    assert client.get("/panel/_next/static/chunks/a.js").status_code == 200
+    for path in ("/panel/", "/panel/index.html", "/panel/settings/", "/panel/review/../settings/index.html"):
+        assert client.get(path).status_code == 404, path
+    assert client.get("/", follow_redirects=False).headers["location"] == "/panel/review/"

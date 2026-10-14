@@ -7,7 +7,8 @@ export type Gate = "script" | "design" | "animatic" | "draft" | "final" | "accep
 export const GATE_TR: Record<Gate, string> = {
   script: "Senaryo", design: "Tasarım", animatic: "Animatik", draft: "Taslak kurgu", final: "Final", acceptance: "Kabul",
 };
-export const GATE_STATUS_TR: Record<string, string> = { pending: "bekliyor", approved: "onaylandı", changes_requested: "değişiklik istendi" };
+export const GATE_STATUS_TR: Record<string, string> = { pending: "bekliyor", approved: "onaylandı", changes_requested: "değişiklik istendi",
+  superseded: "yerini yenisi aldı" };
 /** Kapının ait olduğu üretim adımı (adım çubuğunda o adımın altında görünür). */
 export const GATE_STEP: Record<Gate, StepId> = {
   script: "prep", design: "prep", animatic: "approve", draft: "produce", final: "finish", acceptance: "finish",

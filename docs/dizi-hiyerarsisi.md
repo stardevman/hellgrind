@@ -44,22 +44,22 @@ Görsel özet (`visual_fingerprint`) bağlı varlıkların sürümünü içeriyo
 
 ## Tablolar ve migration sırası
 
-**034_series.sql**
+**035_series.sql**
 - `series (id, title, settings jsonb, budget_cap_usd, created_at)`
 - `seasons (id, series_id, number, title, budget_cap_usd)`, `UNIQUE (series_id, number)`
 - `projects.season_id` (boş olabilir) ve `projects.episode_no`, `UNIQUE (season_id, episode_no)`
 
-**035_series_assets.sql**
+**036_series_assets.sql**
 - `assets.series_id` eklenir; `assets.project_id` boş olabilir hâle gelir. CHECK: ikisinden tam biri dolu.
 - `characters.series_id` aynı biçimde; ses kimliği (`voice_id`) dizi düzeyinde yaşar.
 - `episode_assets (project_id, asset_id, pinned_version NULL, added_at)`, PK `(project_id, asset_id)`.
 - Okuma kuralı: bölümdeki varlık kümesi = bölüme özel varlıklar ∪ bölüme bağlanmış dizi varlıkları. `lint`, `load_assets` ve görsel özet bu kümeyi kullanır; görsel özet `pinned_version` varsa onu alır.
 
-**036_episode_lock.sql**
+**037_episode_lock.sql**
 - `projects.locked_at`, `projects.locked_version_id` (→ `film_versions`).
 - Kabul kapısı onaylanınca dolar. `plan_and_dispatch` ve stil etkinleştirme kilitli bölümde 423 döner; dondurmadaki gibi Türkçe gerekçeyle.
 
-**037_series_budget.sql** (isteğe bağlı): `reserve`, sekans tavanının yanında sezon ve dizi tavanını da denetler. Kural aynıdır: tavan dolunca yalnızca o kapsamın işleri durur.
+**038_series_budget.sql** (isteğe bağlı): `reserve`, sekans tavanının yanında sezon ve dizi tavanını da denetler. Kural aynıdır: tavan dolunca yalnızca o kapsamın işleri durur.
 
 ## Kapsam dışı bırakılanlar
 
