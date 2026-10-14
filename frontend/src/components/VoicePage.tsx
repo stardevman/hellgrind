@@ -254,7 +254,7 @@ export function VoicePage() {
                 }, "voice");
               }} /> Ses kilitlenmeden görüntü üretme (voice_first)
             </label>
-            <p className="faint small">Açıkken Sıradaki şeridi final sesi bekleyen replikleri ve kilitlenmemiş sekansları gösterir.</p>
+            <p className="faint small">Açıkken Yapılacaklar listesi final sesi bekleyen replikleri ve kilitlenmemiş sekansları gösterir.</p>
           </div>
         </Section></div>
       </Panel>

@@ -253,18 +253,24 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
   - brief: proje varsayılanları.
 
 **Panel** (`/` adresi `/panel/` adresine yönlenir; 2 saniyede bir overview çeker). İlk sürüm tek HTML dosyasıydı; Next.js'e
-geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: alt kenarda üretim sırasıyla sayfa çubuğu (Senaryo,
+geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: üretim sırasıyla sayfalar (Senaryo, Ses,
 Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
-açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Sekiz sayfa dört **adım** altında gruplanır (Hazırlık: Senaryo,
-Stil, Varlıklar; Onay: Storyboard; Üretim: Kurgu, Karşılaştır; Bitirme: Renk, Teslim; `lib/steps.ts`): her adımın durumu ve
-eksikleri overview'dan hesaplanır. Altta yalnızca adımları taşıyan 30 px'lik ray ve **Sıradaki** bağlantısı; çalışma
-alanının üstündeki şeritte (StepHeader) adımın sayfa sekmeleri ve tıklanabilir eksikler. Üst bant tek satırdır; bütçe rayı
-açılır pencereli bir çipe indirildi. Üst bantta **Basit /
-Gelişmiş** görünüm anahtarı (basit görünümde yalnızca ana eylemler; motor ve plan ayrıntıları, tamamlama ve upscale, elle
-düzeltme ve Karşılaştır sayfası gelişmişte) ve **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
+açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: **üst bant** (solda logo ve
+yönetici rozetleri, ortada `Dizi › Sezon › Bölüm` kırıntısı, sağda **Yapılacaklar**, bütçe çipi, Geçmiş ve durdurma
+düğmesi; altında uyarılar), ortada çalışma alanı, altta **sayfa çubuğu** (`PageBar`: solda **Proje yöneticisi** ev simgesi,
+ortada simgeli sayfalar, sağda Ayarlar dişlisi). Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
+çekim gerektirenler senaryo işlenene dek kapalıdır; simgenin köşesindeki rozet sayfanın özetidir, nokta bekleyen iş olduğunu
+söyler. Eksikler arka planda dört üretim grubuna göre hesaplanır (`lib/steps.ts`: hazırlık, onay, üretim, bitirme) ama
+panelde adım olarak gösterilmez; **Yapılacaklar** (`Todos`) onları çözüldükleri sayfaya göre listeler ve altında müşteri
+onay kapılarını gösterir. **Proje yöneticisi** (`ProjectManager`) dizileri sezon sezon, bağımsız filmleri ve "Yeni film"
+kartını gösterir. Ayarlar düğmesi herkese açıktır; **Kullanıcı / Yönetici** seçimi Ayarlar sayfasındadır: kullanıcı modu son kullanıcı içindir
+(yalnızca ana eylemler); yönetici modunda Ayarlar (ücretli servisler, mod, fiyat tablosu), servis geçmişi, mod ve skor
+rozetleri, motor ve plan ayrıntıları, tamamlama ve upscale, elle düzeltme ve Karşılaştır sayfası açılır. `.env`'de
+`ADMIN_PASSWORD` tanımlıysa yönetici modu şifreyle açılır ve `/api/settings*`, `/api/history*` sunucuda da yönetici çerezi
+ister (`app/admin.py`); şifre panelden yazılamaz. **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
 bağlı tur (`lib/tour.ts`, `components/Tour.tsx`). Denetçi üç sekmedir: Çekim, Ses, Üretim. İşlevler ve metinler aşağıdaki
 gibidir:
-- **Üst bant:** marka, proje seçici, "Yeni proje" ve "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
+- **Üst bant:** marka, proje kırıntısı, "Yeni proje" (kırıntı menüsü ve Proje yöneticisi) ve (yönetici modunda) "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
 - **Bütçe rayı:** harcanan ve ayrılan tutar; "Üretimi durdur" ve "Üretime devam et" düğmeleri; dondurulmuşsa uyarı bandı.
 - **Sahne satırları:** kod, durum, açıklama, **film şeridi** ve harcama.
   - Şeritte test turu karelerinden sonra tam tur kareleri gelir.
@@ -274,9 +280,9 @@ gibidir:
   - Her eylemden sonra hangi aşamaların çalışacağı yazılır, ör. "Yalnızca montaj; görüntü motoru çağrılmadı".
 - **Film bölümü:** "Tamamlanan N sahneyi birleştir", oynatıcı ve duygu renkli, tıklanabilir kesme şeridi. Yanında olay akışı.
 - **Boş durum:** proje adı, sanal bütçe, üretim yoğunluğu ve örnek senaryo dolu textarea; "Senaryoyu işle ve üret".
-- **Tasarım** (kurgu ve animasyon yazılımlarının dili: grafit yüzeyler, ince çizgiler, yoğun paneller):
+- **Tasarım** (DaVinci Resolve'un dili: sıcak-gri yüzeyler, ince çizgiler, yoğun paneller, turuncu vurgu):
   - Yazı tipleri: arayüzde Inter, zaman kodu ve çekim kodlarında JetBrains Mono.
-  - Renkler: bg `#111214`, panel `#1a1b1e`, raised `#212226`, line `#2c2e33`, text `#dcdee3`, accent (seçim) `#4d8dff`, playhead `#ff4a4a`, ok `#3dcc91`, warn `#f3b443`, bad `#ff5c55`, work (üretiliyor) `#a88bff`.
+  - Renkler: bg `#19191c`, panel `#232327`, raised `#2b2b30`, line `#3a3a41`, text `#d9d9dd`, accent (seçim, etkin sayfa) `#e8783a`, playhead `#ff4a4a`, ok `#3dcc91`, warn `#f2c744`, bad `#ff5c55`, work (üretiliyor) `#a88bff`.
   - Masaüstünde tam ekran uygulama çerçevesi; dar ekranda tek sütun ve kayan sayfa. Görünür klavye odağı, `prefers-reduced-motion` desteği, kısayollar (Shift+1…8 sayfalar; J/K/L, oklar, Boşluk oynatma). Başlık üstü etiket ve büyük harf etiket kullanılmaz (Türkçe I/İ dönüşümü).
 
 ## Faz 10 — Testler

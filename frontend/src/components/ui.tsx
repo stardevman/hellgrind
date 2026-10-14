@@ -1,8 +1,20 @@
 "use client";
 /* Ortak küçük parçalar: panel, akordeon bölümü, durum noktası, not, yükleme formu, senkron yerel durum. */
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { STATUS_TR, WORKING } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
+
+/** Açılır pencere (menü, bütçe, yapılacaklar): dışarı tıklama ve Esc kapatır. */
+export function useDismiss(open: boolean, close: () => void, box: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) close(); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open, close, box]);
+}
 
 /** Başlıklı panel (kurgu yazılımlarındaki yerleşik pencereler gibi). */
 export function Panel({ title, meta, tools, children, className = "", bodyClass = "", id, tour }: {

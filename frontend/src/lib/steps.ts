@@ -1,5 +1,7 @@
-/* Üretim adımları: sayfa çubuğundaki dokuz sayfa, üretim sırasını izleyen dört adım altında toplanır. `stepReadiness`
-   her adım için durumu ve bir sonraki adıma geçmek için eksik olanları çıkarır; saf fonksiyondur (tarayıcı gerekmez). */
+/* Yapılacaklar modeli (saf fonksiyonlar, tarayıcı gerekmez). Dokuz sayfa arka planda üretim sırasını izleyen dört gruba
+   ayrılır (hazırlık, onay, üretim, bitirme); `stepReadiness` her grubun durumunu ve eksiklerini çıkarır. Panel bu grupları
+   bir sıra olarak göstermez: eksikler `todosByPage` ile çözüldükleri sayfaya göre listelenir (Yapılacaklar menüsü) ve
+   `pageTones` sayfa çubuğundaki noktaları boyar. Müşteri onay kapıları da bu gruplara bağlıdır (client.ts). */
 import { GATE_PAGE, GATE_STEP, GATE_TR, type Gate } from "./client";
 import type { Overview } from "./types";
 
@@ -141,6 +143,26 @@ export function nextTodo(status: StepStatus[]): { step: Step; todo: Todo } | nul
     if (todo) return { step: STEPS.find((s) => s.id === st.id)!, todo };
   }
   return null;
+}
+
+/** Yapılacaklar, çözüldükleri sayfaya göre (sayfa çubuğu sırasıyla); engelleyiciler (kırmızı) grubun başına alınır. */
+export function todosByPage(status: StepStatus[]): { page: StepPage; todos: Todo[] }[] {
+  const rank = (t: Todo) => (t.tone === "bad" ? 0 : t.tone === "warn" ? 2 : 1);
+  return STEPS.flatMap((s) => s.pages).map((page) => ({
+    page, todos: status.flatMap((st) => st.todos).filter((t) => t.page === page).sort((a, b) => rank(a) - rank(b)),
+  })).filter((g) => g.todos.length);
+}
+
+export type PageTone = "bad" | "warn" | "todo";
+/** Sayfa çubuğundaki nokta: sayfada engelleyici varsa kırmızı, uyarı varsa amber, sıradan eksik varsa gri. */
+export function pageTones(status: StepStatus[]): Partial<Record<StepPage, PageTone>> {
+  const out: Partial<Record<StepPage, PageTone>> = {};
+  const order: PageTone[] = ["todo", "warn", "bad"];
+  for (const t of status.flatMap((st) => st.todos)) {
+    const tone: PageTone = t.tone ?? "todo";
+    if (!out[t.page] || order.indexOf(tone) > order.indexOf(out[t.page]!)) out[t.page] = tone;
+  }
+  return out;
 }
 
 export interface PageBadge { text: string; tone?: "ok" | "bad" | ""; title: string }

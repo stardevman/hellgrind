@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-const ICON = "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%234d8dff%27/%3E%3Cpath d=%27M16 5c1 5 7 7 7 13.5a7 7 0 0 1-14 0c0-3 2-4.2 3-7 1 2 2 3 3 3 0-3 0-6 1-9.5z%27 fill=%27%230d1526%27/%3E%3C/svg%3E";
+const ICON = "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23e8783a%27/%3E%3Cpath d=%27M16 5c1 5 7 7 7 13.5a7 7 0 0 1-14 0c0-3 2-4.2 3-7 1 2 2 3 3 3 0-3 0-6 1-9.5z%27 fill=%27%2324100a%27/%3E%3C/svg%3E";
 
 export const metadata: Metadata = {
   title: "Hell Grind Stüdyo",
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   icons: { icon: ICON },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, colorScheme: "dark", themeColor: "#111214" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, colorScheme: "dark", themeColor: "#19191c" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

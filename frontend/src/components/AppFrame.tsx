@@ -1,10 +1,11 @@
 "use client";
-/* Stüdyo çerçevesi, bütün denetimler altta: en üstte etkin sayfa; altında uyarılar, adımın sayfaları, eksikleri ve
-   "Sıradaki" şeridi; en altta uygulama bandı (logo, proje, dört üretim adımı, bütçe, Ayarlar ve durdurma düğmesi).
-   Bandın menüleri yukarı açılır. Shift+1…9 sayfalar arasında geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi yapmak için
-   gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici modundadır
-   (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
+/* Stüdyo çerçevesi, DaVinci Resolve düzeninde: üstte araç bandı (solda logo, ortada Dizi › Sezon › Bölüm, sağda
+   Yapılacaklar, bütçe ve durdurma düğmesi; altında uyarılar), ortada etkin sayfa, altta sayfa çubuğu (solda Proje
+   yöneticisi, ortada simgeli sayfa menüsü, sağda Ayarlar). Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
+   geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
+   yapmak için gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici
+   modundadır (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { api } from "@/lib/api";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { lockLabel } from "@/lib/series";
@@ -20,11 +21,13 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { StepHeader, StepRail } from "./StepBar";
+import { PageBar } from "./PageBar";
+import { ProjectManager } from "./ProjectManager";
+import { Todos } from "./Todos";
 import { StylePage } from "./StylePage";
 import { VoicePage } from "./VoicePage";
 import { Tour } from "./Tour";
-import { shortcutTarget } from "./ui";
+import { shortcutTarget, useDismiss } from "./ui";
 
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, voice: VoicePage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
@@ -37,14 +40,8 @@ function BudgetChip() {
   const { ov, meta } = usePanel();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, close, box);
   if (!ov) return null;
   const p = ov.project, limit = p.budget_limit_usd || 1;
   const left = Math.max(0, limit - p.spent_usd - p.reserved_usd);
@@ -80,7 +77,7 @@ function BudgetChip() {
   );
 }
 
-function AppBar() {
+function TopBar() {
   const { projects, projectId, selectProject, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
   const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
@@ -94,51 +91,51 @@ function AppBar() {
     if (await act(() => api.del(`/projects/${projectId}`), "global")) selectProject(null);
   };
   return (
-    <footer className="appbar">
+    <header className="topbar">
       <div className="tb-main">
-        <div className="logo"><Icon.logo />Hell Grind</div>
-        <Breadcrumb onRemove={remove} />
-        <span className="vsep" />
-        <StepRail hasShots={Boolean(ov?.scenes.length)} />
-        <span className="grow" />
-        {admin && q && (
-          <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
-            title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
-              : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
-            {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
-          </span>
-        )}
-        <BudgetChip />
-        {admin && (
-          <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
-            title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
-            onClick={() => setPage("settings")}>
-            {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
-          </button>
-        )}
-        {admin && (
-          <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
-            onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
-            title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
-        )}
-        <button type="button" className="btn ghost icon-only" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
-          aria-label="Ayarlar" data-tour="settings"
-          title={admin ? "Kullanıcı / yönetici seçimi, ücretli servisler, mod ve fiyat tablosu" : "Ayarlar: kullanıcı / yönetici seçimi"}><Icon.gear /></button>
-        {frozen && (
-          <span className="chip paid" role="alert" title={`Üretim durduruldu${frozenReason ? ` (${frozenReason})` : ""}. Çekimler donduruldu; devam edene kadar yeni iş başlamaz.`}>
-            Üretim durduruldu
-          </span>
-        )}
-        {ov && (
-          <button type="button" className={`btn ghost icon-only kill-ico${frozen ? " resume" : ""}`} onClick={frozen ? kill : () => setConfirmStop(true)}
-            aria-label={frozen ? "Üretime devam et" : "Üretimi durdur"}
-            title={frozen ? "Üretime devam et: kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Üretimi durdur: önce onay sorulur"}>
-            {frozen ? <Icon.play /> : <Icon.stop />}
-          </button>
-        )}
+        <div className="tb-l">
+          <div className="logo" title="Hell Grind Stüdyo"><Icon.logo /><span>Hell Grind</span></div>
+          {admin && (
+            <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
+              title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
+              onClick={() => setPage("settings")}>
+              {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
+            </button>
+          )}
+          {admin && q && (
+            <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
+              title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
+                : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
+              {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
+            </span>
+          )}
+        </div>
+        <div className="tb-c"><Breadcrumb onRemove={remove} /></div>
+        <div className="tb-r">
+          <Todos />
+          <BudgetChip />
+          {admin && (
+            <button type="button" className="btn ghost icon-only" aria-current={page === "history" ? "page" : undefined}
+              onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
+              title="Ücretli servis geçmişi: hangi servise, hangi modelle, ne için ne kadar harcandı"><Icon.receipt /></button>
+          )}
+          {frozen && (
+            <span className="chip paid" role="alert" title={`Üretim durduruldu${frozenReason ? ` (${frozenReason})` : ""}. Çekimler donduruldu; devam edene kadar yeni iş başlamaz.`}>
+              Üretim durduruldu
+            </span>
+          )}
+          {ov && (
+            <button type="button" className={`btn ghost icon-only kill-ico${frozen ? " resume" : ""}`} onClick={frozen ? kill : () => setConfirmStop(true)}
+              aria-label={frozen ? "Üretime devam et" : "Üretimi durdur"}
+              title={frozen ? "Üretime devam et: kuyruk kaldığı yerden sürer; tamamlanmış klipler yeniden üretilmez" : "Üretimi durdur: önce onay sorulur"}>
+              {frozen ? <Icon.play /> : <Icon.stop />}
+            </button>
+          )}
+        </div>
       </div>
+      <Alerts />
       {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
-    </footer>
+    </header>
   );
 }
 
@@ -291,6 +288,8 @@ function AdminGate() {
 export function AppFrame() {
   const { projectId, ov, creating, offline, page, setPage, projects, admin, adminState } = usePanel();
   const hasShots = Boolean(ov?.scenes.length);
+  const [manager, setManager] = useState(false);
+  const closeManager = useCallback(() => setManager(false), []);
 
   const { safeAreas, setSafeAreas } = usePanel();
   useEffect(() => {                                       // G: yayın güvenli alanları
@@ -321,15 +320,13 @@ export function AppFrame() {
   const View = target === "history" && !admin ? (adminState ? AdminGate : Waiting) : PAGE_VIEW[target];
   return (
     <div className="app">
+      <TopBar />
       <main className="workspace">
         {loading && !isExtraPage(target) ? <p className="loading">Yükleniyor…</p>
           : <View key={isExtraPage(target) ? target : `${projectId}:${target}`} />}
       </main>
-      <div className="dock">
-        <Alerts />
-        <StepHeader hasShots={hasShots} />
-        <AppBar />
-      </div>
+      <PageBar hasShots={hasShots} onHome={() => setManager(true)} />
+      {manager && <ProjectManager onClose={closeManager} />}
       <Tour />
       <AdminLogin />
     </div>

@@ -15,15 +15,17 @@ describe("tour", () => {
     }
   });
 
-  it("filters steps by whether a project is open and starts with the four-step overview", () => {
-    expect(tourStepsFor(false)[0].target).toBe("steps");
+  it("filters steps by whether a project is open and starts with the page bar", () => {
+    expect(tourStepsFor(false)[0].target).toBe("pages");
     expect(tourStepsFor(false).some((s) => s.when === "project")).toBe(false);
     expect(tourStepsFor(true).some((s) => s.when === "no-project")).toBe(false);
     expect(tourStepsFor(true).length).toBeGreaterThan(tourStepsFor(false).length);
   });
 
-  it("names the four steps and ends with how to reopen the guide", () => {
-    expect(TOUR_STEPS[0].text).toContain("Hazırlık, Onay, Üretim, Bitirme");
+  it("presents the pages as a menu, not a sequence, and ends with how to reopen the guide", () => {
+    expect(TOUR_STEPS[0].text).toContain("menüdür");
+    expect(TOUR_STEPS[0].text).toContain("Sıra zorunlu değildir");
+    expect(TOUR_STEPS.some((s) => s.target === "todos")).toBe(true);
     expect(TOUR_STEPS[TOUR_STEPS.length - 1].title).toBe("Hepsi bu");
   });
 });

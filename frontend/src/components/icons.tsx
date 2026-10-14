@@ -7,8 +7,8 @@ const S = (d: ReactElement) => (
 
 export const Icon = {
   logo: () => (
-    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#4d8dff" />
-      <path d="M16 5c1 5 7 7 7 13.5a7 7 0 0 1-14 0c0-3 2-4.2 3-7 1 2 2 3 3 3 0-3 0-6 1-9.5z" fill="#0d1526" /></svg>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#e8783a" />
+      <path d="M16 5c1 5 7 7 7 13.5a7 7 0 0 1-14 0c0-3 2-4.2 3-7 1 2 2 3 3 3 0-3 0-6 1-9.5z" fill="#24100a" /></svg>
   ),
   script: () => S(<><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 11h6M9 14h6M9 17h4" /></>),
   voice: () => S(<><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" /></>),
@@ -38,5 +38,9 @@ export const Icon = {
   stop: () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>,
   lock: () => S(<><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>),
   copy: () => S(<><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>),
+  home: () => S(<><path d="M3 11l9-7 9 7" /><path d="M5 10v10h5v-6h4v6h5V10" /></>),
+  tasks: () => S(<><path d="M9 6h12M9 12h12M9 18h12" /><path d="M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" /></>),
+  search: () => S(<><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>),
+  close: () => S(<path d="M6 6l12 12M18 6L6 18" />),
   gear: () => S(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></>),
 };

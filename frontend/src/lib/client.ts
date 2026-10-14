@@ -1,4 +1,4 @@
-/* Müşteri onay döngüsü: kapıların adım çubuğundaki çipleri, revizyon turu metni, notların zaman çizelgesindeki yeri
+/* Müşteri onay döngüsü: kapıların Yapılacaklar listesindeki çipleri, revizyon turu metni, notların zaman çizelgesindeki yeri
    (saf fonksiyonlar, tests/client.test.ts). Kapılar: Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul. */
 import type { ClientGateSummary, ClientNote, Overview } from "./types";
 import type { StepId } from "./steps";
@@ -9,7 +9,7 @@ export const GATE_TR: Record<Gate, string> = {
 };
 export const GATE_STATUS_TR: Record<string, string> = { pending: "bekliyor", approved: "onaylandı", changes_requested: "değişiklik istendi",
   superseded: "yerini yenisi aldı" };
-/** Kapının ait olduğu üretim adımı (adım çubuğunda o adımın altında görünür). */
+/** Kapının ait olduğu üretim grubu (eksik sayılırken o grubun altına yazılır). */
 export const GATE_STEP: Record<Gate, StepId> = {
   script: "prep", design: "prep", animatic: "approve", draft: "produce", final: "finish", acceptance: "finish",
 };
@@ -19,7 +19,7 @@ export const VIDEO_GATES: readonly Gate[] = ["animatic", "draft", "final", "acce
 
 export interface GateChip { gate: Gate; label: string; status: string; tone: "ok" | "bad" | "warn" | ""; title: string }
 
-/** Bir adımın kapı çipleri: onaylandı yeşil, değişiklik istendi kırmızı, gönderildi ve bekliyor amber, hiç gönderilmedi gri. */
+/** Bir grubun kapı çipleri: onaylandı yeşil, değişiklik istendi kırmızı, gönderildi ve bekliyor amber, hiç gönderilmedi gri. */
 export function gateChips(ov: Overview | undefined, step: StepId): GateChip[] {
   const gates = ov?.client?.gates ?? [];
   return (Object.keys(GATE_STEP) as Gate[]).filter((g) => GATE_STEP[g] === step).map((g) => {

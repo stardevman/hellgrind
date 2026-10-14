@@ -3,7 +3,7 @@
 import type { Page } from "./panel";
 
 export interface TourStep {
-  /** Adımın açıldığı sayfa; boşsa sayfa değişmez (alt bant ve şerit her sayfada görünür). */
+  /** Adımın açıldığı sayfa; boşsa sayfa değişmez (üst bant ve sayfa çubuğu her sayfada görünür). */
   page?: Page;
   target: string;
   title: string;
@@ -13,8 +13,9 @@ export interface TourStep {
 }
 
 export const TOUR_STEPS: readonly TourStep[] = [
-  { target: "steps", title: "Hoş geldin", text: "Bir senaryoyu filme dönüştürmek dört adımdır: Hazırlık, Onay, Üretim, Bitirme. Alt banttaki adımlar durumlarını gösterir; hemen üstündeki şeridin sağındaki \"Sıradaki\" bağlantısı seni bir sonraki eksik işe götürür." },
-  { target: "stephead", title: "Adım şeridi", text: "Bu şerit bulunduğun adımın sayfalarını ve bu adımda eksik olanları listeler. Bir eksiğe tıklamak onu çözeceğin sayfayı açar; adım tamamlanınca yeşil onay görünür." },
+  { target: "pages", title: "Hoş geldin", text: "Alttaki sayfa çubuğu bir menüdür: Senaryo, Ses, Stil, Varlıklar, Storyboard, Kurgu, Renk ve Teslim. Sıra zorunlu değildir; her sayfa her an açılır, yalnızca çekim gerektirenler senaryo işlenene dek kapalıdır. Simgenin köşesindeki rozet sayfanın özetidir, nokta orada bekleyen bir iş olduğunu söyler." },
+  { target: "home", title: "Proje yöneticisi", text: "Soldaki ev simgesi Proje yöneticisini açar: diziler sezon sezon, bağımsız filmler ve \"Yeni film\" kartı. Bir karta tıklamak o projeyi açar." },
+  { target: "todos", title: "Yapılacaklar", text: "Üst banttaki Yapılacaklar düğmesi eksik işleri çözüldükleri sayfaya göre listeler: kırmızı engelleyici, amber uyarı. Bir maddeye tıklamak o sayfayı açar; bekleyen iş kalmayınca yeşil onay görünür." },
   { target: "project", title: "Dizi, sezon ve bölüm", text: "Kırıntı yolu Dizi › Sezon › Bölüm biçimindedir; her parçası kendi menüsünü açar: diziler, sezonlar ve numaralı bölümler, \"Yeni dizi\", \"Yeni bölüm\". Bölüm bir projedir: kendi sanal bütçesi, onay kapıları ve teslimi vardır. Bağımsız film tek parça görünür." },
   { page: "script", target: "script-form", when: "no-project", title: "1. Senaryoyu işle", text: "Bir ad, bütçe ve üretim yoğunluğu yeter. \"Örnek senaryo\" düğmesi hazır bir metin yükler; \"Senaryoyu işle ve üret\" senaryoyu çekimlere ayırır ve üretimi başlatır." },
   { page: "script", target: "script-text", title: "Senaryo", text: "Sahne başlıkları (İÇ., DIŞ.), aksiyon paragrafları ve büyük harfli konuşmacı adları çekimlere dönüşür. Biçim kuralları sayfanın sağında durur. Yalnızca değişen çekimler yeniden üretilir." },
@@ -40,10 +41,10 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { page: "deliver", target: "qc", when: "project", title: "QC raporu", text: "Siyah kare, donma, loudness, fotosensitif parlama ve çizgi titremesi geçti/kaldı ve zaman koduyla listelenir; PDF olarak indirilir. Kalan kontroller Kurgu zaman çizelgesinde işaretlidir." },
   { page: "deliver", target: "delivery-package", when: "project", title: "Teslim paketi", text: "Paket içeriği önce listelenir: master, izleme kopyası, stem'ler, M&E, altyazı, EDL/OTIO, QC raporu ve hak zinciri. Eksik hak zinciri belgesi uyarır ama paketi engellemez." },
   { page: "edit", target: "client-notes", when: "project", title: "Müşteri notları", text: "Müşterinin notları zaman çizelgesinde ilgili çekimin üstünde işaretçi olarak ve Notlar listesinde görünür; çözdüğün notu işaretle." },
-  { target: "client-gates", when: "project", title: "Onay kapıları", text: "Her adımın müşteri onay kapıları (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul) şeritte ve adımın yanında renkli işaretlerle durur: yeşil onaylandı, kırmızı değişiklik istendi, amber müşteride." },
-  { target: "budget", title: "Bütçe ve Kill-Switch", text: "Alt banttaki bütçe göstergesi harcanan tutarı ve limiti gösterir; tıklayınca ayrılan, kalan ve yumuşak sınır açılır. \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
-  { target: "settings", title: "Ayarlar: kullanıcı ve yönetici", text: "Ayarlar'da kullanıcı ya da yönetici modunu seçersin. Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servisler, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
-  { target: "steps", title: "Hepsi bu", text: "Shift+1…9 sayfalar arasında geçer, G güvenli alanları açıp kapatır; adımlar alt bantta, her adımın eksikleri ve sıradaki iş hemen üstündeki şeritte durur." },
+  { target: "todos", when: "project", title: "Onay kapıları", text: "Müşteri onay kapıları (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul) Yapılacaklar listesinin altında renkli çipler olarak durur: yeşil onaylandı, kırmızı değişiklik istendi, amber müşteride." },
+  { target: "budget", title: "Bütçe ve Kill-Switch", text: "Üst banttaki bütçe göstergesi harcanan tutarı ve limiti gösterir; tıklayınca ayrılan, kalan ve yumuşak sınır açılır. \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
+  { target: "settings", title: "Ayarlar: kullanıcı ve yönetici", text: "Sayfa çubuğunun sağındaki dişli Ayarlar'ı açar. Ayarlar'da kullanıcı ya da yönetici modunu seçersin. Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servisler, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
+  { target: "pages", title: "Hepsi bu", text: "Shift+1…9 sayfalar arasında geçer, G güvenli alanları açıp kapatır; sayfalar altta, Yapılacaklar ve bütçe üstte durur. Rehberi Ayarlar'dan yeniden başlatabilirsin." },
 ];
 
 export const tourStepsFor = (hasProject: boolean): TourStep[] =>

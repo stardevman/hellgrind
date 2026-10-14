@@ -12,8 +12,8 @@ const SOURCES = readdirSync(join(root, "components")).map((f) => readFileSync(jo
   + readFileSync(join(root, "lib", "delivery.ts"), "utf8") + readFileSync(join(root, "lib", "safe.ts"), "utf8");
 
 describe("design contract", () => {
-  it.each([["bg", "111214"], ["panel", "1a1b1e"], ["raised", "212226"], ["line", "2c2e33"], ["text", "dcdee3"],
-    ["accent", "4d8dff"], ["playhead", "ff4a4a"], ["ok", "3dcc91"], ["warn", "f3b443"], ["bad", "ff5c55"], ["work", "a88bff"]])("palette token %s", (name, hex) => {
+  it.each([["bg", "19191c"], ["panel", "232327"], ["raised", "2b2b30"], ["line", "3a3a41"], ["text", "d9d9dd"],
+    ["accent", "e8783a"], ["playhead", "ff4a4a"], ["ok", "3dcc91"], ["warn", "f2c744"], ["bad", "ff5c55"], ["work", "a88bff"]])("palette token %s", (name, hex) => {
     expect(CSS).toMatch(new RegExp(`--${name}:\\s*#${hex}`, "i"));
   });
 
@@ -45,8 +45,12 @@ describe("design contract", () => {
     expect(CSS).toContain(".strip .gap");                 // test turu ile tam tur arasındaki ayraç
   });
 
-  it("styles the step bar, the next-up link, the admin login and the tour", () => {
-    for (const sel of [".tb-steps", ".stephead", ".sh-tabs", ".todo", ".budget-chip", ".stp.done", ".stp.blocked", ".nx", 'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+  it("lays the frame out like Resolve: top bar, workspace, page bar; the old step rail is gone", () => {
+    expect(CSS).toMatch(/\.app \{[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto/);
+    for (const sel of [".topbar", ".tb-c", ".pagebar", ".pb-btn", ".pg[aria-current=\"page\"]", ".pg:disabled", ".pg .badge", ".pg .pdot",
+      ".todos-btn", ".todos-pop", ".td-item", ".td-ok", ".gchip", ".pm-card", ".pm-card.new", ".budget-chip",
+      'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
+    for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".dock", ".appbar"]) expect(CSS).not.toContain(sel);
   });
 });
 
@@ -70,8 +74,9 @@ describe("documented Turkish texts", () => {
     "Karşılaştır", "Adayları karşılaştır", "Perde (1 ↔ 2)", "Bir kare geri", "Denetçide aç",
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
-    // Adım çubuğu, görünüm anahtarı ve rehber turu
-    "Hazırlık", "Onay", "Üretim", "Bitirme", "Sıradaki", "Tüm adımlar tamamlandı", "Kullanıcı", "Yönetici", "Yönetici girişi", "Atla", "İleri", "Bitir",
+    // Sayfa çubuğu, Yapılacaklar, Proje yöneticisi, görünüm anahtarı ve rehber turu
+    "Proje yöneticisi", "Yeni film", "Bağımsız filmler", "Yapılacaklar", "Her şey tamam", "Müşteri onayları", "önce senaryo işlenmeli",
+    "Kullanıcı", "Yönetici", "Yönetici girişi", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)
     "Ayarlar", "Çalışma modu", "Ücretli moda geç", "Ücretsiz moda dön", "Bağlantıyı sına", "Anahtarı kaydet", "Hesap paneli",

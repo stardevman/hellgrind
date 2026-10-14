@@ -1,6 +1,6 @@
-/* Adım modeli: dört adımın durumu ve sıradaki iş (saf fonksiyonlar). */
+/* Yapılacaklar modeli: dört grubun durumu, sayfaya göre eksikler ve sayfa çubuğu noktaları (saf fonksiyonlar). */
 import { describe, expect, it } from "vitest";
-import { nextTodo, pageBadges, STEPS, stepOf, stepReadiness, voiceTodos } from "@/lib/steps";
+import { nextTodo, pageBadges, pageTones, STEPS, stepOf, stepReadiness, todosByPage, voiceTodos } from "@/lib/steps";
 import type { Overview, Scene } from "@/lib/types";
 
 const scene = (over: Partial<Scene>): Scene => ({ id: Math.random().toString(36).slice(2), scene_code: "S001_SH01", status: "done", engine: "h3max", sequence_id: null,
@@ -83,5 +83,17 @@ describe("steps", () => {
     const locked = { ...on, sequences: [seq(true)] };
     expect(stepReadiness(locked)[0].state).toBe("done");                              // final ses uyarıdır, engellemez
     expect(pageBadges(locked).voice).toMatchObject({ text: "1/2" });
+  });
+
+  it("groups the open jobs by the page that resolves them, blockers first, and colours the page bar dots", () => {
+    const st = stepReadiness(ov([scene({ status: "blocked" }), scene({ status: "pending", board_status: "pending" })],
+      { asset_counts: { locked: 1, draft: 1 }, style_version: null }));
+    const groups = todosByPage(st);
+    expect(groups.map((g) => g.page)).toEqual(["style", "assets", "board", "edit", "deliver"]);
+    expect(groups[1].todos.map((t) => t.text)).toEqual(["1 varlık kilitsiz", "1 çekim engelli"]);     // ikisi de engelleyici
+    const warnFirst = todosByPage([{ id: "prep", state: "current", todos: [{ text: "u", page: "assets", tone: "warn" }, { text: "b", page: "assets", tone: "bad" }, { text: "p", page: "assets" }] }]);
+    expect(warnFirst[0].todos.map((t) => t.text)).toEqual(["b", "p", "u"]);                            // engelleyici, sıradan, uyarı
+    expect(pageTones(st)).toEqual({ style: "warn", assets: "bad", board: "warn", edit: "todo", deliver: "todo" });
+    expect(todosByPage(stepReadiness(ov([scene({})], {}, { url: "u", cut: null })))).toEqual([]);
   });
 });

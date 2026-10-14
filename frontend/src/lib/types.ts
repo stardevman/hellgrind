@@ -398,7 +398,7 @@ export interface Overview {
   timeline: Film | null; draft_timeline: Film | null;
   /** Animatik: onaylı kareler (yoksa çekim kartı) sesle, sesin süresine göre. */
   animatic?: Film | null;
-  /** Müşteri onay döngüsü özeti: kapılar (adım çubuğu çipleri) ve müşteri notları (Kurgu işaretçileri). */
+  /** Müşteri onay döngüsü özeti: kapılar (Yapılacaklar çipleri) ve müşteri notları (Kurgu işaretçileri). */
   client?: { gates: ClientGateSummary[]; notes: ClientNote[] };
   /** Teslim özeti: şartname var mı, QC sonucu ve sorunları (Kurgu işaretçileri), eksik hak zinciri maddeleri. */
   delivery?: DeliverySummary;
