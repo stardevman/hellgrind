@@ -55,7 +55,8 @@ def test_login_opens_admin_mode_and_logout_closes_it(api, locked):
     assert api.get("/api/settings").status_code == 401
 
 
-def test_a_password_change_or_expiry_ends_the_session(monkeypatch, locked):
+def test_a_password_change_or_expiry_ends_the_session(monkeypatch):
+    monkeypatch.setattr(settings, "admin_password", PASSWORD)     # belirteç saf fonksiyondur: Redis gerekmez
     token = admin.issue(now=1000)
     assert admin.valid(token, now=1000 + admin.TTL_S - 1)
     assert not admin.valid(token, now=1000 + admin.TTL_S + 1)

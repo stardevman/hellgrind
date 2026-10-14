@@ -12,6 +12,8 @@ jobs:
         with: { python-version: "3.12" }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng fonts-dejavu-core
       - run: pip install -r requirements.txt
+      # OpenCV, kalite skorlayıcısının renk ölçümleri (LAB) için; torch ve model dosyaları olmadan da bu testler koşar.
+      - run: pip install "opencv-python-headless>=4.10"
       - run: pytest -q
         env:
           DRY_RUN: "1"
