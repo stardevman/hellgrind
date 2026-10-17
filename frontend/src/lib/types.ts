@@ -786,3 +786,25 @@ export interface ColorScript {
   sequences: { id: string; code: string; title: string; palette: Swatch[]; shots: { code: string; palette: Swatch[] }[]; distance: number | null }[];
   target: string[]; style_version: number | null;
 }
+
+/** Görsel stüdyosu (GET /projects/{id}/images): metinden ya da kaynaklardan üretilen görsel; varlığa referans atanabilir. */
+export type StudioMode = "text" | "edit";
+export type StudioKind = "free" | "character" | "location" | "prop";
+export interface StudioSource { label: string; thumb_url: string | null; image_id: string | null; asset_id: string | null; kind: string | null }
+export interface StudioImage {
+  id: string; project_id: string; batch_id: string; prompt: string; composed_prompt: string; negative: string;
+  mode: StudioMode; aspect: string; kind: StudioKind; width: number; height: number; seed: number;
+  sources: StudioSource[]; target_asset_id: string | null; apply_style: boolean;
+  status: "queued" | "running" | "done" | "failed"; url: string | null; thumb_url: string | null;
+  cost_usd: number; engine: string | null; error: string | null; favorite: boolean; hidden: boolean;
+  assignments: { asset_id: string; name: string; kind: string; version: number; at: string }[];
+  created_at: string | null;
+}
+export interface StudioOptions {
+  aspects: { id: string; label: string; width: number; height: number }[];
+  estimates: Record<StudioMode, Record<string, number>>;
+  max_count: number; max_sources: number; engine: "local" | "fal_qwen";
+  models: Record<StudioMode, string>; ready: boolean; reason: string | null;
+}
+/** İstekteki kaynak: önceki stüdyo görseli ya da varlığın görsel referansı. */
+export type StudioSourceIn = { image_id: string } | { asset_id: string; kind: "still" | "expressions" | "turnaround" };

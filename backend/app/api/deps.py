@@ -17,6 +17,7 @@ VariationId = Annotated[str, Path(pattern=UUID_PATTERN)]
 AssetId = Annotated[str, Path(pattern=UUID_PATTERN)]
 SequenceId = Annotated[str, Path(pattern=UUID_PATTERN)]
 TrackId = Annotated[str, Path(pattern=UUID_PATTERN)]
+ImageId = Annotated[str, Path(pattern=UUID_PATTERN)]
 
 
 def project_or_404(s: Session, project_id: str) -> Project:

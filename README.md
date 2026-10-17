@@ -68,7 +68,8 @@ açar (diziler sezon sezon, bağımsız filmler, "Yeni film", "Yeni dizi", sezon
 bağlama ve silme); hiç proje yokken bu ekran kendiliğinden açılır. Sezon ve bölüm parçaları kendi menülerini yukarı açar. Ortada küçük simgeli sayfalar; sağda
 **Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), üretimi durdurma / devam ettirme
 simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli). Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
-Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>). Her
+Görsel, Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
+onuncu sayfa <kbd>Shift</kbd>+<kbd>0</kbd>). Her
 sayfa her an açılır; yalnızca çekim
 gerektirenler senaryo işlenene dek kapalıdır. Simgenin köşesindeki rozet sayfanın özetidir (kilitli varlık, onaylı kare,
 hazır ya da engelli çekim, renk sıçraması, film); nokta o sayfada bekleyen bir iş olduğunu söyler (kırmızı engelleyici,
@@ -117,7 +118,8 @@ aynı görünüm açılır.
    Dökümhane, Çöken Köprü) henüz onaylı referansı yoktur. Denetçideki *Eksik referans* bağlantıları ilgili varlığa götürür.
 3. **Varlıklar** sayfası (solda tür ve durum süzgeçleri, ortada varlık ızgarası, sağda seçili varlık):
    1. Referans yükleyin (karakter için 360° dönüş videosu, ifade sayfası ya da ses örneği; mekân ve nesne için durağan görsel).
-      Elinizde dosya yoksa **Yerel taslak üret** prosedürel motordan bir taslak referans çıkarır.
+      Elinizde dosya yoksa **Görsel stüdyosunda üret** ile Görsel sayfasında üretip beğendiğinizi atayın (aşağıya bakın)
+      ya da **Yerel taslak üret** ile prosedürel motordan bir taslak referans çıkarın.
    2. **Durağanı onayla**.
    3. **Hareket testi üret**: kısa, düşük çözünürlüklü bir klip. Durağanda iyi görünen bir varlık hareket halinde bozulabilir;
       testi izleyin. Kusurlu (siyah ya da donmuş) test onaylanamaz, **Hareket testini yenile** ile yenisini üretin.
@@ -234,6 +236,33 @@ Referans verilmeyen bir taksiye model rastgele yolcular ekler. Bu yüzden:
 - Görsel bir referans değişince varlığın **sürümü** artar ve varlık taslağa döner; sürüm görsel özete girdiği için o varlığı kullanan çekimler yeniden üretilir. Onay ve kilit durumu özete girmez: kilitlemek tek başına yeniden üretim tetiklemez. Aynı dosyayı yeniden yüklemek hiçbir şeyi değiştirmez. Kilitli varlık değiştirilemez; önce kilidi açılır.
 - **Hareket testi** her üretim gibi bütçe rezervasyonundan geçer (ücretsiz modda sanal, MiniMax H3'ün 480p GPU süresi fiyatıyla) ve gerçek anomali tespitinden geçer. Test varlığın sürümüne bağlıdır: referans ya da tarif değişince eski test onaylanamaz.
 - API: `GET/POST /api/projects/{id}/assets`, `GET/PATCH /api/assets/{id}`, `POST /api/assets/{id}/references?kind=still|turnaround|expressions|voice_sample&filename=...` (dosya istek gövdesinde), `POST /api/assets/{id}/references/placeholder`, `POST /api/assets/{id}/approve-still`, `/motion-test`, `/approve-motion`, `/lock`, `/unlock`, `POST /api/scenes/{id}/assets` ve `DELETE /api/scenes/{id}/assets/{asset_id}`.
+
+## Görsel stüdyosu (Görsel sayfası)
+
+Varlık görseli için dışarıya çıkmaya gerek yok: **Görsel** sayfasında görsel üretilir ve tek tıkla bir varlığa referans
+olarak atanır.
+
+- **Metinden** (Qwen-Image-2512) ya da **Kaynaktan düzenle** (Qwen-Image-Edit-2511): en çok 3 kaynak, istemde
+  `image 1`, `image 2`, `image 3` olarak anılır. Kaynak, bir varlığın durağan görseli, ifade sayfası ya da dönüş videosunun
+  ilk karesi ya da galerideki bir görsel olabilir (**Kaynak yap**).
+- **Ne için:** bir varlık seçilirse istem bestecisi varlığın tarifini, değişmez özelliklerini ve kadro kısıtını ekler; boş
+  istem, Varlıklar'daki referans görseli istemidir (tam boy, düz arka plan). Varlıksız istemde tür (serbest, karakter, mekân,
+  nesne) stil kılavuzunun doku kuralını seçer. **Stil kılavuzunu uygula** ışık dilini ve paleti ekler (hareket tarzı durağan
+  görsele eklenmez). Boy (1:1, 16:9, 9:16, 4:3, 3:4; Qwen'in doğal boyları), adet (1–4), yönetici modunda tohum.
+- Galeri: **Seç** (★), **Gizle** (silinmez, "Gizlenenler" ile geri gelir), **Benzerini üret** (istemi ve ayarları forma alır,
+  yeni tohum), **İndir**, **Modele giden istem**. **Varlığa ata** görseli seçilen varlığın durağan görseli (karakterde ifade
+  sayfası da olabilir) yapar ya da **Ekle ve ata** ile yeni bir varlık oluşturur. Atama Varlıklar'daki yüklemeyle aynı yoldan
+  geçer: sürüm artar, eski referans geçmişe taşınır, varlık taslağa döner ve onay akışı yeniden işler. Varlıklar sayfasındaki
+  **Görsel stüdyosunda üret** düğmesi bu sayfayı o varlık hedef seçili olarak açar.
+- **Ücretsiz modda** yerel prosedürel taslak çizilir; fal.ai fiyatı (Qwen-Image 0,02 $/MP, Qwen-Image-Edit 0,03 $/MP,
+  megapiksel yukarı yuvarlanır) sanal olarak bütçeden düşer. **Ücretli modda** çağrı yalnızca `app/live/fal_qwen.studio_image`
+  içindedir (`guard("fal_key")` + bütçe rezervasyonu) ve fal.ai anahtarı ister; Türkçe istem modele gitmeden yerel olarak
+  çevrilir. Referans modunda (`VIDEO_INPUT_MODE=reference`) hat kendiliğinden görsel üretmez; stüdyo yalnızca elle çalışır.
+- Üretim worker'da (gen kuyruğu, `hg.studio_image`) çalışır. Çıktı içerik-adreslidir (`studio/{proje}/{girdi özeti}.png`):
+  aynı istem, boy, tohum ve kaynaklar yeniden istenirse dosya kullanılır, bedel yazılmaz. Üretim, seçim, gizleme ve atama
+  kürasyon kaydına düşer (`image_generate`, `image_favorite`, `image_hide`, `image_assign`).
+- API: `GET /api/images/options`, `GET/POST /api/projects/{id}/images` (`?hidden=true` gizlenenlerle),
+  `PATCH /api/images/{id}` (`favorite`, `hidden`), `POST /api/images/{id}/assign` (`asset_id`, `kind=still|expressions`).
 
 ## Sekanslar ve film düzeyinde ses
 
@@ -741,8 +770,9 @@ kaynaktan birinden gelir; plan hangisinin kullanıldığını gösterir (önceli
 
 ### Referans + senaryo ile video (varsayılan; görsel üretimi yok)
 
-`VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hiçbir kare ya da görsel
-üretilmez (Qwen, Flux, storyboard ve şerit çizimi yok; kare kapıları devreye girmez). Video yalnızca varlıkların onaylı
+`VIDEO_INPUT_MODE=reference` (varsayılan; `keyframe` eski kare yoludur, Qwen kodu duruyor): hat hiçbir kare ya da görsel
+üretmez (Qwen, Flux, storyboard ve şerit çizimi yok; kare kapıları devreye girmez). Tek istisna yönetmenin elle kullandığı
+Görsel stüdyosudur (varlık referansı üretmek için). Video yalnızca varlıkların onaylı
 referans görselleri ve senaryodan üretilir.
 
 - **Tüm sahne tek istekte** (`SCENE_RENDER_MODE=whole_scene`, varsayılan): aynı sahne başlığının çekimleri (S001_SH01,

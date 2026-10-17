@@ -13,6 +13,7 @@ import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/pane
 import { lockLabel } from "@/lib/series";
 import { usd } from "@/lib/text";
 import { AssetsPage } from "./AssetsPage";
+import { ImagesPage } from "./ImagesPage";
 import { BoardPage } from "./BoardPage";
 import { Breadcrumb } from "./Breadcrumb";
 import { ColorPage } from "./ColorPage";
@@ -32,7 +33,7 @@ import { Tour } from "./Tour";
 import { shortcutTarget, useDismiss } from "./ui";
 
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
-  script: ScriptPage, voice: VoicePage, style: StylePage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
+  script: ScriptPage, voice: VoicePage, style: StylePage, images: ImagesPage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
   color: ColorPage, deliver: DeliverPage, settings: SettingsPage, history: HistoryPage,
 };
 
@@ -305,10 +306,11 @@ export function AppFrame() {
     return () => window.removeEventListener("keydown", onKey);
   }, [safeAreas, setSafeAreas]);
 
-  useEffect(() => {                                       // Shift+1…9: sayfalar arasında geçiş
+  useEffect(() => {                                       // Shift+1…9, Shift+0: sayfalar arasında geçiş
     const onKey = (e: KeyboardEvent) => {
-      if (!e.shiftKey || !shortcutTarget(e)) return;
-      const i = Number(e.code.replace("Digit", "")) - 1;
+      if (!e.shiftKey || !shortcutTarget(e) || !e.code.startsWith("Digit")) return;
+      const n = Number(e.code.slice(5));
+      const i = n === 0 ? 9 : n - 1;
       if (!Number.isInteger(i) || i < 0 || i >= PAGES.length) return;
       e.preventDefault();
       setPage(PAGES[i]);

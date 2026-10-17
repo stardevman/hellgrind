@@ -18,6 +18,7 @@ celery.conf.update(
         "hg.generate_scene": {"queue": "gen"},
         "hg.override_full": {"queue": "gen"},
         "hg.motion_test": {"queue": "gen"},
+        "hg.studio_image": {"queue": "gen"},        # görsel stüdyosu
         "hg.storyboard_scene": {"queue": "gen"},
         "hg.end_board_scene": {"queue": "gen"},
         "hg.complete_draft": {"queue": "gen"},      # Seedance taslağını 1080p'ye tamamlama (ücretli)

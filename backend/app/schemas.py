@@ -482,3 +482,40 @@ class SeriesUpgradeIn(BaseModel):
 
 class UnlockIn(BaseModel):
     confirm: str = Field(max_length=50)
+
+
+class StudioSourceIn(BaseModel):
+    """Düzenleme kaynağı: önceki bir stüdyo görseli (`image_id`) ya da bir varlığın görsel referansı (`asset_id` + `kind`)."""
+    image_id: UUID | None = None
+    asset_id: UUID | None = None
+    kind: Literal["still", "expressions", "turnaround"] = "still"
+
+    @model_validator(mode="after")
+    def _one(self):
+        if bool(self.image_id) == bool(self.asset_id):
+            raise ValueError("image_id ya da asset_id gerekli (yalnızca biri)")
+        return self
+
+
+class StudioGenerateIn(BaseModel):
+    """Görsel stüdyosu isteği. mode text: metinden; edit: kaynaklardan (1-3, istemde image 1..3). asset_id: istem bu
+    varlık için kurulur (tarif, değişmezler, kadro kısıtı); boş istem varlığın referans görseli istemidir."""
+    prompt: str = Field("", max_length=2000)
+    mode: Literal["text", "edit"] = "text"
+    aspect: Literal["square", "landscape", "portrait", "classic", "classic_portrait"] = "square"
+    kind: Literal["free", "character", "location", "prop"] = "free"
+    count: int = Field(1, ge=1, le=4)
+    asset_id: UUID | None = None
+    apply_style: bool = True
+    sources: list[StudioSourceIn] = Field(default_factory=list, max_length=3)
+    seed: int | None = Field(None, ge=0, le=2**31 - 1)
+
+
+class StudioAssignIn(BaseModel):
+    asset_id: UUID
+    kind: Literal["still", "expressions"] = "still"
+
+
+class StudioPatch(BaseModel):
+    favorite: bool | None = None
+    hidden: bool | None = None

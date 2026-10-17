@@ -112,5 +112,21 @@ def edit_keyframe_image(prompt: str, seed: int, references: list[dict], negative
                   {"reference_keys": slots, **(noted or {})})
 
 
+def studio_image(prompt: str, seed: int, width: int, height: int, negative: str = "", source_keys: list[str] = (),
+                 project_id: str | None = None) -> GenResult:
+    """Görsel stüdyosu: yönetmenin elle istediği görsel. Kaynak yoksa Qwen-Image-2512 (metinden), varsa
+    Qwen-Image-Edit-2511 (kaynaklar istemdeki "image 1..3"). Referans modunda da çalışır: hat kendiliğinden görsel
+    üretmez, bu çağrı yalnızca panelden elle istenir. Çağıran `cost(model, width, height)` kadar rezervasyon almış olmalı."""
+    guard("fal_key")
+    if not source_keys:
+        endpoint, args = qwen_image_body(prompt, seed, width, height, negative)
+        return _image(endpoint, args, project_id, "qwen_image", {"studio": True})
+    client = fal_queue.client()
+    urls = [fal_queue.upload_key(client, k) for k in list(source_keys)[:MAX_IMAGES]]
+    endpoint, args = edit_body(prompt, seed, urls, negative)
+    args["image_size"] = {"width": int(width), "height": int(height)}
+    return _image(endpoint, args, project_id, "qwen_edit", {"studio": True, "source_keys": list(source_keys)[:MAX_IMAGES]})
+
+
 def megapixels(width: int, height: int) -> int:
     return max(1, math.ceil(width * height / 1_000_000 - 1e-9))

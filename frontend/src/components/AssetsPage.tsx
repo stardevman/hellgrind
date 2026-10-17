@@ -21,7 +21,7 @@ const TONE: Record<string, string> = { draft: "bad", still_approved: "warn", mot
 const thumbOf = (a: Asset) => a.references.still?.thumb_url ?? a.references.turnaround?.frame_urls?.[0]
   ?? a.references.expressions?.thumb_url ?? a.motion_test?.thumb_url ?? null;
 
-interface Shown { src: string; name: string }
+export interface Shown { src: string; name: string }
 
 /** İndirilecek dosyanın adı: "Ada - Durağan görsel.png" (uzantı depo anahtarından). */
 function fileName(src: string, name: string): string {
@@ -31,7 +31,7 @@ function fileName(src: string, name: string): string {
 }
 
 /** Tam boy görsel: ekranı kaplayan karartma, kırpılmamış görsel, indir ve yeni sekmede aç. Esc ya da dışarı tıklama kapatır. */
-function Lightbox({ shown, onClose }: { shown: Shown; onClose: () => void }) {
+export function Lightbox({ shown, onClose }: { shown: Shown; onClose: () => void }) {
   const close = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     close.current?.focus();
@@ -160,7 +160,8 @@ function SeriesUpdates() {
 }
 
 function Detail({ a }: { a: Asset }) {
-  const { busy, frozen, act, note, meta, projectId } = usePanel();
+  const { busy, frozen, act, note, meta, projectId, selectAsset, setPage } = usePanel();
+  const toStudio = () => { selectAsset(a.id); setPage("images"); };
   const [kind, setKind] = useState(REF_KINDS[a.type][0]);
   const [shown, setShown] = useState<Shown | null>(null);
   const hasVisual = ["still", "turnaround", "expressions"].some((k) => a.references?.[k]);
@@ -284,6 +285,8 @@ function Detail({ a }: { a: Asset }) {
               </label>
               <label className="field">Dosya<input type="file" name="file" accept={REF_ACCEPT[kind]} required /></label>
               <button className="btn" type="submit" disabled={busy}>Yükle</button>
+              <button className="btn" type="button" onClick={toStudio} title="Görsel sayfasında bu varlık için görsel üret; beğendiğini tek tıkla referans olarak ata">
+                <Icon.images />Görsel stüdyosunda üret</button>
               {meta && !meta.dry_run ? (
                 <>
                   <button className="btn" type="button" disabled={busy || frozen} onClick={() => run("still")}

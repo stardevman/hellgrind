@@ -69,7 +69,7 @@ Kerem stands on a rooftop at sunset, looking over a calm city.
 """
 MEDIA_PREFIXES = ("thumbs/", "variations/", "quarantine/", "lipsync/", "final/", "timeline/", "audio/", "uploads/",
                   "assets/", "motion/", "storyboard/", "external/", "guides/", "revisions/", "graded/", "luts/",
-                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/", "animatic/", "delivery/", "rights/")
+                  "seam/", "keyframes/", "cutin/", "state_refs/", "frames/", "animatic/", "delivery/", "rights/", "studio/")
 MUTABLE_PREFIXES = ("storyboard/",)             # içerik-adresli değil: yeniden çizim aynı anahtara yazar
 EVENT_LIMIT = 30
 

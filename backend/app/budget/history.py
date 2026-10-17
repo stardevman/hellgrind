@@ -19,6 +19,7 @@ OPERATIONS = {                       # işlem -> panelde ve CSV'de görünen ad
     "first_frame": "İlk kare (önce görsel)",
     "storyboard": "Storyboard karesi",
     "reference": "Varlık referansı",
+    "studio": "Görsel stüdyosu",
     "motion_test": "Hareket testi",
     "previs": "Previs rehberinden video",
     "revision": "Düzenlenmiş kareden video",
@@ -30,7 +31,8 @@ OPERATIONS = {                       # işlem -> panelde ve CSV'de görünen ad
     "complete": "Taslağı 1080p'ye tamamlama",
     "other": "Diğer",
 }
-PURPOSES = ("first_frame", "storyboard", "reference", "motion_test", "previs", "revision", "lipsync", "idle", "complete")
+PURPOSES = ("first_frame", "storyboard", "reference", "motion_test", "previs", "revision", "lipsync", "idle", "complete",
+            "studio")
 VIDEO_ENGINES = ("fal_wan", "seedance", "higgsfield")      # fal.ai motorları; MiniMax H3 kendi sunucumuzda ("vast")
 MAX_ERROR = 600
 
@@ -75,6 +77,9 @@ def describe(label: str) -> Described:
                 return Described("fal", purpose, (model,), resolution)
             return Described(service, purpose, (QWEN_EDIT if "qwen_edit" in rest else QWEN_IMAGE,), resolution)
         return Described(service, purpose or "video", (settings.h3_model,), resolution)
+    if head == "fal_qwen":                     # görsel stüdyosu: metinden (Qwen-Image) ya da kaynaklardan (Qwen-Image-Edit)
+        model = settings.fal_qwen_edit_endpoint if "qwen_edit" in rest else settings.fal_qwen_image_endpoint
+        return Described("fal", purpose or "studio", (model,), resolution)
     if head == "elevenlabs":
         return Described("elevenlabs", "tts", (settings.elevenlabs_model,))
     if head == "anthropic":

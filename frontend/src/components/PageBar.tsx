@@ -2,14 +2,14 @@
 /* Sayfa menüsü (alt bandın ortası, DaVinci Resolve'un sayfa çubuğu gibi küçük simge + ad). Sayfalar bir menüdür, sıra
    yoktur: her sayfa her an açılır; yalnızca çekim gerektirenler senaryo işlenene dek kapalıdır.
    Simgenin köşesindeki rozet sayfanın özetidir (kilitli varlık, onaylı kare, hazır çekim…), nokta o sayfada bekleyen bir
-   iş olduğunu söyler (kırmızı engelleyici, amber uyarı, gri sıradan). Shift+1…9 sayfalar arasında geçer. */
+   iş olduğunu söyler (kırmızı engelleyici, amber uyarı, gri sıradan). Shift+1…9 ve Shift+0 sayfalar arasında geçer. */
 import { useMemo } from "react";
 import { NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { pageBadges, pageTones, stepReadiness } from "@/lib/steps";
 import { Icon } from "./icons";
 
 export const PAGE_LABEL: Record<Page, string> = {
-  script: "Senaryo", voice: "Ses", style: "Stil", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
+  script: "Senaryo", voice: "Ses", style: "Stil", images: "Görsel", assets: "Varlıklar", board: "Storyboard", edit: "Kurgu", compare: "Karşılaştır",
   color: "Renk", deliver: "Teslim", settings: "Ayarlar", history: "Geçmiş",
 };
 /** Kullanıcı modunda gizlenen sayfalar (Karşılaştır, Kurgu'daki "Adayları karşılaştır" ile yine açılır). */
@@ -32,7 +32,7 @@ export function Pages({ hasShots }: { hasShots: boolean }) {
             return (
               <li key={x}>
                 <button type="button" className="pg" aria-current={page === x ? "page" : undefined} disabled={off}
-                  title={off ? `${PAGE_LABEL[x]}: önce senaryo işlenmeli` : `${PAGE_LABEL[x]} (Shift+${i + 1})${t ? ` · ${TONE_TR[t]}` : ""}`}
+                  title={off ? `${PAGE_LABEL[x]}: önce senaryo işlenmeli` : `${PAGE_LABEL[x]} (Shift+${(i + 1) % 10})${t ? ` · ${TONE_TR[t]}` : ""}`}
                   onClick={() => setPage(x)}>
                   <span className="pg-i"><Ico />
                     {b && <span className={`badge ${b.tone || ""}`} title={b.title}>{b.text}</span>}

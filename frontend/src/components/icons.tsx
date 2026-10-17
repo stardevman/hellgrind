@@ -13,6 +13,7 @@ export const Icon = {
   script: () => S(<><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 11h6M9 14h6M9 17h4" /></>),
   voice: () => S(<><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" /></>),
   style: () => S(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>),
+  images: () => S(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="M3 17l5-4 4 3 3-2 6 5" /><path d="M18 2v4M16 4h4" /></>),
   assets: () => S(<><path d="M12 2l9 5v10l-9 5-9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" /></>),
   board: () => S(<><rect x="3" y="4" width="8" height="6" rx="1" /><rect x="13" y="4" width="8" height="6" rx="1" /><rect x="3" y="14" width="8" height="6" rx="1" /><rect x="13" y="14" width="8" height="6" rx="1" /></>),
   edit: () => S(<><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M2 14h20M7 14v6M12 14v6M17 14v6M10 7.5l4 2-4 2z" /></>),

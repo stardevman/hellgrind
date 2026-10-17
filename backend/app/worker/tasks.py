@@ -542,6 +542,17 @@ def motion_test(self, project_id: str, variation_id: str):
         killswitch.unregister_task(project_id, self.request.id)
 
 
+@celery.task(bind=True, name="hg.studio_image")
+def studio_image(self, project_id: str, image_id: str):
+    """Görsel stüdyosunda tek görsel. Dondurulmuş projede başlamaz; hata görsel satırına yazılır."""
+    killswitch.register_task(project_id, self.request.id)
+    try:
+        from app.engine.studio import run
+        return run(image_id)
+    finally:
+        killswitch.unregister_task(project_id, self.request.id)
+
+
 # ---------- Kill-Switch bekçileri (Celery beat) ----------
 
 @celery.task(name="hg.watchdog")

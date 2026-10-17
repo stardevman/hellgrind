@@ -23,7 +23,7 @@ Repoda mevcut kod varsa referans olarak kullanabilirsin. Ancak tek doğruluk kay
 - **Medya:** FFmpeg ve ffprobe, Okur TTS (ücretsiz yerel Türkçe konuşma, ONNX; yedek espeak-ng), Duyu-small (ücretsiz yerel konuşma tanıma: ses denetimi), fonts-dejavu-core.
 - **Panel:** Next.js (App Router) + TypeScript + SWR, `frontend/` altında. Statik dışa aktarım (`output: export`, `basePath: /panel`) Docker imajının ilk aşamasında Node 22 ile derlenir ve FastAPI tarafından `/panel` altında servis edilir; çalışma anında Node yoktur.
 - **Ücretli, kilitli entegrasyonlar** (ayrı `requirements-live.txt`): fal-client, langgraph, langchain-anthropic.
-- **Video motoru (ücretli modda, Ekim 2026'dan):** fal.ai kuyruğunda taslak **MiniMax H3 Max** (`h3max`, yeni çekimlerin varsayılanı), final **Seedance 2.5** (`seedance25`, "Seedance 2.5 ile yükselt"); kareler fal.ai'de Qwen-Image-2512 / Qwen-Image-Edit-2511 (`KEYFRAME_PLATFORM=fal`). Girdi varsayılan olarak **referans modu**dur (`VIDEO_INPUT_MODE=reference`: hiçbir kare ya da görsel üretilmez, video onaylı referans görselleri + senaryodan; `SCENE_RENDER_MODE=whole_scene`: sahnenin çekimleri tek istekte, render'dan önce plan onayı). Kendi barındırdığımız H3 **kapalıdır** (`H3_PLATFORM=kapali`; RunPod uç noktası ve volume silindi, kod duruyor). Eski açıklama:
+- **Video motoru (ücretli modda, Ekim 2026'dan):** fal.ai kuyruğunda taslak **MiniMax H3 Max** (`h3max`, yeni çekimlerin varsayılanı), final **Seedance 2.5** (`seedance25`, "Seedance 2.5 ile yükselt"); kareler fal.ai'de Qwen-Image-2512 / Qwen-Image-Edit-2511 (`KEYFRAME_PLATFORM=fal`). Girdi varsayılan olarak **referans modu**dur (`VIDEO_INPUT_MODE=reference`: hat hiçbir kare ya da görsel üretmez, video onaylı referans görselleri + senaryodan; tek istisna panelin **Görsel** sayfasındaki, yönetmenin elle kullandığı görsel stüdyosudur: Qwen-Image / Qwen-Image-Edit ile varlık görseli üretilir ve varlığa referans atanır, `app/live/fal_qwen.studio_image`, ücretsiz modda yerel taslak + sanal fiyat; `SCENE_RENDER_MODE=whole_scene`: sahnenin çekimleri tek istekte, render'dan önce plan onayı). Kendi barındırdığımız H3 **kapalıdır** (`H3_PLATFORM=kapali`; RunPod uç noktası ve volume silindi, kod duruyor). Eski açıklama:
   MiniMax H3, **RunPod Serverless**'ta (o zamanki varsayılan platform; `/run` + `/status`, httpx ile): modeller bir Network Volume'da (CA-MTL-1, `backend/runpod/setup_volume.sh`), worker RunPod'un resmî ComfyUI worker'ı tabanlı imaj (`backend/runpod/worker`). vast.ai arka ucu (ComfyUI ya da SGLang, `backend/vast/setup.sh`) deneyseldir ve varsayılan olarak kapalıdır (`H3_PLATFORM=vast`). Bölgeler izinli listeyle denetlenir (`app/core/regions.py`). fal.ai isteğe bağlıdır: Seedance (yönetmenin seçtiği çekimler), Flux kareleri, previs aktarımı, dudak senkronu.
 
 ## Repo yapısı
@@ -255,7 +255,7 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
 
 **Panel** (`/` adresi `/panel/` adresine yönlenir; 2 saniyede bir overview çeker). İlk sürüm tek HTML dosyasıydı; Next.js'e
 geçişle birlikte aşağıdaki işlevler bir yapım stüdyosu düzenine taşındı: üretim sırasıyla sayfalar (Senaryo, Ses,
-Stil, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
+Stil, Görsel, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Kurgu sayfasında çekim havuzu, zaman kodlu izleyici, adaylar,
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
 solda ev simgesi ve `Dizi › Sezon › Bölüm` kırıntısı (ikisi de **Proje yöneticisini** açar; proje hiç yokken
 yönetici kendiliğinden açılır ve kapatılamaz) ve yönetici rozetleri; ortada küçük simgeli
@@ -285,7 +285,7 @@ gibidir:
 - **Tasarım** (DaVinci Resolve'un dili: sıcak-gri yüzeyler, ince çizgiler, yoğun paneller, turuncu vurgu):
   - Yazı tipleri: arayüzde Inter, zaman kodu ve çekim kodlarında JetBrains Mono.
   - Renkler: bg `#19191c`, panel `#232327`, raised `#2b2b30`, line `#3a3a41`, text `#d9d9dd`, accent (seçim, etkin sayfa) `#e8783a`, playhead `#ff4a4a`, ok `#3dcc91`, warn `#f2c744`, bad `#ff5c55`, work (üretiliyor) `#a88bff`.
-  - Masaüstünde tam ekran uygulama çerçevesi; dar ekranda tek sütun ve kayan sayfa. Görünür klavye odağı, `prefers-reduced-motion` desteği, kısayollar (Shift+1…8 sayfalar; J/K/L, oklar, Boşluk oynatma). Başlık üstü etiket ve büyük harf etiket kullanılmaz (Türkçe I/İ dönüşümü).
+  - Masaüstünde tam ekran uygulama çerçevesi; dar ekranda tek sütun ve kayan sayfa. Görünür klavye odağı, `prefers-reduced-motion` desteği, kısayollar (Shift+1…9 ve Shift+0 sayfalar; J/K/L, oklar, Boşluk oynatma). Başlık üstü etiket ve büyük harf etiket kullanılmaz (Türkçe I/İ dönüşümü).
 
 ## Faz 10 — Testler
 - **Birim testleri** (veritabanı gerektirmez):

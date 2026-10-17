@@ -129,7 +129,7 @@ export const ENGINE_CHOICES = ["h3max", "seedance25", "seedance", "h3"] as const
 
 export const KIND_TR: Record<string, string> = {
   h3: "MiniMax H3", h3max: "MiniMax H3 Max", seedance25: "Seedance 2.5", fal_wan: "Wan", seedance: "Seedance", higgsfield: "Higgsfield", flux_lora: "Flux kareleri", flux_kontext: "Referanslı kareler",
-  v2v: "Previs aktarımı", fal: "Dudak senkronu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)",
+  v2v: "Previs aktarımı", fal: "Dudak senkronu", fal_qwen: "Görsel stüdyosu", elevenlabs: "ElevenLabs", anthropic: "Hermes (LLM)",
 };
 
 export const ALIGN_TR: Record<string, string> = { style: "stil", content: "tarif", generic: "genel" };
