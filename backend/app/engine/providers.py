@@ -106,7 +106,7 @@ def get_provider(engine: str):
     """DRY_RUN açıkken her zaman LocalProvider; ücretli modül yalnızca kapalıyken ve görev içinde yüklenir."""
     if settings.dry_run:
         return LocalProvider(engine)
-    if engine in ("h3max", "seedance25"):                       # fal.ai kuyruğu (taslak / final)
+    if engine in ("h3max", "seedance25", "flux3max"):           # fal.ai kuyruğu (taslak / final / projeye özel)
         from app.live.fal_engines import get_live_provider as fal_provider
         return fal_provider(engine)
     if engine == "h3":

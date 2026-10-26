@@ -75,3 +75,54 @@ def test_project_setting_accepts_flux3max(api, api_project):
     assert (cfg["draft_engine"], cfg["flux3max_resolution"]) == ("flux3max", "720p")
     r = api.patch(f"/api/projects/{pid}", json={"settings": {"flux3max_resolution": "480p"}})
     assert r.status_code == 422
+
+
+def test_paid_mode_routes_to_the_fal_queue_provider(paid):
+    from app.live.fal_engines import FalVideoProvider
+    provider = providers.get_provider("flux3max")
+    assert isinstance(provider, FalVideoProvider) and provider.engine == "flux3max"
+
+
+def test_a_paid_flux3max_part_uploads_the_keyframe_and_sends_one_valid_request(ref_defaults, paid, s3, mk_project,
+                                                                              monkeypatch, tmp_path, api, fast):
+    import sys
+    import uuid
+
+    from app.engine.iteration import run_tiered_generation
+    from app.engine.procedural import render_clip
+    from app.live import fal_queue, fal_video
+    from app.quality import gate
+    from tests.fal_queue_fake import FakeQueue
+    fake = FakeQueue()
+    monkeypatch.setitem(sys.modules, "fal_client", fake.module())
+    monkeypatch.setattr(fal_queue, "POLL_S", 0)
+    monkeypatch.setattr(settings, "quality_scorer", "dry")
+    monkeypatch.setattr(gate, "ensure_scorer", lambda: None)
+    fal_queue._local_uploads.clear()
+    for key in fal_queue._r().scan_iter("hg:fal:*"):
+        fal_queue._r().delete(key)
+
+    def download(url, suffix=".mp4"):
+        path = str(tmp_path / f"{uuid.uuid4().hex}{suffix}")
+        render_clip(path, 1, 160, 90, 10.5, 8, emotion="neutral", camera={"shot": "wide"}, characters=["Nora"])
+        return path
+    monkeypatch.setattr(fal_video, "_download", download)
+    pid, ids = nora(mk_project, draft_engine="flux3max")
+    frame = _still(f"keyframes/{pid}/S001.png")
+    with session_scope() as s:
+        for sid in ids.values():
+            s.get(Scene, sid).engine = "flux3max"
+        s.get(Scene, ids["S001_SH01"]).keyframe_key = frame
+    plan = api.get(f"/api/scenes/{ids['S001_SH01']}/fal-plan").json()
+    assert api.post(f"/api/scenes/{ids['S001_SH01']}/plan/approve",
+                    json={"plan_hash": plan["plan_hash"]}).status_code == 200
+    for sid in ids.values():
+        assert run_tiered_generation(pid, sid) == "refined"
+    assert fake.endpoints() == ["blackforestlabs/flux-3-max/image-to-video"]
+    body = fake.submits[0][1]
+    assert validate(fake.endpoints()[0], body) == [] and body["duration"] == 10
+    assert body["image_url"].startswith("https://") and len(fake.uploads) == 1
+    with session_scope() as s:
+        from sqlalchemy import text
+        spent = s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar()
+    assert float(spent) == pytest.approx(10 * 0.0425, abs=0.05)
