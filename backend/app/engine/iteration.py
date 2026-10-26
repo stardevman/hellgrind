@@ -575,6 +575,9 @@ def current_conditioning(s, scene) -> str | None:
     keyframe_key = keyframe_of(scene, fp)
     cfg = project_settings(s.get(Project, scene.project_id).settings)
     if fal_plan.is_fal(scene.engine):                    # fal: ilk kare yalnızca image-to-video'da
+        from app.engine.scene_parts import active
+        if scene.engine in fal_plan.I2V_ONLY and active(scene.engine):
+            return None                                  # parça yolu: kare parça özetinde (part_hash), adayda koşul yok
         chars, assets = load_characters(s, scene.id), load_assets(s, scene.id)
         from app.core.h3mode import strict_refs
         frame_key, source = fal_plan.start_frame(scene, fp)

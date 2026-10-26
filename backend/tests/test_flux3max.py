@@ -126,3 +126,13 @@ def test_a_paid_flux3max_part_uploads_the_keyframe_and_sends_one_valid_request(r
         from sqlalchemy import text
         spent = s.execute(text("SELECT spent_usd FROM projects WHERE id = :p"), {"p": pid}).scalar()
     assert float(spent) == pytest.approx(10 * 0.0425, abs=0.05)
+
+
+def test_a_part_candidate_has_no_frame_conditioning_so_the_director_can_pick_it(ref_defaults, mk_project, s3):
+    from app.engine.iteration import current_conditioning
+    pid, ids = nora(mk_project)
+    with session_scope() as s:
+        sc = s.get(Scene, ids["S001_SH01"])
+        sc.engine, sc.keyframe_key = "flux3max", _still(f"keyframes/{pid}/S001.png")
+        s.flush()
+        assert current_conditioning(s, sc) is None
