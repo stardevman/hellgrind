@@ -18,7 +18,7 @@ from app.engine.procedural import render_clip, render_defect
 RESOLUTIONS = {"480p": (854, 480), "580p": (1032, 580), "720p": (1280, 720), "1080p": (1920, 1080)}
 DEFAULT_SIZE = RESOLUTIONS["720p"]
 DEFAULT_ENGINE = "h3max"         # taslak motoru (Ayarlar › VIDEO_DRAFT_ENGINE, proje ayarı draft_engine önce gelir)
-CHOSEN_ENGINES = ("h3max", "seedance25", "seedance", "h3")   # seçilmiş motor yönlendirmede korunur
+CHOSEN_ENGINES = ("h3max", "seedance25", "flux3max", "seedance", "h3")   # seçilmiş motor yönlendirmede korunur
 MIN_SECONDS = {"h3": 4, "seedance": 4, "seedance25": 4}   # bu motorlar daha kısa klip üretmez: fazlası da faturada
 
 
@@ -30,7 +30,7 @@ def default_engine(cfg: dict | None = None) -> str:
 
 def billed_seconds(engine: str, duration_s: float) -> float:
     """Motorun gerçekten ürettiği (ve ücretlendirilen) süre: en kısa süresi olan motorlarda tam saniyeye yuvarlanır."""
-    if engine == "h3max":
+    if engine in ("h3max", "flux3max"):
         from app.engine.fal_plan import billed_seconds as fal_seconds
         return fal_seconds(engine, duration_s)
     if engine not in MIN_SECONDS:
@@ -74,7 +74,7 @@ class LocalProvider:
         self.engine = engine
 
     def estimate(self, req: GenRequest) -> float:
-        if self.engine in ("h3max", "seedance25"):                 # fal: aynı isteğin tahmini (referans görselleri dahil)
+        if self.engine in ("h3max", "seedance25", "flux3max"):     # fal: aynı isteğin tahmini (referans görselleri dahil)
             from app.engine.fal_plan import cost
             return cost(self.engine, req.resolution, req.duration_s, int(req.extra.get("fal_images") or 0),
                         req.extra.get("fal_mode") or "ref", bool(req.extra.get("fal_draft")))["reserve_usd"]

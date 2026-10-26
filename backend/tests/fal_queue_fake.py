@@ -24,6 +24,7 @@ FILES = {
     "fal-ai/seedvr/upscale/video": "fal-ai_seedvr_upscale_video.json",
     "fal-ai/flashvsr/upscale/video": "fal-ai_flashvsr_upscale_video.json",
     "blackforestlabs/flux-video-upscale": "blackforestlabs_flux-video-upscale.json",
+    "blackforestlabs/flux-3-max/image-to-video": "blackforestlabs_flux-3-max_image-to-video.json",
 }
 TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 

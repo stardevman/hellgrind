@@ -29,9 +29,9 @@ from app.config import project_settings, settings
 from app.core.hashing import seed_for, stable_hash
 from app.engine import fal_plan
 
-LIMIT_S = {"h3max": 15.0, "seedance25": 30.0}
-MAX_IMAGES = {"h3max": 9, "seedance25": 30}
-MAX_FILES = {"h3max": 12, "seedance25": 50}
+LIMIT_S = {"h3max": 15.0, "seedance25": 30.0, "flux3max": 20.0}
+MAX_IMAGES = {"h3max": 9, "seedance25": 30, "flux3max": 9}    # flux3max: referanslar gönderilmez, istemde tarif edilir
+MAX_FILES = {"h3max": 12, "seedance25": 50, "flux3max": 2}
 # Ses-önce: diyalog karışımı (Ses sayfasındaki geçici ya da final sesler) isteğe ses referansı olarak eklenir. Alan adları
 # şemadandır (tests/data/fal_openapi): H3 Max reference_audio_urls (en çok 3, her biri 2-15 sn), Seedance 2.5 audio_urls
 # (en çok 10, her biri 1,8-30,2 sn). Parça başına tek karışım dosyası gider.
@@ -44,6 +44,10 @@ AUDIO_REF_SENTENCE = {
 }
 CONTINUOUS_SEEDANCE = "The shot starts exactly from @Image1 (the last frame of the previous shot); continue from it."
 CONTINUOUS_H3 = "The video opens exactly on the provided first frame (the last frame of the previous shot); continue from it."
+# Yalnızca image-to-video motorları (FLUX 3 Max): referans görseli yok; parçanın başlangıç karesi yönetmenin yüklediği
+# kare (lider çekimin keyframe_key'i) ya da sürekli geçişte önceki klibin son karesidir. Kadro istemde tarif edilir.
+OPENING_KEYFRAME = ("The video opens exactly on the provided first frame and animates it: keep its drawing style, "
+                    "characters, colors and composition.")
 
 
 def reference_mode() -> bool:
@@ -219,7 +223,7 @@ def scale_lines(chars, assets) -> list[str]:
 
 # ---------- istem ----------
 
-PROMPT_LIMIT = {"h3max": 50000, "seedance25": None}     # şemadaki prompt maxLength (Seedance'ta sınır yok)
+PROMPT_LIMIT = {"h3max": 50000, "seedance25": None, "flux3max": None}     # şemadaki prompt maxLength (Seedance'ta sınır yok)
 CAMERA_WORDS = ("extreme wide", "wide shot", "medium shot", "close-up", "close up", "closeup", "full shot", "long shot",
                 "over-the-shoulder", "over the shoulder", "point-of-view", "ground-level", "ground level", "two-shot")
 SHOT_PLAIN = {"extreme_wide": "extreme wide shot", "wide": "wide shot", "pov": "point-of-view shot",
@@ -428,18 +432,37 @@ def build_prompt(s, engine: str, part: list, refs: list, chars, assets, style, f
     members = roster(chars, assets)
     cast = join_names([label(m) for m in members])
     head = [fal_plan.style_line(style)]
+    i2v_only = engine in fal_plan.I2V_ONLY
     if frame:
         head.append(CONTINUOUS_SEEDANCE if engine == "seedance25" else CONTINUOUS_H3)
-    head += [fal_plan.reference_sentence(engine, r, names) for r in refs]
+    elif i2v_only:
+        head.append(OPENING_KEYFRAME)
+    head += [cast_sentence(r, names) if i2v_only else fal_plan.reference_sentence(engine, r, names) for r in refs]
     head += scale_lines(chars, assets)
     shots = []
     for i, (x, a, b) in enumerate(timeline(part), start=1):
         linked = {ch.name for ch in load_characters(s, x.id)} | {a_.name for a_ in load_assets(s, x.id) if a_.type == "prop"}
         shots.append(shot_line(i, x, a, b, dialogue_of(s, x.id), names, members, linked))
-    shots = tag_references(shots, refs, engine)
+    if not i2v_only:
+        shots = tag_references(shots, refs, engine)
     c = scene_constraints(style, part)
     prompt, notes = fit_length(engine, head, shots, constraint_sentences(members, c.phrases), [])
     return fal_plan.normalize_refs(engine, prompt), list(c.unmapped) + [f"! {n}" for n in notes]
+
+
+def cast_sentence(r, names: list[str]) -> str:
+    """Referans görseli gitmeyen motorlar için varlığın tarifi (numarasız): "Ponpon: a small white cat …"."""
+    from app.hermes import translate
+    from app.style.composer import sentence
+    desc = translate.to_english(r.description, names) if r.description else ""
+    if desc.lower().startswith(r.name.lower() + ","):
+        desc = desc[len(r.name) + 1:].strip()
+    label_ = {"character": r.name, "prop": f"The prop {r.name}", "location": f"The location {r.name}"}[r.kind]
+    parts = [sentence(f"{label_}: {desc}")] if desc else []
+    if r.invariants:
+        parts.append(sentence(f"{r.name} must always have: " + "; ".join(translate.to_english(i, names)
+                                                                          for i in r.invariants)))
+    return " ".join(parts)
 
 
 def scene_constraints(style, part: list):
@@ -539,6 +562,11 @@ class PartPlan:
     prompt_rules: str = ""                            # kurallar istemi (yönetmen istemi düzenlemesinin başlangıcı)
     prompt_meta: dict = field(default_factory=dict)   # {"llm", "override", "estimate", "input_hash", "writer"}
     writer_input: dict = field(default_factory=dict)
+    start_key: str | None = None                      # yalnızca i2v motorları: yönetmenin yüklediği başlangıç karesi
+
+    @property
+    def mode(self) -> str:
+        return "i2v" if self.engine in fal_plan.I2V_ONLY else "ref"
 
     @property
     def leader(self):
@@ -553,9 +581,13 @@ class PartPlan:
             refs.insert(0, {"image": 1, "token": fal_plan.ref_token(self.engine, 1), "kind": "frame",
                             "name": f"{self.continuity.get('previous')} son karesi", "key": self.continuity.get("frame_key"),
                             "description": "önceki klibin son karesi (ffmpeg ile çıkarılır, üretilmez)"})
+        reason = ("Referans modu: video yalnızca onaylı referans görselleri ve senaryodan üretilir (kare yok)."
+                  if self.mode == "ref" else
+                  f"{fal_plan.ENGINE_TR[self.engine]} yalnızca image-to-video: parça başlangıç karesinden (yönetmenin "
+                  "yüklediği kare ya da önceki klibin son karesi) üretilir; referanslar istemde tarif edilir, gönderilmez.")
         return {"input_mode": "reference", "render_mode": settings.scene_render_mode, "engine": self.engine,
-                "engine_label": fal_plan.ENGINE_TR[self.engine], "mode": "ref", "mode_label": fal_plan.MODE_TR["ref"],
-                "reason": "Referans modu: video yalnızca onaylı referans görselleri ve senaryodan üretilir (kare yok).",
+                "engine_label": fal_plan.ENGINE_TR[self.engine], "mode": self.mode,
+                "mode_label": fal_plan.MODE_TR[self.mode], "reason": reason, "start_key": self.start_key,
                 "part": [x.scene_code for x in self.shots], "part_ids": [str(x.id) for x in self.shots],
                 "timeline": [{"code": c, "start": a, "end": b} for c, a, b in self.timeline],
                 "references": refs, "dropped": [{"kind": r.kind, "name": r.name} for r in self.dropped],
@@ -610,7 +642,7 @@ def previous_frame(s, first, engine: str) -> dict:
 def audio_reference(s, part: list, engine: str) -> dict | None:
     """Parçanın ilk çekiminde ses referansı açıksa (video_opts.audio_ref) diyalog karışımının planı; yoksa None.
     Dosya burada üretilmez (kuru çalıştırma): üretimde part_render oluşturur ve yükler."""
-    if not (part[0].video_opts or {}).get("audio_ref"):
+    if not (part[0].video_opts or {}).get("audio_ref") or engine not in AUDIO_REF_FIELD:
         return None
     from app.post import voice
     mix = voice.mix_for(s, part)
@@ -659,6 +691,14 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
         warnings.append(f"Referans sınırı ({limit} görsel): düşenler {', '.join(r.name for r in dropped)} "
                         "(çekim metinlerinde en az geçen mekân/nesne).")
     missing = missing_references(chars, assets)
+    i2v_only = engine in fal_plan.I2V_ONLY
+    start_key = None
+    if i2v_only and not cont.get("expected"):
+        start_key = part[0].keyframe_key
+        if not start_key:
+            missing.append({"kind": "frame", "name": f"{part[0].scene_code} başlangıç karesi", "asset_id": None})
+            warnings.append(f"{fal_plan.ENGINE_TR[engine]} başlangıç karesi ister: {part[0].scene_code} çekimine "
+                            "kare yükleyin (render engelli).")
     from app.hermes import lint as lint_
     checks = [lint_.check_scene(s, x.id, lint_cfg(cfg, engine)) for x in part]   # dağıtımın referans denetimi, aynen
     lint_missing = {(m.type, m.name): {"kind": m.type, "name": m.name, "status": m.status, "asset_id": m.asset_id}
@@ -682,7 +722,8 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     total = round(sum(float(x.duration_s or 5.0) for x in part), 3)
     resolution, audio = fal_plan.resolution(engine, part[0], cfg), fal_plan.audio(engine, part[0])
     from app.engine import prompt_writer
-    inp = writer_input(s, engine, part, refs, chars, assets, style, bool(cont.get("expected")), audio)
+    inp = writer_input(s, engine, part, [] if i2v_only else refs, chars, assets, style, bool(cont.get("expected")),
+                       audio)
     chosen = prompt_writer.choose(s, inp, rules_prompt, override_of(part), [x.scene_code for x in part])
     prompt = chosen["prompt"]
     warnings += chosen["warnings"]
@@ -693,27 +734,34 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
         warnings += audio_ref["warnings"]
     draft = fal_plan.draft(engine, part[0], cfg)
     frame_local = fal_plan.local_url(cont["frame_key"]) if cont.get("frame_key") else \
-        ("local:<önceki klibin son karesi>" if cont.get("expected") else None)
+        ("local:<önceki klibin son karesi>" if cont.get("expected") else
+         fal_plan.local_url(start_key) if start_key else None)
     ref_urls = [fal_plan.local_url(r.key) for r in refs]
     if seed_frame:
         ref_urls = [frame_local, *ref_urls]
     plan_hash = stable_hash([engine, resolution, audio, prompt, total, [r.key for r in refs], bool(cont.get("expected")),
                              [x.scene_code for x in part], *(["draft"] if draft else []),
-                             *([audio_ref["key"]] if audio_ref and audio_ref["key"] else [])])
+                             *([audio_ref["key"]] if audio_ref and audio_ref["key"] else []),
+                             *([start_key] if start_key else [])])
     part_hash = stable_hash([plan_hash, cont.get("frame_key"), [x.prompt_revision for x in part]])
     seed = seed_for(part_hash, "part", 0)
-    endpoint, body = fal_plan.body(engine, "ref", prompt=prompt, duration_s=total, resolution_=resolution, audio_=audio,
-                                   seed=seed, image_url=frame_local if engine == "h3max" else None,
+    frame_field = engine == "h3max" or i2v_only        # Seedance: kare image_urls'ün başında
+    if i2v_only:
+        ref_urls = []
+    endpoint, body = fal_plan.body(engine, "i2v" if i2v_only else "ref", prompt=prompt, duration_s=total,
+                                   resolution_=resolution, audio_=audio,
+                                   seed=seed, image_url=frame_local if frame_field else None,
                                    reference_urls=ref_urls, draft_=draft,
                                    audio_urls=[fal_plan.local_url(audio_ref["key"])] if audio_ref and audio_ref["key"] else ())
-    files = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0) + int(bool(audio_ref and audio_ref["key"]))
+    files = len(ref_urls) + (1 if frame_field and frame_local else 0) + int(bool(audio_ref and audio_ref["key"]))
     if files > MAX_FILES[engine]:
         warnings.append(f"Dosya sınırı aşıldı ({files} > {MAX_FILES[engine]}).")
-    images = len(ref_urls) + (1 if engine == "h3max" and frame_local else 0)
+    images = len(ref_urls) + (1 if frame_field and frame_local else 0)
     plan = PartPlan(engine=engine, shots=part, timeline=[(x.scene_code, a, b) for x, a, b in timeline(part)], refs=refs,
                     dropped=dropped, missing=missing, continuity=cont, prompt=prompt, unmapped=unmapped,
                     endpoint=endpoint, body=body, resolution=resolution, audio=audio, duration_s=total,
-                    cost=fal_plan.cost(engine, resolution, total, images, "ref", draft), plan_hash=plan_hash,
+                    cost=fal_plan.cost(engine, resolution, total, images, "i2v" if i2v_only else "ref", draft),
+                    plan_hash=plan_hash, start_key=start_key,
                     part_hash=part_hash,
                     seed=seed, warnings=warnings, draft=draft, lint=list(lint_missing.values()),
                     lint_blocks=lint_blocks, prompt_source=chosen["source"], prompt_rules=rules_prompt,
@@ -752,15 +800,17 @@ def save_override(s, sc, text: str | None) -> dict:
 def uploads(plan: PartPlan, with_sha: bool) -> list[dict]:
     from app.engine.fal_plan import _upload_row
     rows = []
+    if plan.start_key:                                # i2v motoru: yönetmenin yüklediği başlangıç karesi
+        rows.append(_upload_row("image_url", plan.start_key, with_sha))
     if plan.continuity.get("expected"):
         key = plan.continuity.get("frame_key")
-        field_ = "image_url" if plan.engine == "h3max" else "image_urls[0]"
+        field_ = "image_urls[0]" if plan.engine == "seedance25" else "image_url"
         rows.append({"field": field_, "key": key, "path": key, "upload": "yüklenmedi (kuru çalıştırma)",
                      "note": "önceki klibin son karesi: üretimde ffmpeg ile çıkarılır"} if key else
                     {"field": field_, "key": None, "upload": "önceki klip üretilince çıkarılacak"})
     shift = 1 if plan.engine == "seedance25" and plan.continuity.get("expected") else 0
     name = "reference_image_urls" if plan.engine == "h3max" else "image_urls"
-    for i, r in enumerate(plan.refs):
+    for i, r in enumerate([] if plan.mode == "i2v" else plan.refs):
         rows.append(_upload_row(f"{name}[{i + shift}]", r.key, with_sha))
     if plan.audio_ref and plan.audio_ref["key"]:            # diyalog karışımı: üretimde oluşturulup yüklenir
         rows.append({"field": f"{plan.audio_ref['field']}[0]", "key": plan.audio_ref["key"], "path": plan.audio_ref["key"],

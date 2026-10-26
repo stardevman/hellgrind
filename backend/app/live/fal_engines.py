@@ -1,4 +1,5 @@
-"""ÜCRETLİ: MiniMax H3 Max (taslak) ve Seedance 2.5 (final) fal.ai kuyruğunda. Bu modül testlerde yalnızca sahte
+"""ÜCRETLİ: MiniMax H3 Max (taslak), Seedance 2.5 (final) ve FLUX 3 Max (yalnızca image-to-video; projeye özel) fal.ai
+kuyruğunda. Bu modül testlerde yalnızca sahte
 istemciyle çalışır; canlı üretim yönetmenin ayrıca onayıyla yapılır.
 
 İstek gövdesi, kuru çalıştırmanın gösterdiğiyle aynı fonksiyondan gelir (app/engine/fal_plan.body). Yerel dosyalar
@@ -66,6 +67,8 @@ class FalVideoProvider:
         return fal_plan.norm_resolution(self.engine, requested)
 
     def mode(self, req: GenRequest) -> str:
+        if self.engine in fal_plan.I2V_ONLY:
+            return "i2v"
         return req.extra.get("fal_mode") or ("i2v" if req.image_url else "ref")
 
     def images(self, req: GenRequest) -> int:
@@ -104,6 +107,10 @@ class FalVideoProvider:
             c = pricing.seedance25_cost("480p" if args.get("draft") else res, seconds, size=size, measured=True)
             return {"usd": c["usd"], "tokens": c["billed_tokens"], "measured_tokens": c["tokens"],
                     "per_1k_tokens_usd": c["per_1k_tokens_usd"]}
+        if self.engine == "flux3max":                  # video saniyesi başına: üretilen (ölçülen) süre, yoksa istenen
+            seconds = measured.get("duration_s") or fal_plan.billed_seconds(self.engine, req.duration_s)
+            c = pricing.flux3max_cost(res, max(float(seconds), fal_plan.billed_seconds(self.engine, req.duration_s)))
+            return {"usd": c["usd"], "seconds": c["duration_s"], "per_second_usd": c["per_second_usd"]}
         c = pricing.h3max_cost(res, fal_plan.billed_seconds(self.engine, req.duration_s), fal_plan.images_in(args),
                                mode=self.mode(req))
         return {"usd": c["usd"], "units": c["units"], "reference_tokens": c["reference_tokens"]}
