@@ -62,6 +62,8 @@ def build_command(gflow: str, mode: str, prompt: str, model: str, duration: str,
         raise BadRequest("aspect: 16:9 ya da 9:16")
     if not prompt.strip():
         raise BadRequest("prompt boş")
+    if mode == "r2v" and model == "veo-quality":
+        raise BadRequest("model: veo-quality malzeme (r2v) almaz; i2v ya da veo-fast / veo-lite")
     cmd = [gflow, "video", mode]
     if mode == "i2v":
         if "start" not in files:

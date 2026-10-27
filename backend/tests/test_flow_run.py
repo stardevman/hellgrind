@@ -57,6 +57,7 @@ def test_the_bridge_builds_each_gflow_command():
     (("i2v", "p", "veo-fast", "8", "16:9", {}), "start"),
     (("r2v", "p", "veo-fast", "8", "16:9", {}), "ref1"),
     (("t2v", "  ", "veo-fast", "8", "16:9", {}), "prompt"),
+    (("r2v", "p", "veo-quality", "8", "16:9", {"ref1": "/a.jpg"}), "r2v"),
 ])
 def test_the_bridge_refuses_bad_requests_before_touching_flow(args, msg):
     b = _bridge_module()
@@ -194,3 +195,24 @@ def test_a_frozen_project_queues_nothing(api, sample):
     assert api.post(f"/api/projects/{pid}/killswitch", json={"action": "freeze"}).status_code == 200
     assert api.post(f"/api/projects/{pid}/flow/run", json={"scope": "all"}).status_code == 423
     assert flow_pack.FLOW_CREDITS["quality"] == 100
+
+
+def test_quality_refuses_ingredient_shots_before_any_reservation(api, sample, paid, monkeypatch):
+    """Veo 3.1 Quality malzeme görseli almaz: kare yoksa çekim kuyruğa girmez, bütçeye bir şey yazılmaz."""
+    pid, ids = sample()
+    monkeypatch.setattr("app.live.flow_bridge.generate", lambda *a, **k: pytest.fail("Flow çağrıldı"))
+    monkeypatch.setattr(flow_pack, "unsupported", lambda sh, q: f"{sh.code}: Flow Quality malzeme görseli almaz"
+                        if q == "quality" else None)
+    r = api.post(f"/api/scenes/{ids['S001_SH01']}/flow/run", json={"quality": "quality"})
+    assert r.status_code == 409 and "malzeme" in r.json()["detail"]
+    with pytest.raises(flow_run.FlowRejected, match="malzeme"):
+        flow_run.run_scene(pid, ids["S001_SH01"], "quality")
+    assert _ledger(pid) == [] and scene_row(ids["S001_SH01"]).status != "generating"
+
+
+def test_unsupported_names_only_quality_with_ingredients():
+    sh = flow_pack.FlowShot(code="S001_SH01", mode="ingredients", prompt="p", seconds=8, duration_s=8.0)
+    assert "Quality" in flow_pack.unsupported(sh, "quality")
+    assert flow_pack.unsupported(sh, "fast") is None
+    sh.mode = "frames"
+    assert flow_pack.unsupported(sh, "quality") is None
