@@ -77,8 +77,12 @@ def test_project_setting_accepts_flux3max(api, api_project):
     assert r.status_code == 422
 
 
-def test_paid_mode_routes_to_the_fal_queue_provider(paid):
+def test_paid_mode_routes_to_the_fal_queue_provider(paid, monkeypatch):
+    import sys
+
     from app.live.fal_engines import FalVideoProvider
+    from tests.fal_queue_fake import FakeQueue
+    monkeypatch.setitem(sys.modules, "fal_client", FakeQueue().module())     # CI'da ücretli paketler kurulu değil
     provider = providers.get_provider("flux3max")
     assert isinstance(provider, FalVideoProvider) and provider.engine == "flux3max"
 
