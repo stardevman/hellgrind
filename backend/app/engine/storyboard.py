@@ -48,7 +48,7 @@ EDIT_RETRIES = 2                       # Qwen-Image-Edit karesi kimlikten kalır
 PAID_SOURCES = ("flux", "comfyui", "qwen_edit")    # comfyui: Qwen-Image (metinden); qwen_edit: karakter referansından
 SHARED_SOURCES = ("comfyui", "qwen_edit")         # RunPod'da çizilen kare: Seedance de aynı kareden başlar
 SOURCE_LABEL = {"comfyui": "h3:storyboard", "qwen_edit": "h3:storyboard:qwen_edit"}
-H3_FAMILY = ("h3", "h3max", "seedance25")          # aynı kare zinciri: MiniMax H3 (RunPod) ve fal.ai motorları
+H3_FAMILY = ("h3", "h3max", "seedance25", "flux3max")          # aynı kare zinciri: MiniMax H3 (RunPod) ve fal.ai motorları
 
 
 def outdated(current: str | None, source: str | None) -> bool:

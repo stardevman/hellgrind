@@ -399,6 +399,8 @@ def fal_setup(s, ctx: Ctx, scene, chars, assets, style, composed, cfg: dict) -> 
                                fal_plan.H3_MAX_REFERENCES if engine == "h3max" else fal_plan.SEEDANCE_MAX_REFERENCES)
     frame_key, frame_source = fal_plan.start_frame(scene, ctx.visual_hash)
     mode, reason = fal_plan.choose_mode(scene, frame_key, frame_source, refs)
+    if engine in fal_plan.I2V_ONLY:
+        mode = "i2v"
     if mode == "i2v" and not frame_key:
         frame_key = keyframe_of(scene, ctx.visual_hash)   # açık i2v: kalite kapısından geçmiş güncel kare
     last_key, last_kind = last_frame_of(s, scene, style.version if style else None, cfg) \
@@ -530,7 +532,7 @@ def keyframe_of(scene, fp: str) -> str | None:
     yoksa Seedance her varyasyon için kendi Flux karesini üretir (önce görsel, sonra video)."""
     from app.engine.storyboard import SHARED_SOURCES, clean_key
     engine = scene.engine or "h3"
-    if engine not in ("h3", "seedance", "h3max", "seedance25"):
+    if engine not in ("h3", "seedance", "h3max", "seedance25", "flux3max"):
         return None
     if scene.keyframe_key:
         return scene.keyframe_key
@@ -573,6 +575,9 @@ def current_conditioning(s, scene) -> str | None:
     keyframe_key = keyframe_of(scene, fp)
     cfg = project_settings(s.get(Project, scene.project_id).settings)
     if fal_plan.is_fal(scene.engine):                    # fal: ilk kare yalnızca image-to-video'da
+        from app.engine.scene_parts import active
+        if scene.engine in fal_plan.I2V_ONLY and active(scene.engine):
+            return None                                  # parça yolu: kare parça özetinde (part_hash), adayda koşul yok
         chars, assets = load_characters(s, scene.id), load_assets(s, scene.id)
         from app.core.h3mode import strict_refs
         frame_key, source = fal_plan.start_frame(scene, fp)
@@ -761,7 +766,7 @@ def keyframe_blocks(project_id: str, scene_id: str) -> bool:
         from app.engine.scene_parts import active, reference_mode
         if active(engine) or reference_mode():
             return False                                  # referans modu: hiçbir kare çizilmez
-        if engine not in ("h3", "seedance", "h3max", "seedance25") or (scene.method or "generate") != "generate" \
+        if engine not in ("h3", "seedance", "h3max", "seedance25", "flux3max") or (scene.method or "generate") != "generate" \
                 or (engine == "h3" and effective_mode(scene, chars, assets) == "ref2va"):
             return False                                  # Ref2VA ilk kareyi kullanmaz: kare çizilmez
         if fal_plan.is_fal(engine) and scene.h3_mode != "fl2va":

@@ -18,6 +18,9 @@ Mod (çekim başına; `scenes.h3_mode` alanı: fl2va = image-to-video, ref2va = 
 - Seedance 2.5: duration METİN ("auto" ya da "4".."30"), resolution 480p/720p/1080p, generate_audio. image-to-video:
   image_url (zorunlu), end_image_url, aspect_ratio her zaman "auto", tohum almaz. reference-to-video: image_urls,
   video_urls, audio_urls, task (reference/editing/extension), aspect_ratio, seed. draft: true -> 480p önizleme + draft_id.
+- FLUX 3 Max (2026-10-27): YALNIZCA image-to-video. image_url zorunlu, end_image_url, duration TAM SAYI (5-20),
+  resolution 720p/1080p, generate_audio, reasoning_level (low/high), aspect_ratio, seed. Referans görseli almaz:
+  çekimin başlangıç karesi (yönetmenin yüklediği kare ya da önceki klibin son karesi) şarttır.
 """
 import hashlib
 import math
@@ -28,9 +31,10 @@ from dataclasses import dataclass, field
 from app.budget import pricing
 from app.config import project_settings, settings
 
-FAL_ENGINES = ("h3max", "seedance25")
-H3_FAMILY = ("h3", "h3max", "seedance25")      # aynı kare zinciri ve koşul (görsel özet aynı aileyi görür)
-ENGINE_TR = {"h3max": "MiniMax H3 Max (fal.ai)", "seedance25": "Seedance 2.5 (fal.ai)",
+FAL_ENGINES = ("h3max", "seedance25", "flux3max")
+I2V_ONLY = ("flux3max",)                       # referans görseli almayan, yalnızca başlangıç karesiyle çalışan motorlar
+H3_FAMILY = ("h3", "h3max", "seedance25", "flux3max")      # aynı kare zinciri ve koşul (görsel özet aynı aileyi görür)
+ENGINE_TR = {"h3max": "MiniMax H3 Max (fal.ai)", "seedance25": "Seedance 2.5 (fal.ai)", "flux3max": "FLUX 3 Max (fal.ai)",
              "seedance": "Seedance 2.0 fast (fal.ai)", "h3": "MiniMax H3 (RunPod)", "fal_wan": "Wan 2.2 (fal.ai)",
              "higgsfield": "Higgsfield"}
 MODE_TR = {"i2v": "image-to-video", "ref": "reference-to-video"}
@@ -43,11 +47,13 @@ MEDIUM_SENTENCE = {
 }
 H3_SECONDS = (0.92, 15.0)
 SEEDANCE_SECONDS = (4, 30)
+FLUX3_SECONDS = (5, 20)
+FLUX3_RESOLUTIONS = ("720p", "1080p")
 H3_MAX_REFERENCES = 9                 # reference_image_urls (görsel + video + ses toplam en çok 12)
 SEEDANCE_MAX_REFERENCES = 30          # şema: image_urls en çok 30 (görsel + video + ses toplam 50)
 H3_RESOLUTIONS = ("480P", "768P", "1080P")
 SEEDANCE_RESOLUTIONS = ("480p", "720p", "1080p")
-TIMEOUT_S = {"h3max": 360, "seedance25": 600}     # kuyruk + üretim; aşılınca bir kez daha beklenir
+TIMEOUT_S = {"h3max": 360, "seedance25": 600, "flux3max": 600}     # kuyruk + üretim; aşılınca bir kez daha beklenir
 TYPE_ORDER = {"character": 0, "prop": 1, "location": 2}
 
 
@@ -88,6 +94,11 @@ def resolution(engine: str, scene=None, cfg: dict | None = None) -> str:
             if value.upper() in H3_RESOLUTIONS:
                 return value.upper()
         return "480P"
+    if engine == "flux3max":
+        for value in (raw, cfg.get("flux3max_resolution") or ""):
+            if value.lower() in FLUX3_RESOLUTIONS:
+                return value.lower()
+        return "720p"
     if draft(engine, scene, cfg):
         return "480p"
     for value in (raw, cfg.get("seedance25_resolution") or "", settings.seedance25_resolution or ""):
@@ -108,6 +119,9 @@ def norm_resolution(engine: str, value: str | None) -> str:
     if engine == "h3max":
         mapped = {"480P": "480P", "720P": "768P", "768P": "768P", "1080P": "1080P"}.get(raw.upper())
         return mapped or resolution(engine)
+    if engine == "flux3max":
+        mapped = {"480p": "720p", "720p": "720p", "768p": "720p", "1080p": "1080p"}.get(raw.lower())
+        return mapped or resolution(engine)
     mapped = {"480p": "480p", "720p": "720p", "768p": "720p", "1080p": "1080p"}.get(raw.lower())
     return mapped or resolution(engine)
 
@@ -117,6 +131,8 @@ def request_seconds(engine: str, duration_s: float) -> float | str:
     d = float(duration_s or 5.0)
     if engine == "h3max":
         return round(min(H3_SECONDS[1], max(H3_SECONDS[0], d)), 2)
+    if engine == "flux3max":                        # tam sayı 5-20: kısa çekim 5 sn üretilir (fazlası faturada)
+        return int(min(FLUX3_SECONDS[1], max(FLUX3_SECONDS[0], math.ceil(d - 1e-6))))
     return str(int(min(SEEDANCE_SECONDS[1], max(SEEDANCE_SECONDS[0], math.ceil(d - 1e-6)))))
 
 
@@ -324,6 +340,16 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
             if image_url:                                   # ilk kare ref modunda da verilebilir (referanslar korunur)
                 args["image_url"] = image_url
         return endpoint, args
+    if engine == "flux3max":                            # yalnızca image-to-video; referanslar ve ses referansı gitmez
+        args = {"prompt": prompt, "duration": seconds, "resolution": resolution_, "generate_audio": bool(audio_),
+                "reasoning_level": settings.flux3max_reasoning or "low", "aspect_ratio": "auto"}  # tuval kareyi izler
+        if image_url:
+            args["image_url"] = image_url
+        if end_image_url:
+            args["end_image_url"] = end_image_url
+        if seed is not None:
+            args["seed"] = int(seed)
+        return settings.fal_flux3max_i2v_endpoint, args
     if engine != "seedance25":
         raise ValueError(f"fal planı yalnızca {', '.join(FAL_ENGINES)} içindir: {engine}")
     args = {"prompt": prompt, "duration": seconds, "resolution": resolution_, "generate_audio": bool(audio_)}
@@ -423,6 +449,8 @@ def scene_plan(s, scene, engine: str | None = None, seed: int | None = None, wit
                       H3_MAX_REFERENCES if engine == "h3max" else SEEDANCE_MAX_REFERENCES)
     frame_key, frame_source = start_frame(scene, fp)
     mode, reason = choose_mode(scene, frame_key, frame_source, refs)
+    if engine in I2V_ONLY:
+        mode, reason = "i2v", f"{ENGINE_TR[engine]} yalnızca image-to-video: başlangıç karesi videonun ilk karesidir."
     notes = []
     if mode == "i2v" and not frame_key:
         from app.engine.iteration import keyframe_of
@@ -451,8 +479,8 @@ def scene_plan(s, scene, engine: str | None = None, seed: int | None = None, wit
     for i, r in enumerate(refs if mode == "ref" else [], start=1):
         uploads.append(_upload_row(f"{'reference_image_urls' if engine == 'h3max' else 'image_urls'}[{i - 1}]",
                                    r.key, with_sha))
-    if engine == "seedance25" and mode == "i2v" and not args.get("image_url"):
-        notes.append("Seedance image-to-video başlangıç karesi ister (image_url zorunlu).")
+    if engine in ("seedance25", *I2V_ONLY) and mode == "i2v" and not args.get("image_url"):
+        notes.append(f"{ENGINE_TR[engine]} image-to-video başlangıç karesi ister (image_url zorunlu).")
     return ScenePlan(engine=engine, mode=mode, reason=reason, endpoint=endpoint, body=args, uploads=uploads, refs=refs,
                      frame_key=frame_key, end_key=end_key, resolution=res, audio=snd,
                      cost=cost(engine, res, scene.duration_s, images_in(args), mode, drf), unmapped=unmapped, notes=notes)

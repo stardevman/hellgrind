@@ -4,12 +4,12 @@ import { ENGINE_CHOICES, ENGINE_TR } from "./i18n";
 import type { Scene, VideoMeta } from "./types";
 
 /** Kuru çalıştırma gövdesi ve "yükselt" yalnızca bu motorlarda (backend fal_plan.FAL_ENGINES). */
-export const FAL_ENGINES = ["h3max", "seedance25"] as const;
+export const FAL_ENGINES = ["h3max", "seedance25", "flux3max"] as const;
 export const isFal = (engine: string | null | undefined) => (FAL_ENGINES as readonly string[]).includes(engine ?? "");
 
 /** Ayarlar'da tanımlı değilse kullanılan çözünürlükler (fal_plan.H3_RESOLUTIONS, SEEDANCE_RESOLUTIONS). */
-const RESOLUTIONS: Record<string, string[]> = { h3max: ["480P", "768P", "1080P"], seedance25: ["480p", "720p", "1080p"] };
-const DEFAULT_RESOLUTION: Record<string, string> = { h3max: "480P", seedance25: "720p" };
+const RESOLUTIONS: Record<string, string[]> = { h3max: ["480P", "768P", "1080P"], seedance25: ["480p", "720p", "1080p"], flux3max: ["720p", "1080p"] };
+const DEFAULT_RESOLUTION: Record<string, string> = { h3max: "480P", seedance25: "720p", flux3max: "720p" };
 
 export interface EngineChoice { id: string; label: string; disabled: boolean }
 

@@ -70,7 +70,7 @@ def estimate_runpod(seconds: float, gpu: str | None = None, prices: dict | None 
 
 # ---------- fal.ai video motorları (MiniMax H3 Max, Seedance 2.5) ----------
 
-FAL_VIDEO_ENGINES = ("h3max", "seedance25")
+FAL_VIDEO_ENGINES = ("h3max", "seedance25", "flux3max")
 
 
 def fal_video(engine: str, prices: dict | None = None) -> dict | None:
@@ -92,6 +92,17 @@ def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict
     return {"engine": "h3max", "mode": mode, "resolution": resolution, "duration_s": float(duration_s), "per_second_usd": rate,
             "images": int(images), "reference_tokens": tokens, "extra_tokens": extra_tokens, "base_usd": round(base, 4),
             "billing_factor": factor, "usd": usd, "reserve_usd": usd, "units": round(usd / 0.05, 2)}
+
+
+def flux3max_cost(resolution: str, duration_s: float, prices: dict | None = None) -> dict:
+    """FLUX 3 Max image-to-video: üretilen video saniyesi × saniye ücreti (720p / 1080p). Bilinmeyen çözünürlük: en
+    pahalısı."""
+    row = fal_video("flux3max", prices) or {}
+    rates = row.get("per_second") or {}
+    rate = float(rates.get(resolution, max(rates.values())))
+    usd = round(rate * float(duration_s), 4)
+    return {"engine": "flux3max", "mode": "i2v", "resolution": resolution, "duration_s": float(duration_s),
+            "per_second_usd": rate, "usd": usd, "reserve_usd": usd}
 
 
 def seedance25_tokens(resolution: str, out_seconds: float, in_video_seconds: float = 0.0, prices: dict | None = None,
@@ -140,6 +151,8 @@ def fal_video_cost(engine: str, resolution: str, duration_s: float, images: int 
     draft: Seedance 2.5 taslağı (480p fiyatı)."""
     if engine == "h3max":
         return h3max_cost(resolution, duration_s, images, prices, mode)
+    if engine == "flux3max":
+        return flux3max_cost(resolution, duration_s, prices)
     if engine == "seedance25":
         if draft:
             resolution = (fal_video("seedance25", prices) or {}).get("draft_resolution", "480p")
@@ -364,6 +377,11 @@ def validate_table(text: str) -> dict:
             _positive(rate, f"fal_video.h3max.per_second.{res}")
         if not (fal["h3max"] or {}).get("per_second"):
             raise PricingError("fal_video.h3max.per_second eksik (çözünürlük: saniye ücreti)")
+    if "flux3max" in fal:
+        if not (fal["flux3max"] or {}).get("per_second"):
+            raise PricingError("fal_video.flux3max.per_second eksik (çözünürlük: saniye ücreti)")
+        for res, rate in fal["flux3max"]["per_second"].items():
+            _positive(rate, f"fal_video.flux3max.per_second.{res}")
     if "seedance25" in fal:
         row = fal["seedance25"] or {}
         if not row.get("per_1k_tokens") or not row.get("size"):

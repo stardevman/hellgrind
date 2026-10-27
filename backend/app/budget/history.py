@@ -63,8 +63,9 @@ def describe(label: str) -> Described:
         return Described("fal", "upscale", (settings.upscale_endpoint,), "1080p")
     if head == "seedance25" and purpose == "complete":
         return Described("fal", "complete", (settings.fal_seedance25_draft_complete_endpoint,), "1080p")
-    if head in ("h3max", "seedance25"):        # fal.ai video motorları (taslak / final)
+    if head in ("h3max", "seedance25", "flux3max"):   # fal.ai video motorları (taslak / final)
         video = {"h3max": (settings.fal_h3max_i2v_endpoint, settings.fal_h3max_ref_endpoint),
+                 "flux3max": (settings.fal_flux3max_i2v_endpoint,),
                  "seedance25": (settings.fal_seedance25_i2v_endpoint, settings.fal_seedance25_ref_endpoint)}[head]
         return Described("fal", purpose or "video", video, resolution)
     if head == "h3":                           # MiniMax H3: RunPod Serverless ya da vast.ai (deneysel); kareler fal.ai'de

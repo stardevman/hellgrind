@@ -266,8 +266,8 @@ def _generate(project_id: str, plan, snap: dict, cfg: dict, caller: str | None =
 def _request(plan, snap: dict, seed: int, provider) -> GenRequest:
     """Gönderilecek istek: kuru çalıştırmanın gövdesiyle aynı alanlar. Seedance: son kare image_urls'ün başında;
     H3 Max: image_url (ücretli modda fal deposuna yüklenir)."""
-    frame = plan.continuity.get("frame_key")
-    refs = [r.key for r in plan.refs]
+    frame = plan.continuity.get("frame_key") or plan.start_key      # i2v motoru: yüklenen başlangıç karesi
+    refs = [] if plan.mode == "i2v" else [r.key for r in plan.refs]
     image_url = None
     if frame and plan.engine == "seedance25":
         refs = [frame, *refs]
@@ -275,14 +275,14 @@ def _request(plan, snap: dict, seed: int, provider) -> GenRequest:
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
             image_url = provider.upload(storage.download(frame, os.path.join(tmp, "first.jpg")))
-    images = len(refs) + (1 if plan.engine == "h3max" and frame else 0)
+    images = len(refs) + (1 if plan.engine != "seedance25" and frame else 0)
     sounds = []
     if plan.audio_ref and plan.audio_ref.get("key") and hasattr(provider, "upload"):
         sounds = [_audio_mix(plan)]                     # ses-önce: diyalog karışımı (yerel FFmpeg; içerik-adresli)
     return GenRequest(prompt=plan.prompt, seed=seed, resolution=plan.resolution, duration_s=plan.duration_s,
                       image_url=image_url,
                       extra={**snap["render"], "label": f"{'+'.join(snap['codes'])}  {plan.engine}",
-                             "fal_mode": "ref", "fal_refs": refs, "fal_ref_names": [r.name for r in plan.refs],
+                             "fal_mode": plan.mode, "fal_refs": refs, "fal_ref_names": [r.name for r in plan.refs],
                              "fal_audio_refs": sounds,
                              "fal_images": images, "fal_audio": plan.audio, "fal_draft": plan.draft,
                              "scene_id": snap["leader"],

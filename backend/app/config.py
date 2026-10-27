@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     fal_seedance25_i2v_endpoint: str = "bytedance/seedance-2.5/image-to-video"
     fal_seedance25_ref_endpoint: str = "bytedance/seedance-2.5/reference-to-video"
     fal_seedance25_draft_complete_endpoint: str = "bytedance/seedance-2.5/draft/complete"
+    # FLUX 3 Max (Black Forest Labs) yalnızca image-to-video: başlangıç karesi zorunlu, referans görseli almaz. Varsayılan
+    # motor değildir; yalnızca draft_engine ayarı "flux3max" olan projelerde kullanılır.
+    fal_flux3max_i2v_endpoint: str = "blackforestlabs/flux-3-max/image-to-video"
+    flux3max_reasoning: str = "low"            # low | high (high: model istemi kendisi genişletir, daha yavaş)
     video_draft_engine: str = "h3max"          # taslak: yeni çekimlerin motoru (proje ayarı draft_engine önce gelir)
     video_final_engine: str = "seedance25"     # final: "Seedance 2.5 ile yükselt" (proje ayarı final_engine önce gelir)
     h3max_resolution: str = "480P"             # 480P (varsayılan, test aşaması: en ucuz) | 768P | 1080P
@@ -209,6 +213,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "h3max_resolution": None,      # proje: H3 Max çözünürlüğü; None = Ayarlar'daki H3MAX_RESOLUTION (480P)
     "seedance25_draft": None,      # proje: Seedance 2.5 taslak (480p); None = Ayarlar'daki SEEDANCE25_DRAFT (açık)
     "seedance25_resolution": None, # proje: taslak kapalıyken Seedance çözünürlüğü; None = Ayarlar'daki SEEDANCE25_RESOLUTION
+    "flux3max_resolution": None,   # proje: FLUX 3 Max çözünürlüğü (720p | 1080p); None = 720p
     "on_twos": False,
     "voice_first": False,          # ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz
     "revision_rounds": 2,          # müşteri onay kapısı başına sözleşmedeki revizyon turu (değişiklik isteği) sınırı              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX

@@ -138,7 +138,7 @@ def board_upgrade(s: Session, sc: Scene) -> bool:
     """Ücretli modda karakterli çekimin karesi metinden (Qwen-Image) ya da ücretsiz moddan kalma yerel çizilmişse ve
     karakter referansından çizilebiliyorsa: kare STORYBOARD aşamasında yeniden çizilir."""
     from app.config import settings
-    if sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance", "h3max", "seedance25") or not sc.board_key:
+    if sc.keyframe_key or (sc.engine or "h3") not in ("h3", "seedance", "h3max", "seedance25", "flux3max") or not sc.board_key:
         return False
     from app.engine.scene_parts import reference_mode
     if reference_mode():

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Emotion = Literal["neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension"]
-Engine = Literal["h3max", "seedance25", "seedance", "h3", "fal_wan", "higgsfield"]
+Engine = Literal["h3max", "seedance25", "flux3max", "seedance", "h3", "fal_wan", "higgsfield"]
 Shot = Literal["extreme_wide", "wide", "pov", "medium", "over_shoulder", "close_up", "extreme_close_up"]
 Movement = Literal["static", "dolly_in", "dolly_out", "pan", "tilt", "crane", "orbit", "tracking", "handheld"]
 Angle = Literal["low", "eye", "high"]
@@ -58,14 +58,15 @@ SETTING_RULES = {
     "asset_min_status": (lambda v: v in ("still_approved", "motion_tested", "locked"),
                          "still_approved, motion_tested ya da locked"),
     # fal.ai video motorları: boş = Ayarlar'daki VIDEO_DRAFT_ENGINE / VIDEO_FINAL_ENGINE
-    "draft_engine": (lambda v: v in (None, "h3max", "seedance25", "seedance", "h3"),
-                     "h3max, seedance25, seedance, h3 ya da boş"),
+    "draft_engine": (lambda v: v in (None, "h3max", "seedance25", "flux3max", "seedance", "h3"),
+                     "h3max, seedance25, flux3max, seedance, h3 ya da boş"),
     "final_engine": (lambda v: v in (None, "seedance25", "h3max", "seedance"), "seedance25, h3max, seedance ya da boş"),
     "fal_clip_attempts": (_int(1, 5), "1 ile 5 arasında tam sayı"),
     "require_plan_approval": (lambda v: v is None or type(v) is bool, "true, false ya da boş (ücretli modda açık)"),
     "h3max_resolution": (lambda v: v in (None, "480P", "768P", "1080P"), "480P, 768P, 1080P ya da boş"),
     "seedance25_draft": (lambda v: v is None or type(v) is bool, "true, false ya da boş"),
     "seedance25_resolution": (lambda v: v in (None, "480p", "720p", "1080p"), "480p, 720p, 1080p ya da boş"),
+    "flux3max_resolution": (lambda v: v in (None, "720p", "1080p"), "720p, 1080p ya da boş"),
     "on_twos": (lambda v: type(v) is bool, "true ya da false"),
     "voice_first": (lambda v: type(v) is bool, "true ya da false"),
     "revision_rounds": (_int(0, 20), "0 ile 20 arasında tam sayı"),
