@@ -78,7 +78,10 @@ def build_command(gflow: str, mode: str, prompt: str, model: str, duration: str,
             raise BadRequest("r2v en az bir referans görseli (ref1) ister")
         for path in refs[:3]:
             cmd += ["--ref", path]
-    cmd += ["--model", model, "--duration", duration, "--aspect", aspect, "--count", "1", "--json"]
+    cmd += ["--model", model]
+    if model == "omni-flash":                          # Flow yalnızca Omni Flash'ta süre seçtirir; Veo kendi süresini (8 sn) verir
+        cmd += ["--duration", duration]
+    cmd += ["--aspect", aspect, "--count", "1", "--json"]
     cmd += ["--out-dir", out_dir] if mode == "r2v" else ["-o", os.path.join(out_dir, "clip.mp4")]
     return cmd
 

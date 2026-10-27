@@ -42,6 +42,9 @@ def test_the_bridge_builds_each_gflow_command():
     t2v = b.build_command("gflow", "t2v", "a cat", "veo-fast", "8", "16:9", {}, "/o")
     assert t2v[:3] == ["gflow", "video", "t2v"] and "a cat" in t2v and t2v[-2:] == ["-o", "/o/clip.mp4"]
     assert t2v[t2v.index("--count") + 1] == "1" and "--json" in t2v
+    assert "--duration" not in t2v                    # Veo'da Flow süre seçtirmez (gflow: "no duration control")
+    omni = b.build_command("gflow", "t2v", "a cat", "omni-flash", "10", "16:9", {}, "/o")
+    assert omni[omni.index("--duration") + 1] == "10"
     i2v = b.build_command("gflow", "i2v", "p", "veo-lite", "6", "16:9", {"start": "/s.jpg", "end": "/e.jpg"}, "/o")
     assert i2v[3:7] == ["--initial-frame", "/s.jpg", "--end-frame", "/e.jpg"]
     r2v = b.build_command("gflow", "r2v", "p", "veo-fast", "4", "16:9",
