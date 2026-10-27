@@ -61,6 +61,12 @@ fal_video:
       per_1k_tokens: 0.0234
       size: [1920, 1104]
       margin: 0.20
+  flux3max:           # FLUX 3 Max image-to-video (blackforestlabs/flux-3-max/image-to-video): üretilen video saniyesi
+                      # başına. Model sayfası 2026-10-27: %75 kampanya 15 Ekim - 7 Kasım 2026 (720p 0,0425 / 1080p 0,0725);
+                      # kampanya bitince 720p 0,17 / 1080p 0,29 $/sn. 8 Kasım'dan önce per_second'ı list_per_second yapın.
+    per_second: {"720p": 0.0425, "1080p": 0.0725}
+    list_per_second: {"720p": 0.17, "1080p": 0.29}
+    promo_until: "2026-11-07"
 # Upscale (onaylanmış klipleri 1080p'ye çıkarma; ayrı adım). Çıktı karesi 1920x1080 = 2,07 MP, kaynak fps (24).
 upscale:
   fal-ai/bytedance-upscaler/upscale/video:     # 30 fps'e kadar saniye başına; 60 fps'te 2 kat, "pro" 10 kat

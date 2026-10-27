@@ -16,7 +16,7 @@ ProjectStatus = pg_enum("project_status", "draft", "parsing", "producing", "paus
 SceneStatus = pg_enum("scene_status", "pending", "parsed", "probing", "generating", "correcting", "refined",
                       "needs_review", "audio", "lipsync", "muxing", "done", "failed", "frozen", "blocked",
                       "storyboard", "board_review", "grading", "plan_review")
-EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield", "h3", "h3max", "seedance25")
+EngineKind = pg_enum("engine_kind", "fal_wan", "seedance", "higgsfield", "h3", "h3max", "seedance25", "flux3max")
 VariationTier = pg_enum("variation_tier", "probe", "full")
 VariationStatus = pg_enum("variation_status", "queued", "running", "generated", "passed", "rejected",
                           "purged", "refined", "failed")
