@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp
 
 from app import migrate, runtime_config, storage
-from app.api import (admin, assets, budget, delivery, export, finishing, grade, history, images, methods, panel, projects,
+from app.api import (admin, assets, budget, delivery, export, finishing, flow, grade, history, images, methods, panel, projects,
                      render_plan, scenes, sequences, series, review, services, storyboard, style, voice)
 from app.budget import history as service_history, killswitch
 from app.config import settings
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
-for module in (projects, scenes, render_plan, finishing, methods, grade, sequences, storyboard, assets, images, style, budget, export, services,
+for module in (projects, scenes, render_plan, finishing, methods, grade, sequences, storyboard, assets, images, style, budget, export, flow, services,
                history, panel, admin, voice, review, delivery, series):
     app.include_router(module.router, prefix="/api")
 app.include_router(review.public_router, prefix="/api")     # müşterinin belirteçli uçları (dışarıya app.review_main açar)
