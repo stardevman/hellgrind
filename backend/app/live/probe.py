@@ -36,6 +36,8 @@ def check(service: str, key: str, transport: httpx.BaseTransport | None = None) 
         if settings.h3_platform == "kapali":
             return {"ok": None, "status": None, "message": "vast.ai kapalı (H3_PLATFORM=kapali): çağrı yapılmadı."}
         return check_h3(key, transport)
+    if service == "flow":
+        return check_flow(key, transport)
     if service == "runpod":
         if settings.h3_platform != "runpod":
             return {"ok": None, "status": None,
@@ -178,3 +180,30 @@ def check_runpod(key: str) -> dict:
         messages.append(f"Uç nokta sağlığı okunamadı ({type(e).__name__}).")
     ok = False if False in oks else (None if None in oks else True)
     return {"ok": ok, "status": None, "message": " ".join(messages)}
+
+
+def check_flow(token: str, transport: httpx.BaseTransport | None = None) -> dict:
+    """Google Flow köprüsünün sağlık ucu (GET /health): köprü ayakta mı, gflow-cli kurulu mu, Google oturumu açık mı. Flow'da
+    üretim başlatmaz, kredi harcamaz."""
+    url = (settings.flow_bridge_url or "").rstrip("/")
+    if not url:
+        return {"ok": False, "status": None, "message": "Köprü adresi (FLOW_BRIDGE_URL) tanımlı değil."}
+    try:
+        with httpx.Client(timeout=TIMEOUT, transport=transport) as client:
+            r = client.get(f"{url}/health", headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as e:
+        return {"ok": None, "status": None,
+                "message": f"Köprüye ulaşılamadı ({type(e).__name__}): Mac'te tools/flow_bridge/flow_bridge.py çalışıyor mu?"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "message": "Köprü belirteci reddetti (FLOW_BRIDGE_TOKEN köprüdekiyle aynı değil)."}
+    if r.status_code != 200:
+        return {"ok": None, "status": r.status_code, "message": f"Köprü beklenmeyen yanıt verdi ({r.status_code})."}
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if not body.get("gflow"):
+        return {"ok": False, "status": 200, "message": "Köprü ayakta ama gflow-cli bulunamadı (uv tool install gflow-cli)."}
+    credits = body.get("credits")
+    extra = f" Kalan kredi: {credits}." if credits is not None else ""
+    return {"ok": True, "status": 200, "message": f"Köprü ve gflow-cli hazır ({body.get('gflow')}).{extra}"}

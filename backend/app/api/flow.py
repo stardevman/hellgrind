@@ -1,5 +1,6 @@
-"""Google Flow köprüsü (app/engine/flow_pack.py): çekim başına elle üretim paketi. Hiçbir ücretli servis çağrılmaz;
-klipler Flow'da elle üretilip dış çekim olarak yüklenir (POST /scenes/{id}/external)."""
+"""Google Flow: çekim başına elle üretim paketi (app/engine/flow_pack.py; ücretli servis çağrılmaz, klipler elle üretilip
+dış çekim olarak yüklenir) ve köprü üzerinden doğrudan üretim (app/engine/flow_run.py; ücretli modda Mac'teki
+tools/flow_bridge gflow-cli ile Flow'u sürer, ücretsiz modda yerel taslak)."""
 import os
 import re
 import shutil
@@ -7,12 +8,15 @@ import tempfile
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.api.deps import ProjectId, project_or_404
+from app.api.deps import ProjectId, SceneId, ensure_not_frozen, project_or_404, scene_or_404
+from app.api.plan import ACTIVE_STATUSES
 from app.config import settings
+from app.curation import curated
 from app.db import get_session
 from app.engine import flow_pack
 from app.models import Scene
@@ -66,3 +70,59 @@ def flow_zip(project_id: ProjectId, quality: str = Query("fast", pattern=QUALITY
         raise
     return FileResponse(path, media_type="application/zip", filename=name,
                         background=BackgroundTask(shutil.rmtree, work, ignore_errors=True))
+
+
+# ---------- köprü üzerinden doğrudan üretim ----------
+
+class FlowRunIn(BaseModel):
+    quality: str | None = Field(None, pattern=QUALITY)
+    scope: str = Field("open", pattern=SCOPE)
+    scene_ids: list[str] | None = None
+
+
+def _queue(s: Session, project_id: str, scenes: list[Scene], quality: str) -> dict:
+    from app.engine.flow_run import estimate_usd, quality_of
+    from app.worker.dispatch import claim_dispatch
+    from app.worker.tasks import flow_scene
+    quality = quality_of(quality)
+    queued, busy = [], []
+    for sc in scenes:
+        if sc.status in ACTIVE_STATUSES or not claim_dispatch(sc.id):
+            busy.append(sc.scene_code)
+            continue
+        flow_scene.apply_async(args=[project_id, str(sc.id), quality])
+        queued.append(sc.scene_code)
+    per = flow_pack.FLOW_CREDITS[quality]
+    return {"queued": queued, "busy": busy, "quality": quality, "credits": per * len(queued),
+            "estimate_usd": round(estimate_usd(quality) * len(queued), 4), "dry_run": settings.dry_run}
+
+
+@router.post("/projects/{project_id}/flow/run")
+@curated("flow_generate")
+def flow_run(project_id: ProjectId, body: FlowRunIn, s: Session = Depends(get_session)):
+    """Seçilen (ya da kapsamdaki) çekimleri Google Flow'da üretir: çekim başına bir klip, köprü işleri sırayla yürütür.
+    Ücretsiz modda Flow çağrılmaz, yerel taslak üretilir (tutar sanal). Her çekim bütçe rezervasyonundan geçer."""
+    project_or_404(s, project_id)
+    ensure_not_frozen(project_id)
+    q = select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order, Scene.scene_code)
+    scenes = list(s.scalars(q))
+    if body.scene_ids:
+        wanted = set(body.scene_ids)
+        scenes = [sc for sc in scenes if str(sc.id) in wanted]
+    elif body.scope == "open":
+        scenes = [sc for sc in scenes if sc.status != "done"]
+    if not scenes:
+        raise HTTPException(409, "Üretilecek çekim yok: bütün çekimler bitmiş (hepsi için scope=all).")
+    return _queue(s, project_id, scenes, body.quality)
+
+
+@router.post("/scenes/{scene_id}/flow/run")
+@curated("flow_generate")
+def flow_run_scene(scene_id: SceneId, body: FlowRunIn, s: Session = Depends(get_session)):
+    """Tek çekimi Google Flow'da üretir (bkz. /projects/{id}/flow/run)."""
+    sc = scene_or_404(s, scene_id)
+    ensure_not_frozen(str(sc.project_id))
+    r = _queue(s, str(sc.project_id), [sc], body.quality)
+    if r["busy"]:
+        raise HTTPException(409, f"{sc.scene_code} şu an işleniyor; bitince yeniden dene.")
+    return {**r, "project_id": str(sc.project_id), "scene_id": scene_id}

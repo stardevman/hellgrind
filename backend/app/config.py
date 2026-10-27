@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     fal_key: str = ""
     anthropic_api_key: str = ""
     elevenlabs_api_key: str = ""
+    # Google Flow köprüsü (tools/flow_bridge): yönetmenin Mac'inde gflow-cli ile gerçek Chrome'u sürer. Belirteç köprüyle
+    # paylaşılan gizli değerdir; Flow kredisi aboneliktendir, bütçeye kredi başına tahmini dolarla sanal olarak yazılır.
+    flow_bridge_token: str = ""
+    flow_bridge_url: str = "http://host.docker.internal:8765"
+    flow_model: str = "veo-fast"           # veo-lite | veo-fast | veo-quality
+    flow_usd_per_credit: float = 0.02      # Google AI Pro: 19,99 $ / 1.000 kredi
     hermes_model: str = "claude-sonnet-5-5"
     # Sahne istemi (referans modu): llm = yönetmen tarzı istemi Hermes modeli yazar (ücretli, ANTHROPIC_API_KEY; anahtar
     # yoksa ya da ücretsiz modda kurallara düşer, planda uyarı) | rules = kural tabanlı istem
