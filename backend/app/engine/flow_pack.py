@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 FLOW_CREDITS = {"lite": 10, "fast": 20, "quality": 100}
 FLOW_SECONDS = {"lite": (4, 6, 8), "fast": (4, 6, 8), "quality": (8,)}
 FLOW_MAX_INGREDIENTS = 3
-NO_INGREDIENTS = ("quality",)                  # Veo 3.1 Quality malzeme görseli almaz (yalnızca kare ya da metin)
 FLOW_MODE_TR = {"frames": "Frames to Video", "ingredients": "Ingredients to Video", "text": "Text to Video"}
 CODE = re.compile(r"S\d{3,}_SH\d{2,}", re.IGNORECASE)
 
@@ -82,14 +81,6 @@ def _ingredient_sentence(r, names: list[str]) -> str:
     return " ".join(parts)
 
 
-def unsupported(sh: FlowShot, quality: str) -> str | None:
-    """Flow'un bu kaliteyle üretemeyeceği çekim için Türkçe neden (yoksa None)."""
-    if sh.mode == "ingredients" and quality in NO_INGREDIENTS:
-        return (f"{sh.code}: Flow Quality malzeme görseli almaz; çekime onaylı bir başlangıç karesi ekleyin "
-                "ya da Fast / Lite ile üretin.")
-    return None
-
-
 def shot(s, scene, quality: str = "fast") -> FlowShot:
     """Çekimin Flow paketi (kuru: hiçbir şey yüklenmez, hiçbir şey üretilmez)."""
     from app.config import project_settings
@@ -128,9 +119,6 @@ def shot(s, scene, quality: str = "fast") -> FlowShot:
     if mode == "ingredients" and total > len(refs):
         notes.append(f"Flow en çok {FLOW_MAX_INGREDIENTS} malzeme görseli alır: {total - len(refs)} referans pakete "
                      "girmedi (karakterler önce).")
-    if mode == "ingredients" and quality in NO_INGREDIENTS:
-        notes.append("Quality modeli malzeme görseli almaz: bu çekim için onaylı bir başlangıç karesi gerekir "
-                     "(ya da Fast / Lite seçin).")
     if mode == "text":
         notes.append("Onaylı kare ya da referans görseli yok: Flow yalnızca metinden üretir, karakterler tutarsız olabilir.")
     from app.hermes.translate import looks_turkish

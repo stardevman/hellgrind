@@ -71,9 +71,6 @@ def run_scene(project_id: str, scene_id: str, quality: str | None = None) -> str
     with session_scope() as s:
         scene = s.get(Scene, scene_id)
         sh = flow_pack.shot(s, scene, quality)
-        reason = flow_pack.unsupported(sh, quality)
-        if reason:
-            raise FlowRejected(reason)
         scene.status, scene.last_error = "generating", None
         s.flush()
         s.expunge(scene)

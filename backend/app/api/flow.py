@@ -85,9 +85,6 @@ def _queue(s: Session, project_id: str, scenes: list[Scene], quality: str) -> di
     from app.worker.dispatch import claim_dispatch
     from app.worker.tasks import flow_scene
     quality = quality_of(quality)
-    blocked = [r for r in (flow_pack.unsupported(flow_pack.shot(s, sc, quality), quality) for sc in scenes) if r]
-    if blocked:
-        raise HTTPException(409, " ".join(blocked))
     queued, busy = [], []
     for sc in scenes:
         if sc.status in ACTIVE_STATUSES or not claim_dispatch(sc.id):
