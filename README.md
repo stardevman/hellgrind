@@ -296,6 +296,16 @@ Karmaşık ya da çok özel hareketleri tarif ederek üretmek zordur. Profesyone
 
 **Elle düzeltme:** `POST /api/variations/{id}/revisions?kind=video|first_frame&filename=...&note=...` düzenlenmiş videoyu ya da ilk kareyi yükler. Her revizyon yeni bir sürümdür ve orijinal varyasyon olduğu gibi kalır; aynı dosyayı yeniden yüklemek yeni sürüm açmaz, kusurlu revizyon reddedilir. İlk kare düzeltmesi ücretsiz modda klibin başında kısa süre durup orijinale erir (ücretli modda düzenlenmiş kareden yeniden üretim Faz 18'dedir). Düzeltilen klip rafine #1 ise dudak senkronu anahtarı revizyon kimliğini içerir ve yalnızca dudak senkronu ile montaj yeniden çalışır. Geçmiş `GET /api/variations/{id}/revisions` ile görülür; `POST /api/variations/{id}/revisions/active` başka bir sürüme ya da orijinale döner.
 
+### Google Flow ile elle üretim (Storyboard sayfası)
+
+Google Flow'un (Veo 3.1) programla erişilen bir API'si yoktur ve kredileri yalnızca Flow'un web arayüzünde harcanır (Gemini API / Vertex'teki Veo ayrı ücretlendirilir). Hat Flow'u çağırmaz; panel köprü olur:
+
+1. Storyboard sayfasında modeli seç (Veo 3.1 Lite 10, Fast 20, Quality 100 kredi; çıktı başına, Ultra dışı planlar) ve **Flow paketi indir** (`GET /api/projects/{id}/flow.zip?quality=fast&scope=open`). Paket bitmemiş her çekim için bir klasör taşır: `istem.txt` (stil kılavuzundan derlenmiş istem, Flow modu ve süre), onaylı başlangıç/bitiş karesi varsa `ilk_kare.jpg` / `son_kare.jpg` (Frames to Video), yoksa en çok 3 onaylı referans görseli `malzemeler/` (Ingredients to Video). `BENIOKU.txt` adımları, `plan.csv` çekim başına süreyi ve kredi tahminini verir. İçerik `GET /api/projects/{id}/flow` ile JSON olarak da görülür.
+2. Klipleri Flow'da üret ve indir; dosya adına çekim kodunu koy (ör. `S001_SH01.mp4`, `S001_SH01_flow2.mp4`).
+3. **Flow kliplerini yükle** ile hepsini birlikte seç. Panel dosyaları çekim koduna göre eşler ve her birini dış çekim olarak yükler: görüntü üretilmez, klip anomali kontrolünden, sesten, renkten ve montajdan geçer. Flow'un kendi sesi atılır; diyalog ve müzik hattan gelir.
+
+Flow kredisi abonelikten düşer; dolar bütçesine ve maliyet defterine hiçbir şey yazılmaz, hiçbir ücretli servis çağrılmaz. Flow 4, 6 ya da 8 sn üretir (Quality yalnızca 8); daha uzun çekim Flow'da uzatılır ya da kısa klip yüklenir. İstem Türkçe kalmışsa `PROMPT_TRANSLATION=on` yerel ve ücretsiz çeviriyi açar. Müşteriye teslimden önce Flow çıktılarının ticari kullanım ve filigran koşullarını kontrol et.
+
 ## Renk aşaması ve süreklilik
 
 - **GRADE aşaması** dudak senkronu ile montaj arasında çalışır: önce film geneli 3B LUT (`.cube`, FFmpeg `lut3d`), sonra çekimin ayarı: pozlama (EV), kontrast, doygunluk, gama (FFmpeg `eq`) ve renk sıcaklığı (Kelvin; 6500 nötr, düşük değer ısıtır). Ayar ve LUT bir özet olarak planlayıcıya girer: yalnızca renk değişince yalnızca renk ve montaj çalışır, görüntü ve dudak senkronu çalışmaz. Nötr ayar ve LUT yoksa aşama hiç çalışmaz.
