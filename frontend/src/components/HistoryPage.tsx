@@ -14,7 +14,7 @@ import { Panel, Section } from "./ui";
 
 const PAGE_SIZE = 100;
 const MAX_ROWS = 500;
-const SERVICES = [["runpod", "MiniMax H3 · RunPod"], ["vast", "MiniMax H3 · vast.ai"], ["fal", "fal.ai"], ["elevenlabs", "ElevenLabs"], ["flow", "Google Flow"], ["anthropic", "Anthropic"]] as const;
+const SERVICES = [["runpod", "MiniMax H3 · RunPod"], ["vast", "MiniMax H3 · vast.ai"], ["fal", "fal.ai"], ["elevenlabs", "ElevenLabs"], ["anthropic", "Anthropic"]] as const;
 const PERIODS = [["1", "Son 24 saat"], ["7", "Son 7 gün"], ["30", "Son 30 gün"]] as const;
 const statusTone = (s: string) => (s === "succeeded" ? "ok" : s === "failed" ? "bad" : "work");
 
@@ -107,7 +107,6 @@ function priceNote(c: ServiceCall): string {
   if (c.service === "vast") return "Tutar, sunucunun bildirdiği GPU süresi × fiyat tablosundaki saatlik ücretle hesaplandı. Makinenin boşta geçen süresi buraya yansımaz; kesin tutar vast.ai faturasındadır.";
   if (c.service === "fal") return "fal.ai yanıtı fatura tutarı döndürmez: işlenen tutar fiyat tablosundan hesaplanır. Kesin tutar için istek kimliğini fal.ai panelinde arayın.";
   if (c.service === "anthropic") return "Tutar, yanıttaki belirteç kullanımından fiyat tablosuyla hesaplandı.";
-  if (c.service === "flow") return "Tutar, Flow kredisinin kredi başına tahmini dolar karşılığıdır; krediler Google Flow aboneliğinden düşer.";
   if (c.service === "elevenlabs") return "Tutar, karakter sayısından fiyat tablosuyla hesaplandı; kesin tutar ElevenLabs hesabındadır.";
   return "";
 }

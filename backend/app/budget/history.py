@@ -83,8 +83,6 @@ def describe(label: str) -> Described:
         return Described("fal", purpose or "studio", (model,), resolution)
     if head == "elevenlabs":
         return Described("elevenlabs", "tts", (settings.elevenlabs_model,))
-    if head == "flow":                         # Google Flow (köprü): abonelik kredisi, tutar tahmindir
-        return Described("flow", purpose or "video", (f"Google Flow {settings.flow_model}",), resolution)
     if head == "anthropic":
         return Described("anthropic", "script_parse", (settings.hermes_model,))
     if head == "fal" and purpose == "lipsync":

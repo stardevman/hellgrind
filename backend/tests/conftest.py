@@ -317,8 +317,7 @@ def paid(monkeypatch, no_network):
     kalır, genel internete bağlantı yasaktır (no_network) ve ücretli sağlayıcı çağrıları testlerde sahtedir: gerçek servise
     hiçbir istek gitmez."""
     monkeypatch.setattr(settings, "dry_run", False)
-    for name in ("runpod_api_key", "vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key",
-                 "flow_bridge_token"):
+    for name in ("runpod_api_key", "vast_api_key", "h3_api_key", "fal_key", "anthropic_api_key", "elevenlabs_api_key"):
         monkeypatch.setattr(settings, name, f"test-{name}")
     monkeypatch.setattr(settings, "vast_instance_id", "")       # makine yönetimi kapalı: testler vast.ai'yi sahteler
 

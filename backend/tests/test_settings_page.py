@@ -67,7 +67,7 @@ def cfg(tmp_path, monkeypatch, api):
 def test_lists_every_paid_service_with_its_connections_and_never_reveals_a_key(api, cfg):
     cfg.write_text(ENV.replace("FAL_KEY=", f"FAL_KEY={SECRET}"))          # süreç ayarları dosyadan tazelenir
     body = api.get("/api/settings").json()
-    assert [s["id"] for s in body["services"]] == ["runpod", "vast", "fal", "elevenlabs", "flow", "anthropic"]
+    assert [s["id"] for s in body["services"]] == ["runpod", "vast", "fal", "elevenlabs", "anthropic"]
     assert body["dry_run"] is True and body["editable"] is True and body["confirmation"] == rc.PAID_CONFIRMATION
     fal = body["services"][2]
     key = next(f for f in fal["fields"] if f["env"] == "FAL_KEY")
@@ -163,11 +163,10 @@ def test_only_the_h3_server_is_needed_with_the_default_engines(api, cfg):
     bağlıdır, vast.ai deneysel ve kapalıdır."""
     body = api.get("/api/settings").json()
     needed = {s["id"]: s["needed"] for s in body["services"]}
-    assert needed == {"runpod": True, "vast": False, "fal": False, "elevenlabs": False, "flow": False,
-                      "anthropic": False}
+    assert needed == {"runpod": True, "vast": False, "fal": False, "elevenlabs": False, "anthropic": False}
     assert "isteğe bağlı" in body["services"][2]["not_needed_reason"] and "espeak" in body["services"][3]["not_needed_reason"]
     api.patch("/api/settings", json={"values": {"FAL_KEY": SECRET, "TTS_ENGINE": "elevenlabs", "HERMES_MODE": "llm"}})
-    assert all(s["needed"] for s in api.get("/api/settings").json()["services"] if s["id"] not in ("vast", "flow"))
+    assert all(s["needed"] for s in api.get("/api/settings").json()["services"] if s["id"] != "vast")
     assert set(body["scorer"]) == {"ready", "message"}
 
 

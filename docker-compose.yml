@@ -11,8 +11,6 @@ x-backend: &backend
     - ./.env:/config/.env
     - ./backend/pricing.yaml:/app/pricing.yaml
     - ./comfy-workflows:/config/comfy     # MiniMax H3 ComfyUI iş akışları (panelin Ayarlar sayfası yazar)
-  extra_hosts:
-    - "host.docker.internal:host-gateway"   # Google Flow köprüsü Mac'te (tools/flow_bridge); Linux'ta da çözülsün
   depends_on:
     postgres: { condition: service_healthy }
     redis:    { condition: service_healthy }
