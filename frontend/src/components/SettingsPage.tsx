@@ -22,6 +22,7 @@ const tone = (ok: boolean | null) => (ok === true ? "ok" : ok === false ? "bad" 
 function priceRows(id: Service["id"], t: PricingTable | undefined): [string, string][] {
   if (!t) return [];
   if (id === "elevenlabs") return [["Konuşma (1000 karakter)", usd(t.tts_per_1k_chars)]];
+  if (id === "flow") return [["Veo 3.1 Lite / Fast / Quality (çıktı başına)", "10 / 20 / 100 kredi · kredi x FLOW_USD_PER_CREDIT"]];
   if (id === "anthropic") return [["Girdi (1M token)", usd(t.llm_per_million_tokens.input)], ["Çıktı (1M token)", usd(t.llm_per_million_tokens.output)]];
   if (id === "runpod") {
     const rp = t.serverless?.runpod;

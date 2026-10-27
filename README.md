@@ -306,6 +306,29 @@ Google Flow'un (Veo 3.1) programla erişilen bir API'si yoktur ve kredileri yaln
 
 Flow kredisi abonelikten düşer; dolar bütçesine ve maliyet defterine hiçbir şey yazılmaz, hiçbir ücretli servis çağrılmaz. Flow 4, 6 ya da 8 sn üretir (Quality yalnızca 8); daha uzun çekim Flow'da uzatılır ya da kısa klip yüklenir. İstem Türkçe kalmışsa `PROMPT_TRANSLATION=on` yerel ve ücretsiz çeviriyi açar. Müşteriye teslimden önce Flow çıktılarının ticari kullanım ve filigran koşullarını kontrol et.
 
+### Google Flow ile doğrudan üretim (köprü)
+
+Storyboard sayfasındaki **Flow ile üret** düğmesi çekimleri Flow'a panelden gönderir. Flow'un API'si olmadığı ve Google girişi ile reCAPTCHA başsız tarayıcıda geçmediği için iş, Mac'te çalışan küçük bir köprüyle yapılır: `tools/flow_bridge/flow_bridge.py` (yalnızca Python standart kütüphanesi), gerçek bir Chrome penceresini süren [gflow-cli](https://github.com/ffroliva/gflow-cli)'yi (MIT) çağırır. Worker köprüye Docker'dan `host.docker.internal` ile ulaşır.
+
+> Uyarı: Google Flow'u otomasyonla sürmek Google'ın kullanım şartlarına aykırıdır; hesap kapanma riski düşük ama sıfır değildir (gflow-cli DISCLAIMER). İstersen bu iş için ayrı bir Google hesabı kullan.
+
+Kurulum (Mac, bir kez):
+
+```bash
+brew install uv                              # yoksa
+uv tool install gflow-cli
+gflow auth login --browser chrome            # açılan Chrome'da Flow aboneliğinin olduğu hesapla gir
+openssl rand -hex 24                         # belirteç üret, bir yere not et
+# belirteci Panel › Ayarlar › Google Flow'a yaz (FLOW_BRIDGE_TOKEN), sonra köprüyü başlat:
+make flow-bridge                             # açık kalsın (ayrı terminal); ya da: python3 tools/flow_bridge/flow_bridge.py --token <belirteç>
+```
+
+Panel › Ayarlar › **Google Flow (Veo 3.1)**: `FLOW_BRIDGE_TOKEN` aynı belirteç, `FLOW_BRIDGE_URL` `http://host.docker.internal:8765`, model (`veo-fast` önerilir). **Bağlantıyı sına** yalnızca köprünün sağlık ucunu okur, Flow'da üretim yapmaz. Köprüye Docker'dan ulaşılamıyorsa köprüyü `--host 0.0.0.0` ile başlat (belirteç yine zorunlu).
+
+Akış: her çekim için paket (stil kılavuzundan istem, Frames to Video için onaylı başlangıç/bitiş karesi ya da Ingredients to Video için en çok 3 referans) köprüye gider; köprü `gflow video i2v|r2v|t2v --count 1` çalıştırır ve klibi döner. Klip dış çekim olarak bağlanır: anomali kontrolü (siyah ya da donmuş klip reddedilir), ses, renk ve montaj kendiliğinden çalışır; önceki klipler silinmez. Köprü işleri sırayla yürütür (tek tarayıcı). Uçlar: `POST /api/projects/{id}/flow/run` (`quality`, `scope`, `scene_ids`) ve `POST /api/scenes/{id}/flow/run`.
+
+Bütçe ve kilit: ücretli kod `app/live/flow_bridge.py` içindedir ve `guard("flow_bridge_token")`ten geçer. Her çekim kredi × `FLOW_USD_PER_CREDIT` (varsayılan 0,02 $: AI Pro 19,99 $ / 1.000 kredi) tahminiyle rezervasyondan, Kill-Switch'ten ve sekans tavanından geçer; Flow kredi harcadıktan sonra hata olursa yeniden denenmez (çift harcama olmasın). Ücretsiz modda Flow çağrılmaz: aynı sürede yerel taslak üretilir, tutar sanal yazılır. Servis geçmişinde "Google Flow" olarak görünür.
+
 ## Renk aşaması ve süreklilik
 
 - **GRADE aşaması** dudak senkronu ile montaj arasında çalışır: önce film geneli 3B LUT (`.cube`, FFmpeg `lut3d`), sonra çekimin ayarı: pozlama (EV), kontrast, doygunluk, gama (FFmpeg `eq`) ve renk sıcaklığı (Kelvin; 6500 nötr, düşük değer ısıtır). Ayar ve LUT bir özet olarak planlayıcıya girer: yalnızca renk değişince yalnızca renk ve montaj çalışır, görüntü ve dudak senkronu çalışmaz. Nötr ayar ve LUT yoksa aşama hiç çalışmaz.

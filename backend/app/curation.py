@@ -53,7 +53,7 @@ ACTIONS_TR = {
     "sequence_edit": "Sekans düzenlendi", "track_change": "Film kanalı değişti", "track_remove": "Film kanalı kaldırıldı",
     "storyboard_prepare": "Storyboard kareleri istendi", "draft_pass": "Taslak geçiş", "upgrade_pass": "İyileştirme geçişi",
     "finish_pending": "Bekleyen çekimler klipleri korunarak tamamlandı",
-    "method_change": "Üretim yöntemi", "external_upload": "Dış çekim yüklendi", "guide_upload": "Previs rehberi yüklendi",
+    "flow_generate": "Google Flow ile üretim istendi", "method_change": "Üretim yöntemi", "external_upload": "Dış çekim yüklendi", "guide_upload": "Previs rehberi yüklendi",
     "grade_change": "Renk ayarı", "lut_change": "Film LUT'u", "continuity_check": "Süreklilik denetimi",
     "on_twos_change": "Kare tutma (on twos)",
     "voice_lock": "Sekansın sesi kilitlendi", "voice_unlock": "Sekansın ses kilidi açıldı",

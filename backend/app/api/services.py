@@ -50,6 +50,11 @@ SERVICES = {
     "elevenlabs": {"name": "ElevenLabs", "purpose": "Türkçe diyalog seslendirme", "key": "ELEVENLABS_API_KEY",
                    "console": "https://elevenlabs.io/app",
                    "used_by": ["Ses: diyalog kanalları (konuşma motoru elevenlabs iken)"]},
+    "flow": {"name": "Google Flow (Veo 3.1)", "purpose": "Video: Google Flow aboneliğinin kredileriyle, Mac'teki köprü üzerinden",
+             "key": "FLOW_BRIDGE_TOKEN", "console": "https://labs.google/fx/tools/flow",
+             "used_by": ["Storyboard: \"Flow ile üret\" (çekim başına bir klip; dış çekim olarak ses ve montaja girer)",
+                         "Köprü: tools/flow_bridge (gflow-cli, gerçek Chrome; Google hesabına bir kez giriş)",
+                         "Bütçe: kredi x kredi başına tahmini $ ile rezervasyon ve Kill-Switch"]},
     "anthropic": {"name": "Anthropic (Hermes)", "purpose": "Senaryo ayrıştırma (LLM modu)", "key": "ANTHROPIC_API_KEY",
                   "console": "https://console.anthropic.com",
                   "used_by": ["Senaryo: ayrıştırma (Hermes llm modundayken)"]},
@@ -74,6 +79,8 @@ def _active(service: str) -> bool:
         return settings.tts_engine == "elevenlabs" and has_key
     if service == "anthropic":
         return settings.hermes_mode == "llm" and has_key
+    if service == "flow":
+        return has_key and bool(settings.flow_bridge_url)
     return has_key
 
 
@@ -122,6 +129,8 @@ def _needed(service: str) -> tuple[bool, str]:
                        "storyboard karesi yerel çizilir ve dudak senkronu atlanır")
     if service == "elevenlabs" and settings.tts_engine != "elevenlabs":
         return False, f"konuşma motoru {settings.tts_engine}: ElevenLabs çağrılmaz, anahtar gerekmez"
+    if service == "flow" and not _key("FLOW_BRIDGE_TOKEN")["set"]:
+        return False, "isteğe bağlı: yalnızca Storyboard'daki \"Flow ile üret\" kullanır; köprü kurulmadıysa gerekmez"
     if service == "anthropic" and settings.hermes_mode != "llm":
         return False, "senaryo ayrıştırma kural tabanlı: Anthropic çağrılmaz, anahtar gerekmez"
     return True, ""
