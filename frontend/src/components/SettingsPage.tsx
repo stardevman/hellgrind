@@ -1,5 +1,5 @@
 "use client";
-/* Ayarlar: Kullanıcı / Yönetici seçimi (herkese açık) ve yönetici modunda ücretli servislerin bağlantıları (anahtar, model
+/* Ayarlar: bütçe ve durum (bütçe, çalışma modu, skor; herkese açık, varsayılan bölüm), Kullanıcı / Yönetici seçimi (herkese açık) ve yönetici modunda ücretli servislerin bağlantıları (anahtar, model
    ve uç noktalar, motor seçimi), ücretsiz/ücretli mod ve fiyat tablosu. Her şey .env (fiyatlar pricing.yaml) dosyasına
    yazılır ve servisler yeniden başlatılmadan geçerli olur. Anahtarlar yalnızca maskeli görünür; ücretli moda geçiş açık
    onay ister. Kullanıcı modunda /settings uçları çağrılmaz (yönetici şifresi tanımlıysa sunucu reddeder). */
@@ -14,7 +14,7 @@ import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, Replacement
 import { Icon } from "./icons";
 import { NoteBox, Panel, Section } from "./ui";
 
-type Sec = "view" | "mode" | Service["id"] | "pricing" | "audit";
+type Sec = "status" | "view" | "mode" | Service["id"] | "pricing" | "audit";
 
 const tone = (ok: boolean | null) => (ok === true ? "ok" : ok === false ? "bad" : "warn");
 
@@ -688,17 +688,71 @@ function ViewModeView() {
   );
 }
 
+/** Bütçe ve durum (eskiden alt banttaydı): harcanan / ayrılan / kalan, çalışma modu ve (yönetici) kalite skoru. */
+function StatusView() {
+  const { ov, meta, admin } = usePanel();
+  const p = ov?.project, q = meta?.quality;
+  return (
+    <Panel title="Bütçe ve durum" meta={meta ? (meta.dry_run ? "ücretsiz" : "ücretli") : undefined} tour="budget">
+      <div className="pad stack">
+        <div className={`note ${meta?.dry_run === false ? "err" : "ok"}`}>
+          {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" : "Ücretli mod açık: gerçek harcama yapılır"}
+        </div>
+        {p ? (() => {
+          const limit = p.budget_limit_usd || 1;
+          const pct = (x: number) => `${Math.min(100, (x / limit) * 100).toFixed(2)}%`;
+          const used = Math.round(((p.spent_usd + p.reserved_usd) / limit) * 100);
+          return (
+            <>
+              <h3 className="small">Bütçe: <span className="mono">{usd(p.spent_usd)} / {usd(p.budget_limit_usd)}</span></h3>
+              <span className="budget-meter" role="img" aria-label={`Bütçenin yüzde ${used} kadarı kullanıldı`}>
+                <i className="spent" style={{ width: pct(p.spent_usd) }} />
+                <i className="reserved" style={{ left: pct(p.spent_usd), width: pct(p.reserved_usd) }} />
+                <i className="soft" style={{ left: `${(p.settings.soft_budget_ratio * 100).toFixed(1)}%` }} />
+              </span>
+              <dl className="kv">
+                <dt>Harcanan</dt><dd className="mono">{usd(p.spent_usd)}{p.dry_run ? " (sanal)" : ""}</dd>
+                <dt>Ayrılan</dt><dd className="mono">{usd(p.reserved_usd)}</dd>
+                <dt>Kalan</dt><dd className="mono">{usd(Math.max(0, limit - p.spent_usd - p.reserved_usd))}</dd>
+                <dt>Limit</dt><dd className="mono">{usd(p.budget_limit_usd)}</dd>
+                <dt>Yumuşak sınır</dt><dd className="mono">{usd(limit * p.settings.soft_budget_ratio)}</dd>
+              </dl>
+              <p className="faint small">
+                {meta?.dry_run === false ? "Ücretli mod: gerçek harcama; limitte üretim durur." : "Ücretsiz mod: harcama sanaldır, gerçek sağlayıcı fiyatlarıyla hesaplanır."}
+                {" "}Yumuşak sınırdan sonra yeni tam dalga başlamaz.{p.soft_limited ? " Yumuşak sınır aşıldı." : ""}{p.frozen ? " Üretim durduruldu." : ""}
+              </p>
+            </>
+          );
+        })() : <p className="faint small">Bütçe bir proje açıldığında görünür.</p>}
+        {admin && q && (
+          <p className="small">
+            <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}>
+              {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
+            </span>{" "}
+            <span className="faint">{(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
+              : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? `: ${q.reason}` : "")}</span>
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 export function SettingsPage() {
   const { admin } = usePanel();
+  const [sec, setSec] = useState<"status" | "view">("status");
   if (admin) return <AdminSettings />;
   return (
     <div className="page two-l">
       <Panel title="Ayarlar">
         <div className="side-h">Görünüm</div>
-        <ul className="list"><li><button type="button" aria-current>Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li></ul>
+        <ul className="list">
+          <li><button type="button" aria-current={sec === "status"} onClick={() => setSec("status")}>Bütçe ve durum</button></li>
+          <li><button type="button" aria-current={sec === "view"} onClick={() => setSec("view")}>Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li>
+        </ul>
         <p className="pad faint small">Ücretli servisler, çalışma modu, fiyat tablosu ve değişiklik kaydı yönetici modunda görünür.</p>
       </Panel>
-      <ViewModeView />
+      {sec === "status" ? <StatusView /> : <ViewModeView />}
     </div>
   );
 }
@@ -707,7 +761,7 @@ function AdminSettings() {
   const { busy, setHistory } = usePanel();
   const { data: st, mutate } = useSWR<SettingsState>("/settings", fetcher, { refreshInterval: POLL_MS * 2 });
   const { data: prices } = useSWR<{ table: PricingTable }>("/settings/pricing", fetcher, { revalidateOnFocus: false });
-  const [sec, setSec] = useState<Sec>("mode");
+  const [sec, setSec] = useState<Sec>("status");
   if (!st) return <p className="loading">Yükleniyor…</p>;
   const refresh = () => { void mutate(); };
   const svc = st.services.find((s) => s.id === sec);
@@ -718,7 +772,10 @@ function AdminSettings() {
     <div className="page three">
       <Panel title="Ayarlar" meta="yönetici">
         <div className="side-h">Görünüm</div>
-        <ul className="list">{item("view", "Kullanıcı ve yönetici", <span className="st info">yönetici</span>)}</ul>
+        <ul className="list">
+          {item("status", "Bütçe ve durum", "")}
+          {item("view", "Kullanıcı ve yönetici", <span className="st info">yönetici</span>)}
+        </ul>
         <div className="side-h">Mod</div>
         <ul className="list">{item("mode", "Çalışma modu", <span className={`st ${st.dry_run ? "ok" : "bad"}`}>{st.dry_run ? "ücretsiz" : "ücretli"}</span>)}</ul>
         <div className="side-h">Servisler</div>
@@ -737,7 +794,8 @@ function AdminSettings() {
         </p>
       </Panel>
 
-      {sec === "view" ? <ViewModeView />
+      {sec === "status" ? <StatusView />
+        : sec === "view" ? <ViewModeView />
         : sec === "mode" ? <ModeView st={st} onSaved={refresh} />
         : svc ? <ServiceView key={svc.id} svc={svc} st={st} prices={prices?.table} onSaved={refresh} />
         : sec === "pricing" ? <PricingView onSaved={refresh} />

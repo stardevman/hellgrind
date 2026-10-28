@@ -51,7 +51,7 @@ describe("design contract", () => {
     expect(CSS).toMatch(/\.pg-i svg \{ width: 16px/);
     expect(CSS).not.toContain(".topbar");
     for (const sel of [".dock", ".pagebar", ".pb-l", ".pb-c", ".pb-r", ".pb-btn", ".pg[aria-current=\"page\"]", ".pg:disabled", ".pg .badge", ".pg .pdot",
-      ".todos-btn", ".todos-pop", ".td-item", ".td-ok", ".gchip", ".pm-card", ".pm-card.new", ".budget-chip",
+      ".todos-btn", ".todos-pop", ".td-item", ".td-ok", ".gchip", ".pm-card", ".pm-card.new", ".budget-meter",
       'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
     for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".appbar"]) expect(CSS).not.toContain(sel);
   });

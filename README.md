@@ -66,8 +66,9 @@ Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, 
 ev simgesi ve proje (dizi bölümüyse `Dizi › Sezon › Bölüm` kırıntısı). Ev simgesi ya da proje adı **Proje yöneticisini**
 açar (diziler sezon sezon, bağımsız filmler, "Yeni film", "Yeni dizi", sezon başına "Yeni bölüm", açık projeyi diziye
 bağlama ve silme); hiç proje yokken bu ekran kendiliğinden açılır. Sezon ve bölüm parçaları kendi menülerini yukarı açar. Ortada küçük simgeli sayfalar; sağda
-**Yapılacaklar**, bütçe göstergesi (tıklayınca harcanan, ayrılan, kalan ve yumuşak sınır), üretimi durdurma / devam ettirme
-simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli). Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
+**Yapılacaklar**, üretimi durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli).
+Bütçe (harcanan, ayrılan, kalan ve yumuşak sınır), çalışma modu ve skor rozeti **Ayarlar › Bütçe ve durum** bölümündedir;
+ücretli mod açıkken dişlide kırmızı nokta görünür. Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
 Görsel, Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
 onuncu sayfa <kbd>Shift</kbd>+<kbd>0</kbd>). Her
 sayfa her an açılır; yalnızca çekim
@@ -98,7 +99,7 @@ Yönetici modu `.env`'deki `ADMIN_PASSWORD` ile korunur: tanımlıysa **Yönetic
 hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazılamaz; `.env`'i elle düzenleyin. Boşsa yönetici
 modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
 
-Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, bütçe göstergesini ve Ayarlar düğmesini sırayla gösterir
+Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, Ayarlar'daki bütçe bölümünü ve Ayarlar düğmesini sırayla gösterir
 (<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
 
 Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca

@@ -139,7 +139,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pb-l > .crumbs { flex: 0 1 auto; }           /* yer daralınca önce proje adı kısalır */
 .pb-r { justify-content: flex-end; }
 .pb-c { min-width: 0; overflow: hidden; }
-.pb-btn { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border: 0; border-radius: 5px; background: none; color: var(--text-3); }
+.pb-btn { position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; border: 0; border-radius: 5px; background: none; color: var(--text-3); }
 .pb-btn svg { width: 16px; height: 16px; }
 .pb-btn:hover { color: var(--text); background: var(--hover); }
 .pb-btn[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
@@ -255,17 +255,12 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .tag.series { color: var(--accent); border-color: rgba(232, 120, 58, .45); }
 .series-up { display: grid; gap: 6px; padding: 8px 10px; margin: 0 10px 8px; border: 1px solid rgba(242, 199, 68, .35); border-radius: 6px; background: rgba(242, 199, 68, .07); }
 .series-up p { margin: 0; }
-.budget-wrap { position: relative; }
-.budget-chip { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 9px; flex: none; border: 1px solid var(--line-2); border-radius: 13px; background: var(--field); color: var(--text-2); font-size: 11.5px; white-space: nowrap; }
-.budget-chip:hover { color: var(--text); border-color: #5a5a62; }
-.budget-chip b { font-weight: 500; color: var(--text); }
-.budget-chip.soft { border-color: rgba(242, 199, 68, .5); } .budget-chip.frozen { border-color: rgba(255, 92, 85, .5); }
-.budget-chip .meter { position: relative; width: 56px; height: 5px; border-radius: 3px; background: var(--raised); border: 1px solid var(--line); overflow: hidden; }
-.budget-chip .meter i { position: absolute; top: 0; bottom: 0; left: 0; }
-.budget-chip .meter .spent { background: var(--accent); }
-.budget-chip .meter .reserved { background: repeating-linear-gradient(135deg, #f0a97a 0 3px, transparent 3px 6px); }
-.budget-chip .meter .soft { width: 1px; background: var(--warn); }
-.budget-pop { left: auto; right: 0; width: 280px; padding: 10px; }
+.budget-meter { position: relative; height: 8px; border-radius: 4px; background: var(--raised); border: 1px solid var(--line); overflow: hidden; }
+.budget-meter i { position: absolute; top: 0; bottom: 0; left: 0; }
+.budget-meter .spent { background: var(--accent); }
+.budget-meter .reserved { background: repeating-linear-gradient(135deg, #f0a97a 0 3px, transparent 3px 6px); }
+.budget-meter .soft { width: 1px; background: var(--warn); }
+.pb-btn .gdot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--bad); }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line-2); font-size: 11px; color: var(--text-2); white-space: nowrap; }
 .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .chip.free { color: var(--ok); border-color: rgba(61, 204, 145, .35); }
