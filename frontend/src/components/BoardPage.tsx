@@ -13,7 +13,6 @@ import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
 import type { DispatchAll, Film, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
 import { SafeAreas, SafeToggle } from "./Broadcast";
-import { FlowBridge } from "./FlowBridge";
 import { NoteBox, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
@@ -252,8 +251,6 @@ export function BoardPage() {
               </p>
             )}
             <NoteBox id="board" />
-            <FlowBridge scenes={scenes} />
-            <NoteBox id="flow" />
           </div>
           {!refMode && groups.filter((g) => g.scenes.length && g.scenes.some((x) => x.board_url)).map((g) => (
             <section key={`strip-${g.id}`} aria-label={`${g.title} zincir şeridi`}>

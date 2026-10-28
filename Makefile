@@ -1,4 +1,4 @@
-.PHONY: up down reset smoke test logs ps panel web-dev web-build web-test flow-bridge
+.PHONY: up down reset smoke test logs ps panel web-dev web-build web-test
 
 up:        ## Tüm servisleri derle ve başlat
 	docker compose up -d --build
@@ -17,9 +17,6 @@ web-build: ## Paneli statik olarak derle (frontend/out); imaj bunu kendisi yapar
 
 web-test:  ## Panelin tip denetimi ve birim testleri (Node 22)
 	cd frontend && npm ci && npm run typecheck && npm test
-
-flow-bridge: ## Google Flow köprüsü (Mac'te; gflow-cli ve bir kez "gflow auth login --browser chrome" gerekir). Belirteç .env'deki FLOW_BRIDGE_TOKEN
-	FLOW_BRIDGE_TOKEN="$$(grep -E '^FLOW_BRIDGE_TOKEN=' .env | cut -d= -f2-)" python3 tools/flow_bridge/flow_bridge.py
 
 panel:     ## Paneli tarayıcıda aç (macOS/Linux)
 	@python3 -m webbrowser http://localhost:8000 || true

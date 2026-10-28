@@ -239,7 +239,6 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "timeline_failed": return { t: `Film birleştirilemedi: ${x.error}`, c: "bad" };
     case "blocked": return { t: `${where}engellendi, eksik referans: ${(x.missing || []).join(", ")}`, c: "bad" };
     case "lint_warning": return { t: `${where}uyarı, onaysız referans: ${(x.missing || []).join(", ")}` };
-    case "flow_clip": return { t: `${x.code}: Google Flow klibi geldi (${x.model}, ~${x.credits} kredi${x.dry_run ? "; ücretsiz modda yerel taslak" : ""})`, c: "good" };
     case "motion_test": return { t: `Hareket testi ${x.ok ? "temiz" : "kusurlu (" + (x.anomalies || []).join(", ") + ")"}`, c: x.ok ? "good" : "bad" };
     case "sequence_capped": return { t: `${x.code} sekansı bütçe tavanına ulaştı (${usd(x.spent)} / ${usd(x.cap)}); diğer sekanslar sürüyor`, c: "bad" };
     case "sequence_reopened": return { t: `${x.code} sekansı yeniden açıldı`, c: "good" };

@@ -535,7 +535,7 @@ export interface ServiceField {
 }
 
 export interface Service {
-  id: "runpod" | "vast" | "fal" | "elevenlabs" | "flow" | "anthropic"; name: string; key_env: string; purpose: string; console: string; used_by: string[];
+  id: "runpod" | "vast" | "fal" | "elevenlabs" | "anthropic"; name: string; key_env: string; purpose: string; console: string; used_by: string[];
   fields: ServiceField[]; active: boolean; key_set: boolean;
   /** Gerçek harcama; sanal (ücretsiz mod) ve modu bilinmeyen ayrı. */
   spent_usd: number; virtual_usd: number; unknown_usd: number;

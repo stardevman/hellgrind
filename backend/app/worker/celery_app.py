@@ -17,7 +17,6 @@ celery.conf.update(
     task_routes={
         "hg.generate_scene": {"queue": "gen"},
         "hg.override_full": {"queue": "gen"},
-        "hg.flow_scene": {"queue": "gen"},           # Google Flow köprüsü (köprü işleri sırayla yürütür)
         "hg.motion_test": {"queue": "gen"},
         "hg.studio_image": {"queue": "gen"},        # görsel stüdyosu
         "hg.storyboard_scene": {"queue": "gen"},

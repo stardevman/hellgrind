@@ -134,17 +134,6 @@ def generate_scene(self, project_id: str, scene_id: str, mode: str = "full", bat
             batch_done(batch, scene_id, ok)
 
 
-@celery.task(bind=True, name="hg.flow_scene")
-def flow_scene(self, project_id: str, scene_id: str, quality: str | None = None):
-    """Google Flow ile tek klip (köprü); klip dış çekim olarak bağlanır, ses ve montaj kuyruğa girer."""
-    release_dispatch(scene_id)
-
-    def work():
-        from app.engine.flow_run import run_scene
-        return run_scene(project_id, scene_id, quality)
-    return _guard(self, project_id, scene_id, work)
-
-
 @celery.task(bind=True, name="hg.override_full")
 def override_full(self, project_id: str, scene_id: str, variation_id: str):
     """Yönetmen seçimi: seçilen adayın seed'iyle tam tur klibi (iteration.run_override_full)."""
