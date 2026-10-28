@@ -259,7 +259,7 @@ Stil, Görsel, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Ku
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
 solda ev simgesi ve `Dizi › Sezon › Bölüm` kırıntısı (ikisi de **Proje yöneticisini** açar; proje hiç yokken
 yönetici kendiliğinden açılır ve kapatılamaz) ve yönetici rozetleri; ortada küçük simgeli
-sayfa menüsü (`Pages`); sağda **Yapılacaklar**, bütçe çipi, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi. Uyarılar bandın
+sayfa menüsü (`Pages`); sağda **Yapılacaklar**, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi (bütçe göstergesi, çalışma modu ve skor rozeti Ayarlar › **Bütçe ve durum**dadır; ücretli mod açıkken dişlide kırmızı nokta durur). Uyarılar bandın
 hemen üstünde, menüler yukarı açılır. Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
 çekim gerektirenler senaryo işlenene dek kapalıdır; simgenin köşesindeki rozet sayfanın özetidir, nokta bekleyen iş olduğunu
 söyler. Eksikler arka planda dört üretim grubuna göre hesaplanır (`lib/steps.ts`: hazırlık, onay, üretim, bitirme) ama
@@ -272,8 +272,8 @@ rozetleri, motor ve plan ayrıntıları, tamamlama ve upscale, elle düzeltme ve
 ister (`app/admin.py`); şifre panelden yazılamaz. **Rehber**: ilk açılışta kendiliğinden başlayan, `data-tour` hedeflerine
 bağlı tur (`lib/tour.ts`, `components/Tour.tsx`). Denetçi üç sekmedir: Çekim, Ses, Üretim. İşlevler ve metinler aşağıdaki
 gibidir:
-- **Alt bant:** marka, proje kırıntısı, "Yeni proje" (kırıntı menüsü ve Proje yöneticisi) ve (yönetici modunda) "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi.
-- **Bütçe rayı:** harcanan ve ayrılan tutar; "Üretimi durdur" ve "Üretime devam et" düğmeleri; dondurulmuşsa uyarı bandı.
+- **Alt bant:** marka, proje kırıntısı ve "Yeni proje" (kırıntı menüsü ve Proje yöneticisi). "Ücretsiz mod: hiçbir ücretli servis çağrılmaz" etiketi Ayarlar › Bütçe ve durum sayfasındadır.
+- **Bütçe:** harcanan ve ayrılan tutar Ayarlar › Bütçe ve durum sayfasında; "Üretimi durdur" ve "Üretime devam et" alt bantta; dondurulmuşsa uyarı bandı.
 - **Sahne satırları:** kod, durum, açıklama, **film şeridi** ve harcama.
   - Şeritte test turu karelerinden sonra tam tur kareleri gelir.
   - Rafine kareler yeşil çerçeveli ve numaralı; kalite kontrolünde elenenler kırmızı çapraz çizgili ve gri; havuza giremeyenler soluk; üretilenler nefes alan amber renkte.

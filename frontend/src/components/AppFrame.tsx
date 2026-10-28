@@ -2,7 +2,8 @@
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
    gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
    kendiliğinden açılır); ortada küçük simgeli sayfa menüsü; sağda
-   Yapılacaklar, bütçe, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar. Uyarılar bandın hemen üstünde, menüler yukarı
+   Yapılacaklar, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
+   açıkken dişlide kırmızı nokta durur). Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
    yapmak için gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici
@@ -11,7 +12,6 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactEle
 import { api } from "@/lib/api";
 import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
 import { lockLabel } from "@/lib/series";
-import { usd } from "@/lib/text";
 import { AssetsPage } from "./AssetsPage";
 import { ImagesPage } from "./ImagesPage";
 import { BoardPage } from "./BoardPage";
@@ -30,7 +30,7 @@ import { Todos } from "./Todos";
 import { StylePage } from "./StylePage";
 import { VoicePage } from "./VoicePage";
 import { Tour } from "./Tour";
-import { shortcutTarget, useDismiss } from "./ui";
+import { shortcutTarget } from "./ui";
 
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
   script: ScriptPage, voice: VoicePage, style: StylePage, images: ImagesPage, assets: AssetsPage, board: BoardPage, edit: EditPage, compare: ComparePage,
@@ -39,50 +39,8 @@ const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
 
 const Waiting = () => <p className="loading">Yükleniyor…</p>;
 
-function BudgetChip() {
-  const { ov, meta } = usePanel();
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => setOpen(false), []);
-  useDismiss(open, close, box);
-  if (!ov) return null;
-  const p = ov.project, limit = p.budget_limit_usd || 1;
-  const left = Math.max(0, limit - p.spent_usd - p.reserved_usd);
-  const pct = (x: number) => `${Math.min(100, (x / limit) * 100).toFixed(2)}%`;
-  const used = Math.round(((p.spent_usd + p.reserved_usd) / limit) * 100);
-  return (
-    <div className="budget-wrap" ref={box} data-tour="budget">
-      <button type="button" className={`budget-chip${p.soft_limited ? " soft" : ""}${p.frozen ? " frozen" : ""}`} aria-haspopup="dialog" aria-expanded={open}
-        onClick={() => setOpen((v) => !v)} title={`Bütçenin yüzde ${used} kadarı harcandı ya da ayrıldı${p.dry_run ? " (sanal)" : ""}`}>
-        <span className="meter" role="img" aria-label={`Bütçenin yüzde ${used} kadarı kullanıldı`}>
-          <i className="spent" style={{ width: pct(p.spent_usd) }} />
-          <i className="reserved" style={{ left: pct(p.spent_usd), width: pct(p.reserved_usd) }} />
-          <i className="soft" style={{ left: `${(p.settings.soft_budget_ratio * 100).toFixed(1)}%` }} />
-        </span>
-        <span className="mono"><b>{usd(p.spent_usd)}</b> / {usd(p.budget_limit_usd)}</span>
-      </button>
-      {open && (
-        <div className="menu budget-pop" role="dialog" aria-label="Bütçe">
-          <dl className="kv">
-            <dt>Harcanan</dt><dd className="mono">{usd(p.spent_usd)}{p.dry_run ? " (sanal)" : ""}</dd>
-            <dt>Ayrılan</dt><dd className="mono">{usd(p.reserved_usd)}</dd>
-            <dt>Kalan</dt><dd className="mono">{usd(left)}</dd>
-            <dt>Limit</dt><dd className="mono">{usd(p.budget_limit_usd)}</dd>
-            <dt>Yumuşak sınır</dt><dd className="mono">{usd(limit * p.settings.soft_budget_ratio)}</dd>
-          </dl>
-          <p className="faint small mt8">
-            {meta?.dry_run === false ? "Ücretli mod: gerçek harcama; limitte üretim durur." : "Ücretsiz mod: harcama sanaldır, gerçek sağlayıcı fiyatlarıyla hesaplanır."}
-            {" "}Yumuşak sınırdan sonra yeni tam dalga başlamaz.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => void }) {
   const { projectId, page, setPage, meta, ov, act, setHistory, admin } = usePanel();
-  const q = meta?.quality;
   const frozen = Boolean(ov?.project.frozen);
   const frozenReason = (ov?.events.find((e) => e.kind === "frozen") as { reason?: string } | undefined)?.reason;
   const [confirmStop, setConfirmStop] = useState(false);
@@ -95,25 +53,10 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
           <button type="button" className="pb-btn" onClick={onManager} aria-label="Proje yöneticisi" data-tour="home"
             title="Proje yöneticisi: diziler, bölümler ve bağımsız filmler; yeni proje"><Icon.home /></button>
           <Breadcrumb onOpenManager={onManager} />
-          {admin && (
-            <button type="button" className={`chip ${meta ? (meta.dry_run ? "free" : "paid") : ""}`} style={{ background: "none", cursor: "pointer" }}
-              title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır" : "Ücretsiz mod: hiçbir ücretli servis çağrılmaz") + " — Ayarlar"}
-              onClick={() => setPage("settings")}>
-              {!meta ? "Mod yükleniyor…" : meta.dry_run ? "Ücretsiz mod" : "Ücretli mod açık"}
-            </button>
-          )}
-          {admin && q && (
-            <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}
-              title={(q.mode === "dry" ? "Kalite skoru: sahte (ücretsiz mod)"
-                : q.ready ? "Kalite skoru: gerçek (OpenCLIP + SFace)" : "Kalite skoru: gerçek skorlayıcı kullanılamıyor") + (q.reason ? ` — ${q.reason}` : "")}>
-              {q.mode === "dry" ? "Skor: sahte" : q.ready ? "Skor: gerçek" : "Skor: kullanılamıyor"}
-            </span>
-          )}
         </div>
         <Pages hasShots={hasShots} />
         <div className="pb-r">
           <Todos />
-          <BudgetChip />
           {admin && (
             <button type="button" className="pb-btn" aria-current={page === "history" ? "page" : undefined}
               onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"
@@ -133,7 +76,10 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
           )}
           <button type="button" className="pb-btn" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
             aria-label="Ayarlar" data-tour="settings"
-            title={admin ? "Ayarlar: kullanıcı / yönetici seçimi, ücretli servisler, mod ve fiyat tablosu" : "Ayarlar: kullanıcı / yönetici seçimi"}><Icon.gear /></button>
+            title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır. " : "")
+              + (admin ? "Ayarlar: bütçe, çalışma modu ve skor; kullanıcı / yönetici seçimi, ücretli servisler ve fiyat tablosu" : "Ayarlar: bütçe ve kullanıcı / yönetici seçimi")}>
+            <Icon.gear />{meta?.dry_run === false && <i className="gdot" aria-hidden />}
+          </button>
         </div>
       </div>
       {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
