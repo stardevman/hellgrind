@@ -92,12 +92,15 @@ esac
 T0=$(date +%s)
 step "== Modeller (${#JOBS[@]} dosya) =="
 FAILED="$LOGDIR/.failed"; : > "$FAILED"
+PIDS=()
 for job in "${JOBS[@]}"; do
   while [ "$(jobs -rp | wc -l)" -ge "$PARALLEL" ]; do sleep 2; done
   # shellcheck disable=SC2086
   (fetch $job || echo "$job" >> "$FAILED") &
+  PIDS+=($!)
 done
-wait
+# Yalnızca indirmeleri bekle: çıplak `wait` (bash 5.1+) baştaki `exec > >(tee ...)` sürecini de bekler ve hiç bitmez.
+wait "${PIDS[@]}"
 step "== Modeller bitti ($(( $(date +%s) - T0 )) sn) =="
 TOTAL=$(du -sb "$M" 2>/dev/null | cut -f1)
 step "volume'daki modeller: $(( ${TOTAL:-0} / 1073741824 )) GB; boş: $(df -BG --output=avail "$VOLUME" | tail -1 | tr -d ' ')"
