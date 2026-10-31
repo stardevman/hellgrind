@@ -313,7 +313,7 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                              and sc.engine != fal_plan.final_engine(cfg),
         "sequence_id": str(sc.sequence_id) if sc.sequence_id else None,
         "board_status": sc.board_status, "board_note": sc.board_note, "board_url": _media(sc.board_key, sc.board_sha or sc.board_hash),
-        "upgrade_requested": sc.upgrade_requested, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
+        "upgrade_requested": sc.upgrade_requested, "in_cut": sc.in_cut is not False, "cut_tier": sc.cut_tier, "draft_url": _media(sc.draft_video_key),
         "method": sc.method, "method_hint": suggest_method(sc), "external_url": _media(sc.external_key),
         "h3_mode": effective_mode(sc, refs[sc.id], shot_assets(sc.id)),
         "h3_mode_explicit": sc.h3_mode,
@@ -493,7 +493,7 @@ def assemble(project_id: ProjectId, kind: Literal["final", "draft"] = "final", s
     Para harcamaz: donmuş projede de çalışır."""
     project_or_404(s, project_id)
     rows = s.execute(select(Scene.status, Scene.final_video_key, Scene.draft_video_key)
-                     .where(Scene.project_id == project_id)).all()
+                     .where(Scene.project_id == project_id, Scene.in_cut.is_not(False))).all()
     count = sum(1 for st, final, draft in rows
                 if (st == "done" and final) or (kind == "draft" and draft))
     if not count:

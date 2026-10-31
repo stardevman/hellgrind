@@ -26,6 +26,7 @@ log = logging.getLogger("hellgrind.curation")
 # Spesifikasyonun adlandırdığı eylemler (panelde ve dışa aktarımda bu adlarla) ve diğer panel eylemleri.
 ACTIONS_TR = {
     "promote": "Rafine havuzdan seçim", "upgrade_request": "İyileştirme işareti", "upgrade_cancel": "İyileştirme işareti kaldırıldı",
+    "cut_exclude": "Çekim filmden çıkarıldı", "cut_include": "Çekim filme geri alındı",
     "board_approve": "Kare onayı", "board_reject": "Kare için değişiklik isteği", "board_reset": "Kare kararı geri alındı",
     "episode_create": "Sezona yeni bölüm eklendi", "episode_place": "Bölüm sezona yerleştirildi",
     "series_asset_create": "Dizi kütüphanesine varlık eklendi", "series_asset_link": "Dizi varlığı bölüme bağlandı",
@@ -75,7 +76,7 @@ ACTIONS_TR = {
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
 QUERY_FIELDS = ("kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")
 RESULT_FIELDS = ("stages", "blocked", "awaiting_board", "awaiting_plan", "plan_hash", "total_usd", "status", "version", "method", "regraded", "drafted", "planned",
-                 "unblocked", "active_version", "upgrade_requested", "board_status")
+                 "unblocked", "active_version", "upgrade_requested", "in_cut", "board_status")
 
 
 def _plain(value):

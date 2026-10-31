@@ -175,6 +175,7 @@ class Scene(Base):
     keyframe_key: Mapped[str | None] = mapped_column(Text)                  # yönetmenin yüklediği ilk kare
     keyframe_hash: Mapped[str | None] = mapped_column(Text)
     upgrade_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    in_cut: Mapped[bool] = mapped_column(Boolean, default=True)            # False: yönetmen filmden çıkardı (montaj atlar)
     cut_tier: Mapped[str | None] = mapped_column(Text)                     # draft | final
     draft_video_key: Mapped[str | None] = mapped_column(Text)
     method: Mapped[str] = mapped_column(Text, default="generate")          # generate | previs_guide | external

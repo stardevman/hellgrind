@@ -27,7 +27,7 @@ from app.curation import curated
 from app.db import get_session
 from app.engine.storyboard import build_pdf, dialogue_of
 from app.models import Scene, Sequence
-from app.schemas import BoardIn, UpgradeIn
+from app.schemas import BoardIn, CutIn, UpgradeIn
 from app.style import bible
 from app.worker.dispatch import build_chain
 
@@ -397,6 +397,18 @@ def flag_upgrade(scene_id: SceneId, body: UpgradeIn, s: Session = Depends(get_se
     sc.upgrade_requested = body.requested
     s.commit()
     return {"scene_id": scene_id, "upgrade_requested": sc.upgrade_requested}
+
+
+@router.post("/scenes/{scene_id}/cut")
+@curated(lambda kw, r: "cut_include" if kw["body"].included else "cut_exclude")
+def set_in_cut(scene_id: SceneId, body: CutIn, s: Session = Depends(get_session)):
+    """Çekimi filmden çıkarır ya da geri alır. Video ve kayıtlar silinmez; montaj, kaba kurgu ve dışa aktarma
+    (EDL, OTIO, paket) yalnızca dahil çekimleri kullanır. Para harcamaz; filmi yeniden birleştirmek panelden yapılır."""
+    sc = scene_or_404(s, scene_id)
+    sc.in_cut = body.included
+    s.commit()
+    killswitch.event(str(sc.project_id), "cut_include" if body.included else "cut_exclude", scene=sc.scene_code)
+    return {"scene_id": scene_id, "in_cut": sc.in_cut}
 
 
 @router.post("/projects/{project_id}/draft-pass")

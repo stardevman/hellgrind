@@ -96,6 +96,11 @@ function Shot({ sc }: { sc: Scene }) {
     const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
     note("inspector", r.upgrade_requested ? `${sc.scene_code} iyileştirme geçişine alınacak.` : `${sc.scene_code} işareti kaldırıldı.`, "ok");
   }, "inspector");
+  const toggleCut = () => act(async () => {
+    const r = await api.post<{ in_cut: boolean }>(`/scenes/${sc.id}/cut`, { included: sc.in_cut === false });
+    note("inspector", r.in_cut ? `${sc.scene_code} filme geri alındı. Filmi yeniden birleştirince görünür.`
+      : `${sc.scene_code} filmden çıkarıldı; videosu silinmedi. Filmi yeniden birleştirince export'ta yer almaz.`, "ok");
+  }, "inspector");
   return (
     <Section title="Çekim" meta={<StatusDot status={sc.status} />}>
       <p>{sc.description}</p>
@@ -212,6 +217,10 @@ function Shot({ sc }: { sc: Scene }) {
             {sc.upgrade_requested ? "İyileştirilecek" : "İyileştir"}
           </button>
         )}
+        <button className="btn" type="button" aria-pressed={sc.in_cut === false} disabled={busy} onClick={toggleCut}
+          title="Video ve kayıtlar silinmez; montaj, kaba kurgu ve dışa aktarma yalnızca filmdeki çekimleri kullanır">
+          {sc.in_cut === false ? "Filme geri al" : "Filmden çıkar"}
+        </button>
       </div>
       {sc.upgrade_available && <UpgradeBox key={sc.id} sc={sc} plan={plan} />}
     </Section>

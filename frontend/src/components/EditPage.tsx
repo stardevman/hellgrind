@@ -208,7 +208,7 @@ function ShotBin({ onPick }: { onPick: () => void }) {
                 {g.scenes.map((sc) => {
                   const th = posterOf(sc);
                   return (
-                    <button key={sc.id} type="button" className="bin-row" aria-current={scene?.id === sc.id} onClick={() => selectScene(sc.id)}
+                    <button key={sc.id} type="button" className={`bin-row${sc.in_cut === false ? " out" : ""}`} aria-current={scene?.id === sc.id} onClick={() => selectScene(sc.id)}
                       aria-label={`${sc.scene_code} çekimini seç`}>
                       {th ? <img className="th" src={th} alt="" loading="lazy" /> : <span className="th" />}
                       <span style={{ minWidth: 0 }}>
@@ -221,6 +221,7 @@ function ShotBin({ onPick }: { onPick: () => void }) {
                         {sc.cut_tier === "draft" && <span className="tag warn">Taslak</span>}
                         {sc.engine_disabled && <span className="tag bad" title="MiniMax H3 (RunPod) kapalı: denetçiden H3 Max'e geçin">Motor kapalı</span>}
                         {sc.upgrade_requested && <span className="tag info">İyileştirilecek</span>}
+                        {sc.in_cut === false && <span className="tag" title="Montaj ve dışa aktarma bu çekimi atlar">Filmde yok</span>}
                         {sc.generation && <span className="tag warn" title={`${sc.generation.message} Farklı üretimden: ${sc.generation.mismatched.join(", ")}.`}>karma üretim</span>}
                       </span>
                     </button>
@@ -453,7 +454,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
   }, [pos]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ov) return null;
   const jumps = new Set((ov.project.continuity?.pairs ?? []).filter((p) => p.jump).map((p) => p.to));
-  const done = ov.scenes.filter((s) => s.status === "done").length;
+  const done = ov.scenes.filter((s) => s.status === "done" && s.in_cut !== false).length;
   const assemble = () => act(async () => {
     await api.post(`/projects/${projectId}/assemble`);
     setAssembling({ before: ov.timeline?.url ?? null, at: Date.now() });
@@ -513,12 +514,12 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
             <div className="trk vid">
               {lay.shots.map(({ scene: sc, start, end }) => {
                 const th = posterOf(sc);
-                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : "", sc.generation ? "mixed" : "", dropOn === sc.id ? "drop" : ""].filter(Boolean).join(" ");
+                const cls = ["clip", "vid", sc.status === "blocked" ? "blocked" : "", WORKING.has(sc.status) ? "work" : "", jumps.has(sc.scene_code) ? "jump" : "", sc.generation ? "mixed" : "", sc.in_cut === false ? "out" : "", dropOn === sc.id ? "drop" : ""].filter(Boolean).join(" ");
                 const extra = [sc.generation ? "karma üretim" : "", sc.split?.warning ?? ""].filter(Boolean).join(" · ");
                 return (
                   <button key={sc.id} type="button" className={cls} aria-current={scene?.id === sc.id}
                     style={{ left: x(start), width: Math.max(4, x(end - start) - 2), ["--clip" as string]: EMOTION_COLOR[sc.emotion] || "#6b6f78" }}
-                    title={`${sc.scene_code} · ${sc.description ?? ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}
+                    title={`${sc.scene_code} · ${sc.description ?? ""}${sc.in_cut === false ? " · filmde yok" : ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}
                     onDragOver={(e) => { if (e.dataTransfer.types.includes("text/x-hg-variation")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropOn !== sc.id) setDropOn(sc.id); } }}
                     onDragLeave={() => { if (dropOn === sc.id) setDropOn(null); }} onDrop={(e) => drop(sc, e)}>
                     {th && <img src={th} alt="" loading="lazy" />}

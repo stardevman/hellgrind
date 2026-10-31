@@ -8,3 +8,4 @@ samples/
 *.wav
 .DS_Store
 .venv/
+dump.rdb

@@ -192,6 +192,38 @@ def test_only_finished_scenes_enter_the_film(film):
     assert [c["description"] for c in cutlist(assemble(film.pid))["clips"]] == ["girer"]
 
 
+def test_a_shot_taken_out_of_the_cut_is_skipped_and_comes_back_unchanged(film, api, monkeypatch):
+    film("red", desc="birinci")
+    out, _, _ = film("green", desc="çıkarılan")
+    film("blue", desc="üçüncü")
+    whole = assemble(film.pid)
+    queued = []
+    from app.worker import tasks
+    monkeypatch.setattr(tasks.assemble_timeline, "delay", lambda *a: queued.append(a))
+
+    assert api.post(f"/api/scenes/{out}/cut", json={"included": False}).json()["in_cut"] is False
+    cut = assemble(film.pid)
+    assert [c["description"] for c in cutlist(cut)["clips"]] == ["birinci", "üçüncü"] and cut["key"] != whole["key"]
+    assert api.post(f"/api/projects/{film.pid}/assemble").json()["scenes"] == 2      # sayım da çıkarılanı atlar
+    with session_scope() as s:
+        assert s.execute(text("SELECT final_video_key IS NOT NULL FROM scenes WHERE id = :i"), {"i": out}).scalar()
+        actions = s.execute(text("SELECT action FROM curation_events WHERE scene_id = :i"), {"i": out}).scalars().all()
+    assert actions == ["cut_exclude"]
+
+    assert api.post(f"/api/scenes/{out}/cut", json={"included": True}).json()["in_cut"] is True
+    assert assemble(film.pid)["key"] == whole["key"]                                   # aynı film, yeniden kodlanmadan
+
+
+def test_a_shot_out_of_the_cut_does_not_hold_back_the_automatic_assembly(film):
+    from app.worker.tasks import not_ready
+    film("red")
+    waiting, _, _ = film("green", status="needs_review")
+    assert not_ready(film.pid) == ["S002_SH01"]
+    with session_scope() as s:
+        s.execute(text("UPDATE scenes SET in_cut = false WHERE id = :i"), {"i": waiting})
+    assert not_ready(film.pid) == []
+
+
 def test_scenes_of_other_projects_never_enter_the_film(film, mk_project):
     other = mk_project()
     film("red", desc="benim")

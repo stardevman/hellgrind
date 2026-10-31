@@ -263,7 +263,8 @@ def not_ready(project_id: str) -> list[str]:
     from app.models import Scene as SceneRow
     with session_scope() as s:
         return [code for code, status in s.execute(select(SceneRow.scene_code, SceneRow.status)
-                                                   .where(SceneRow.project_id == project_id)
+                                                   .where(SceneRow.project_id == project_id,
+                                                          SceneRow.in_cut.is_not(False))   # filmden çıkarılanı beklemez
                                                    .order_by(SceneRow.seq_order)) if status != "done"]
 
 
