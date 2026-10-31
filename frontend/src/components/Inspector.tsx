@@ -15,6 +15,7 @@ import { approveText, clock, dispatchedText, gateLines, planWarnings, promptSour
 import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, RevisionList, Scene, SceneAssetRef, PromptRerender, PromptWriteResult, SceneEnginePlan, SceneEngineResult, Sequence, ShotEnginePlan, ShotEngineResult, StageResult, UpgradeFinal, Variation } from "@/lib/types";
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
+import { toggleCut } from "./ShotMenu";
 
 export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
   const { gotoAsset } = usePanel();
@@ -95,11 +96,6 @@ function Shot({ sc }: { sc: Scene }) {
   const upgrade = () => act(async () => {
     const r = await api.post<{ upgrade_requested: boolean }>(`/scenes/${sc.id}/upgrade`, { requested: !sc.upgrade_requested });
     note("inspector", r.upgrade_requested ? `${sc.scene_code} iyileştirme geçişine alınacak.` : `${sc.scene_code} işareti kaldırıldı.`, "ok");
-  }, "inspector");
-  const toggleCut = () => act(async () => {
-    const r = await api.post<{ in_cut: boolean }>(`/scenes/${sc.id}/cut`, { included: sc.in_cut === false });
-    note("inspector", r.in_cut ? `${sc.scene_code} filme geri alındı. Filmi yeniden birleştirince görünür.`
-      : `${sc.scene_code} filmden çıkarıldı; videosu silinmedi. Filmi yeniden birleştirince export'ta yer almaz.`, "ok");
   }, "inspector");
   return (
     <Section title="Çekim" meta={<StatusDot status={sc.status} />}>
@@ -217,8 +213,8 @@ function Shot({ sc }: { sc: Scene }) {
             {sc.upgrade_requested ? "İyileştirilecek" : "İyileştir"}
           </button>
         )}
-        <button className="btn" type="button" aria-pressed={sc.in_cut === false} disabled={busy} onClick={toggleCut}
-          title="Video ve kayıtlar silinmez; montaj, kaba kurgu ve dışa aktarma yalnızca filmdeki çekimleri kullanır">
+        <button className="btn" type="button" aria-pressed={sc.in_cut === false} disabled={busy} onClick={() => void toggleCut(sc, act, note)}
+          title="Video ve kayıtlar silinmez; montaj, kaba kurgu ve dışa aktarma yalnızca filmdeki çekimleri kullanır (kısayol X; çekime sağ tıklayarak da)">
           {sc.in_cut === false ? "Filme geri al" : "Filmden çıkar"}
         </button>
       </div>

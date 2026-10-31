@@ -14,6 +14,7 @@ import { clock, dispatchText, eventText, tileSpec, usd, usdTr } from "@/lib/text
 import { noteAt } from "@/lib/client";
 import { qcMarks } from "@/lib/delivery";
 import { FPS, filmToTimeline, layout, rulerStep, timecode, timelineToFilm, type Layout } from "@/lib/timeline";
+import { toggleCut, useShotMenu } from "./ShotMenu";
 import type { DispatchAll, PromoteResult, RenderPlan, Scene, Variation } from "@/lib/types";
 import { SafeAreas, SafeToggle } from "./Broadcast";
 import { Icon } from "./icons";
@@ -143,6 +144,7 @@ function ClientNotes() {
 function ShotBin({ onPick }: { onPick: () => void }) {
   const { ov, scene, selectScene, projectId, busy, frozen, act, note } = usePanel();
   const [tab, setTab] = useState<"shots" | "takes" | "events" | "notes">("takes");
+  const [openMenu, menu] = useShotMenu();
   if (!ov) return null;
   const codes = Object.fromEntries(ov.scenes.map((s) => [s.id, s.scene_code]));
   const groups = ov.sequences.map((q) => ({ q, scenes: ov.scenes.filter((s) => s.sequence_id === q.id) }))
@@ -209,6 +211,7 @@ function ShotBin({ onPick }: { onPick: () => void }) {
                   const th = posterOf(sc);
                   return (
                     <button key={sc.id} type="button" className={`bin-row${sc.in_cut === false ? " out" : ""}`} aria-current={scene?.id === sc.id} onClick={() => selectScene(sc.id)}
+                      onContextMenu={(e) => openMenu(e, sc)}
                       aria-label={`${sc.scene_code} çekimini seç`}>
                       {th ? <img className="th" src={th} alt="" loading="lazy" /> : <span className="th" />}
                       <span style={{ minWidth: 0 }}>
@@ -232,6 +235,7 @@ function ShotBin({ onPick }: { onPick: () => void }) {
           </>
         )}
       </div>
+      {menu}
     </section>
   );
 }
@@ -411,6 +415,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
 }) {
   const { ov, scene, projectId, busy, act, note, setAssembling, setVar } = usePanel();
   const scroller = useRef<HTMLDivElement>(null);
+  const [openMenu, menu] = useShotMenu();
   const [dropOn, setDropOn] = useState<string | null>(null);
   const readDrag = (e: DragEvent) => { try { return JSON.parse(e.dataTransfer.getData("text/x-hg-variation") || "null") as { scene: string; variation: string } | null; } catch { return null; } };
   const drop = (sc: Scene, e: DragEvent) => {
@@ -519,7 +524,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
                 return (
                   <button key={sc.id} type="button" className={cls} aria-current={scene?.id === sc.id}
                     style={{ left: x(start), width: Math.max(4, x(end - start) - 2), ["--clip" as string]: EMOTION_COLOR[sc.emotion] || "#6b6f78" }}
-                    title={`${sc.scene_code} · ${sc.description ?? ""}${sc.in_cut === false ? " · filmde yok" : ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)}
+                    title={`${sc.scene_code} · ${sc.description ?? ""}${sc.in_cut === false ? " · filmde yok" : ""}${extra ? ` · ${extra}` : ""}`} aria-label={`${sc.scene_code} çekimine git${sc.generation ? " (karma üretim)" : ""}`} onClick={() => onClip(sc)} onContextMenu={(e) => openMenu(e, sc)}
                     onDragOver={(e) => { if (e.dataTransfer.types.includes("text/x-hg-variation")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropOn !== sc.id) setDropOn(sc.id); } }}
                     onDragLeave={() => { if (dropOn === sc.id) setDropOn(null); }} onDrop={(e) => drop(sc, e)}>
                     {th && <img src={th} alt="" loading="lazy" />}
@@ -560,6 +565,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
           </div>
         </div>
       </div>
+      {menu}
     </section>
   );
 }
@@ -567,7 +573,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
 /* ---------- sayfa ---------- */
 
 export function EditPage() {
-  const { ov, scene, selectScene, varId, filmKind, assembling, setAssembling } = usePanel();
+  const { ov, scene, selectScene, varId, filmKind, assembling, setAssembling, act, note } = usePanel();
   const [mode, setMode] = useState<Mode>("shot");
   const [inspOpen, setInspOpen] = useState(() => readFlag(INSP_KEY));
   const toggleInsp = (on: boolean) => { writeFlag(INSP_KEY, on); setInspOpen(on); };
@@ -611,13 +617,14 @@ export function EditPage() {
     else { setMode("shot"); selectScene(sc.id); }
   }, [filmMode, lay.shots, cut, goTo, selectScene]);
 
-  // Klavye: Boşluk/K oynat-duraklat, J/L bir saniye, ←/→ bir kare, ↑/↓ önceki/sonraki çekim, Home başa.
-  const keys = useRef({ player, scene, lay, onClip });
-  useEffect(() => { keys.current = { player, scene, lay, onClip }; });
+  // Klavye: Boşluk/K oynat-duraklat, J/L bir saniye, ←/→ bir kare, ↑/↓ önceki/sonraki çekim, Home başa,
+  // X seçili çekimi filmden çıkar / geri al.
+  const keys = useRef({ player, scene, lay, onClip, act, note });
+  useEffect(() => { keys.current = { player, scene, lay, onClip, act, note }; });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!shortcutTarget(e) || e.shiftKey) return;
-      const { player: p, scene: sc, lay: l, onClip: clip } = keys.current;
+      const { player: p, scene: sc, lay: l, onClip: clip, act: run, note: say } = keys.current;
       const onButton = (e.target as HTMLElement).closest("button, a, [role=tab]");
       if ((e.key === " " && !onButton) || e.key === "k" || e.key === "K") { e.preventDefault(); p.toggle(); }
       else if (e.key === "j" || e.key === "J") p.step(-1);
@@ -625,6 +632,7 @@ export function EditPage() {
       else if (e.key === "ArrowLeft" && !onButton) { e.preventDefault(); p.step(-1 / FPS); }
       else if (e.key === "ArrowRight" && !onButton) { e.preventDefault(); p.step(1 / FPS); }
       else if (e.key === "Home") { e.preventDefault(); p.seek(0); }
+      else if ((e.key === "x" || e.key === "X") && sc) { e.preventDefault(); void toggleCut(sc, run, say); }
       else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         const i = l.shots.findIndex((s) => s.scene.id === sc?.id);
         const next = l.shots[i + (e.key === "ArrowDown" ? 1 : -1)];
