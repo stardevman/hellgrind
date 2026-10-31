@@ -158,7 +158,10 @@ def track_file(t: dict, work: str) -> str:
 
 def _clip_of(sc: Scene, kind: str) -> str | None:
     """Filme girecek klip. final: tamamlanmış (done) sahnenin montajı; yeniden üretilen ya da başarısız bir sahnenin
-    eski videosu girmez. draft (kaba kurgu): taslak geçişin klibi; taslağı olmayan tamamlanmış sahnenin montajı."""
+    eski videosu girmez. draft (kaba kurgu): taslak geçişin klibi; taslağı olmayan tamamlanmış sahnenin montajı.
+    Yönetmenin filmden çıkardığı çekim (in_cut=False) iki kurguya da girmez."""
+    if sc.in_cut is False:
+        return None
     if kind == "draft" and sc.draft_video_key:
         return sc.draft_video_key
     return sc.final_video_key if sc.status == "done" else None

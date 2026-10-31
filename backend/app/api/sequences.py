@@ -79,7 +79,8 @@ def reassemble(project_id: str) -> list[str]:
     Para harcamaz: dondurulmuş projede de çalışır."""
     with session_scope() as s:
         done = s.scalar(select(func.count()).select_from(Scene).where(
-            Scene.project_id == project_id, Scene.status == "done", Scene.final_video_key.is_not(None)))
+            Scene.project_id == project_id, Scene.status == "done", Scene.final_video_key.is_not(None),
+            Scene.in_cut.is_not(False)))
         has_draft = s.get(Project, project_id).draft_timeline_key is not None
     if not done:
         return []

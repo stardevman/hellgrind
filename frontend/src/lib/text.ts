@@ -336,6 +336,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "storyboard_queued": return { t: `${x.queued} storyboard karesi hazırlanıyor${(x.requested as string[] | undefined)?.length ? ` (değişiklik istenen: ${(x.requested as string[]).join(", ")}; yönetmen notuyla)` : ""}` };
     case "draft_pass": return { t: `Taslak geçiş: ${x.shots} çekim yalnızca test turuyla` };
     case "status_restored": return { t: `${x.code}: klibi ve montajı hazırdı, durumu yeniden "Hazır" yapıldı (görüntü üretilmedi)`, c: "good" };
+    case "cut_exclude": return { t: `${x.scene} filmden çıkarıldı; filmi yeniden birleştirince yer almaz` };
+    case "cut_include": return { t: `${x.scene} filme geri alındı` };
     case "upgrade_pass": return { t: `İyileştirme geçişi: ${x.shots} çekim tam tura alındı` };
     case "continuity": return {
       t: x.jumps ? `Süreklilik: ${x.jumps} renk sıçraması (${x.pairs} geçiş)` : `Süreklilik: sıçrama yok (${x.pairs} geçiş)`,

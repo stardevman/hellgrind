@@ -167,8 +167,8 @@ def camera_changed(a: Scene, b: Scene) -> bool:
 
 
 def _pairs(scenes: list[Scene]) -> list[tuple[Scene, Scene]]:
-    """Aynı sekanstaki ardışık tamamlanmış çekimler."""
-    done = [sc for sc in scenes if sc.status == "done" and sc.final_video_key]
+    """Aynı sekanstaki ardışık tamamlanmış çekimler (filmden çıkarılanlar atlanır: filmde komşu olanlar karşılaştırılır)."""
+    done = [sc for sc in scenes if sc.status == "done" and sc.final_video_key and sc.in_cut is not False]
     return [(a, b) for a, b in zip(done, done[1:]) if a.sequence_id == b.sequence_id]
 
 

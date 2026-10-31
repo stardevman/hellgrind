@@ -317,6 +317,8 @@ export interface Scene {
   upgrade_available?: boolean;
   board_status: string; board_note: string | null; board_url: string | null;
   upgrade_requested: boolean; cut_tier: string | null; draft_url: string | null;
+  /** false: yönetmen çekimi filmden çıkardı; montaj ve dışa aktarma atlar (video ve kayıtlar durur). */
+  in_cut?: boolean;
   method: string; method_hint: boolean; external_url: string | null; guide_url: string | null;
   grade: Grade; graded: boolean; lipsync_ready: boolean;
   /** Renk önizleme adreslerinin önbellek anahtarı (kaynak video değişince değişir). */

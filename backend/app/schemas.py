@@ -406,6 +406,10 @@ class UpgradeIn(BaseModel):
     requested: bool = True
 
 
+class CutIn(BaseModel):
+    included: bool = True
+
+
 class ProjectPatch(BaseModel):
     """Proje adı, bütçesi ve ayarları; verilen ayarlar mevcutlarla birleştirilir (ProjectIn ile aynı doğrulama)."""
     title: str | None = Field(None, min_length=1, max_length=200)

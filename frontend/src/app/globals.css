@@ -355,6 +355,8 @@ body[data-admin="0"] .adv { display: none !important; }
 .bin-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--line); border-left: 2px solid transparent; background: none; text-align: left; color: inherit; }
 .bin-row:hover { background: var(--hover); }
 .bin-row[aria-current="true"] { background: var(--accent-soft); border-left-color: var(--accent); }
+.bin-row.out .th, .bin-row.out .code, .bin-row.out .desc { opacity: 0.45; }
+.bin-row.out .desc { text-decoration: line-through; }
 .bin-row .th { width: 64px; height: 36px; border-radius: 2px; background: #0b0b0c; object-fit: cover; display: block; }
 .bin-row .code { font-family: var(--mono); font-size: 12px; font-weight: 500; }
 .bin-row .desc { font-size: 11.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -441,6 +443,7 @@ body[data-admin="0"] .adv { display: none !important; }
 .clip.vid.work { animation: pulse 1.4s ease-in-out infinite; }
 .clip.vid[aria-current="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .clip.vid.jump { box-shadow: inset 3px 0 0 var(--bad); }
+.clip.vid.out { opacity: .4; border-top-style: dashed; }
 /* karma üretim: kazanan klip parçanın kardeşlerinden başka bir üretimden (alt kenarda sarı çizgi) */
 .clip.vid.mixed { border-bottom: 2px dashed var(--warn); }
 .clip.dlg { background: #1f3b33; border-color: #2f5a4d; padding: 0 5px; align-items: center; white-space: nowrap; }
