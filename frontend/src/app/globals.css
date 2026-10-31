@@ -231,6 +231,11 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .menu button:hover, .menu button:focus-visible { background: var(--hover); }
 .menu button.on .mi-t { font-weight: 600; }
 .menu button.danger { color: var(--bad); }
+.menu.ctx { position: fixed; top: auto; left: auto; min-width: 220px; max-width: 300px; z-index: 120; }
+.ctx-h { padding: 4px 8px 6px; font-size: 11px; color: var(--text-3); }
+.ctx-sep { margin: 4px 2px; border: 0; border-top: 1px solid var(--line); }
+.ctx-k { margin-left: auto; padding: 0 5px; border: 1px solid var(--line-2); border-radius: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.menu button:disabled { opacity: .45; }
 .menu .mi-ck { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .menu .danger .mi-ck { color: var(--bad); }
 .menu .mi-ck svg { width: 14px; height: 14px; }
