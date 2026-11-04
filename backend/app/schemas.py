@@ -62,6 +62,7 @@ SETTING_RULES = {
                      "h3max, seedance25, flux3max, seedance, h3 ya da boş"),
     "final_engine": (lambda v: v in (None, "seedance25", "h3max", "seedance"), "seedance25, h3max, seedance ya da boş"),
     "fal_clip_attempts": (_int(1, 5), "1 ile 5 arasında tam sayı"),
+    "candidate_mode": (lambda v: v in ("single", "multi"), "single ya da multi"),
     "require_plan_approval": (lambda v: v is None or type(v) is bool, "true, false ya da boş (ücretli modda açık)"),
     "h3max_resolution": (lambda v: v in (None, "480P", "768P", "1080P"), "480P, 768P, 1080P ya da boş"),
     "seedance25_draft": (lambda v: v is None or type(v) is bool, "true, false ya da boş"),

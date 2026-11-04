@@ -16,6 +16,7 @@ import type { AdoptResult, FalPlan, PartSplit, PlanApproval, PromoteResult, Revi
 import { Finishing, PlanFinishing, UpscaleConfirm } from "./Finishing";
 import { NoteBox, Section, StatusDot, UploadForm, useSynced } from "./ui";
 import { toggleCut } from "./ShotMenu";
+import { MoreCandidates } from "./MoreCandidates";
 
 export function MissingLinks({ list }: { list: SceneAssetRef[] }) {
   const { gotoAsset } = usePanel();
@@ -1423,6 +1424,7 @@ export function Inspector({ className = "", onClose }: { className?: string; onC
             <Shot sc={sc} />
             <Assets key={`a${sc.id}`} sc={sc} />
             {chosen?.overridable && <Override key={`o${chosen.id}`} sc={sc} v={chosen} />}
+            <MoreCandidates key={`m${sc.id}`} sc={sc} />
             <Pool key={`p${sc.id}`} sc={sc} />
             <ColorLink sc={sc} />
           </>

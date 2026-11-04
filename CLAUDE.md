@@ -186,6 +186,7 @@ Tablolar (UUID birincil anahtar `gen_random_uuid()`, JSONB alanlar):
   - `route_engine`: yeni çekim taslak motoruna gider (`VIDEO_DRAFT_ENGINE`, varsayılan h3max; proje ayarı `draft_engine` önce gelir). Seçilmiş motor (h3max, seedance25, seedance, h3) yeniden yönlendirmede korunur; eski fal_wan çekimleri taslak motoruna geçer.
 
 ## Faz 6 — Kademeli iterasyon ve Quality Gate
+- **Tek aday (varsayılan, yönetmen kararı 2026-11-04):** `candidate_mode=single` iken her çekim için tek aday üretilir; kalite kapısından kalırsa ya da skor eşiğin altındaysa hat kendiliğinden yeni aday üretmez. Panel yönetmene "Yeni aday üreteyim mi?" diye sorar ve tahmini ek maliyeti (fiyat tablosundan; ücretsiz modda sanal) ve kalan bütçeyi gösterir. Yeni adaylar yalnızca onayla (`POST /scenes/{id}/candidates?n=`) üretilir; en yüksek skorlu kurguya girer, önceki aday silinmez. Onay ve ret kürasyon kaydına yazılır. Aşağıdaki kademeli akış `candidate_mode=multi` içindir.
 - **Test turu:** `probe_n` varyasyon, `probe_resolution` çözünürlüğünde.
   - Kabul koşulu: ortalama birleşik skor ≥ clip_threshold ve geçme oranı ≥ min_pass_rate.
   - Kabul edilmezse yeni seed'lerle tekrar denenir (en fazla `max_correction_rounds`). Yine olmazsa sahne `needs_review` olur.

@@ -145,6 +145,17 @@ def override_full(self, project_id: str, scene_id: str, variation_id: str):
     return _guard(self, project_id, scene_id, work)
 
 
+@celery.task(bind=True, name="hg.more_candidates")
+def more_candidates(self, project_id: str, scene_id: str, n: int):
+    """Yönetmenin onayladığı n yeni aday (engine/candidates.run_more); en iyisi kurguya girer, sonra ses ve montaj."""
+    release_dispatch(scene_id)
+
+    def work():
+        from app.engine.candidates import run_more
+        return run_more(project_id, scene_id, n)
+    return _guard(self, project_id, scene_id, work)
+
+
 @celery.task(bind=True, name="hg.complete_draft")
 def complete_draft(self, project_id: str, scene_id: str):
     """Seedance 2.5 taslağını 1080p'ye tamamlar (engine/finishing.run_complete)."""

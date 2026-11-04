@@ -107,8 +107,9 @@ def spent(pid: str) -> float:
 
 def new_project(title: str, budget: float, **cfg) -> str:
     """Ana akış ve bütçe kontrolleri MiniMax H3 (kendi barındırdığımız; ücretsiz modda yerel motor) ile kurulmuştur:
-    `draft_engine="h3"`. fal.ai varsayılanları (H3 Max taslak, Seedance 2.5 final) ayrı bölümde (check_fal) sınanır."""
-    cfg = {"draft_engine": "h3", **cfg}
+    `draft_engine="h3"`. Kontroller çoklu aday akışıyla yazılmıştır (`candidate_mode="multi"`); tek aday varsayılanı ve yönetmen onaylı
+    yeni adaylar tests/test_candidates.py içinde sınanır. fal.ai varsayılanları (H3 Max taslak, Seedance 2.5 final) ayrı bölümde (check_fal) sınanır."""
+    cfg = {"draft_engine": "h3", "candidate_mode": "multi", **cfg}   # havuz ve kalite kapısı kontrolleri çoklu adayla
     preset = c.get("/meta").json()["presets"]["preview"]
     # Panelin formundaki gibi: hız bekçisi bütçenin yarısı. Yerel motor saniyeler içinde üretir; varsayılan 10 dakikalık
     # sınır, pahalı bir motor seçilmiş çekimlerde filmi ortasında dondurabilirdi.

@@ -229,12 +229,13 @@ function Intensity() {
   const { ov, busy, act, note, meta } = usePanel();
   const cfg = (ov?.project.settings ?? {}) as Record<string, unknown>;
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam" | "engine" | "h3res" | "sdraft" | "sres"; min?: number; max?: number; step?: string }[] = [
+  const fields: { key: string; label: string; kind: "int" | "res" | "num" | "edit" | "audio" | "bool" | "seam" | "cand" | "engine" | "h3res" | "sdraft" | "sres"; min?: number; max?: number; step?: string }[] = [
     { key: "draft_engine", label: "Taslak motoru (yeni çekimler)", kind: "engine" },
     { key: "final_engine", label: "Final motoru (yükseltme)", kind: "engine" },
     { key: "h3max_resolution", label: "H3 Max çözünürlüğü", kind: "h3res" },
     { key: "seedance25_draft", label: "Seedance 2.5 taslağı (480p önizleme; 7 gün içinde 1080p'ye tamamlanır)", kind: "sdraft" },
     { key: "seedance25_resolution", label: "Seedance 2.5 çözünürlüğü (yalnızca taslak kapalıyken)", kind: "sres" },
+    { key: "candidate_mode", label: "Aday sayısı (çekim başına)", kind: "cand" },
     { key: "fal_clip_attempts", label: "fal.ai klip denemesi (kalite kapısından kalırsa)", kind: "int", min: 1, max: 5 },
     { key: "probe_n", label: "Test turu aday sayısı", kind: "int", min: 1, max: 200 },
     { key: "probe_resolution", label: "Test turu çözünürlüğü", kind: "res" },
@@ -261,7 +262,7 @@ function Intensity() {
   const budgetDirty = draft.__budget != null && draft.__budget !== budgetNow;
   const dirty = fields.filter((f) => draft[f.key] != null && draft[f.key] !== String(cfg[f.key] ?? ""));
   const save = () => act(async () => {
-    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" || f.kind === "seam" ? value(f.key)
+    const settings = Object.fromEntries(dirty.map((f) => [f.key, f.kind === "res" || f.kind === "audio" || f.kind === "seam" || f.kind === "cand" ? value(f.key)
       : f.kind === "bool" ? value(f.key) === "true" : f.kind === "sdraft" ? (value(f.key) === "" ? null : value(f.key) === "true")
       : f.kind === "edit" || f.kind === "engine" || f.kind === "h3res" || f.kind === "sres" ? (value(f.key) || null) : Number(value(f.key))]));
     await api.patch(`/projects/${ov!.project.id}`, { settings, ...(budgetDirty ? { budget_limit_usd: Number(budget) } : {}) });
@@ -311,6 +312,11 @@ function Intensity() {
                     <select value={value(f.key) || "keyframe"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
                       <option value="keyframe">Anahtar kare: çekimler paralel, son kare = sonraki çekimin karesi</option>
                       <option value="exact">Birebir: sonraki çekim önceki klibin gerçek son karesinden başlar (sıralı)</option>
+                    </select>
+                  ) : f.kind === "cand" ? (
+                    <select value={value(f.key) || "single"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>
+                      <option value="single">Tek aday: skor düşükse yeni aday için sorulur (ek maliyet gösterilir)</option>
+                      <option value="multi">Çoklu: test ve tam tur adayları sormadan üretilir (aşağıdaki sayılar)</option>
                     </select>
                   ) : f.kind === "audio" ? (
                     <select value={value(f.key) || "on"} aria-label={f.label} disabled={busy} onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}>

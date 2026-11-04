@@ -159,7 +159,7 @@ def estimate(body: EstimateIn, s: Session = Depends(get_session)):
     cfg = project_settings({**raw, **PRESETS.get(body.preset or "", {}), **body.settings})
     result = costs.from_script(body.text, cfg) if body.text is not None else costs.from_project(s, body.project_id, cfg)
     return {**result, "settings": {k: cfg[k] for k in ("probe_n", "probe_resolution", "full_n", "full_resolution",
-                                                         "max_correction_rounds")},
+                                                         "max_correction_rounds", "candidate_mode")},
             "platform": settings.h3_platform, "dry_run": settings.dry_run}
 
 
@@ -298,6 +298,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
     def shot_assets(sid) -> list:
         return [r.asset for r in refs[sid] if r.asset] + places[sid]
 
+    from app.engine import candidates
+    declined = dict(s.execute(candidates.declined_q(project_id)).all()) if ids else {}
     from app.engine.scene_parts import generations
     winners_of = {sc.id: next((v for v in variations[sc.id] if v.refined_rank == 1), None) for sc in scenes}
     mixed = generations({sc.scene_code: ((w.params or {}).get("part"), (w.params or {}).get("part_codes"), w.engine,
@@ -353,6 +355,8 @@ def overview(project_id: ProjectId, s: Session = Depends(get_session)):
                     for m in (lint.find_missing(items[sc.id], lint_cfg(cfg, sc.engine)["asset_min_status"])
                               if check else [])],
         "winner_engine": next((v.engine for v in variations[sc.id] if v.refined_rank == 1), None),
+        # tek aday modu: skor düşükse "yeni aday üreteyim mi?" sorusu (ek maliyet GET /scenes/{id}/candidates/estimate)
+        "more_candidates": candidates.offer(sc, variations[sc.id], cfg, declined.get(sc.id)),
         "generation": mixed.get(sc.scene_code),                 # kazanan, parçanın kardeşlerinden başka bir üretimden
         "split": ({**w.params["split"], "segment": w.params.get("segment"),
                    "segment_planned": w.params.get("segment_planned")}

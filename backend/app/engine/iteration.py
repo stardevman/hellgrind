@@ -6,6 +6,10 @@
    bulununca durur; yumuşak bütçe limiti bayrağı varken yeni dalga başlamaz.
 3. Rafine Havuz: yalnızca tam turda geçenlerden en iyi `refined_k` kalır, gerisi imha edilir.
 
+Tek aday (varsayılan, `candidate_mode="single"`): yukarıdaki dalgalar yerine çekim başına tek klip üretilir; kalite
+kapısından kalırsa yeni aday kendiliğinden üretilmez, panel yönetmene ek maliyetiyle sorar (engine/candidates.py).
+Aşağıdaki kademeli akış `candidate_mode="multi"` içindir.
+
 Taslak geçiş (mode="draft", Faz 14): yalnızca test turu çalışır; geçen ilk varyasyon tek başına havuza girer ve kaba
 kurguda kullanılır. Tam tur hiç çalışmaz. Sonraki iyileştirme geçişi aynı seed'lerle başladığı için test turu klipleri
 yeniden kullanılır (yeniden üretilmez, yeniden ücretlendirilmez).
@@ -904,7 +908,8 @@ def _fal_clip(ctx: Ctx, project_id: str, scene_id: str) -> str:
     engine = ctx.provider.engine
     tier = fal_plan.tier_of(engine, ctx.cfg)
     resolution = ctx.render["fal_resolution"]
-    attempts = max(1, int(ctx.cfg.get("fal_clip_attempts", 2)))
+    from app.engine import candidates
+    attempts = candidates.attempts(ctx.cfg)          # tek aday modunda 1: kalırsa yönetmene sorulur
     advance_scene(project_id, scene_id, status="generating")
     results = []
     for idx in range(attempts):
@@ -918,8 +923,8 @@ def _fal_clip(ctx: Ctx, project_id: str, scene_id: str) -> str:
     if winner is None:
         advance_scene(project_id, scene_id, status="needs_review",
                       last_error=f"{fal_plan.ENGINE_TR.get(engine, engine)}: {len(results)} klip kalite kapısından "
-                                 "geçmedi. Adaylardan birini yönetmen seçimiyle kabul edebilir ya da yeniden "
-                                 "üretebilirsiniz.")
+                                 "geçmedi. Adayı yönetmen seçimiyle kabul edebilir ya da yeni aday "
+                                 "isteyebilirsiniz (ek maliyet denetçide gösterilir).")
         return "needs_review"
     gate.set_single_winner(scene_id, winner.id, {
         "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
@@ -936,7 +941,38 @@ def _fal_clip(ctx: Ctx, project_id: str, scene_id: str) -> str:
     return "refined"
 
 
+def _single(ctx: Ctx, project_id: str, scene_id: str, mode: str) -> str:
+    """Tek aday (candidate_mode="single"): test turu yok, yalnızca bir klip (taslak geçişte test turu çözünürlüğünde,
+    yoksa tam tur çözünürlüğünde). Kalite kapısından kalırsa yeni aday KENDİLİĞİNDEN üretilmez: sahne needs_review olur
+    ve panel yönetmene ek maliyetiyle "yeni aday üreteyim mi?" diye sorar (engine/candidates.py)."""
+    tier, resolution = ("probe", ctx.cfg["probe_resolution"]) if mode == "draft" else ("full", ctx.cfg["full_resolution"])
+    advance_scene(project_id, scene_id, status="generating")
+    results = run_wave(ctx, tier, 0, 1, resolution)
+    report = summarize(results)
+    killswitch.event(project_id, "single_candidate", scene_id=scene_id, tier=tier, **report)
+    if not results[0].passed:
+        why = review_reason(results, ctx.cfg, "tek aday")
+        if why.startswith("tam turda") or why.startswith("test turu"):
+            why = "Tek aday kalite kapısından geçmedi"
+        why = why.rstrip(".")
+        advance_scene(project_id, scene_id, status="needs_review",
+                      last_error=f"{why}. Adayı yönetmen seçimiyle kabul edebilir ya da yeni aday isteyebilirsiniz "
+                                 "(ek maliyet denetçide gösterilir).")
+        return "needs_review"
+    if mode == "draft":
+        return _finish_draft(ctx, results[0])
+    winners = gate.finalize_refined_pool(scene_id, ctx.run_id, 1, {
+        "status": "refined", "visual_hash": ctx.visual_hash, "lipsync_video_key": None, "final_video_key": None,
+        "last_error": None, "cut_tier": "final", "upgrade_requested": False})
+    killswitch.event(project_id, "refined", scene_id=scene_id, pool=len(winners))
+    invalidate_next_seam(project_id, scene_id)
+    return "refined"
+
+
 def _tiered(ctx: Ctx, project_id: str, scene_id: str, mode: str) -> str:
+    from app.engine import candidates
+    if candidates.single(ctx.cfg):
+        return _single(ctx, project_id, scene_id, mode)
     cfg = {**ctx.cfg, **{k: max(1, int(ctx.cfg[k])) for k in ("probe_n", "full_n", "wave_size", "refined_k")}}
 
     # 1) Test turu, gerekirse yeni seed'lerle yeniden denemeler

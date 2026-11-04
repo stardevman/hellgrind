@@ -72,10 +72,12 @@ ACTIONS_TR = {
     "shot_engine": "Çekim ayrı üretildi (sahne içi model değişimi)",
     "prompt_override": "Yönetmen istemi kaydedildi", "prompt_write": "Sahne istemi LLM ile yazdırıldı",
     "prompt_rerender": "Parça yönetmen istemiyle yeniden üretildi (onaylı)",
+    "more_candidates": "Yeni aday üretimi onaylandı (ek maliyetli)",
+    "more_candidates_decline": "Yeni aday önerisi reddedildi (mevcut aday kalsın)",
 }
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
-QUERY_FIELDS = ("kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")
-RESULT_FIELDS = ("stages", "blocked", "awaiting_board", "awaiting_plan", "plan_hash", "total_usd", "status", "version", "method", "regraded", "drafted", "planned",
+QUERY_FIELDS = ("n", "kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")
+RESULT_FIELDS = ("stages", "n", "total_usd_estimate", "blocked", "awaiting_board", "awaiting_plan", "plan_hash", "total_usd", "status", "version", "method", "regraded", "drafted", "planned",
                  "unblocked", "active_version", "upgrade_requested", "in_cut", "board_status")
 
 

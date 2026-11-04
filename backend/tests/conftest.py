@@ -60,7 +60,9 @@ if not pathlib.Path(settings.pricing_file).exists():
 
 # Bölüm A testleri varlık kütüphanesinden (Faz 12) önceki davranışı sınar: üretim öncesi referans kontrolü kapalıdır.
 # Faz 12 testleri lint_strictness="block" (proje varsayılanı) ile açıkça çalışır.
-BOLUM_A = {"lint_strictness": "off"}
+# Aynı nedenle eski testler çoklu aday akışıyla (test turu + tam tur dalgaları, fal yeniden denemesi) çalışır; tek aday
+# (proje varsayılanı, candidate_mode="single") ve yönetmen onaylı yeni adaylar tests/test_candidates.py'de sınanır.
+BOLUM_A = {"lint_strictness": "off", "candidate_mode": "multi"}
 
 INIT_SQL_CANDIDATES = (
     pathlib.Path(__file__).resolve().parents[2] / "db" / "init" / "001_core.sql",
