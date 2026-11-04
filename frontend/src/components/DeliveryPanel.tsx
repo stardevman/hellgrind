@@ -17,7 +17,7 @@ function SpecForm({ st, save }: { st: DeliveryState; save: (s: DeliverySpec) => 
   const [form, setForm] = useSynced<DeliverySpec>(st.spec, JSON.stringify(st.spec));
   const set = (patch: Partial<DeliverySpec>) => setForm({ ...form, ...patch, preset: null });
   const preset = matchesPreset(st, form);
-  const submit = (e: FormEvent) => { e.preventDefault(); void save({ ...form, preset }); };
+  const submit = (e: FormEvent) => { e.preventDefault(); void save({ ...form, ...(st.fps_lock ? { fps: st.fps_lock } : {}), preset }); };
   return (
     <form className="stack" onSubmit={submit} data-tour="delivery-spec">
       <div className="seg" role="group" aria-label="Hazır ayarlar">
@@ -32,7 +32,8 @@ function SpecForm({ st, save }: { st: DeliveryState; save: (s: DeliverySpec) => 
           </select>
         </label>
         <label className="field">Kare hızı
-          <select value={form.fps} onChange={(e) => set({ fps: e.target.value })}>
+          <select value={st.fps_lock || form.fps} disabled={Boolean(st.fps_lock)} onChange={(e) => set({ fps: e.target.value })}
+            title={st.fps_lock ? "Kare hızı kilitli: Ayarlar › Kare hızı" : undefined}>
             {st.options.fps.map((f) => <option key={f} value={f}>{FPS_TR[f] ?? f}</option>)}
           </select>
         </label>
@@ -54,6 +55,7 @@ function SpecForm({ st, save }: { st: DeliveryState; save: (s: DeliverySpec) => 
         <button className="btn primary" type="submit" disabled={busy}>Şartnameyi kaydet</button>
         <span className="faint small">{specLine(form)}</span>
       </div>
+      {st.fps_lock && <p className="faint small">Kare hızı {st.fps_lock.replace(".", ",")} fps'e kilitli (Ayarlar › Kare hızı); hazır ayarın kare hızı uygulanmaz.</p>}
       <p className="faint small">Final film bir sonraki birleştirmede bu biçimle çıkar; görüntü motoru çağrılmaz.{st.custom ? "" : " Şartname kaydedilmedi: film eski varsayılanla (1280×720, 24 fps) birleşir."}</p>
     </form>
   );

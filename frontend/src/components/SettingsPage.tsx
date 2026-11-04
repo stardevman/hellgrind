@@ -12,9 +12,10 @@ import { COMFY_KIND_TR } from "@/lib/i18n";
 import { primaryRate, renderRows } from "@/lib/pricing";
 import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, RunpodState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
 import { Icon } from "./icons";
+import { FrameRatePanel } from "./FrameRatePanel";
 import { NoteBox, Panel, Section } from "./ui";
 
-type Sec = "status" | "view" | "mode" | Service["id"] | "pricing" | "audit";
+type Sec = "status" | "view" | "fps" | "mode" | Service["id"] | "pricing" | "audit";
 
 const tone = (ok: boolean | null) => (ok === true ? "ok" : ok === false ? "bad" : "warn");
 
@@ -740,7 +741,7 @@ function StatusView() {
 
 export function SettingsPage() {
   const { admin } = usePanel();
-  const [sec, setSec] = useState<"status" | "view">("status");
+  const [sec, setSec] = useState<"status" | "view" | "fps">("status");
   if (admin) return <AdminSettings />;
   return (
     <div className="page two-l">
@@ -750,9 +751,13 @@ export function SettingsPage() {
           <li><button type="button" aria-current={sec === "status"} onClick={() => setSec("status")}>Bütçe ve durum</button></li>
           <li><button type="button" aria-current={sec === "view"} onClick={() => setSec("view")}>Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li>
         </ul>
+        <div className="side-h">Proje</div>
+        <ul className="list">
+          <li><button type="button" aria-current={sec === "fps"} onClick={() => setSec("fps")}>Kare hızı</button></li>
+        </ul>
         <p className="pad faint small">Ücretli servisler, çalışma modu, fiyat tablosu ve değişiklik kaydı yönetici modunda görünür.</p>
       </Panel>
-      {sec === "status" ? <StatusView /> : <ViewModeView />}
+      {sec === "status" ? <StatusView /> : sec === "fps" ? <FrameRatePanel /> : <ViewModeView />}
     </div>
   );
 }
@@ -776,6 +781,8 @@ function AdminSettings() {
           {item("status", "Bütçe ve durum", "")}
           {item("view", "Kullanıcı ve yönetici", <span className="st info">yönetici</span>)}
         </ul>
+        <div className="side-h">Proje</div>
+        <ul className="list">{item("fps", "Kare hızı", "")}</ul>
         <div className="side-h">Mod</div>
         <ul className="list">{item("mode", "Çalışma modu", <span className={`st ${st.dry_run ? "ok" : "bad"}`}>{st.dry_run ? "ücretsiz" : "ücretli"}</span>)}</ul>
         <div className="side-h">Servisler</div>
@@ -795,6 +802,7 @@ function AdminSettings() {
       </Panel>
 
       {sec === "status" ? <StatusView />
+        : sec === "fps" ? <FrameRatePanel />
         : sec === "view" ? <ViewModeView />
         : sec === "mode" ? <ModeView st={st} onSaved={refresh} />
         : svc ? <ServiceView key={svc.id} svc={svc} st={st} prices={prices?.table} onSaved={refresh} />

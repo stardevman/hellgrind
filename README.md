@@ -356,6 +356,11 @@ Müşteriye teslim edilen 2D animasyon dizisi için sektörün üretim alışkan
   - Stil sürümüne girmez; proje ayarıdır (`on_twos`). `POST /api/projects/{id}/on-twos {"enabled": true}` ile açılıp kapanır.
   - Renk aşamasında FFmpeg her ikinci kareyi atıp kaynak hızına geri doldurur (`framestep=2,fps=…`). Kare sayısı ve süre değişmez, her çizim iki kare görünür.
   - Renk özetine girdiği için biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz, harcama değişmez. Karar kürasyon kaydına `on_twos_change` olarak düşer.
+- **Kare hızı kilidi (Ayarlar › Kare hızı)**, proje ayarı `fps_lock` (`23.976`, `24`, `25` ya da boş):
+  - Çizgi film için önerilen 24 fps: H3, Seedance ve Veo zaten 24 fps üretir, çekimler birebir kalır. 25 fps yalnızca TV (Türkiye / Avrupa) teslimi için; 24 fps kaynakta saniyede bir kare tekrarlanır.
+  - Kilit açıkken her çekim renk aşamasında kilitli hıza çevrilir (FFmpeg `fps`, süre korunur; Wan'ın 16 fps'i ya da dışarıdan yüklenen 25/30 fps çekim dahil). Kare tutma kilitli hız üzerinde yapılır, böylece iki karelik ritim montajda bozulmaz.
+  - Kaba kurgu, film, teslim şartnamesi, QC ve EDL/OTIO aynı hızı kullanır. Kilitle çelişen şartname reddedilir (409); kilit kurulunca var olan şartnamenin kare hızı kilide çekilir.
+  - `GET /api/projects/{id}/fps-lock` kilidi ve biten çekimlerin kaynak kare hızlarını, `POST /api/projects/{id}/fps-lock {"fps": "24"}` kilidi değiştirir. Biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz. Karar kürasyon kaydına `fps_lock_change` olarak düşer. Kilit kapalıyken eski davranış sürer.
 - **Renk sayfası › Kareler**, kare tutma açıkken ya da yönetici modunda: art arda altı kare önce ve sonra yan yana gösterilir (`GET /api/scenes/{id}/grade/strip.jpg?before=true` / `?twos=true`). Altlarındaki numaralar karede görünen çizimdir: 1 2 3 4 5 6 → 1 1 2 2 3 3.
 
 ### Ses-önce akışı (Ses sayfası, animatik)
