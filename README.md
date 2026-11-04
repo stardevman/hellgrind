@@ -100,7 +100,17 @@ hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazıl
 modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
 
 Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, Ayarlar'daki bütçe bölümünü ve Ayarlar düğmesini sırayla gösterir
-(<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
+(<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır). Alt banttaki **Rehberler** (?) düğmesi turu yeniden açar.
+
+**Kitaptan çizgi film rehberi** (Rehberler › Kitaptan çizgi film): kitap sayfaları ve hazır seslerle (anlatım, müzik,
+efekt) baştan sona bir bölüm. Rehber ekranı kapatmaz; uygulama kullanılırken açık kalır, gerçek düğmeleri sırayla
+vurgular, her adımın durumunu (yapıldı / bekliyor) gösterir ve kaldığı adımı hatırlar. Akış: yönetici modu ve
+`VIDEO_INPUT_MODE=keyframe` → yeni proje → Senaryo'da **Kitap şablonu** (her sayfa ayrı `DIŞ. KİTAP - GÜN` sahnesi,
+konuşma yok, yalnızca karede açıkça görünen karakterler `[KARAKTER: Ad]`) → karakterlere kitaptan durağan referans,
+onay ve kilit → çekimlerden mekân bağını kaldırma → her çekime kitap sayfasını kırpmadan **ilk kare** olarak yükleme →
+"Yeni sahne" geçişi, süre, model sesi kapalı → üretim ve aday seçimi → Ses › **Anlatım ve dış sesler**'den hazır
+sesleri yükleme → filmi birleştirme ve dışa aktarma. Anlatım kanalı (`kind=dialogue`, yalnızca yüklenen dosya) filmde
+müziği sidechain ile kısar ve teslim paketinde diyalog stem'ine girer; hiçbir çekim yeniden üretilmez.
 
 Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca
 aynı görünüm açılır.

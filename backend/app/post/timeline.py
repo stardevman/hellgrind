@@ -232,9 +232,12 @@ def assemble(project_id: str, kind: str = "final") -> dict:
             t = starts[-1] + durations[-1]
             placed = place_tracks(tracks, {k: tuple(v) for k, v in spans.items()}, t)
             if placed:                                                  # sekans müziği: diyalog altında kısılır
-                beds = [AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"],
-                                   p["fade_out_s"]) for p in placed]
-                film = mux(film, [AudioInput(film)], beds, os.path.join(work, "film.mp4"), loudness)
+                inputs = [(p["kind"], AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"],
+                                                 p["fade_in_s"], p["fade_out_s"])) for p in placed]
+                # anlatım (yüklenen dış seslendirme) çekimlerin kendi sesiyle birlikte diyalog tarafındadır: müziği bastırır
+                voice = [AudioInput(film)] + [a for k, a in inputs if k == "dialogue"]
+                beds = [a for k, a in inputs if k != "dialogue"]
+                film = mux(film, voice, beds, os.path.join(work, "film.mp4"), loudness)
             if fmt:                                                     # şartnamenin loudness hedefi
                 film = delivery.loudnorm(film, os.path.join(work, "film_lufs.mp4"), fmt["loudness"])
             cutlist = os.path.join(work, "cut.json")

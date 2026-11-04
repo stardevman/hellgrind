@@ -1,15 +1,32 @@
-/* Rehber turu adımları: her adım bir sayfaya ve o sayfadaki `data-tour` hedefine bağlıdır. Hedef bulunamazsa kart
-   ekranın ortasında, spot ışığı olmadan gösterilir. Metinler Türkçedir (CLAUDE.md kural 9). */
-import type { Page } from "./panel";
+/* Rehberler: her adım bir sayfaya ve o sayfadaki `data-tour` hedefine bağlıdır. Hedef bulunamazsa önce `fallback`,
+   o da yoksa kart ekranın ortasında, spot ışığı olmadan gösterilir. İki rehber var: panel turu (TOUR_STEPS, ilk
+   açılışta) ve kitaptan çizgi film (BOOK_STEPS, alt banttaki Rehberler menüsünden). Kitap rehberi uygulamayı kullanırken
+   açık kalır: vurgulanan alanda iş yapılır, kart her adımın gerçek durumunu (yapıldı / bekliyor) gösterir. Metinler
+   Türkçedir (CLAUDE.md kural 9). */
+import type { Page, TourId } from "./panel";
+import type { Meta, Overview, Scene } from "./types";
+
+/** Adımın durumunu okumak için panelin o anki verisi. */
+export interface TourCtx { ov?: Overview; meta?: Meta; admin: boolean }
 
 export interface TourStep {
   /** Adımın açıldığı sayfa; boşsa sayfa değişmez (alt bant her sayfada görünür). */
   page?: Page;
   target: string;
+  /** Hedef yoksa (ör. o an görünmeyen bir düğme) vurgulanacak yedek hedef. */
+  fallback?: string;
+  /** Ölçmeden önce tıklanacak data-tour öğesi (ör. denetçinin sekmesi, Ayarlar'daki bölüm). */
+  click?: string;
+  /** Denetçi gereken adım: çekim seçili değilse ilk çekim seçilir, denetçi kapalıysa açılır. */
+  scene?: boolean;
   title: string;
   text: string;
   /** Yalnızca proje yokken ya da yalnızca proje varken gösterilir. */
   when?: "no-project" | "project";
+  /** Yönetici modu gerekir (kartta belirtilir). */
+  admin?: boolean;
+  /** Adımın gerçek durumu: true yapıldı, false bekliyor, null bu adımda ölçülmez. */
+  check?: (c: TourCtx) => boolean | null;
 }
 
 export const TOUR_STEPS: readonly TourStep[] = [
@@ -45,8 +62,82 @@ export const TOUR_STEPS: readonly TourStep[] = [
   { target: "todos", when: "project", title: "Onay kapıları", text: "Müşteri onay kapıları (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul) Yapılacaklar listesinin altında renkli çipler olarak durur: yeşil onaylandı, kırmızı değişiklik istendi, amber müşteride." },
   { page: "settings", target: "budget", title: "Bütçe ve Kill-Switch", text: "Ayarlar › Bütçe ve durum harcanan, ayrılan ve kalan tutarı, limiti, yumuşak sınırı ve çalışma modunu gösterir. Alt banttaki \"Üretimi durdur\" tüm kuyruğu tek tıkla dondurur; devam edince tamamlanmış klipler yeniden üretilmez." },
   { target: "settings", title: "Ayarlar: kullanıcı ve yönetici", text: "Alt bandın sağındaki dişli Ayarlar'ı açar. Ayarlar'da kullanıcı ya da yönetici modunu seçersin. Kullanıcı modunda her sayfada yalnızca filmi yapmak için gerekenler kalır. Ücretli servisler, fiyat tablosu, servis geçmişi, motor seçimi ve plan ayrıntıları yönetici modundadır; yönetici şifresi tanımlıysa giriş ister." },
-  { target: "pages", title: "Hepsi bu", text: "Shift+1…9 sayfalar arasında geçer, G güvenli alanları açıp kapatır; bütün denetimler alt bantta durur. Rehberi Ayarlar'dan yeniden başlatabilirsin." },
+  { target: "pages", title: "Hepsi bu", text: "Shift+1…9 sayfalar arasında geçer, G güvenli alanları açıp kapatır; bütün denetimler alt bantta durur. Bu turu ve kitaptan çizgi film rehberini alt banttaki Rehberler (?) düğmesinden yeniden açabilirsin." },
 ];
 
-export const tourStepsFor = (hasProject: boolean): TourStep[] =>
-  TOUR_STEPS.filter((s) => !(s.when === "no-project" && hasProject) && !(s.when === "project" && !hasProject));
+export const tourStepsFor = (hasProject: boolean, id: TourId = "panel"): TourStep[] =>
+  (id === "book" ? BOOK_STEPS : TOUR_STEPS)
+    .filter((s) => !(s.when === "no-project" && hasProject) && !(s.when === "project" && !hasProject));
+
+/** Senaryo sayfasındaki "Kitap şablonu": konuşmasız, her kitap sayfası ayrı bir sahne (zincir yok, ilk kare sayfanın
+    kendisi). Aynı başlık tek bir mekân varlığı açar; bağı çekimlerden kaldırılır. */
+export const BOOK_TEMPLATE = `# SEKANS: Kitap
+
+DIŞ. KİTAP - GÜN
+Sayfa 1. Ponpon bahçede oturur, kuyruğunu yavaşça sallar ve gözlerini kırpar. Kamera sabit. [KARAKTER: Ponpon]
+
+DIŞ. KİTAP - GÜN
+Sayfa 2. Ponpon çitin üstünden hafifçe sıçrar, kelebeğe pati uzatır. Kamera sabit. [KARAKTER: Ponpon]
+
+DIŞ. KİTAP - GÜN
+Sayfa 3. Pamuk Nine pencereden bakar, başını sallayıp gülümser. Kamera sabit. [KARAKTER: Pamuk Nine]
+`;
+
+const scenes = (c: TourCtx): Scene[] => c.ov?.scenes ?? [];
+const allScenes = (c: TourCtx, f: (s: Scene) => boolean) => (scenes(c).length ? scenes(c).every(f) : null);
+
+/** Kitaptan çizgi film: kitap sayfaları ilk kare, hazır sesler (anlatım, müzik, efekt) filme dışarıdan yerleşir.
+    Ponpon denemelerinin dersleri metinlerdedir: sayfa kırpılmadan yüklenir, mekân varlığı bağlanmaz, çekimler
+    zincirlenmez, karede küçük ya da kesik görünen karakterin adı yazılmaz, videolarda konuşma yoktur. */
+export const BOOK_STEPS: readonly TourStep[] = [
+  { target: "pages", title: "Kitaptan çizgi film",
+    text: "Bu rehber, kitap sayfalarından ve elindeki seslerden baştan sona bir çizgi film yapar. Kart açıkken uygulamayı kullanabilirsin: vurgulanan yerde işi yap, sonra İleri. Her kartta adımın gerçek durumu görünür. Hazırlık: sayfaları kırpmadan PNG ya da JPG olarak, sesleri (anlatım, müzik, efekt) WAV ya da MP3 olarak bir klasöre koy." },
+  { page: "settings", click: "settings-view", target: "view-mode", fallback: "settings", title: "Yönetici modu",
+    text: "Bazı ayarlar (video girdisi, yoğunluk, eşikler) yönetici modunda görünür. Burada Yönetici'yi seç; şifre tanımlıysa girişi yap.",
+    check: (c) => c.admin },
+  { page: "settings", click: "settings-fal", target: "env-VIDEO_INPUT_MODE", fallback: "settings", admin: true, title: "Video girdisi: ilk kare",
+    text: "fal.ai › Model ve uç noktalar'da Video girdisini keyframe yap ve Kaydet. Böylece her çekim senin yüklediğin kitap sayfasından başlar; reference modunda kare yüklenemez.",
+    check: (c) => (c.meta ? c.meta.video_input_mode === "keyframe" : null) },
+  { page: "script", target: "script-form", title: "Yeni proje",
+    text: "Proje yöneticisinden (sol alttaki ev) \"Yeni film\" de ya da buradan bir ad ve sanal bütçe ver. Ücretsiz modda hiçbir ücretli servis çağrılmaz; çekimler yerel taslak olarak üretilir, böylece akışı para harcamadan deneyebilirsin.",
+    check: (c) => Boolean(c.ov) },
+  { page: "script", target: "book-template", fallback: "script-text", title: "Senaryo: sayfa başına bir çekim",
+    text: "\"Kitap şablonu\" düğmesi örneği yükler. Her sayfa için \"DIŞ. KİTAP - GÜN\" başlığı ve tek paragraf yaz: sayfada ne kıpırdayacak, kısa ve sakin bir eylem, \"Kamera sabit\". Sayfada açıkça görünen karakterleri [KARAKTER: Ad] ile işaretle; karede küçük ya da kesik duranın adını yazma, model onu büyütüp yeniden çizer. Konuşma yazma: anlatım dışarıdan gelecek. Sonra \"Senaryoyu işle ve üret\".",
+    check: (c) => (c.ov ? c.ov.scenes.length > 0 : false) },
+  { page: "script", target: "intensity", fallback: "script-form", admin: true, when: "project", title: "Yoğunluk ve eşikler",
+    text: "Kitap çizimlerinde kalite kapısı fazla katıdır. Benzerlik eşiğini 0,65 civarına çek (Ponpon'da işe yaradı), insan karakterlerde Kimlik eşiğini düşür. H3 sesi kapalı kalsın: videoda konuşma ya da anlatıcı olmaz." },
+  { page: "assets", target: "assets", when: "project", title: "Karakterler",
+    text: "Senaryodaki her karakter burada bir kart. Referansı kilitlenmemiş karakteri içeren çekim üretime girmez; model eksik bilgiyi uydurur. Soldaki listeden karakteri seç.",
+    check: (c) => { const r = scenes(c).flatMap((s) => s.assets.filter((a) => a.type === "character")); return r.length ? r.every((a) => a.status === "locked") : null; } },
+  { page: "assets", target: "asset-ref-upload", fallback: "assets", when: "project", title: "Kitaptan referans görsel",
+    text: "Referans türü Durağan görsel; dosya olarak kitapta karakterin en net, tam boy göründüğü sayfayı ya da kesitini yükle. Yüz ve kıyafet o görselden okunur; bölüm boyunca değişen bir durum (ör. saç kesildi) karta değil, o çekimin paragrafına yazılır." },
+  { page: "assets", target: "asset-lifecycle", fallback: "assets", when: "project", title: "Onayla ve kilitle",
+    text: "\"Durağanı onayla\", sonra \"Kilitle\". Ücretsiz modda hareket testi yoktur; ücretli modda kilitten önce kısa bir hareket testi üretilir ve onaylanır. Her karakter için tekrarla." },
+  { page: "edit", scene: true, click: "insp-shot", target: "shot-assets", fallback: "inspector", when: "project", title: "Mekân bağını kaldır",
+    text: "İlk kare zaten kitap sayfası olduğu için mekân varlığı gerekmez; bağlı kalırsa model sahneyi o mekâna göre yeniden kurar. Denetçi › Çekim › Varlıklar'da mekân etiketinin × düğmesine bas. Soldaki havuzdan çekim seçip her çekimde tekrarla.",
+    check: (c) => allScenes(c, (s) => !s.assets.some((a) => a.type === "location")) },
+  { page: "edit", scene: true, click: "insp-gen", target: "first-frame", fallback: "inspector", when: "project", title: "Kitap sayfası = ilk kare",
+    text: "Denetçi › Üretim › \"Kendi ilk kareni yükle\": çekimin kitap sayfasını kırpmadan, sayfanın tamamını yükle. Yakınlaştırıp kırpma; küçük kalan karakteri model büyütür. Yüklenen kare onaylı sayılır. Her çekime kendi sayfasını ver.",
+    check: (c) => allScenes(c, (s) => s.keyframe_source === "upload") },
+  { page: "edit", scene: true, click: "insp-gen", target: "shot-transition", fallback: "inspector", when: "project", title: "Zincir yok: yeni sahne",
+    text: "Çekime geçiş \"Yeni sahne\" olsun (şablondaki her başlık bunu kendiliğinden yapar). Zincirde video bir sonraki sayfanın karesinde biter ve karakter vaktinden önce hareket eder; kitapta her sayfa kendi başına durur." },
+  { page: "edit", scene: true, click: "insp-gen", target: "shot-video", fallback: "inspector", when: "project", title: "Süre ve model sesi",
+    text: "Çekimin süresini o sayfanın anlatımına göre ayarla (2–15 sn). Model sesi Kapalı: videolarda konuşma, anlatıcı ya da replik olmaz; sesin tamamı senin dosyalarından gelir." },
+  { page: "edit", target: "retry-blocked", fallback: "edit-bin", when: "project", title: "Üret",
+    text: "Karakterler kilitlenince \"Engellenen çekimleri yeniden dene\" üretimi başlatır (düğme yalnızca engelli çekim varken görünür). Ücretsiz modda yerel taslak klipler çıkar; gerçek üretim için ücretli mod Ayarlar › Çalışma modu'ndadır ve onayını ister.",
+    check: (c) => (scenes(c).length ? scenes(c).some((s) => s.status === "done") : null) },
+  { page: "edit", target: "viewer", fallback: "edit-bin", when: "project", title: "İzle ve seç",
+    text: "İzleyici seçili çekimi oynatır, altındaki şerit adaylarıdır: beğendiğine tıklayıp \"Bu adayı filmde kullan\". Çekime sağ tıkla: Filmden çıkar, İyileştir, yeniden üret. Kötü çıkan çekimde önce paragrafı sadeleştir, karakter adını gerekmiyorsa çıkar." },
+  { page: "voice", target: "voice-external", fallback: "voice", when: "project", title: "Sesleri yükle",
+    text: "Anlatım ve dış sesler: anlatıcı kaydını Tür = Anlatım ile, müzik ve efektleri kendi türleriyle yükle. Başlangıç, sesin sekansın başından kaç saniye sonra çalacağıdır. Anlatım müziği kendiliğinden kısar. Kendi müziğin varsa otomatik müziği Kaldır. Hiçbir çekim yeniden üretilmez.",
+    check: (c) => (c.ov ? c.ov.sequences.some((q) => q.tracks.some((t) => t.source === "upload")) : null) },
+  { page: "edit", target: "timeline", fallback: "edit-bin", when: "project", title: "Zaman çizelgesi",
+    text: "Görüntü, diyalog/anlatım ve müzik izleri film süresi üzerinde. Anlatım bir sayfanın görüntüsünü aşıyorsa o çekimin süresini uzat ya da sesin başlangıcını kaydır." },
+  { page: "deliver", target: "assemble", fallback: "deliver", when: "project", title: "Filmi birleştir",
+    text: "Tamamlanan çekimler sırayla filme birleşir, sesler üstüne yerleşir ve ses seviyesi dengelenir. Oynatıcıda izle.",
+    check: (c) => (c.ov ? Boolean(c.ov.timeline) : null) },
+  { page: "deliver", target: "exports", fallback: "deliver", when: "project", title: "Dışa aktar",
+    text: "Çekim paketi (videolar ve ayrı ses stem'leri), EDL ve OpenTimelineIO buradan iner; DaVinci ya da Premiere'de son dokunuşları yapabilirsin. Teslim › Teslim paketi master MP4'ü de içerir." },
+  { target: "help", title: "Hepsi bu",
+    text: "Rehberi istediğin an alt banttaki Rehberler (?) düğmesinden aç; kaldığın adımdan devam eder. İyi bölümler!" },
+];

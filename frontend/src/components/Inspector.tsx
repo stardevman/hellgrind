@@ -515,7 +515,7 @@ function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
         </select>
       </label>}
       {!fal && sc.h3_mode_warning && <p className="warn small">{sc.h3_mode_warning}</p>}
-      <label className="field">Çekime geçiş
+      <label className="field" data-tour="shot-transition">Çekime geçiş
         <select value={sc.transition_explicit ?? "auto"} disabled={busy} aria-label="Çekime geçiş" onChange={(e) => setTransition(e.target.value)}>
           <option value="auto">Senaryodaki gibi (şu an: {TRANSITION_TR[sc.transition ?? "continuous"]?.split(":")[0]})</option>
           {Object.entries(TRANSITION_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -591,7 +591,7 @@ function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
           </div>
         </>
       )}
-      <UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} />
+      <div data-tour="first-frame"><UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} /></div>
       {sc.keyframe_source === "upload" && <div className="row"><button className="btn ghost" type="button" disabled={busy} onClick={clear}>Yüklenen kareyi kaldır</button></div>}
       {!fal && sc.h3_mode === "ref2va" && (
         <>
@@ -654,7 +654,7 @@ function FalVideo({ sc }: { sc: Scene }) {
         </select>
       </label>
       {plan?.reason && <p className="faint small">{plan.reason}</p>}</>}
-      <div className="form-row">
+      <div className="form-row" data-tour="shot-video">
         <label className="field">Çözünürlük
           <select value={resolutionValue(sc)} disabled={busy || frozen} aria-label="Video çözünürlüğü"
             onChange={(e) => patch({ video_resolution: e.target.value }, e.target.value === "auto" ? "çözünürlük Ayarlar'daki gibi" : `çözünürlük ${e.target.value}`)}>
@@ -1247,7 +1247,7 @@ function Assets({ sc }: { sc: Scene }) {
   const tone = (s: string | null) => (s === "locked" ? "ok" : s === "motion_tested" ? "info" : s === "still_approved" ? "warn" : "bad");
   return (
     <Section title="Varlıklar" meta={`${sc.assets.length}`} open={sc.status === "blocked"}>
-      <div className="row">
+      <div className="row" data-tour="shot-assets">
         {sc.assets.length ? sc.assets.map((a) => (
           <span key={`${a.type}:${a.name}`} className={`tag ${tone(a.status)}`} title={`${TYPE_TR[a.type]} · ${a.status ? ASTATUS_TR[a.status] : "kaydı yok"}`}>
             {a.id ? <a href="#" style={{ color: "inherit" }} onClick={(e) => { e.preventDefault(); gotoAsset(a.id!); }}>{a.name}</a> : a.name}
@@ -1412,7 +1412,7 @@ export function Inspector({ className = "", onClose }: { className?: string; onC
       <header className="pnl-h"><h2 className="mono">{sc.scene_code}</h2><span className="meta">Denetçi</span><span className="grow" />{closeBtn}</header>
       <div className="pnl-tabs" role="tablist" aria-label="Denetçi bölümleri">
         {(Object.keys(TAB_TR) as InspTab[]).map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} data-tour={`insp-${t}`}>
             {TAB_TR[t]}{badge[t] && <span className={`tag ${badge[t]!.tone}`}>{badge[t]!.text}</span>}
           </button>
         ))}

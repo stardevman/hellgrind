@@ -11,6 +11,7 @@ import { clipCost } from "@/lib/pricing";
 import { awaitingPlanText } from "@/lib/text";
 import type { CostEstimate, DispatchAll, PricingTable } from "@/lib/types";
 import { NoteBox, Panel } from "./ui";
+import { BOOK_TEMPLATE } from "@/lib/tour";
 
 interface Ingest extends DispatchAll { cast: string[]; shots: number; created: string[]; updated: string[]; orphaned: string[] }
 
@@ -192,6 +193,8 @@ export function ScriptPage() {
           <span className="grow" />
           {script != null && <button className="btn ghost" type="button" onClick={() => setScript(null)}>Değişiklikleri geri al</button>}
           {newProject && <button className="btn ghost" type="button" onClick={() => setScript(meta?.sample_script ?? "")}>Örnek senaryo</button>}
+          {newProject && <button className="btn ghost" type="button" data-tour="book-template" onClick={() => setScript(BOOK_TEMPLATE)}
+            title="Kitap sayfalarından konuşmasız çizgi film için şablon: her sayfa ayrı çekim">Kitap şablonu</button>}
           {newProject && meta?.trial_script && <button className="btn ghost" type="button" onClick={() => setScript(meta.trial_script!)}>Deneme senaryosu</button>}
         </header>
         <textarea aria-label="Senaryo" spellCheck={false} required minLength={10} value={text} onChange={(e) => setScript(e.target.value)} />
@@ -270,7 +273,7 @@ function Intensity() {
   }, "script");
   const changes = dirty.length + (budgetDirty ? 1 : 0);
   return (
-    <Panel title="Yoğunluk" meta="test ve tam tur">
+    <Panel title="Yoğunluk" meta="test ve tam tur" tour="intensity">
       <div className="pad stack">
         <table className="tbl">
           <tbody>

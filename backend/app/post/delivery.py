@@ -403,7 +403,7 @@ def stems(project_id: str, cut: dict, work: str) -> dict:
             groups["music" if t.kind == "music" else "effects"].append(AudioInput(path, at, float(t.gain_db), room))
     spans = {q["code"]: (q["in_s"], q["out_s"]) for q in cut.get("sequences") or []}
     for p in place_tracks(film_tracks, spans, total):
-        groups["music" if p["kind"] == "music" else "effects"].append(
+        groups["dialogue" if p["kind"] == "dialogue" else "music" if p["kind"] == "music" else "effects"].append(
             AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"], p["fade_out_s"]))
     return {name: (mix_audio(inputs, os.path.join(work, f"{name}.wav"), total) if inputs
                    else _silence(os.path.join(work, f"{name}.wav"), total)) for name, inputs in groups.items()}

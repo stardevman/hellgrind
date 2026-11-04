@@ -77,13 +77,13 @@ export function DeliverPage() {
             <button type="button" aria-pressed={draft} onClick={() => setFilmKind("draft")}>Kaba kurgu</button>
             <button type="button" aria-pressed={!draft} onClick={() => setFilmKind("final")}>Final</button>
           </div>
-          <button className="btn primary lg" type="button" disabled={done === 0 || waiting || busy} onClick={assemble}>
+          <button className="btn primary lg" type="button" disabled={done === 0 || waiting || busy} onClick={assemble} data-tour="assemble">
             {waiting ? "Birleştiriliyor…" : draft ? `Kaba kurguyu birleştir (${done} sahne)` : `Tamamlanan ${done} sahneyi birleştir`}
           </button>
           <NoteBox id="deliver" />
         </div>
         <div className="side-h">Profesyonel dışa aktarma</div>
-        <ul className="queue">
+        <ul className="queue" data-tour="exports">
           {EXPORTS.map(([f, label, name, about, ico]) => {
             const Ico = Icon[ico];
             return (

@@ -182,7 +182,7 @@ function ServiceView({ svc, st, prices, onSaved }: { svc: Service; st: SettingsS
         <table className="tbl">
           <tbody>
             {others.map((f) => (
-              <tr key={f.env}>
+              <tr key={f.env} data-tour={`env-${f.env}`}>
                 <td style={{ width: "34%" }}>{f.label}<small className="mono">{f.env}</small></td>
                 <td>
                   {f.kind === "choice" ? (
@@ -666,7 +666,7 @@ function PricingView({ onSaved }: { onSaved: () => void }) {
 function ViewModeView() {
   const { admin, adminState, setAdmin } = usePanel();
   return (
-    <Panel title="Kullanıcı ve yönetici" meta={admin ? "yönetici" : "kullanıcı"}>
+    <Panel title="Kullanıcı ve yönetici" meta={admin ? "yönetici" : "kullanıcı"} tour="view-mode">
       <div className="pad stack">
         <div className="stack" role="radiogroup" aria-label="Kullanım modu" style={{ gap: 6 }}>
           <label className="choice">
@@ -747,8 +747,8 @@ export function SettingsPage() {
       <Panel title="Ayarlar">
         <div className="side-h">Görünüm</div>
         <ul className="list">
-          <li><button type="button" aria-current={sec === "status"} onClick={() => setSec("status")}>Bütçe ve durum</button></li>
-          <li><button type="button" aria-current={sec === "view"} onClick={() => setSec("view")}>Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li>
+          <li><button type="button" aria-current={sec === "status"} onClick={() => setSec("status")} data-tour="settings-status">Bütçe ve durum</button></li>
+          <li><button type="button" aria-current={sec === "view"} onClick={() => setSec("view")} data-tour="settings-view">Kullanıcı ve yönetici<span className="count"><span className="st">kullanıcı</span></span></button></li>
         </ul>
         <p className="pad faint small">Ücretli servisler, çalışma modu, fiyat tablosu ve değişiklik kaydı yönetici modunda görünür.</p>
       </Panel>
@@ -766,7 +766,7 @@ function AdminSettings() {
   const refresh = () => { void mutate(); };
   const svc = st.services.find((s) => s.id === sec);
   const item = (id: Sec, label: string, right: React.ReactNode) => (
-    <li key={id}><button type="button" aria-current={sec === id} onClick={() => setSec(id)}>{label}<span className="count">{right}</span></button></li>
+    <li key={id}><button type="button" aria-current={sec === id} onClick={() => setSec(id)} data-tour={`settings-${id}`}>{label}<span className="count">{right}</span></button></li>
   );
   return (
     <div className="page three">
