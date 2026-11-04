@@ -366,6 +366,7 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     }
     case "animatic": return { t: `Animatik birleşti: ${x.shots} çekim, ${Number(x.duration_s).toFixed(1).replace(".", ",")} sn`, c: "good" };
     case "animatic_failed": return { t: `Animatik birleştirilemedi: ${x.error}`, c: "bad" };
+    case "fps_lock_changed": return { t: x.fps ? `Kare hızı ${String(x.fps).replace(".", ",")} fps'e kilitlendi: yalnızca renk ve montaj` : "Kare hızı kilidi kaldırıldı: yalnızca renk ve montaj" };
     case "on_twos_changed": return { t: x.enabled ? "Kare tutma açıldı (12 çizim/sn görünümü): yalnızca renk ve montaj" : "Kare tutma kapatıldı: yalnızca renk ve montaj" };
     case "style_activated": {
       const stale = (x.stale as string[] | undefined) ?? [];

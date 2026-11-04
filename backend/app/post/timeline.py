@@ -1,6 +1,6 @@
 """Zaman çizelgesi: tamamlanan sahneleri sırayla tek bir filme birleştirir (ücretsiz, FFmpeg).
 
-Her klip önce aynı biçime çevrilir (1280x720, 24 fps, yuv420p, aac 48k stereo; sesi yoksa sessiz ses eklenir), sonra
+Her klip önce aynı biçime çevrilir (1280x720, 24 fps ya da kare hızı kilidi, yuv420p, aac 48k stereo; sesi yoksa sessiz ses eklenir), sonra
 concat demuxer ile yeniden kodlanmadan (-c copy) birleştirilir. Akış parametreleri birebir aynı olduğu için bu güvenlidir.
 Çıktılar içerik-adreslidir: aynı sahneler, videolar ve açıklamalar aynı anahtarı üretir ve iş atlanır.
 
@@ -190,12 +190,17 @@ def assemble(project_id: str, kind: str = "final") -> dict:
         loudness = cfg["loudness_lufs"]
         from app.post import delivery                 # teslim şartnamesi (yalnızca final film; yoksa eski sabitler)
         fmt = delivery.film_format(delivery.spec_of(project)) if kind == "final" else None
+        lock = delivery.lock_of(project.settings)            # kare hızı kilidi: kaba kurgu ve şartnamesiz film de
         fade = int(cfg.get("seam_crossfade_frames") or 0) if any(seams) else 0
     if not items:
         return {"error": "Henüz tamamlanmış sahne yok"}
 
     # Kesme listesinin içeriği anahtarla her zaman tutarlı. Kanal yoksa (Faz 11 öncesi) yalnızca sahneler özetlenir.
     frame = [list(fmt["size"]), fmt["fps"], "spec", fmt["loudness"]] if fmt else [WIDTH, HEIGHT, FPS]
+    if lock and not fmt:
+        frame.append({"fps_lock": lock})
+    rate_text, rate_value, timebase = (fmt["fps"], fmt["fps_value"], fmt["timebase"]) if fmt else \
+        (delivery.FPS[lock] if lock else (FPS, FPS, FPS))
     basis = [frame, items, titles] + ([kind] if kind != "final" else []) + \
         ([{"crossfade": fade, "seams": seams}] if fade else [])
     if tracks:
@@ -211,13 +216,12 @@ def assemble(project_id: str, kind: str = "final") -> dict:
             from app.engine.finishing import film_size
             # şartname varsa onun çözünürlüğü; yoksa bütün klipler upscale edildiyse 1080p, değilse 720p
             size = fmt["size"] if fmt else film_size(sources)
-            rate = fmt["fps"] if fmt else FPS
             for i, src in enumerate(sources):
-                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4"), size, rate))
+                normalized.append(normalize(src, os.path.join(work, f"n{i:04d}.mp4"), size, rate_text))
                 durations.append(probe_duration(normalized[-1]))
             if fade:                                                    # continuous dikişlerde kısa geçiş
                 starts = crossfade_join(normalized, durations, seams, fade, os.path.join(work, "cut.mp4"),
-                                        fmt["fps_value"] if fmt else FPS)
+                                        rate_value)
                 film = os.path.join(work, "cut.mp4")
             else:
                 starts = [sum(durations[:i]) for i in range(len(durations))]
@@ -241,7 +245,9 @@ def assemble(project_id: str, kind: str = "final") -> dict:
             with open(cutlist, "w") as f:
                 json.dump({"kind": kind, "duration_s": round(t, 3), "clips": clips,
                            **({"format": {"width": fmt["size"][0], "height": fmt["size"][1], "fps": fmt["fps_value"],
-                                          "timebase": fmt["timebase"], "loudness_lufs": fmt["loudness"]}} if fmt else {}),
+                                          "timebase": fmt["timebase"], "loudness_lufs": fmt["loudness"]}} if fmt
+                              else {"format": {"fps": rate_value, "timebase": timebase, "fps_lock": lock}} if lock
+                              else {}),
                            "sequences": [{"code": c, "title": titles.get(c, c), "in_s": round(a, 3), "out_s": round(b, 3)}
                                          for c, (a, b) in spans.items()],
                            "tracks": [{"id": p["id"], "sequence": p["sequence"], "kind": p["kind"], "source": p["source"],

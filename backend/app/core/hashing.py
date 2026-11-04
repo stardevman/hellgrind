@@ -82,11 +82,13 @@ def grade_settings(raw: dict | None) -> dict:
 
 
 def film_grade_token(lut_hash: str | None, project_settings: dict | None) -> str | None:
-    """Film geneli renk girdileri: LUT ve kare tutma (on twos, proje ayarı). Kare tutma kapalıyken LUT özeti aynen döner:
-    eski renk özetleri değişmez. Açıkken her çekimin renk özeti değişir: yalnızca GRADE + MUX çalışır."""
-    if not (project_settings or {}).get("on_twos"):
-        return lut_hash
-    return stable_hash({"lut": lut_hash, "hold": 2})
+    """Film geneli renk girdileri: LUT, kare tutma (on twos) ve kare hızı kilidi (proje ayarları). İkisi de kapalıyken LUT
+    özeti aynen döner: eski renk özetleri değişmez. Açıkken her çekimin renk özeti değişir: yalnızca GRADE + MUX çalışır."""
+    cfg = project_settings or {}
+    twos, lock = bool(cfg.get("on_twos")), cfg.get("fps_lock")
+    if not lock:
+        return stable_hash({"lut": lut_hash, "hold": 2}) if twos else lut_hash
+    return stable_hash({"lut": lut_hash, "hold": 2 if twos else 1, "fps": lock})
 
 
 def grade_fingerprint(scene, lut_hash: str | None) -> str | None:

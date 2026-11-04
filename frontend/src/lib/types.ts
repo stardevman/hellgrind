@@ -225,6 +225,7 @@ export interface ProjectSettings {
   soft_budget_ratio: number;
   /** Kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında uygulanır. */
   on_twos?: boolean;
+  fps_lock?: string | null;
   /** Ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz. */
   voice_first?: boolean;
   require_board_approval: boolean;
@@ -771,9 +772,15 @@ export interface PackageFile { path: string; label: string; ready: boolean }
 export interface DeliveryState {
   spec: DeliverySpec; custom: boolean; presets: Record<string, Partial<DeliverySpec> & { label: string }>;
   options: { resolution: string[]; fps: string[]; codec: Record<string, string> };
+  /** Kare hızı kilidi (Ayarlar › Kare hızı): doluysa şartnamenin kare hızı budur. */
+  fps_lock?: string | null;
   film: { key: string | null; url: string | null }; qc: QcReport | null;
   rights: { items: RightsKind[]; missing: string[]; ai_rows: number };
   package: { files: PackageFile[]; url: string | null };
+}
+export interface FpsLockState {
+  fps: string | null; options: Record<string, string>; on_twos: boolean;
+  sources: { fps: string; shots: string[]; matches: boolean }[];
 }
 export interface DeliverySummary {
   spec: boolean; package: boolean; rights_missing: string[];
