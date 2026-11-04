@@ -197,7 +197,7 @@ function ShotBin({ onPick }: { onPick: () => void }) {
             )}
             {blocked > 0 && (
               <div className="pad" style={{ borderBottom: "1px solid var(--line)" }}>
-                <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry}>Engellenen çekimleri yeniden dene ({blocked})</button>
+                <button className="btn" type="button" style={{ width: "100%" }} disabled={busy || frozen} onClick={retry} data-tour="retry-blocked">Engellenen çekimleri yeniden dene ({blocked})</button>
               </div>
             )}
             {groups.map((g) => (
@@ -249,7 +249,7 @@ function Viewer({ mode, setMode, player, src, poster, label, right }: {
   const p = player;
   const screen = useRef<HTMLDivElement>(null);
   return (
-    <section className="pnl viewer">
+    <section className="pnl viewer" data-tour="viewer">
       <header className="pnl-h">
         <h2>İzleyici</h2>
         <div className="seg" role="group" aria-label="Kaynak">
@@ -483,7 +483,7 @@ function Timeline({ lay, pos, onRuler, onClip, filmLabel }: {
   const marks = (ov.client?.notes ?? []).map((n) => ({ n, t: noteAt(n, lay.shots) })).filter((m): m is { n: typeof m.n; t: number } => m.t != null);
   const qcs = qcMarks(ov.delivery, ov.timeline?.cut?.clips ?? [], lay.shots);
   return (
-    <section className="pnl tl" aria-label="Zaman çizelgesi">
+    <section className="pnl tl" aria-label="Zaman çizelgesi" data-tour="timeline">
       <header className="pnl-h">
         <h2>Zaman çizelgesi</h2>
         <span className="meta" title="Her çekim filmde kullanılan klibiyle, süresi kadar yer tutar. Bir adayı çekimin üstüne sürükleyerek filmdeki klibi değiştirebilirsin.">{ov.sequences.length} sekans · {ov.scenes.length} çekim · {filmLabel}</span>
@@ -655,7 +655,7 @@ export function EditPage() {
         label={label} right={scene && !filmMode ? `${Number(scene.duration_s).toFixed(1)} sn · ${FPS} kare/sn` : ""} />
       {inspOpen ? <Inspector className="insp" onClose={() => toggleInsp(false)} />
         : <aside className="insp-rail" aria-label="Denetçi kapalı">
-          <button type="button" className="btn ghost" onClick={() => toggleInsp(true)} title="Denetçiyi aç: seçili çekimin ayrıntıları, ses ve üretim ayarları">
+          <button type="button" className="btn ghost" onClick={() => toggleInsp(true)} data-tour="inspector-open" title="Denetçiyi aç: seçili çekimin ayrıntıları, ses ve üretim ayarları">
             <Icon.chevron />Denetçi{scene?.status === "blocked" || scene?.status === "plan_review" ? <span className="tag warn">!</span> : null}
           </button>
         </aside>}

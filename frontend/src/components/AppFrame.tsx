@@ -74,6 +74,7 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
               {frozen ? <Icon.play /> : <Icon.stop />}
             </button>
           )}
+          <HelpMenu />
           <button type="button" className="pb-btn" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
             aria-label="Ayarlar" data-tour="settings"
             title={(meta?.dry_run === false ? "Ücretli mod açık: gerçek harcama yapılır. " : "")
@@ -84,6 +85,38 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
       </div>
       {confirmStop && <StopConfirm onCancel={() => setConfirmStop(false)} onConfirm={() => { setConfirmStop(false); void kill(); }} />}
     </footer>
+  );
+}
+
+/** Rehberler menüsü: panel turu ve kitaptan çizgi film (etkileşimli, kaldığı adımdan sürer). */
+function HelpMenu() {
+  const { setTour } = usePanel();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const start = (id: "panel" | "book") => { setOpen(false); setTour(id); };
+  return (
+    <div className="help-wrap" ref={box}>
+      <button type="button" className="pb-btn" aria-label="Rehberler" aria-expanded={open} aria-haspopup="menu" data-tour="help"
+        title="Rehberler: panel turu ve kitaptan çizgi film" onClick={() => setOpen(!open)}><Icon.help /></button>
+      {open && (
+        <div className="help-menu" role="menu" aria-label="Rehberler">
+          <button type="button" role="menuitem" onClick={() => start("book")}>
+            <b>Kitaptan çizgi film</b><small>Kitap sayfaları ve hazır seslerle baştan sona bir bölüm: uygulamada canlı, adım adım.</small>
+          </button>
+          <button type="button" role="menuitem" onClick={() => start("panel")}>
+            <b>Panel turu</b><small>Sayfalar, alt bant ve kısayollar.</small>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

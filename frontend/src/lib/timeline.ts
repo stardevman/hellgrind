@@ -15,6 +15,9 @@ export interface Layout {
 /** Konuşma süresi tahmini (Hermes'in kuralıyla aynı hız: saniyede 2,5 kelime). */
 export const speechSeconds = (text: string | null) => Math.max(0.8, (text || "").trim().split(/\s+/).filter(Boolean).length / 2.5 + 0.3);
 
+/** Film/sekans kanalı türleri (yüklenen dış ses): dialogue = anlatım (dış seslendirme). */
+export const TRACK_KIND_TR: Record<string, string> = { dialogue: "Anlatım", music: "Müzik", sfx: "Efekt", ambience: "Ortam" };
+
 const moodLabel = (mood: string | null) => (mood ? EMOTION_TR[mood] || mood : "");
 
 /** Çekimler sırayla, süreleri kadar yan yana dizilir; sekans bantları ve ses izleri bu konumlara göre yerleşir. */
@@ -51,11 +54,13 @@ export function layout(scenes: Scene[], sequences: Sequence[]): Layout {
     const q = sequences.find((x) => x.id === b.id)!;
     for (const tr of q.tracks) {
       const start = Math.min(b.end, b.start + Number(tr.start_s || 0));
-      const end = tr.end_s != null ? Math.min(b.end, b.start + Number(tr.end_s)) : b.end;
+      // yüklenen kanal dosyanın süresi kadar sürer (end_s verilmemişse), sekansın sonunu aşmaz
+      const own = tr.source === "upload" && tr.duration_s ? start + Number(tr.duration_s) : b.end;
+      const end = tr.end_s != null ? Math.min(b.end, b.start + Number(tr.end_s)) : Math.min(b.end, own);
       if (end <= start) continue;
-      const label = tr.source === "procedural" ? `Müzik · ${moodLabel(tr.mood)}` : `${tr.kind === "music" ? "Stem" : tr.kind} · ${tr.filename ?? ""}`;
+      const label = tr.source === "procedural" ? `Müzik · ${moodLabel(tr.mood)}` : `${TRACK_KIND_TR[tr.kind] ?? tr.kind} · ${tr.filename ?? ""}`;
       const clip = { id: tr.id, label, title: `${b.code}: ${label} (${Number(tr.gain_db).toFixed(0)} dB)`, start, end };
-      (tr.kind === "music" ? music : effects).push(clip);
+      (tr.kind === "dialogue" ? dialogue : tr.kind === "music" ? music : effects).push(clip);
     }
   }
   return { shots, bands, dialogue, music, effects, duration: t };
