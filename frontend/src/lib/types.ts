@@ -309,6 +309,8 @@ export interface Scene {
   engine_label?: string | null; engine_disabled?: boolean;
   /** Kazanan (rank 1) klibin motoru; çekimin motorundan farklıysa yükseltme bu çekimde tamamlanmamıştır. */
   winner_engine?: string | null;
+  /** Tek aday modu: yeni aday sorusu (null: bölüm gösterilmez; ask: skor düşük, yönetmene sorulur). */
+  more_candidates?: MoreCandidatesOffer | null;
   /** Karma üretim (null: tutarlı) ve kazanan parça klibinin bölünmesi (kesmeler, sınır kaynakları, uyarı). */
   generation?: Generation | null; split?: PartSplit | null;
   /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
@@ -817,3 +819,15 @@ export interface StudioOptions {
 }
 /** İstekteki kaynak: önceki stüdyo görseli ya da varlığın görsel referansı. */
 export type StudioSourceIn = { image_id: string } | { asset_id: string; kind: "still" | "expressions" | "turnaround" };
+
+/** Tek aday modu: "yeni aday üreteyim mi?" (GET /overview, scene.more_candidates). */
+export interface MoreCandidatesOffer {
+  ask: boolean; reason: "gate" | "low" | null; score: number | null; threshold: number; message: string | null;
+  candidates: number; max: number;
+}
+
+/** GET /scenes/{id}/candidates/estimate: n yeni adayın tahmini ek maliyeti (ücretsiz modda sanal). */
+export interface MoreCandidatesEstimate {
+  n: number; per_candidate_usd: number; total_usd: number; remaining_usd: number; over_budget: boolean;
+  engine: string | null; engine_label: string | null; resolution: string; shots: string[]; virtual: boolean;
+}

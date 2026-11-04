@@ -10,7 +10,8 @@ henüz üretilmediyse önce onun parçası üretilir (sırayla; kuyruğun boşta
 
 Kalite: parça klibi videonun kendisi üzerinde ölçülür (gate.score_video, video_gates): 0,5 sn'de bir örnek karede kimlik
 (insan SFace, diğerleri OpenCLIP), kopya karakter sayımı, ölçek (gerçek boyut); kalırsa `fal_clip_attempts` kadar yeni
-tohumla yeniden üretilir, sonra yönetmene bırakılır. Renk sürekliliği ve otomatik eşleme montajdan sonra (tasks.continuity).
+tohumla yeniden üretilir, sonra yönetmene bırakılır. Tek aday modunda (varsayılan) yeniden deneme yoktur: panel yönetmene
+ek maliyetiyle "yeni aday üreteyim mi?" diye sorar; onaylanırsa `render_more` n yeni deneme üretir ve en iyisini seçer. Renk sürekliliği ve otomatik eşleme montajdan sonra (tasks.continuity).
 """
 import logging
 import os
@@ -26,7 +27,7 @@ from app.config import project_settings, settings
 from app.core.hashing import seed_for, visual_fingerprint
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
-from app.engine import fal_plan, scene_parts
+from app.engine import candidates, fal_plan, scene_parts
 from app.engine.providers import GenRequest, ProviderError, TransientError, get_provider
 from app.models import Project, Scene, Variation
 
@@ -137,10 +138,58 @@ def ensure_part(project_id: str, scene_id: str, depth: int = 0, caller: str | No
             advance_scene(project_id, sid, status="needs_review",
                           last_error=f"{fal_plan.ENGINE_TR[plan.engine]}: parça ({', '.join(snapshot['codes'])}) "
                                      f"{snapshot['attempts']} denemede kalite kapısından geçmedi. Adaylardan birini "
-                                     "yönetmen seçimiyle kabul edin ya da yeniden üretin.")
+                                     "yönetmen seçimiyle kabul edin ya da yeni aday isteyin (ek maliyet denetçide "
+                                     "gösterilir).")
         return False
     _finalize(project_id, plan, snapshot, winners, caller)
     return True
+
+
+def render_more(project_id: str, scene_id: str, n: int) -> str:
+    """Yönetmenin onayladığı n yeni aday (parçanın yeni denemeleri, yeni tohumlarla, her biri ayrı rezervasyonla). Bütün
+    geçen denemeler arasından lider çekimde en yüksek skorlu olan kurguya girer; önceki kazanan `passed` olarak kalır."""
+    try:
+        with session_scope() as s:
+            sc = s.get(Scene, scene_id)
+            cfg = project_settings(s.get(Project, project_id).settings)
+            plan = scene_parts.plan_part(s, sc)
+            _checks(s, sc, plan, cfg)
+            expected = bool(plan.continuity.get("expected"))
+        frame_key = _last_frame(project_id, scene_id) if expected else None
+        with session_scope() as s:
+            plan = scene_parts.plan_part(s, s.get(Scene, scene_id), frame_key=frame_key)
+            snap = _snapshot(s, plan, cfg)
+        snap["attempts"] = max(_tried(plan.part_hash), default=-1) + 1 + n
+        lock = killswitch.r().lock(LOCK.format(plan.part_hash), timeout=LOCK_TTL_S, blocking_timeout=LOCK_TTL_S)
+        if not lock.acquire():
+            raise PartStop("needs_review", "Parça kilidi alınamadı (başka bir görev üretiyor olabilir); yeniden deneyin.")
+        try:
+            _generate(project_id, plan, snap, cfg, scene_id, stop_on_pass=False)
+        finally:
+            try:
+                lock.release()
+            except Exception:                           # noqa: BLE001 — süresi dolmuş kilit
+                pass
+    except PartStop as e:
+        advance_scene(project_id, scene_id, status=e.status, last_error=e.reason)
+        return e.status
+    except ProviderError as e:
+        advance_scene(project_id, scene_id, status="failed", last_error=str(e))
+        killswitch.event(project_id, "provider_rejected", scene_id=scene_id, error=str(e)[:300])
+        return "failed"
+    winners = _best(plan.part_hash, snap["leader"])
+    killswitch.event(project_id, "more_candidates", scene_id=scene_id, n=n, engine=plan.engine, part=snap["codes"],
+                     passed=bool(winners))
+    if not winners:
+        advance_scene(project_id, scene_id, status="needs_review",
+                      last_error=f"{n} yeni aday da kalite kapısından geçmedi. Adaylardan birini \"Yine de kullan\" "
+                                 "ile seçebilir ya da yeniden yeni aday isteyebilirsiniz.")
+        return "needs_review"
+    if _already_final(winners):                       # mevcut kazanan hâlâ en iyisi: kurgu değişmez
+        advance_scene(project_id, scene_id, status="refined", last_error=None)
+        return "refined"
+    _finalize(project_id, plan, snap, winners, scene_id)
+    return "refined"
 
 
 def _write_prompt(project_id: str, plan) -> None:
@@ -190,7 +239,7 @@ def _snapshot(s, plan, cfg) -> dict:
             "fps": {str(x.id): visual_fingerprint(x, load_characters(s, x.id), load_assets(s, x.id), version)
                     for x in plan.shots},
             "target": scorer.target_for(plan.leader, chars, style), "scales": scale_expectations(chars, assets),
-            "tier": fal_plan.tier_of(plan.engine, cfg), "attempts": max(1, int(cfg.get("fal_clip_attempts", 2))),
+            "tier": fal_plan.tier_of(plan.engine, cfg), "attempts": candidates.attempts(cfg),
             "render": {"emotion": plan.leader.emotion, "camera": dict(plan.leader.camera or {}),
                        "characters": [ch.name for ch in chars], "action": plan.leader.action_complexity,
                        "lighting": style.lighting_prefix if style else ""},
@@ -204,9 +253,27 @@ def _passed(part_hash: str) -> dict[str, str]:
                                                  Variation.status.in_(("passed", "refined")))
                          .order_by(Variation.created_at)).all()
         out = {}
-        for v in rows:
+        for v in sorted(rows, key=lambda v: v.status == "refined"):   # kurgudaki (yönetmenin ya da en iyi) kazanır
             out[str(v.scene_id)] = str(v.id)
         return out
+
+
+def _best(part_hash: str, leader: str) -> dict[str, str]:
+    """Parçanın geçen denemelerinden lider çekimin kesiminde en yüksek skorlu olanın kesimleri: {çekim: varyasyon}."""
+    with session_scope() as s:
+        rows = s.scalars(select(Variation).where(Variation.params["part"].astext == part_hash,
+                                                 Variation.status.in_(("passed", "refined")))).all()
+        by_attempt: dict[int, dict] = {}
+        score: dict[int, float] = {}
+        for v in rows:
+            a = int((v.params or {}).get("attempt", -1))
+            by_attempt.setdefault(a, {})[str(v.scene_id)] = str(v.id)
+            if str(v.scene_id) == leader:
+                score[a] = float(v.composite_score or 0.0)
+        if not by_attempt:
+            return {}
+        best = max(by_attempt, key=lambda a: (score.get(a, 0.0), -a))
+        return by_attempt[best]
 
 
 def _tried(part_hash: str) -> set[int]:
@@ -215,9 +282,10 @@ def _tried(part_hash: str) -> set[int]:
             Variation.params["part"].astext == part_hash))}
 
 
-def _generate(project_id: str, plan, snap: dict, cfg: dict, caller: str | None = None) -> dict[str, str]:
+def _generate(project_id: str, plan, snap: dict, cfg: dict, caller: str | None = None,
+              stop_on_pass: bool = True) -> dict[str, str]:
     """Parçayı en çok `attempts` kez üretir; her denemenin klibi çekimlere kesilir ve kaydedilir. Geçen ilk denemenin
-    kesimleri döner."""
+    kesimleri döner. stop_on_pass=False: yönetmenin istediği bütün yeni adaylar üretilir (render_more)."""
     from app.quality import gate
     provider = get_provider(plan.engine)
     tried = _tried(plan.part_hash)
@@ -258,7 +326,7 @@ def _generate(project_id: str, plan, snap: dict, cfg: dict, caller: str | None =
                 os.remove(result.local_path)
         killswitch.event(project_id, "part_clip", scene_id=snap["leader"], engine=plan.engine, attempt=attempt + 1,
                          passed=score.passed, shots=snap["codes"])
-        if score.passed:
+        if score.passed and stop_on_pass:
             return rows
     return _passed(plan.part_hash)
 

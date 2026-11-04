@@ -218,6 +218,9 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "fps_lock": None,              # kare hızı kilidi: None | "23.976" | "24" | "25" (renk aşamasında her çekim bu hıza)
     "voice_first": False,          # ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz
     "revision_rounds": 2,          # müşteri onay kapısı başına sözleşmedeki revizyon turu (değişiklik isteği) sınırı              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX
+    "candidate_mode": "single",    # single: çekim başına TEK aday üretilir, kendiliğinden ek aday yok; skor düşükse panel
+                                   # yönetmene "yeni aday üreteyim mi?" diye sorar (ek maliyet tahminiyle).
+                                   # multi: eski davranış (probe_n/full_n dalgaları, fal_clip_attempts yeniden deneme)
     "fal_clip_attempts": 2,        # fal motorları (H3 Max, Seedance 2.5) çekim başına tek klip üretir; kalite kapısından
                                    # kalırsa en çok bu kadar klip (her biri ayrı ücretli)
 }

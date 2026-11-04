@@ -329,6 +329,8 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "upscale_batch_done": return { t: "Bütün film upscale edildi: film yeniden birleştiriliyor (renk eşleme ardından)", c: "good" };
     case "part_clip": return { t: `${(x.shots as string[] | undefined)?.join("+") ?? ""} parça klibi (${x.engine === "seedance25" ? "Seedance 2.5" : "H3 Max"}, deneme ${x.attempt}): ${x.passed ? "video kapılarından geçti" : "video kapılarında kaldı"}`, c: x.passed ? "good" : "bad" };
     case "part_stopped": return { t: `${where}parça üretilmedi (${x.status === "plan_review" ? "plan onayı bekliyor" : x.status === "blocked" ? "eksik referans" : "inceleme"}): ${x.reason}`, c: "bad" };
+    case "single_candidate": return { t: `${where}tek aday üretildi${x.pass_rate ? ": kalite kapısından geçti" : ": kalite kapısında kaldı (yeni aday için denetçide soru var)"}`, c: x.pass_rate ? "good" : "bad" };
+    case "more_candidates": return { t: `${where}yönetmen onaylı ${x.n} yeni aday üretildi${x.passed ? "" : ": hiçbiri kalite kapısından geçmedi"}`, c: x.passed ? "good" : "bad" };
     case "fal_clip": return { t: `${where}fal.ai klibi (${x.engine === "seedance25" ? "Seedance 2.5" : x.engine === "h3max" ? "H3 Max" : x.engine}, ${x.mode === "i2v" ? "image-to-video" : "reference-to-video"}, deneme ${x.attempt}): ${x.passed ? "kalite kapısından geçti" : "kalite kapısında kaldı"}`, c: x.passed ? "good" : "bad" };
     case "provider_rejected": return { t: `${where}fal.ai isteği reddetti (yeniden denenmedi): ${x.error}`, c: "bad" };
     case "engine_disabled": return { t: `${where}motor kapalı (MiniMax H3 · RunPod): H3 Max'e geçin`, c: "bad" };

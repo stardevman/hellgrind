@@ -17,6 +17,7 @@ celery.conf.update(
     task_routes={
         "hg.generate_scene": {"queue": "gen"},
         "hg.override_full": {"queue": "gen"},
+        "hg.more_candidates": {"queue": "gen"},
         "hg.motion_test": {"queue": "gen"},
         "hg.studio_image": {"queue": "gen"},        # görsel stüdyosu
         "hg.storyboard_scene": {"queue": "gen"},

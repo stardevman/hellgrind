@@ -13,6 +13,8 @@ fonksiyonları kullanır (`pricing.estimate_video`, `pricing.estimate_keyframe`)
                odak karakter önceki karede yoksa önce bir ara kare) ya da açı LoRA'sı (QWEN_EDIT_ANGLES_MODE kalitesinde).
   tahmini      kare + test turu + tam tur.
   en çok       kimlik kapısının bütün yeniden denemeleri + bütün düzeltme turları (max_correction_rounds) dahil.
+Tek aday modunda (candidate_mode="single", varsayılan) test turu ve düzeltme turu yoktur: çekim başına bir tam klip;
+yönetmenin sonradan onayladığı yeni adaylar bu tahmine girmez (denetçide ayrıca gösterilir).
 Toplam: çekimlerin toplamı + kullanılan her model için bir soğuk başlatma (kuyruk modele göre gruplu: Qwen-Image,
 Qwen-Image-Edit, H3 FL2VA, H3 Ref2VA her biri bir kez yüklenir).
 """
@@ -54,6 +56,8 @@ def cut_costs(cfg: dict, cut: dict, frame_usd: float, prices: dict | None = None
 
 def shot(cfg: dict, code: str, duration_s: float, engine: str = "h3", mode: str = "fl2va", frame: str = "qwen",
          prices: dict | None = None, end_frame: bool = False, cut: dict | None = None) -> dict:
+    from app.engine.candidates import estimate_cfg
+    cfg = estimate_cfg(cfg)                          # tek aday modu: test turu yok, tek tam klip
     seconds = billed_seconds(engine, duration_s)
     h3_mode = mode if engine == "h3" else None
     probe = pricing.estimate_video(engine, cfg["probe_resolution"], seconds, prices, mode=h3_mode)
@@ -84,6 +88,8 @@ def fal_shot(cfg: dict, code: str, duration_s: float, engine: str, mode: str = "
     """fal.ai motoru (H3 Max / Seedance 2.5): çekim başına tek klip, motorun çözünürlüğünde; kalite kapısından kalırsa
     en çok fal_clip_attempts klip (en çok). frame_usd: açık image-to-video'da önce çizilecek kare (fal.ai Qwen)."""
     from app.engine import fal_plan
+    from app.engine.candidates import estimate_cfg
+    cfg = estimate_cfg(cfg)                          # tek aday modu: yeniden deneme yok
     clip = fal_plan.cost(engine, fal_plan.resolution(engine, None, cfg), duration_s, images, mode,
                          fal_plan.draft(engine, None, cfg))
     attempts = max(1, int(cfg.get("fal_clip_attempts", 2)))

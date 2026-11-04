@@ -287,3 +287,67 @@ def _override(s: Session, sc: Scene, v: Variation, full: bool) -> dict:
     killswitch.event(str(sc.project_id), "director_override", scene_id=str(sc.id), code=sc.scene_code,
                      variation=str(v.id), full=False)
     return {**dispatch_result(s, sc, post_only=True), "override": "promote", **_mixed(s, sc)}
+
+
+# ---------- tek adaylı üretim: yönetmen onaylı yeni adaylar ----------
+
+def _more_n(n: int) -> int:
+    from app.engine.candidates import MAX_MORE
+    if not 1 <= n <= MAX_MORE:
+        raise HTTPException(422, f"Yeni aday sayısı 1 ile {MAX_MORE} arasında olmalı")
+    return n
+
+
+@router.get("/scenes/{scene_id}/candidates/estimate")
+def more_candidates_estimate(scene_id: SceneId, n: int = 1, s: Session = Depends(get_session)):
+    """n yeni adayın tahmini ek maliyeti ve kalan bütçe. Hiçbir şey üretmez, hiçbir şey yazmaz."""
+    from app.engine import candidates
+    sc = scene_or_404(s, scene_id)
+    return candidates.estimate(s, sc, _more_n(n))
+
+
+@router.post("/scenes/{scene_id}/candidates")
+@curated("more_candidates")
+def more_candidates(scene_id: SceneId, n: int = 1, s: Session = Depends(get_session)):
+    """Yönetmenin onayıyla n yeni aday üretir (her biri yeni tohumla, ayrı rezervasyonla). En yüksek skorlu aday
+    kurguya girer; önceki kazanan silinmez. Ardından yalnızca ses ve montaj çalışır. Hat bunu kendiliğinden yapmaz."""
+    from app.core.rerender import Stage, plan_rerender, stage_names
+    from app.core.state import load_assets, load_characters
+    from app.engine import candidates
+    from app.models import Project
+    from app.style import bible
+    from app.worker import tasks
+    from app.worker.dispatch import build_chain, claim_dispatch
+    sc = scene_or_404(s, scene_id)
+    n = _more_n(n)
+    ensure_not_frozen(str(sc.project_id))
+    ensure_idle(sc)
+    if (sc.method or "generate") != "generate":
+        raise HTTPException(409, "Bu çekim üretilmiyor (dış çekim ya da previs rehberi): yeni aday üretilmez.")
+    cost = candidates.estimate(s, sc, n)
+    if cost["over_budget"]:
+        raise HTTPException(402, f"Kalan bütçe ({cost['remaining_usd']:.2f} $) {n} yeni adayın tahmini maliyetine "
+                                 f"({cost['total_usd']:.2f} $) yetmiyor. Bütçeyi artırın ya da daha az aday isteyin.")
+    project = s.get(Project, sc.project_id)
+    tracks = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == sc.id)))
+    _, fp = plan_rerender(sc, load_characters(s, sc.id), tracks, load_assets(s, sc.id),
+                          bible.active_version(s, sc.project_id), film_grade_token(project.lut_hash, project.settings))
+    post_stages = Stage.LIPSYNC | Stage.MUX | (Stage.GRADE if fp.grade is not None else Stage.NONE)
+    if not claim_dispatch(sc.id):
+        raise HTTPException(409, f"{sc.scene_code} için üretim zaten sıraya alındı.")
+    sc.status, sc.last_error = "pending", None
+    s.commit()
+    post = build_chain(str(sc.project_id), str(sc.id), post_stages)
+    sig = tasks.more_candidates.si(project_id=str(sc.project_id), scene_id=str(sc.id), n=n)
+    (sig | post if post is not None else sig).apply_async()
+    return {"stages": ["VISUAL", *stage_names(post_stages)], "n": n, "total_usd_estimate": cost["total_usd"],
+            "estimate": cost}
+
+
+@router.post("/scenes/{scene_id}/candidates/decline")
+@curated("more_candidates_decline")
+def more_candidates_decline(scene_id: SceneId, s: Session = Depends(get_session)):
+    """"Hayır, böyle kalsın": soru bu adaylar için bir daha sorulmaz (karar kürasyon kaydına yazılır; yeni aday
+    üretilince soru yeniden gelebilir)."""
+    sc = scene_or_404(s, scene_id)
+    return {"ok": True, "status": sc.status}

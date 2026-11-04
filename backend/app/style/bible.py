@@ -130,7 +130,9 @@ def effective_style(asset, bible) -> str:
 def visual_cost(cfg: dict, engine: str, duration: float) -> tuple[float, float]:
     """Bir çekimin görsel aşamasının sanal maliyeti: (beklenen, en kötü). Beklenen: bir test turu ve bir tam dalga.
     En kötü: tüm düzeltme turları ve `full_n` tam varyasyon."""
+    from app.engine.candidates import estimate_cfg
     from app.engine.fal_plan import is_fal, resolution
+    cfg = estimate_cfg(cfg)                      # tek aday modu: çekim başına bir klip
     if is_fal(engine):                           # fal: çekim başına tek klip (kalite kapısından kalırsa fal_clip_attempts)
         clip = pricing.estimate_video(engine, resolution(engine, None, cfg), duration)
         return round(clip, 4), round(clip * max(1, int(cfg.get("fal_clip_attempts", 2))), 4)
