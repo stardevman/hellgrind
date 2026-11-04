@@ -27,7 +27,7 @@ from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine import paid
 from app.models import AudioTrack, Character, Project, Revision, Scene, Variation
-from app.post import grade
+from app.post import framerate, grade
 from app.post.audio import synthesize, synthesize_music
 from app.post.mux import AudioInput, mix_audio, mux
 from app.quality.anomaly import probe_duration
@@ -304,7 +304,7 @@ def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = 
 # ---------- GRADE ----------
 
 def grade_scene(scene_id: str) -> str:
-    """Dudak senkronlu videoya film geneli LUT'u, çekimin renk ayarını ve (proje ayarıysa) kare tutmayı uygular. Etkisizse
+    """Dudak senkronlu videoya film geneli LUT'u, çekimin renk ayarını, (proje ayarıysa) kare hızı kilidini ve kare tutmayı uygular. Etkisizse
     ayarı temizler (montaj dudak senkronlu videoyu kullanır). Çıktı içerik-adreslidir. Dönen: anahtar, "identity" ya da "skip (...)"."""
     snap = _snapshot(scene_id)
     scene, project_id = snap.scene, str(snap.scene.project_id)
@@ -321,8 +321,10 @@ def grade_scene(scene_id: str) -> str:
         with workspace() as tmp:
             video = storage.download(scene.lipsync_video_key, os.path.join(tmp, "video.mp4"))
             lut = storage.download(snap.lut_key, os.path.join(tmp, "film.cube")) if snap.lut_key else None
+            lock = framerate.lock_of(snap.cfg)
             out = grade.grade_video(video, os.path.join(tmp, "graded.mp4"), scene.grade, lut,
-                                    on_twos=bool(snap.cfg.get("on_twos")))
+                                    on_twos=bool(snap.cfg.get("on_twos")),
+                                    fps=framerate.ffmpeg_rate(lock) if lock else None)
             storage.put_file(out, out_key)
     advance_scene(project_id, scene_id, graded_video_key=out_key, grade_hash=snap.fp.grade)
     return out_key

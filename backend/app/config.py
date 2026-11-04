@@ -215,6 +215,7 @@ DEFAULT_PROJECT_SETTINGS: dict = {
     "seedance25_resolution": None, # proje: taslak kapalıyken Seedance çözünürlüğü; None = Ayarlar'daki SEEDANCE25_RESOLUTION
     "flux3max_resolution": None,   # proje: FLUX 3 Max çözünürlüğü (720p | 1080p); None = 720p
     "on_twos": False,
+    "fps_lock": None,              # kare hızı kilidi: None | "23.976" | "24" | "25" (renk aşamasında her çekim bu hıza)
     "voice_first": False,          # ses-önce: sesi kilitlenmemiş sekansta görüntü üretimi başlamaz
     "revision_rounds": 2,          # müşteri onay kapısı başına sözleşmedeki revizyon turu (değişiklik isteği) sınırı              # kare tutma (on twos, 12 çizim/sn görünümü): renk aşamasında; yalnızca GRADE + MUX
     "candidate_mode": "single",    # single: çekim başına TEK aday üretilir, kendiliğinden ek aday yok; skor düşükse panel

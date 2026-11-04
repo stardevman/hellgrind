@@ -8,6 +8,8 @@ import { api, fetcher } from "./api";
 import type { AdminState, Meta, Overview, ProjectListItem, Scene, Sequence } from "./types";
 
 export const POLL_MS = 2000;
+/** Rehberler: panel turu ve kitaptan çizgi film (lib/tour.ts). */
+export type TourId = "panel" | "book";
 /** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
 export const PAGES = ["script", "voice", "style", "images", "assets", "board", "edit", "compare", "color", "deliver"] as const;
 /** Sayfa çubuğunda simgesi olmayan sayfalar: Ayarlar (bandın sağındaki dişli) ve Geçmiş (yönetici). */
@@ -89,9 +91,10 @@ interface PanelState {
   login: (password: string) => Promise<void>;
   loginOpen: boolean;
   setLoginOpen: (on: boolean) => void;
-  /** Rehber turu açık mı; ilk açılışta kendiliğinden başlar, bitince tarayıcıda "görüldü" olarak kalır. */
-  tour: boolean;
-  setTour: (on: boolean) => void;
+  /** Açık rehber (null: kapalı). "panel" ilk açılışta kendiliğinden başlar, bitince tarayıcıda "görüldü" kalır; "book"
+      (kitaptan çizgi film) elle açılır ve uygulama kullanılırken açık kalır. */
+  tour: TourId | null;
+  setTour: (id: TourId | null) => void;
   /** Yayın güvenli alanları (action safe %93, title safe %90) izleyicide ve storyboard'da; G kısayolu, tarayıcıda hatırlanır. */
   safeAreas: boolean;
   setSafeAreas: (on: boolean) => void;
@@ -125,7 +128,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [remembered, setRemembered] = useState<string | null>(null);
   const [wantAdmin, setWantAdmin] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [tour, setTour] = useState(false);
+  const [tour, setTour] = useState<TourId | null>(null);
   const [safeAreas, setSafe] = useState(false);
   useEffect(() => { setRemembered(recall()); setWantAdmin(readFlag(ADMIN_KEY)); setSafe(readFlag(SAFE_KEY)); }, []);
   const setSafeAreas = useCallback((on: boolean) => { writeFlag(SAFE_KEY, on); setSafe(on); }, []);

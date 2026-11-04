@@ -100,7 +100,17 @@ hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazıl
 modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
 
 Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, Ayarlar'daki bütçe bölümünü ve Ayarlar düğmesini sırayla gösterir
-(<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır).
+(<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır). Alt banttaki **Rehberler** (?) düğmesi turu yeniden açar.
+
+**Kitaptan çizgi film rehberi** (Rehberler › Kitaptan çizgi film): kitap sayfaları ve hazır seslerle (anlatım, müzik,
+efekt) baştan sona bir bölüm. Rehber ekranı kapatmaz; uygulama kullanılırken açık kalır, gerçek düğmeleri sırayla
+vurgular, her adımın durumunu (yapıldı / bekliyor) gösterir ve kaldığı adımı hatırlar. Akış: yönetici modu ve
+`VIDEO_INPUT_MODE=keyframe` → yeni proje → Senaryo'da **Kitap şablonu** (her sayfa ayrı `DIŞ. KİTAP - GÜN` sahnesi,
+konuşma yok, yalnızca karede açıkça görünen karakterler `[KARAKTER: Ad]`) → karakterlere kitaptan durağan referans,
+onay ve kilit → çekimlerden mekân bağını kaldırma → her çekime kitap sayfasını kırpmadan **ilk kare** olarak yükleme →
+"Yeni sahne" geçişi, süre, model sesi kapalı → üretim ve aday seçimi → Ses › **Anlatım ve dış sesler**'den hazır
+sesleri yükleme → filmi birleştirme ve dışa aktarma. Anlatım kanalı (`kind=dialogue`, yalnızca yüklenen dosya) filmde
+müziği sidechain ile kısar ve teslim paketinde diyalog stem'ine girer; hiçbir çekim yeniden üretilmez.
 
 Görünüm adres çubuğunda tutulur (proje, sayfa, çekim, varyasyon, karşılaştırılan adaylar, varlık): bağlantıyı paylaşınca
 aynı görünüm açılır.
@@ -356,6 +366,11 @@ Müşteriye teslim edilen 2D animasyon dizisi için sektörün üretim alışkan
   - Stil sürümüne girmez; proje ayarıdır (`on_twos`). `POST /api/projects/{id}/on-twos {"enabled": true}` ile açılıp kapanır.
   - Renk aşamasında FFmpeg her ikinci kareyi atıp kaynak hızına geri doldurur (`framestep=2,fps=…`). Kare sayısı ve süre değişmez, her çizim iki kare görünür.
   - Renk özetine girdiği için biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz, harcama değişmez. Karar kürasyon kaydına `on_twos_change` olarak düşer.
+- **Kare hızı kilidi (Ayarlar › Kare hızı)**, proje ayarı `fps_lock` (`23.976`, `24`, `25` ya da boş):
+  - Çizgi film için önerilen 24 fps: H3, Seedance ve Veo zaten 24 fps üretir, çekimler birebir kalır. 25 fps yalnızca TV (Türkiye / Avrupa) teslimi için; 24 fps kaynakta saniyede bir kare tekrarlanır.
+  - Kilit açıkken her çekim renk aşamasında kilitli hıza çevrilir (FFmpeg `fps`, süre korunur; Wan'ın 16 fps'i ya da dışarıdan yüklenen 25/30 fps çekim dahil). Kare tutma kilitli hız üzerinde yapılır, böylece iki karelik ritim montajda bozulmaz.
+  - Kaba kurgu, film, teslim şartnamesi, QC ve EDL/OTIO aynı hızı kullanır. Kilitle çelişen şartname reddedilir (409); kilit kurulunca var olan şartnamenin kare hızı kilide çekilir.
+  - `GET /api/projects/{id}/fps-lock` kilidi ve biten çekimlerin kaynak kare hızlarını, `POST /api/projects/{id}/fps-lock {"fps": "24"}` kilidi değiştirir. Biten çekimlerde yalnızca GRADE + MUX çalışır; görüntü motoru çağrılmaz. Karar kürasyon kaydına `fps_lock_change` olarak düşer. Kilit kapalıyken eski davranış sürer.
 - **Renk sayfası › Kareler**, kare tutma açıkken ya da yönetici modunda: art arda altı kare önce ve sonra yan yana gösterilir (`GET /api/scenes/{id}/grade/strip.jpg?before=true` / `?twos=true`). Altlarındaki numaralar karede görünen çizimdir: 1 2 3 4 5 6 → 1 1 2 2 3 3.
 
 ### Ses-önce akışı (Ses sayfası, animatik)

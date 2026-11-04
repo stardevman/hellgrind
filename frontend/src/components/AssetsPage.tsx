@@ -239,7 +239,7 @@ function Detail({ a }: { a: Asset }) {
               )}
             </label>
           )}
-          <div className="row">
+          <div className="row" data-tour="asset-lifecycle">
             {a.status === "draft" && <button className="btn good" type="button" disabled={busy || !hasVisual} onClick={() => run("approve-still")}>Durağanı onayla</button>}
             {testable && (a.status === "still_approved" || a.status === "motion_tested") && (
               <button className="btn" type="button" disabled={busy || frozen || running} onClick={() => run("motion-test")}>{t ? "Hareket testini yenile" : "Hareket testi üret"}</button>
@@ -277,7 +277,7 @@ function Detail({ a }: { a: Asset }) {
             </details>
           )}
           {locked ? <p className="faint small">Kilitli varlık değiştirilemez; önce kilidi aç.</p> : (
-            <form className="form-row" onSubmit={upload}>
+            <form className="form-row" onSubmit={upload} data-tour="asset-ref-upload">
               <label className="field">Referans türü
                 <select value={kind} onChange={(e) => setKind(e.target.value)}>
                   {REF_KINDS[a.type].map((k) => <option key={k} value={k}>{REF_TR[k]}</option>)}

@@ -31,8 +31,7 @@ from app.models import AudioTrack, Project, RightsItem, Scene, Sequence
 from app.post import voice
 
 RESOLUTIONS = {"1280x720": (1280, 720), "1920x1080": (1920, 1080), "3840x2160": (3840, 2160)}
-# kare hızı -> (FFmpeg yazımı, sayı, EDL zaman tabanı)
-FPS = {"23.976": ("24000/1001", 24000 / 1001, 24), "24": ("24", 24.0, 24), "25": ("25", 25.0, 25)}
+from app.post.framerate import RATES as FPS, lock_of  # kare hızı -> (FFmpeg yazımı, sayı, EDL zaman tabanı)
 CODECS = {"h264": "H.264", "prores_hq": "ProRes 422 HQ"}
 DEFAULT_SPEC = {"resolution": "1280x720", "fps": "24", "codec": "h264", "loudness_lufs": -23.0, "srt": False,
                 "me_mix": False, "textless": False, "preset": None}
@@ -60,9 +59,13 @@ QC_W, QC_H = 160, 90
 # ---------- şartname ----------
 
 def spec_of(project) -> dict | None:
-    """Projenin teslim şartnamesi (varsayılanlarla tamamlanmış) ya da None (eski sabitler)."""
+    """Projenin teslim şartnamesi (varsayılanlarla tamamlanmış) ya da None (eski sabitler). Kare hızı kilidi açıksa
+    şartnamenin kare hızı her zaman kilittir."""
     raw = getattr(project, "delivery", None)
-    return {**DEFAULT_SPEC, **raw} if raw else None
+    if not raw:
+        return None
+    lock = lock_of(getattr(project, "settings", None))
+    return {**DEFAULT_SPEC, **raw, **({"fps": lock} if lock else {})}
 
 
 def film_format(spec: dict | None) -> dict | None:
@@ -403,7 +406,7 @@ def stems(project_id: str, cut: dict, work: str) -> dict:
             groups["music" if t.kind == "music" else "effects"].append(AudioInput(path, at, float(t.gain_db), room))
     spans = {q["code"]: (q["in_s"], q["out_s"]) for q in cut.get("sequences") or []}
     for p in place_tracks(film_tracks, spans, total):
-        groups["music" if p["kind"] == "music" else "effects"].append(
+        groups["dialogue" if p["kind"] == "dialogue" else "music" if p["kind"] == "music" else "effects"].append(
             AudioInput(track_file(p, work), p["at"], p["gain_db"], p["length"], p["fade_in_s"], p["fade_out_s"]))
     return {name: (mix_audio(inputs, os.path.join(work, f"{name}.wav"), total) if inputs
                    else _silence(os.path.join(work, f"{name}.wav"), total)) for name, inputs in groups.items()}

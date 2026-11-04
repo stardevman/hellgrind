@@ -302,9 +302,26 @@ def test_changing_sequence_music_replaces_only_procedural_music_and_renders_noth
     assert dispatched == []                                                 # hiçbir çekim kuyruğa girmedi
 
 
+def test_narration_is_an_uploaded_dialogue_track_and_renders_nothing(api, sample, dispatched, tmp_path):
+    """Kitaptan çizgi film: hazır anlatıcı kaydı sekansa "dialogue" türünde yüklenir; hiçbir çekim yeniden üretilmez."""
+    _, _, seqs = sample
+    seq = seqs["SEQ01"]["id"]
+    voice = make_tone(tmp_path / "anlatim.wav", 220, seconds=1.5)
+    r = api.post(f"/api/sequences/{seq}/tracks?filename=anlatim.wav&kind=dialogue&start_s=0.5",
+                 content=open(voice, "rb").read(), headers={"content-type": "audio/wav"})
+    assert r.status_code == 201, r.text
+    assert (r.json()["track"]["kind"], r.json()["track"]["source"]) == ("dialogue", "upload")
+    assert dispatched == []
+    with session_scope() as s:                      # prosedürel diyalog kanalı veritabanında da reddedilir
+        with pytest.raises(Exception):
+            with s.begin_nested():
+                s.execute(text("INSERT INTO timeline_tracks (project_id, sequence_id, kind, source, content_hash) "
+                               "SELECT project_id, id, 'dialogue', 'procedural', 'x' FROM sequences WHERE id = :q"), {"q": seq})
+
+
 @pytest.mark.parametrize("query,body,needle", [
     ("filename=tema.txt", b"x", "uzantı"),
-    ("filename=tema.wav&kind=dialogue", b"x", "music, sfx, ambience"),
+    ("filename=tema.wav&kind=voice", b"x", "music, sfx, ambience, dialogue"),
     ("filename=tema.wav&start_s=4&end_s=2", b"x", "end_s"),
     ("filename=tema.wav", b"not audio", "ses akışı"),
     ("", b"x", "filename"),

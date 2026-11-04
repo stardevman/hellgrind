@@ -6,6 +6,9 @@ Aynı ayar hem videoya hem tek bir kareye (önizleme, süreklilik önerisi) bire
 
 Kare tutma (on twos, proje ayarı): 2D animasyonun "12 çizim/sn" görünümü. Renkten sonra her ikinci kare atılır
 (framestep=2) ve kaynak kare hızına geri doldurulur (fps): kare sayısı ve süre aynı kalır, her çizim iki kare görünür.
+
+Kare hızı kilidi (proje ayarı fps_lock, post/framerate.py): çekim önce kilitli hıza çevrilir, kare tutma o hız üzerinde
+yapılır; böylece filmde 16, 24 ve 30 fps kaynaklar karışmaz ve iki karelik ritim montajda bozulmaz.
 """
 import subprocess
 
@@ -87,11 +90,15 @@ def hold_filter(fps: str) -> str:
     return f"framestep=2,fps=fps={fps}"
 
 
-def grade_video(src: str, dst: str, raw: dict | None, lut_path: str | None, on_twos: bool = False) -> str:
-    """Videoya renk ayarı (ve istenirse kare tutma); ses (varsa) kopyalanır."""
+def grade_video(src: str, dst: str, raw: dict | None, lut_path: str | None, on_twos: bool = False,
+                fps: str | None = None) -> str:
+    """Videoya renk ayarı, istenirse kare hızı kilidi (fps: FFmpeg yazımı, ör. "24", "24000/1001") ve kare tutma; ses
+    (varsa) kopyalanır."""
     vf = filter_chain(raw, lut_path)
+    if fps:
+        vf = f"{vf},fps=fps={fps}"
     if on_twos:
-        vf = f"{vf},{hold_filter(probe_fps(src))}"
+        vf = f"{vf},{hold_filter(fps or probe_fps(src))}"
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-map", "0:v", "-map", "0:a?",
                     "-vf", f"{vf},format=yuv420p", "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", dst], check=True, capture_output=True)
@@ -103,13 +110,14 @@ STRIP_W = 200
 
 
 def strip_jpeg(video: str, at: float, out: str, raw: dict | None = None, lut_path: str | None = None,
-               on_twos: bool = False, frames: int = STRIP_FRAMES) -> str:
+               on_twos: bool = False, frames: int = STRIP_FRAMES, fps: str | None = None) -> str:
     """`at` saniyesinden başlayan art arda `frames` kare yan yana (renk ayarıyla ve istenirse kare tutmayla): kare
     tutmanın etkisi durağan bir görüntüde görünür (aynı çizim iki karede tekrar eder)."""
-    fps = probe_fps(video)
     vf = filter_chain(raw, lut_path)
+    if fps:
+        vf = f"{vf},fps=fps={fps}"
     if on_twos:
-        vf = f"{vf},{hold_filter(fps)}"
+        vf = f"{vf},{hold_filter(fps or probe_fps(video))}"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{max(0.0, at):.3f}", "-i", video, "-frames:v", "1",
                     "-vf", f"{vf},scale={STRIP_W}:-2,tile={frames}x1:padding=2:color=0x111214", "-q:v", "4", out],
                    check=True, capture_output=True)

@@ -32,6 +32,7 @@ def state(s: Session, project_id: str) -> dict:
     return {"spec": spec or delivery.DEFAULT_SPEC, "custom": spec is not None,
             "presets": delivery.PRESETS, "options": {"resolution": list(delivery.RESOLUTIONS), "fps": list(delivery.FPS),
                                                      "codec": delivery.CODECS},
+            "fps_lock": delivery.lock_of(p.settings),
             "film": {"key": p.timeline_key, "url": f"/api/media?key={p.timeline_key}" if p.timeline_key else None},
             "qc": {**qc, "stale": qc.get("film_key") != p.timeline_key} if qc else None,
             "rights": {"items": rights["items"], "missing": rights["missing"], "ai_rows": len(rights["ai_rows"])},
@@ -49,6 +50,10 @@ def get_delivery(project_id: ProjectId, s: Session = Depends(get_session)):
 def put_delivery(project_id: ProjectId, body: DeliverySpecIn, s: Session = Depends(get_session)):
     """Teslim şartnamesi. Final film bir sonraki birleştirmede bu biçimle çıkar (görüntü motoru çağrılmaz)."""
     p = project_or_404(s, project_id)
+    lock = delivery.lock_of(p.settings)
+    if lock and body.fps != lock:
+        raise HTTPException(409, f"Kare hızı {lock} fps'e kilitli. Şartnameyi {body.fps} fps yapmak için önce Ayarlar › "
+                                 "Kare hızı sayfasında kilidi değiştir.")
     p.delivery = body.model_dump()
     s.commit()
     killswitch.event(project_id, "delivery_spec", preset=body.preset, resolution=body.resolution, fps=body.fps)

@@ -4,16 +4,19 @@
    çekimdeki yeri; fark 0,5 sn'yi aşarsa amber uyarı). Sağda toplu yükleme: S001_SH01_2.wav biçimindeki dosyalar repliğe
    kendiliğinden eşlenir, eşlenemeyenler elle atanır. Sekansın sesi kilitlenince replik düzenleme kapanır ve görüntüsü
    üretilmemiş çekimlerin süresi sesten hesaplanır; kilit ve kilidin açılması onay ister. Planlayıcı değişmez: görüntüsü
-   üretilmiş çekimde süre farkı yalnızca uyarıdır. */
+   üretilmiş çekimde süre farkı yalnızca uyarıdır. Altta "Anlatım ve dış sesler": hazır ses dosyaları (dış seslendirme,
+   müzik, efekt, ortam) sekansın zaman çizelgesine yerleştirilir; hiçbir çekim yeniden üretilmez, yalnızca film
+   yeniden birleştirilir. Anlatım müziği bastırır ve teslimde diyalog stem'ine girer. */
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { POLL_MS, usePanel } from "@/lib/panel";
 import { clock } from "@/lib/text";
 import type { VoiceLine, VoiceLockResult, VoiceSequence, VoiceShot, VoiceState, VoiceUpload } from "@/lib/types";
+import { TRACK_KIND_TR } from "@/lib/timeline";
 import { assignable, checkBadge, DRIFT_TEXT, matchFiles, mismatchText, secTr, sourceBadge, uploadBody, type Matched } from "@/lib/voice";
 import { Icon } from "./icons";
-import { NoteBox, Panel, Section } from "./ui";
+import { NoteBox, Panel, Section, UploadForm } from "./ui";
 
 /** Repliğin dalga formu (sunucunun tepe değerleri); seslendirilmemişse boş çizgi. */
 function Wave({ line }: { line: VoiceLine }) {
@@ -177,6 +180,74 @@ function BulkUpload({ state, send }: { state: VoiceState; send: (items: Matched[
   );
 }
 
+/** Hazır ses dosyaları (dış seslendirme / anlatım, müzik, efekt, ortam) sekans kanalı olarak: dosya sekansın başından
+    "Başlangıç" saniye sonra çalar. Çekimlere dokunulmaz; film yeniden birleştirilir. */
+function ExternalAudio() {
+  const { ov, busy, frozen, act, note } = usePanel();
+  const seqs = ov?.sequences ?? [];
+  const [seqId, setSeqId] = useState("");
+  const [kind, setKind] = useState("dialogue");
+  const target = seqs.find((q) => q.id === seqId) ?? seqs[0];
+  const remove = (id: string) => act(async () => {
+    const r = await api.del<{ stages: string[] }>(`/timeline-tracks/${id}`);
+    note("voice-ext", "Kanal kaldırıldı." + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
+  }, "voice-ext");
+  return (
+    <Panel title="Anlatım ve dış sesler" meta={`${seqs.reduce((n, q) => n + q.tracks.length, 0)} kanal`} tour="voice-external">
+      <div className="pad stack">
+        <p className="faint small">
+          Elindeki hazır sesleri (anlatıcı kaydı, müzik, efekt, ortam) buradan filme yerleştir. Dosya seçtiğin sekansın
+          başından &quot;Başlangıç&quot; saniye sonra çalar. Hiçbir çekim yeniden üretilmez; yalnızca film yeniden birleştirilir.
+          Anlatım müziği kendiliğinden kısar ve teslim paketinde diyalog stem&apos;ine girer.
+        </p>
+        <NoteBox id="voice-ext" />
+        {seqs.length === 0 ? <p className="faint small">Önce senaryoyu işle: sesler sekansların üstüne yerleşir.</p> : (
+          <>
+            {seqs.map((q) => (
+              <section key={q.id} className="stack">
+                <h4 className="small dim">{q.code} · {q.title}</h4>
+                <ul className="lines">
+                  {q.tracks.length ? q.tracks.map((t) => (
+                    <li key={t.id}>
+                      <button type="button" className="btn ghost" disabled={busy} onClick={() => remove(t.id)}>Kaldır</button>{" "}
+                      {t.source === "procedural" ? `Otomatik müzik (${t.mood ?? "—"})` : `${TRACK_KIND_TR[t.kind] ?? t.kind} · ${t.filename ?? ""}`}{" "}
+                      <span className="faint mono small">({secTr(Number(t.start_s))}{t.duration_s ? ` · ${secTr(Number(t.duration_s))}` : ""}, {Number(t.gain_db).toFixed(0)} dB)</span>
+                      {t.url && <> <a href={t.url} target="_blank" rel="noopener" className="small">dinle</a></>}
+                    </li>
+                  )) : <li className="faint">Bu sekansta kanal yok.</li>}
+                </ul>
+              </section>
+            ))}
+            <UploadForm label="Ses dosyası" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg" button="Filme ekle" className="form-row wrap"
+              disabled={frozen || !target}
+              onUpload={(file, field) => act(async () => {
+                const params = new URLSearchParams({ filename: file.name, kind, start_s: field("start_s") || "0", gain_db: field("gain_db") || "0" });
+                const r = await api.upload<{ stages: string[] }>(`/sequences/${target!.id}/tracks?${params}`, file);
+                note("voice-ext", `${TRACK_KIND_TR[kind]} ${target!.code} sekansına eklendi; hiçbir çekim yeniden üretilmedi.` + (r.stages.length ? " Film yeniden birleştiriliyor." : ""), "ok");
+              }, "voice-ext")}>
+              {seqs.length > 1 && (
+                <label className="field">Sekans
+                  <select value={target?.id ?? ""} onChange={(e) => setSeqId(e.target.value)}>
+                    {seqs.map((q) => <option key={q.id} value={q.id}>{q.code} · {q.title}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="field">Tür
+                <select value={kind} onChange={(e) => setKind(e.target.value)}>
+                  {Object.entries(TRACK_KIND_TR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </label>
+              <label className="field">Başlangıç (sn)<input type="number" name="start_s" min={0} step={0.1} defaultValue={0} /></label>
+              <label className="field">Seviye (dB)<input type="number" name="gain_db" min={-40} max={6} step={1} defaultValue={kind === "dialogue" ? 0 : -8} key={kind} /></label>
+            </UploadForm>
+            <p className="faint small">Otomatik müziği istemiyorsan listede &quot;Kaldır&quot; de. Dosyayı sesin başladığı saniyeye göre kes ya da Başlangıç&apos;ı ayarla; kurgudan sonra süreleri Kurgu sayfasındaki ses izinde görürsün.</p>
+          </>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 export function VoicePage() {
   const { ov, projectId, busy, frozen, act, note } = usePanel();
   const { data: st, mutate } = useSWR<VoiceState>(projectId ? `/projects/${projectId}/voice` : null, fetcher, { refreshInterval: POLL_MS });
@@ -247,6 +318,7 @@ export function VoicePage() {
           </section>
         ))}
       </Panel>
+      <div className="voice-side">
       <Panel title="Toplu yükleme" meta={st.voice_first ? "ses-önce açık" : ""}>
         <div className="pad stack">
           <BulkUpload state={st} send={send} />
@@ -277,6 +349,8 @@ export function VoicePage() {
           </div>
         </Section></div>
       </Panel>
+      <ExternalAudio />
+      </div>
       {confirm && <LockDialog seq={confirm} onCancel={() => setConfirm(null)} onConfirm={() => { const q = confirm; setConfirm(null); void lockSeq(q); }} />}
     </div>
   );

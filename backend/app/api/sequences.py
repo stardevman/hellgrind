@@ -31,7 +31,8 @@ from app.quality.anomaly import probe_duration
 from app.schemas import SequencePatch, TrackIn, TrackPatch
 
 router = APIRouter(tags=["sequences"])
-TRACK_KINDS = ("music", "sfx", "ambience")
+# dialogue = anlatım (dış seslendirme): yalnızca yüklenen dosya; filmde müziği bastırır, teslimde diyalog stem'idir.
+TRACK_KINDS = ("music", "sfx", "ambience", "dialogue")
 
 
 def _media(key: str | None) -> str | None:

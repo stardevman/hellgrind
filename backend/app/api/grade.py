@@ -19,9 +19,9 @@ from app.curation import curated
 from app.db import get_session, session_scope
 from app.engine.references import sha_of
 from app.models import Project
-from app.post import grade
+from app.post import framerate, grade
 from app.quality.anomaly import probe_duration
-from app.schemas import GradeIn, OnTwosIn
+from app.schemas import FpsLockIn, GradeIn, OnTwosIn
 
 router = APIRouter(tags=["grade"])
 REGRADE = Stage.GRADE | Stage.MUX
@@ -75,18 +75,21 @@ def _strip(scene_id: str, raw: dict | None, before: bool, twos: bool) -> bytes:
     with session_scope() as s:
         sc = scene_or_404(s, scene_id)
         source = sc.lipsync_video_key
-        lut_key = s.get(Project, sc.project_id).lut_key
+        project = s.get(Project, sc.project_id)
+        lut_key, lock = project.lut_key, framerate.lock_of(project.settings)
     if not source:
         raise HTTPException(409, "Bu çekimin henüz renklendirilecek videosu yok.")
     settings_ = None if before else grade.clamp(raw or {})
     hold = twos and not before
-    key = f"thumbs/grade/{scene_id}/strip_{stable_hash([source, settings_, None if before else lut_key, hold])}.jpg"
+    rate = framerate.ffmpeg_rate(lock) if lock and not before else None       # kare tutma kilitli hız üzerinde
+    key = f"thumbs/grade/{scene_id}/strip_{stable_hash([source, settings_, None if before else lut_key, hold] + ([rate] if rate else []))}.jpg"
     if not storage.exists(key):
         os.makedirs(settings.work_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
             video = storage.download(source, os.path.join(tmp, "v.mp4"))
             lut = storage.download(lut_key, os.path.join(tmp, "film.cube")) if lut_key and not before else None
-            out = grade.strip_jpeg(video, probe_duration(video) / 2, os.path.join(tmp, "s.jpg"), settings_, lut, hold)
+            out = grade.strip_jpeg(video, probe_duration(video) / 2, os.path.join(tmp, "s.jpg"), settings_, lut, hold,
+                                   fps=rate)
             storage.put_file(out, key, "image/jpeg")
     return storage.read_bytes(key)
 
@@ -169,6 +172,49 @@ def set_on_twos(project_id: ProjectId, body: OnTwosIn, s: Session = Depends(get_
     s.commit()
     killswitch.event(project_id, "on_twos_changed", enabled=body.enabled)
     return {"on_twos": body.enabled, **_regrade(project_id)}
+
+
+@router.get("/projects/{project_id}/fps-lock")
+def get_fps_lock(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Kare hızı kilidi ve bitmiş çekimlerin kaynak kare hızları (ffprobe; para harcamaz)."""
+    p = project_or_404(s, project_id)
+    lock = framerate.lock_of(p.settings)
+    from app.models import Scene
+    from sqlalchemy import select
+    shots = [(sc.scene_code, sc.lipsync_video_key) for sc in
+             s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order, Scene.scene_code))
+             if sc.lipsync_video_key]
+    sources: dict[str, list[str]] = {}
+    if shots:
+        os.makedirs(settings.work_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp:
+            paths = []
+            for i, (_, key) in enumerate(shots):
+                try:
+                    paths.append(storage.download(key, os.path.join(tmp, f"{i}.mp4")))
+                except Exception:
+                    paths.append(os.path.join(tmp, "missing"))
+            for (code, _), rate in zip(shots, framerate.source_rates(paths)):
+                value = framerate.rate_value(rate)
+                sources.setdefault(f"{value:.3f}".rstrip("0").rstrip(".") if value else "?", []).append(code)
+    return {"fps": lock, "options": framerate.LABELS, "on_twos": bool((p.settings or {}).get("on_twos")),
+            "sources": [{"fps": k, "shots": v, "matches": bool(lock) and k != "?" and
+                         abs(float(k) - framerate.RATES[lock][1]) < 0.01} for k, v in sources.items()]}
+
+
+@router.post("/projects/{project_id}/fps-lock")
+@curated("fps_lock_change")
+def set_fps_lock(project_id: ProjectId, body: FpsLockIn, s: Session = Depends(get_session)):
+    """Kare hızı kilidi (proje ayarı): bitmiş çekimler renk aşamasında bu hıza çevrilir (yalnızca GRADE + MUX, görüntü
+    motoru çağrılmaz); kaba kurgu, film, teslim şartnamesi ve EDL/OTIO aynı hızı kullanır."""
+    p = project_or_404(s, project_id)
+    ensure_not_frozen(project_id)
+    p.settings = {**(p.settings or {}), "fps_lock": body.fps}
+    if body.fps and p.delivery:                                      # şartname kilitle çelişmesin
+        p.delivery = {**p.delivery, "fps": body.fps}
+    s.commit()
+    killswitch.event(project_id, "fps_lock_changed", fps=body.fps)
+    return {"fps": body.fps, **_regrade(project_id)}
 
 
 @router.post("/projects/{project_id}/color/auto-match")

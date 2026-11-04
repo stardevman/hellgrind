@@ -69,6 +69,7 @@ SETTING_RULES = {
     "seedance25_resolution": (lambda v: v in (None, "480p", "720p", "1080p"), "480p, 720p, 1080p ya da boş"),
     "flux3max_resolution": (lambda v: v in (None, "720p", "1080p"), "720p, 1080p ya da boş"),
     "on_twos": (lambda v: type(v) is bool, "true ya da false"),
+    "fps_lock": (lambda v: v in (None, "23.976", "24", "25"), "23.976, 24, 25 ya da boş"),
     "voice_first": (lambda v: type(v) is bool, "true ya da false"),
     "revision_rounds": (_int(0, 20), "0 ile 20 arasında tam sayı"),
 }
@@ -355,6 +356,10 @@ class DeliverySpecIn(BaseModel):
 
 class VoiceLockIn(BaseModel):
     locked: bool                                     # true: sekansın sesi kilitlenir; false: kilit açılır
+
+
+class FpsLockIn(BaseModel):
+    fps: Literal["23.976", "24", "25"] | None        # None: kilit kapalı (çekimler kaynak hızında)
 
 
 class OnTwosIn(BaseModel):
