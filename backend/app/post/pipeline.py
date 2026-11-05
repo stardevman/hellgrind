@@ -35,7 +35,7 @@ from app.style import bible
 
 log = logging.getLogger("hellgrind.post")
 
-SKIP_STATUSES = ("frozen", "needs_review", "blocked")     # bu durumdaki sahnede post aşaması çalışmaz
+SKIP_STATUSES = ("frozen", "needs_review", "blocked", "awaiting_consent")     # bu durumdaki sahnede post aşaması çalışmaz
 MUSIC_BUCKET_S = 5                             # müzik dosyası bu adımlarla yuvarlanır: sahneler arasında paylaşılır
 
 
@@ -260,7 +260,8 @@ def voice_and_lipsync(scene_id: str) -> str:
         with session_scope() as s:
             visible = on_screen(s, scene_id)
         voice_over_only = any(t.kind == "dialogue" for t in snap.tracks) and not synced_lines(snap.tracks, visible)
-        sync = paid_lipsync(snap.cfg) and not voice_over_only
+        from app.budget import consent              # yönetmen bu çekimin dudak senkronunu reddetti: senkronsuz biter
+        sync = paid_lipsync(snap.cfg) and not voice_over_only and not consent.denied(scene_id, "lipsync")
         unsynced = "" if settings.dry_run or sync else "_unsynced"
         keep_end = _continues(scene)
         target = trim_target(scene)

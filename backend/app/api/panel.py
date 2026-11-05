@@ -19,7 +19,7 @@ from app.api.plan import dispatch_all
 from app.api.projects import display_status
 from app.api import review
 from app.api.sequences import sequences_out
-from app.budget import killswitch
+from app.budget import consent, killswitch
 from app.config import DEFAULT_PROJECT_SETTINGS, project_settings, settings
 from app.curation import curated
 from app.db import get_session
@@ -137,6 +137,8 @@ def upload_script(project_id: ProjectId, body: ScriptIn, s: Session = Depends(ge
     ensure_not_frozen(project_id)
     try:
         summary = ingest(project_id, body.text, auto_music=body.auto_music)
+    except consent.ConsentRequired:                   # LLM ile ayrıştırma izin bekliyor: 428, panel yineler
+        raise
     except killswitch.ProjectFrozen:                  # LLM modunda ayrıştırma sırasında bütçe dolabilir
         raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
     result = {"planned": {}, "busy": [], "blocked": {}, "capped": [], "awaiting_board": [], "frozen": False}

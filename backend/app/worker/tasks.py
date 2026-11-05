@@ -6,7 +6,7 @@ bu modül, onlardan bağımsız test edilebilir.
 import logging
 import traceback
 
-from app.budget import killswitch
+from app.budget import consent, killswitch
 from app.config import settings
 from app.db import session_scope
 from app.models import Scene
@@ -14,6 +14,12 @@ from app.worker.celery_app import celery
 from app.worker.dispatch import release_dispatch
 
 log = logging.getLogger("hellgrind.tasks")
+
+
+def _status(scene_id: str) -> str | None:
+    with session_scope() as s:
+        scene = s.get(Scene, scene_id)
+        return scene.status if scene is not None else None
 
 
 def _set_status(scene_id: str, status: str, error: str | None = None) -> None:
@@ -62,6 +68,8 @@ def _guard(task, project_id: str, scene_id: str, work):
     if killswitch.is_frozen(project_id):
         _set_status(scene_id, "frozen")
         return "frozen"
+    if _status(scene_id) == "awaiting_consent":        # izin bekleyen çekimde zincirin sonraki aşamaları çalışmaz
+        return "skip (izin bekleniyor)"
     if _delivery(task, project_id, scene_id) > MAX_DELIVERIES:      # süreç her seferinde öldürülüyor: döngüyü kes
         note = (f"Görev {MAX_DELIVERIES} kez yarıda kesildi (worker süreci sonlandı; bellek yetersiz olabilir). Döngüyü "
                 "önlemek için durduruldu; worker günlüğüne bakıp çekimi yeniden üretin.")
@@ -71,6 +79,10 @@ def _guard(task, project_id: str, scene_id: str, work):
     killswitch.register_task(project_id, task.request.id)
     try:
         return work()
+    except consent.ConsentRequired as e:                 # ücretli ek işlem izin bekliyor: çağrı yapılmadı
+        consent.set_resume(e.request["id"], consent.resume_for_task(task, scene_id))
+        _set_status(scene_id, "awaiting_consent", str(e))
+        return "awaiting_consent"
     except killswitch.ProjectFrozen:
         _set_status(scene_id, "frozen")
         return "frozen"
@@ -437,7 +449,11 @@ def voice_temp(project_id: str, sequence_id: str | None = None):
     """Seslendirilmemiş sentez repliklerinin geçici sesi (Ses sayfası; yerel Okur, model yoksa espeak), ardından ses
     denetimi (Duyu-small; açıksa)."""
     from app.post.voice import ensure_checks, ensure_temp
-    done = ensure_temp(project_id, sequence_id)
+    try:
+        done = ensure_temp(project_id, sequence_id)
+    except consent.ConsentRequired as e:                # ücretli seslendirme izin bekliyor: izin verilince görev yinelenir
+        consent.resume_current(e.request["id"])
+        return "awaiting_consent"
     killswitch.event(project_id, "voice_temp", shots=done)
     checked = ensure_checks(project_id)
     if checked["checked"]:
@@ -529,6 +545,9 @@ def write_prompt(project_id: str, scene_id: str, force: bool = False):
     ih = prompt_writer.input_hash(inp)
     try:
         w = prompt_writer.write(project_id, inp, force=force)
+    except consent.ConsentRequired as e:                # ücretli LLM izin bekliyor: izin verilince görev yinelenir
+        consent.resume_current(e.request["id"])
+        return {"ok": False, "awaiting_consent": True}
     except Exception as e:                              # noqa: BLE001 — kurallar istemiyle kalır, iz olay olarak
         killswitch.event(project_id, "prompt_write_failed", part=codes, error=prompt_writer.full_error(e))
         return {"ok": False}

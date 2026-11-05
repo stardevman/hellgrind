@@ -104,6 +104,8 @@ def render(scene_id: SceneId, force_visual: bool = False, thaw: bool = False, dr
     if thaw:
         from app.budget import killswitch
         killswitch.thaw_for_scene(str(sc.project_id), scene_id)
+    from app.budget import consent
+    consent.clear_denials(scene_id)                  # açık istek: reddedilen ücretli işlemler yeniden sorulur
     return dispatch_result(s, sc, force_visual=force_visual, restyle=True)    # yönetmenin açık isteği
 
 

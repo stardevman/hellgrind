@@ -171,7 +171,7 @@ def model_group(sc: Scene, s: Session) -> tuple[str, str]:
     return effective_mode(sc, chars, assets), board
 
 
-RESETTABLE = ("pending", "parsed", "storyboard", "frozen")
+RESETTABLE = ("pending", "parsed", "storyboard", "frozen", "awaiting_consent")
 
 
 def restore_finished(s: Session, sc: Scene) -> bool:
