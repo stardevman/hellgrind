@@ -133,7 +133,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 
 /* Alt bant: solda logo, Proje yöneticisi ve kırıntı; ortada küçük simgeli sayfalar (etkin sayfa turuncu); sağda
    Yapılacaklar, bütçe, Geçmiş, durdur ve Ayarlar. */
-.pagebar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; height: 48px; padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); min-width: 0; }
+.pagebar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);   /* sekmeler ekranın tam ortasında */ align-items: center; gap: 8px; height: 48px; padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); min-width: 0; }
 .pb-l, .pb-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .pb-l > *, .pb-r > * { flex: none; }
 .pb-l > .crumbs { flex: 0 1 auto; }           /* yer daralınca önce proje adı kısalır */
