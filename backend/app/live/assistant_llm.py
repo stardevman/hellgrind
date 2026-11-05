@@ -57,7 +57,7 @@ def _consent(project_id: str) -> None:
     except ImportError:
         return
     try:
-        consent.allow(project_id, "llm", "assistant", "once", None, by="assistant")
+        consent.allow(project_id, "llm", consent.target_of(), "once", None, by="assistant")
     except Exception:                                   # noqa: BLE001 — izin yazılamazsa rezervasyon yine sorar
         log.warning("asistan çağrısı izin akışına yazılamadı", exc_info=True)
 

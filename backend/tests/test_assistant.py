@@ -230,7 +230,8 @@ def test_consent_flow_is_told_about_the_approval_when_present(monkeypatch, chat,
     import sys
     import types
     granted = []
-    fake_module = types.SimpleNamespace(allow=lambda *a, **k: granted.append((a, k)))
+    fake_module = types.SimpleNamespace(allow=lambda *a, **k: granted.append((a, k)),
+                                        target_of=lambda scene_id=None, asset_id=None: f"scene:{scene_id}")
     import app.budget as budget_pkg
     monkeypatch.setitem(sys.modules, "app.budget.consent", fake_module)
     monkeypatch.setattr(budget_pkg, "consent", fake_module, raising=False)
@@ -240,7 +241,7 @@ def test_consent_flow_is_told_about_the_approval_when_present(monkeypatch, chat,
     api.post(f"/api/assistant/actions/{card['id']}/approve", headers={"X-HG-Session": "panel-1"})
     kinds = [a[1] for a, _ in granted]
     assert set(kinds) == set(actions.CONSENT_KINDS["rerender_shot"])
-    assert all(a[0] == pid and a[2] == sid and a[3] == "once" and a[4] == "panel-1" for a, _ in granted)
+    assert all(a[0] == pid and a[2] == f"scene:{sid}" and a[3] == "once" and a[4] == "panel-1" for a, _ in granted)
 
 
 # ---------- uç noktalar ----------

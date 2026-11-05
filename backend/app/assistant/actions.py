@@ -20,10 +20,12 @@ def grant_consent(row, scope: str = "once", panel_session: str | None = None) ->
         from app.budget import consent                 # type: ignore[attr-defined]
     except ImportError:
         return
+    if scope == "session" and not panel_session:          # oturum izni panel oturumuna bağlıdır; yoksa tek seferlik
+        scope = "once"
+    target = consent.target_of(scene_id=str(row.scene_id) if row.scene_id else None)
     for kind in CONSENT_KINDS.get(row.tool, ()):
         try:
-            consent.allow(str(row.project_id), kind, str(row.scene_id) if row.scene_id else None, scope,
-                          panel_session, by="assistant")
+            consent.allow(str(row.project_id), kind, target, scope, panel_session, by="assistant")
         except Exception:                               # noqa: BLE001 — izin yazılamazsa üretim yine sorar
             log.warning("asistan onayı izin akışına yazılamadı (%s)", kind, exc_info=True)
 
