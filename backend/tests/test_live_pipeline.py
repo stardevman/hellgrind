@@ -149,6 +149,21 @@ def test_switching_the_engine_voices_the_line_again_under_its_own_key(refined, f
     assert len(fakes.tts_calls) == 1
 
 
+def test_a_narrator_who_is_not_on_screen_is_voiced_but_never_lip_synced(refined, fakes):
+    """Anlatıcı (dış ses): konuşmacı çekimin kadrosunda yok. Ses ücretli üretilir ve montajda duyulur, ama görüntüdeki
+    ağızlar oynatılmaz: fal dudak senkronu çağrılmaz, video olduğu gibi kopyalanır."""
+    pid, sid = refined
+    before = ledger(pid)
+    with session_scope() as s:
+        s.execute(text("DELETE FROM scene_characters WHERE scene_id = :s AND character_id = :c"),
+                  {"s": sid, "c": dialogue_track(sid).character_id})
+    key = voice_and_lipsync(sid)
+    assert fakes.lipsync_calls == [] and len(fakes.tts_calls) == 1 and key.endswith("_unsynced.mp4")
+    assert [p for _, p, _ in post_ledger(pid, before)] == ["elevenlabs", "elevenlabs"]
+    final = mux_scene(sid)
+    assert storage.exists(final) and len(probe(storage.download(final, "/tmp/hg_narrator_final.mp4"))["audio"]) == 1
+
+
 def test_a_new_voice_model_voices_the_line_again_and_switching_back_pays_nothing(refined, fakes, monkeypatch):
     pid, sid = refined
     voice_and_lipsync(sid)

@@ -26,7 +26,7 @@ from app.core.rerender import Fingerprints, fingerprints
 from app.core.state import advance_scene, load_assets, load_characters
 from app.db import session_scope
 from app.engine import paid
-from app.models import AudioTrack, Character, Project, Revision, Scene, Variation
+from app.models import AudioTrack, Character, Project, Revision, Scene, SceneCharacter, Variation
 from app.post import framerate, grade
 from app.post.audio import synthesize, synthesize_music
 from app.post.mux import AudioInput, mix_audio, mux
@@ -227,6 +227,17 @@ def ensure_bed_audio(t: AudioTrack, scene: Scene, tmp: str) -> str:
 
 # ---------- LIPSYNC ----------
 
+def on_screen(s, scene_id) -> set:
+    """Çekimde görünen karakterler (kadro, zincirden gelenler dahil). Dudak senkronu yalnızca onların repliklerine yapılır:
+    anlatıcı ya da dış ses (kadroda olmayan konuşmacı) ve konuşmacısız replik görüntüdeki ağızları oynatmaz."""
+    return set(s.scalars(select(SceneCharacter.character_id).where(SceneCharacter.scene_id == scene_id)))
+
+
+def synced_lines(tracks: list[AudioTrack], visible: set) -> list[AudioTrack]:
+    """Dudak senkronuna giren replikler: etkin diyalog kanallarından konuşmacısı çekimde görünenler."""
+    return [t for t in tracks if t.kind == "dialogue" and t.character_id is not None and t.character_id in visible]
+
+
 def voice_and_lipsync(scene_id: str) -> str:
     """Eksik diyalog seslerini üretir ve rafine videodan dudak senkronlu videoyu çıkarır. Dönen: anahtar ya da "skip (...)"."""
     snap = _snapshot(scene_id)
@@ -245,7 +256,11 @@ def voice_and_lipsync(scene_id: str) -> str:
                 ensure_dialogue_audio(t, scene, tmp, snap.cfg)
 
         # Ücretli modda senkronsuz kopya ayrı anahtardadır: ücretli ses sonradan açılınca senkron gerçekten yapılır.
-        sync = paid_lipsync(snap.cfg)
+        # Diyaloğun tamamı ekranda olmayan konuşmacıdan (anlatıcı, dış ses) geliyorsa senkron yapılmaz (fal çağrılmaz).
+        with session_scope() as s:
+            visible = on_screen(s, scene_id)
+        voice_over_only = any(t.kind == "dialogue" for t in snap.tracks) and not synced_lines(snap.tracks, visible)
+        sync = paid_lipsync(snap.cfg) and not voice_over_only
         unsynced = "" if settings.dry_run or sync else "_unsynced"
         keep_end = _continues(scene)
         target = trim_target(scene)
@@ -293,11 +308,13 @@ def trimmed(video: str, target: float, keep_end: bool, out: str) -> str:
 
 def _lipsync(scene: Scene, video_key: str, out_key: str, tmp: str, sync: bool = True, keep_end: bool = False,
              target: float | None = None) -> None:
-    """Ücretsiz modda, projede ücretli ses kapalıyken ya da senkronlanacak konuşma yoksa rafine video olduğu gibi
-    kopyalanır; aksi halde fal'a gider. Klip hedef süreden uzunsa önce kesilir (trim_window)."""
+    """Ücretsiz modda, projede ücretli ses kapalıyken ya da senkronlanacak konuşma yoksa (konuşmacısı çekimde görünmeyen
+    replikler sayılmaz) rafine video olduğu gibi kopyalanır; aksi halde fal'a gider. Klip hedef süreden uzunsa önce
+    kesilir (trim_window)."""
     with session_scope() as s:                     # ses dosyaları az önce bağlandı: anlık görüntü bayat, yeniden oku
         dialogue = list(s.scalars(select(AudioTrack).where(AudioTrack.scene_id == scene.id, AudioTrack.is_active,
                                                            AudioTrack.kind == "dialogue").order_by(AudioTrack.start_offset_s)))
+        dialogue = synced_lines(dialogue, on_screen(s, scene.id))      # anlatıcı ağızları oynatmaz; montajda yine duyulur
         s.expunge_all()
     source = storage.download(video_key, os.path.join(tmp, "video.mp4"))
     target = float(scene.duration_s or 0) if target is None else target
