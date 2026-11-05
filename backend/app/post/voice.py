@@ -139,6 +139,13 @@ def engine_of(t: AudioTrack) -> str | None:
     return parts[1] if len(parts) > 2 and parts[0] == "audio" else None
 
 
+def outdated(t: AudioTrack, engine: str) -> bool:
+    """Replik şu anki motorla ama başka bir modelle ya da dille seslendirilmiş (ör. ElevenLabs modeli değişti): geçici
+    sesi yeniden üretilmeli. Başka motorun sesi (ör. ücretsiz modda ElevenLabs repliği) eskimiş sayılmaz."""
+    from app.post.pipeline import tts_key
+    return t.source == "tts" and bool(t.file_key) and engine_of(t) == engine and t.file_key != tts_key(t, engine)
+
+
 def has_video(s, sc: Scene) -> bool:
     """Çekimin görüntüsü üretildi mi (süresi sesten yeniden hesaplanamaz; yalnızca uyarı)."""
     if sc.visual_hash is not None:
@@ -156,7 +163,7 @@ def media(key: str | None) -> str | None:
     return f"/api/media?key={key}" if key else None
 
 
-def shot_state(s, sc: Scene, names: dict) -> dict:
+def shot_state(s, sc: Scene, names: dict, engine: str | None = None) -> dict:
     lines = dialogue(s, sc.id)
     measured = [float(t.duration_s) if t.file_key and t.duration_s else None for t in lines]
     offsets = [float(t.start_offset_s) for t in lines]
@@ -170,7 +177,8 @@ def shot_state(s, sc: Scene, names: dict) -> dict:
             "character": names.get(t.character_id), "text": t.text, "emotion": t.emotion, "source": t.source,
             "final": t.source == "upload", "engine": engine_of(t), "url": media(t.file_key), "duration_s": m,
             "start_offset_s": round(float(t.start_offset_s), 2), "slot_s": slot, "drift": drifts(m, slot),
-            "filename": (t.params or {}).get("filename"), "version": t.version, "check": check_view(t)})
+            "filename": (t.params or {}).get("filename"), "version": t.version, "check": check_view(t),
+            "outdated": bool(engine and outdated(t, engine))})
     drift = voice_s is not None and abs(voice_s - float(sc.duration_s or 0)) > DRIFT_S
     return {"scene_id": str(sc.id), "scene_code": sc.scene_code, "heading": (sc.script_text or "").split("\n")[0],
             "description": sc.description, "duration_s": round(float(sc.duration_s or 0), 2),
@@ -182,13 +190,16 @@ def shot_state(s, sc: Scene, names: dict) -> dict:
 
 def state(s, project_id) -> dict:
     """Ses sayfasının verisi: sekanslar (kilit), çekimler (süreler) ve replikler (kaynak, süre, yer)."""
+    from app.post.pipeline import effective_tts_engine
     p = s.get(Project, project_id)
+    cfg = project_settings(p.settings)
+    engine = effective_tts_engine(cfg)
     names = {c.id: c.name for c in s.scalars(episode_characters_q(project_id))}
     seqs = list(s.scalars(select(Sequence).where(Sequence.project_id == project_id).order_by(Sequence.seq_order)))
     scenes = list(s.scalars(select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)))
     groups = []
     for q in seqs + [None]:
-        shots = [shot_state(s, sc, names) for sc in scenes if (sc.sequence_id == (q.id if q else None))]
+        shots = [shot_state(s, sc, names, engine) for sc in scenes if (sc.sequence_id == (q.id if q else None))]
         if q is None and not shots:
             continue
         groups.append({"id": str(q.id) if q else None, "code": q.code if q else "", "title": q.title if q else "Sekanssız",
@@ -197,12 +208,12 @@ def state(s, project_id) -> dict:
                        "lines": sum(len(x["lines"]) for x in shots),
                        "final": sum(1 for x in shots for ln in x["lines"] if ln["final"])})
     lines = [ln for g in groups for x in g["shots"] for ln in x["lines"]]
-    cfg = project_settings(p.settings)
     checker = checker_on()
     return {"sequences": groups, "voice_first": bool(cfg.get("voice_first")), "checker": checker,
             "counts": {"lines": len(lines), "final": sum(ln["final"] for ln in lines),
                        "temp": sum(not ln["final"] for ln in lines),
                        "unmeasured": sum(ln["duration_s"] is None for ln in lines),
+                       "outdated": sum(ln["outdated"] for ln in lines),
                        "mismatch": sum(1 for ln in lines if ln["check"] and not ln["check"]["ok"]),
                        "unchecked": sum(1 for ln in lines if checker and ln["url"] and not ln["check"]),
                        "drift": sum(1 for g in groups for x in g["shots"] if x["drift"]),
@@ -214,15 +225,18 @@ def state(s, project_id) -> dict:
 # ---------- geçici ses ----------
 
 def ensure_temp(project_id: str, sequence_id: str | None = None) -> list[str]:
-    """Henüz seslendirilmemiş (ya da süresi ölçülmemiş) sentez repliklerinin geçici sesini üretir. Dönen: çekim kodları.
-    Yerel motor Okur (model yoksa espeak); ücretli modda ve projede ücretli ses açıkken ElevenLabs (bütçe rezervasyonundan geçer)."""
-    from app.post.pipeline import ensure_dialogue_audio, workspace
+    """Henüz seslendirilmemiş (ya da süresi ölçülmemiş) ya da başka bir modelle/dille seslendirilmiş sentez repliklerinin
+    geçici sesini üretir. Dönen: çekim kodları. Yerel motor Okur (model yoksa espeak); ücretli modda ve projede ücretli ses
+    açıkken ElevenLabs (bütçe rezervasyonundan geçer)."""
+    from app.post.pipeline import effective_tts_engine, ensure_dialogue_audio, workspace
     with session_scope() as s:
         cfg = project_settings(s.get(Project, project_id).settings)
+        engine = effective_tts_engine(cfg)
         q = select(Scene).where(Scene.project_id == project_id).order_by(Scene.seq_order)
         if sequence_id:
             q = q.where(Scene.sequence_id == sequence_id)
-        work = [(sc, [t for t in dialogue(s, sc.id) if t.source == "tts" and not (t.file_key and t.duration_s)])
+        work = [(sc, [t for t in dialogue(s, sc.id)
+                      if t.source == "tts" and (not (t.file_key and t.duration_s) or outdated(t, engine))])
                 for sc in s.scalars(q)]
         work = [(sc, ts) for sc, ts in work if ts]
         s.expunge_all()
@@ -337,6 +351,11 @@ def lock(s, seq: Sequence) -> dict:
     unmeasured = sum(1 for _, ts in per for t in ts if not (t.file_key and t.duration_s))
     if unmeasured:
         raise VoiceNotReady(f"{unmeasured} replik henüz seslendirilmedi; önce geçici sesleri üretin ya da kayıtları yükleyin.")
+    from app.post.pipeline import effective_tts_engine
+    engine = effective_tts_engine(project_settings(s.get(Project, seq.project_id).settings))
+    stale = sum(1 for _, ts in per for t in ts if outdated(t, engine))
+    if stale:                  # kurgu yeni modelin sesiyle yapılır; eski sesin süresine kilitlemek kaymaya yol açar
+        raise VoiceNotReady(f"{stale} replik önceki ses modeliyle ya da diliyle seslendirildi; önce geçici sesleri yeniden üretin.")
     retimed, drift, clamped = [], [], []
     for sc, ts in per:
         if not ts:

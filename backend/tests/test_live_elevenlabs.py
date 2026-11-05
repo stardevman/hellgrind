@@ -60,6 +60,26 @@ def test_the_model_is_eleven_multilingual_v2():
     assert elevenlabs.MODEL_ID == "eleven_multilingual_v2"
 
 
+def test_newer_models_get_the_language_code_and_only_the_settings_they_have(http, mp3, tmp_path, monkeypatch):
+    """v4 ve v3: dil Türkçeye sabitlenir ("Pamuk Nine" İngilizce "nine" okunmaz); stil ve konuşmacı güçlendirme gönderilmez."""
+    sent, state = http
+    state["reply"] = Reply(200, mp3)
+    for model in ("eleven_v4", "eleven_v3"):
+        monkeypatch.setattr(settings, "elevenlabs_model", model)
+        tts("Pamuk Nine", "voice-1", "anger", str(tmp_path / "o.mp3"))
+        assert sent[-1][1]["json"] == {"text": "Pamuk Nine", "model_id": model, "language_code": "tr",
+                                       "voice_settings": {"stability": 0.25, "similarity_boost": 0.75}}
+
+
+def test_multilingual_v2_never_gets_a_language_code_and_auto_lets_the_model_guess(monkeypatch):
+    assert elevenlabs.language_code("eleven_multilingual_v2") is None and elevenlabs.language_code("eleven_v3") == "tr"
+    assert "language_code" not in elevenlabs.request_body("x", None)                     # varsayılan model: eski gövde
+    monkeypatch.setattr(settings, "elevenlabs_model", "eleven_v4")
+    assert elevenlabs.request_body("x", None)["language_code"] == "tr"
+    monkeypatch.setattr(settings, "elevenlabs_language", "auto")
+    assert elevenlabs.language_code() is None and "language_code" not in elevenlabs.request_body("x", None)
+
+
 @pytest.mark.parametrize("emotion", ["neutral", "joy", "anger", "fear", "sadness", "surprise", "disgust", "tension"])
 def test_every_emotion_maps_to_valid_stability_and_style(emotion):
     s = voice_settings(emotion)

@@ -44,6 +44,7 @@ describe("voice", () => {
     expect(sourceBadge(line(1, { engine: "elevenlabs" })).text).toBe("Geçici: ElevenLabs");
     expect(sourceBadge(line(1, { engine: "okur" })).text).toBe("Geçici: Okur");
     expect(sourceBadge(line(1, { engine: null, url: null })).text).toBe("Seslendirilmedi");
+    expect(sourceBadge(line(1, { engine: "elevenlabs", outdated: true }))).toMatchObject({ text: "Eski model: ElevenLabs", tone: "warn" });
     expect(uploadBody(line(2), "k", "S001_SH01_2.wav")).toEqual({ kind: "dialogue", source: "upload", file_key: "k", replaces: "t2",
       character_id: "c", text: "replik 2", emotion: null, start_offset_s: 0.4, params: { filename: "S001_SH01_2.wav" } });
   });

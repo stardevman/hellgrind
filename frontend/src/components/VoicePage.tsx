@@ -283,6 +283,7 @@ export function VoicePage() {
       : `${r.code} ses kilidi açıldı; replikler düzenlenebilir.`, "ok");
   }, "voice");
   const c = st.counts;
+  const toVoice = c.unmeasured + (c.outdated ?? 0);
   return (
     <div className="page voice" data-tour="voice">
       <Panel title="Replikler" meta={`${c.lines} replik · ${c.final} final · ${c.temp} geçici${c.drift ? ` · ${c.drift} süre farkı` : ""}${c.mismatch ? ` · ${c.mismatch} uyuşmuyor` : ""}`}
@@ -293,10 +294,10 @@ export function VoicePage() {
               note("voice", "Ses denetimi kuyruğa alındı: sesler yazıya dökülüp replik metniyle karşılaştırılacak.", "ok");
             }, "voice")} title="Sesi olan ama denetlenmemiş replikleri yazıya döker ve metinle karşılaştırır (yerel, ücretsiz)">Sesleri denetle ({c.unchecked})</button>
           )}
-          <button type="button" className="btn" disabled={busy || frozen || c.unmeasured === 0} onClick={() => act(async () => {
+          <button type="button" className="btn" disabled={busy || frozen || toVoice === 0} onClick={() => act(async () => {
             await api.post(`/projects/${projectId}/voice/temp`);
             note("voice", `Geçici sesler kuyruğa alındı; bitince süreler ölçülür${st.checker ? " ve sesler denetlenir" : ""}.`, "ok");
-          }, "voice")} title="Seslendirilmemiş repliklerin geçici sesini üretir (yerel Okur modeli)">{c.unmeasured ? `Geçici sesleri üret (${c.unmeasured})` : "Geçici sesler hazır"}</button>
+          }, "voice")} title={`Seslendirilmemiş${c.outdated ? " ya da önceki ses modeliyle seslendirilmiş" : ""} repliklerin geçici sesini üretir (Ayarlar'daki konuşma motoruyla)`}>{toVoice ? `Geçici sesleri üret (${toVoice})` : "Geçici sesler hazır"}</button>
         </div>}>
         <div className="pad"><NoteBox id="voice" /></div>
         {st.sequences.map((q) => (

@@ -180,7 +180,12 @@ FIELDS: tuple[Field, ...] = (
     Field("FAL_WAN_V2V_ENDPOINT", "fal_wan_v2v_endpoint", "model", "fal", "Previs rehberinden video (v2v)", url="https://fal.ai/models/{}"),
     Field("FAL_KONTEXT_ENDPOINT", "fal_kontext_endpoint", "model", "fal", "Karakter referansıyla kare (Flux Kontext)", url="https://fal.ai/models/{}"),
     Field("ELEVENLABS_API_KEY", "elevenlabs_api_key", "secret", "elevenlabs", "API anahtarı"),
-    Field("ELEVENLABS_MODEL", "elevenlabs_model", "model", "elevenlabs", "Ses modeli"),
+    Field("ELEVENLABS_MODEL", "elevenlabs_model", "model", "elevenlabs",
+          "Ses modeli (eleven_v4 en yenisi; eleven_multilingual_v2 dili Türkçeye sabitleyemez). Değişince Ses sayfasında"
+          " Geçici sesleri üret replikleri yeni modelle seslendirir; eski sesler silinmez",
+          url="https://elevenlabs.io/docs/overview/models"),
+    Field("ELEVENLABS_LANGUAGE", "elevenlabs_language", "choice", "elevenlabs",
+          "Dil: tr (Türkçeye sabitle) ya da auto (model tahmin eder; Multilingual v2 her zaman tahmin eder)", ("tr", "auto")),
     Field("TTS_ENGINE", "tts_engine", "choice", "elevenlabs", "Konuşma motoru", ("okur", "espeak", "tone", "elevenlabs")),
     Field("ANTHROPIC_API_KEY", "anthropic_api_key", "secret", "anthropic", "API anahtarı"),
     Field("HERMES_MODEL", "hermes_model", "model", "anthropic", "Hermes modeli"),
