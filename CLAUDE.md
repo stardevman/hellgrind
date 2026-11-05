@@ -260,7 +260,7 @@ Stil, Görsel, Varlıklar, Storyboard, Kurgu, Karşılaştır, Renk, Teslim); Ku
 açılır denetçi ve görüntü/diyalog/müzik izli zaman çizelgesi. Düzen **DaVinci Resolve**'u izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır** (`Dock`):
 solda ev simgesi ve `Dizi › Sezon › Bölüm` kırıntısı (ikisi de **Proje yöneticisini** açar; proje hiç yokken
 yönetici kendiliğinden açılır ve kapatılamaz) ve yönetici rozetleri; ortada küçük simgeli
-sayfa menüsü (`Pages`); sağda **Yapılacaklar**, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi (bütçe göstergesi, çalışma modu ve skor rozeti Ayarlar › **Bütçe ve durum**dadır; ücretli mod açıkken dişlide kırmızı nokta durur). Uyarılar bandın
+sayfa menüsü (`Pages`): sayfalar beş ana sekmede toplanır (`lib/groups.ts`): **Hikâye** (Senaryo, Ses), **Görünüm** (Stil, Görsel, Varlıklar), **Storyboard**, **Kurgu** (Kurgu, Karşılaştır) ve **Teslim** (Renk, Teslim); birden çok sayfası olan sekme açıkken sayfaları bandın hemen üstündeki alt sekme şeridindedir (`SubPages`), ana sekme grupta en son açılan sayfaya döner, sayfa adresleri (`?page=`) değişmez; sağda **Yapılacaklar**, Geçmiş, durdurma düğmesi ve Ayarlar dişlisi (bütçe göstergesi, çalışma modu ve skor rozeti Ayarlar › **Bütçe ve durum**dadır; ücretli mod açıkken dişlide kırmızı nokta durur). Uyarılar bandın
 hemen üstünde, menüler yukarı açılır. Sayfalar bir sıra değil **menüdür**: her sayfa her an açılır, yalnızca
 çekim gerektirenler senaryo işlenene dek kapalıdır; simgenin köşesindeki rozet sayfanın özetidir, nokta bekleyen iş olduğunu
 söyler. Eksikler arka planda dört üretim grubuna göre hesaplanır (`lib/steps.ts`: hazırlık, onay, üretim, bitirme) ama
@@ -286,7 +286,7 @@ gibidir:
 - **Tasarım** (DaVinci Resolve'un dili: sıcak-gri yüzeyler, ince çizgiler, yoğun paneller, turuncu vurgu):
   - Yazı tipleri: arayüzde Inter, zaman kodu ve çekim kodlarında JetBrains Mono.
   - Renkler: bg `#19191c`, panel `#232327`, raised `#2b2b30`, line `#3a3a41`, text `#d9d9dd`, accent (seçim, etkin sayfa) `#e8783a`, playhead `#ff4a4a`, ok `#3dcc91`, warn `#f2c744`, bad `#ff5c55`, work (üretiliyor) `#a88bff`.
-  - Masaüstünde tam ekran uygulama çerçevesi; dar ekranda tek sütun ve kayan sayfa. Görünür klavye odağı, `prefers-reduced-motion` desteği, kısayollar (Shift+1…9 ve Shift+0 sayfalar; J/K/L, oklar, Boşluk oynatma). Başlık üstü etiket ve büyük harf etiket kullanılmaz (Türkçe I/İ dönüşümü).
+  - Masaüstünde tam ekran uygulama çerçevesi; dar ekranda tek sütun ve kayan sayfa. Görünür klavye odağı, `prefers-reduced-motion` desteği, kısayollar (Shift+1…5 ana sekmeler; J/K/L, oklar, Boşluk oynatma). Başlık üstü etiket ve büyük harf etiket kullanılmaz (Türkçe I/İ dönüşümü).
 
 ## Faz 10 — Testler
 - **Birim testleri** (veritabanı gerektirmez):
