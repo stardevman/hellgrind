@@ -61,6 +61,9 @@ describe("book tour", () => {
     expect(frame.check!(ctx([]))).toBeNull();
     expect(frame.check!(ctx([sc({ keyframe_source: "upload" }), sc({})]))).toBe(false);
     expect(frame.check!(ctx([sc({ keyframe_source: "upload" })]))).toBe(true);
+    const end = BOOK_STEPS.find((s) => s.target === "end-frame")!;
+    expect(end.check!(ctx([sc({ keyframe_source: "upload" })]))).toBe(false);
+    expect(end.check!(ctx([sc({ keyframe_source: "upload", video_opts: { end_frame: "start" } })]))).toBe(true);
     const loc = BOOK_STEPS.find((s) => s.target === "shot-assets")!;
     expect(loc.check!(ctx([sc({ assets: [{ id: "a", type: "location", name: "Kitap", status: "draft" }] })]))).toBe(false);
   });

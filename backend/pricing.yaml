@@ -42,7 +42,11 @@ serverless:
 fal_video:
   h3max:              # MiniMax H3 Max: istenen süre × saniye ücreti (uç noktaya göre) + referans token fazlası
     per_second: {"480P": 0.05, "768P": 0.08, "1080P": 0.16}           # reference-to-video
-    per_second_i2v: {"480P": 0.03, "768P": 0.048, "1080P": 0.096}     # image-to-video
+    # image-to-video (model sayfası 2026-11-05): 1-15 Kasım %30 indirimli; 16 Kasım'dan itibaren liste fiyatı
+    # (list_per_second_i2v). 16 Kasım'da per_second_i2v'yi list_per_second_i2v yapın.
+    per_second_i2v: {"480P": 0.035, "768P": 0.056, "1080P": 0.112}
+    list_per_second_i2v: {"480P": 0.05, "768P": 0.08, "1080P": 0.16}
+    promo_until_i2v: "2026-11-15"
     included_reference_tokens: 4096   # her istekte dahil (4 görsel)
     image_tokens: 1024                # her girdi görseli (referans, ilk ve son kare) bu kadar token sayılır
     extra_per_1k_tokens: 0.02         # dahil olanın üstü

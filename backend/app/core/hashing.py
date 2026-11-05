@@ -64,6 +64,8 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
         payload["guide"] = scene.guide_hash
     if getattr(scene, "keyframe_hash", None):
         payload["keyframe"] = scene.keyframe_hash
+        if (getattr(scene, "video_opts", None) or {}).get("end_frame") == "start":   # son kare = ilk kare
+            payload["end_frame"] = "start"
     if getattr(scene, "camera_plan", None):             # kesme kamerası (30° kuralı): kare ve video istemine girer
         payload["camera_plan"] = scene.camera_plan
     from app.core.h3mode import effective_mode

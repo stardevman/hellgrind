@@ -314,7 +314,7 @@ export interface Scene {
   /** Karma üretim (null: tutarlı) ve kazanan parça klibinin bölünmesi (kesmeler, sınır kaynakları, uyarı). */
   generation?: Generation | null; split?: PartSplit | null;
   /** fal video seçenekleri (yoksa Ayarlar'daki varsayılan): çözünürlük ve modelin ürettiği ses. */
-  video_opts?: { resolution?: string; audio?: boolean; audio_ref?: boolean };
+  video_opts?: { resolution?: string; audio?: boolean; audio_ref?: boolean; end_frame?: "start" };
   fal_request?: FalRequest | null;
   /** "Seedance 2.5 ile yükselt" uygun: taslak motorla üretilmiş ve final motorunda değil. */
   upgrade_available?: boolean;

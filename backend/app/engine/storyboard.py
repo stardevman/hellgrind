@@ -1256,8 +1256,9 @@ def end_wanted(s, scene, cfg: dict, chars=(), assets=()) -> bool:
     eylemiyle bitsin."""
     from app.core.chain import next_continuous
     from app.core.h3mode import effective_mode
-    if not cfg.get("chain_end_frame", True) or not chain_enabled():
-        return False
+    from app.engine.iteration import end_is_start
+    if not cfg.get("chain_end_frame", True) or not chain_enabled() or end_is_start(scene):
+        return False                              # son kare = ilk kare: Kn_end çizilmez
     if (scene.engine or "h3") not in H3_FAMILY or (scene.method or "generate") != "generate" \
             or effective_mode(scene, chars, assets) != "fl2va":
         return False

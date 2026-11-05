@@ -19,7 +19,7 @@ from tests.test_reference_mode import _winner, nora, plan_for, ref_defaults  # n
 
 # ---------- fiyatlar ----------
 
-@pytest.mark.parametrize("res, i2v, ref", [("480P", 0.03, 0.05), ("768P", 0.048, 0.08), ("1080P", 0.096, 0.16)])
+@pytest.mark.parametrize("res, i2v, ref", [("480P", 0.035, 0.05), ("768P", 0.056, 0.08), ("1080P", 0.112, 0.16)])
 def test_h3max_prices_differ_by_endpoint(res, i2v, ref):
     assert pricing.h3max_cost(res, 10, mode="i2v")["base_usd"] == pytest.approx(10 * i2v)
     assert pricing.h3max_cost(res, 10, mode="ref")["base_usd"] == pytest.approx(10 * ref)
@@ -29,7 +29,7 @@ def test_h3max_prices_differ_by_endpoint(res, i2v, ref):
 
 
 def test_the_plan_prices_h3max_by_its_endpoint():
-    assert fal_plan.cost("h3max", "480P", 10, 1, "i2v")["usd"] == pytest.approx(0.3 * 1.05, abs=1e-4)
+    assert fal_plan.cost("h3max", "480P", 10, 1, "i2v")["usd"] == pytest.approx(0.35 * 1.05, abs=1e-4)
     assert fal_plan.cost("h3max", "480P", 10, 4, "ref")["usd"] == pytest.approx(0.5 * 1.05, abs=1e-4)
 
 

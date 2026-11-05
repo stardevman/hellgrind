@@ -503,6 +503,36 @@ def test_an_approved_board_switches_the_dry_run_to_image_to_video_with_an_end_fr
     assert "onaylı storyboard karesi" in plan["reason"] and "reference_image_urls" not in plan["body"]
 
 
+def test_end_frame_same_as_the_uploaded_first_frame_ends_the_video_on_the_book_page(fal_defaults, mk_project, api,
+                                                                                    give_keyframe, s3):
+    """Ponpon (Flow tarifi): kitap sayfası hem ilk hem son kare; Kn_end çizilmez, seçim görsel özete girer."""
+    from app.core.hashing import visual_fingerprint
+    from app.core.state import load_assets, load_characters
+    from app.engine.storyboard import end_wanted
+    pid, sid, _ = _shot(mk_project)
+    key = give_keyframe(sid)
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        before = visual_fingerprint(sc, load_characters(s, sid), load_assets(s, sid), None)
+    plan = api.post(f"/api/scenes/{sid}/render?dry_run=true").json()
+    assert plan["mode"] == "i2v" and plan["body"]["image_url"] == f"local:{key}"
+    assert plan["body"].get("end_image_url") != f"local:{key}"
+    r = api.patch(f"/api/scenes/{sid}", json={"video_end_frame": "start"})
+    assert r.status_code == 200, r.text
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        assert sc.video_opts == {"end_frame": "start"}
+        assert visual_fingerprint(sc, load_characters(s, sid), load_assets(s, sid), None) != before
+        assert end_wanted(s, sc, {"chain_end_frame": True}) is False
+    plan = api.post(f"/api/scenes/{sid}/render?dry_run=true").json()
+    assert plan["body"]["image_url"] == plan["body"]["end_image_url"] == f"local:{key}"
+    api.patch(f"/api/scenes/{sid}", json={"video_end_frame": "auto"})
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        assert not (sc.video_opts or {}).get("end_frame")
+        assert visual_fingerprint(sc, load_characters(s, sid), load_assets(s, sid), None) == before
+
+
 def test_free_mode_draft_and_upgrade_with_the_default_engines(fal_defaults, mk_project, api, dispatched, fast):
     from app.engine.iteration import run_tiered_generation
     pid, sid, engine = _shot(mk_project)

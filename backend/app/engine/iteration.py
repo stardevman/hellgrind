@@ -595,13 +595,23 @@ def current_conditioning(s, scene) -> str | None:
     return conditioning(s, scene, keyframe_key, last_key, last_kind)
 
 
+def end_is_start(scene) -> bool:
+    """Çekimin videosu yönetmenin yüklediği ilk karede biter mi (video_opts.end_frame = "start"): kitap sayfası gibi
+    kendi başına duran bir kare hem ilk hem son kare olur, çizim iki uçta da sayfaya bağlı kalır (Ponpon, Flow tarifi)."""
+    return (getattr(scene, "video_opts", None) or {}).get("end_frame") == "start" \
+        and bool(getattr(scene, "keyframe_key", None))
+
+
 def last_frame_of(s, scene, style_version, cfg: dict | None = None) -> tuple[str | None, str | None]:
     """FL2VA last_frame (anahtar kare zinciri; core/chain.py): (anahtar, tür).
+    - Yönetmen "son kare = ilk kare" seçtiyse (end_is_start): yüklenen ilk kare: "start".
     - Sonraki çekimin geçişi continuous: onun ilk karesi K(n+1) (bu görsel özet için, incelemede değil): "next".
     - Değilse (kesme, yeni sahne, sekansın sonu): çekimin kendi son karesi Kn_end (güncel ve kapıdan geçmişse): "end".
       Video sonraki kareye "yolculuk" yapmaz; Kn_end yoksa son kare serbest (None)."""
     from app.core.chain import next_continuous
     from app.engine.storyboard import clean_key, end_usable
+    if end_is_start(scene):                       # yönetmen: son kare = yüklediği ilk kare (kitap sayfası)
+        return scene.keyframe_key, "start"
     nxt = next_continuous(s, scene)
     if nxt is None:
         if not (cfg or {}).get("chain_end_frame", True):
@@ -634,9 +644,9 @@ def seam_outdated(s, scene) -> str | None:
                                    project_settings(project.settings))
     if (params.get("last_frame_key") or None) == (expected or None):
         return None
-    was = {"next": "sonraki çekimin karesi", "end": "çekimin son karesi"}.get(params.get("last_frame_kind"),
-                                                                            "sonraki çekimin karesi" if params.get("last_frame_key") else "serbest")
-    now = {"next": "sonraki çekimin karesi", "end": "çekimin son karesi"}.get(kind, "serbest")
+    kinds = {"next": "sonraki çekimin karesi", "end": "çekimin son karesi", "start": "ilk kareyle aynı"}
+    was = kinds.get(params.get("last_frame_kind"), "sonraki çekimin karesi" if params.get("last_frame_key") else "serbest")
+    now = kinds.get(kind, "serbest")
     return f"son kare kuralı değişti ({was} → {now})"
 
 
