@@ -407,3 +407,22 @@ def _no_real_seam_models(monkeypatch):
         return {"name": (list(names) or [""])[0], "kind": "patch", "box": (int(w * .36), int(h * .31), int(w * .64),
                 int(h * .78)), "fill": 0.65, "coverage": 0.095}          # gerçek SH03 kutusu oranında (yakın plan ~2×)
     monkeypatch.setattr(scorer, "character_box", centre_box)
+
+
+@pytest.fixture
+def consent_asks():
+    """Ücretli ek işlem izni gerçekten sorulsun (tests/test_consent.py): önceden verilmiş izin sayılmaz."""
+
+
+@pytest.fixture(autouse=True)
+def _consent_granted(request):
+    """Ücretli modu sahteyle açan testler kendi davranışlarını sınar, izin akışını değil: video dışı ücretli çağrının izni
+    önceden verilmiş sayılır. İzin akışını sınayan test `consent_asks` fikstürünü ister. Kendi MonkeyPatch'i: başka bir
+    fikstürün geri alımı hata verse de bu yama test bitince kesin kalkar."""
+    if "consent_asks" in request.fixturenames:
+        yield
+        return
+    from app.budget import consent
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(consent, "allowed", lambda project_id, kind, target: True)
+        yield

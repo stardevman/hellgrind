@@ -31,6 +31,7 @@ import { ProjectManager } from "./ProjectManager";
 import { StylePage } from "./StylePage";
 import { VoicePage } from "./VoicePage";
 import { Tour } from "./Tour";
+import { ConsentDialog } from "./ConsentDialog";
 import { shortcutTarget } from "./ui";
 
 const PAGE_VIEW: Record<Page, () => ReactElement | null> = {
@@ -312,6 +313,7 @@ export function AppFrame() {
       {(manager || none) && <ProjectManager onClose={closeManager} locked={none} />}
       <Tour />
       <AdminLogin />
+      <ConsentDialog />
     </div>
   );
 }

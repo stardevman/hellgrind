@@ -315,7 +315,11 @@ def spend(project_id: str, estimate: float, provider: str, scene_id=None, variat
         with spend(pid, 0.40, "fal_wan:720p") as charge:
             result = provider.generate(...)
             charge.actual = result.cost_usd
-    Gövdede ücretli modüllerin `history.step()` notları (model, istek kimliği) çağrının geçmiş satırına yazılır."""
+    Gövdede ücretli modüllerin `history.step()` notları (model, istek kimliği) çağrının geçmiş satırına yazılır.
+    Ücretli modda video dışı çağrı önce yönetmenin iznini ister (app.budget.consent): izin yoksa rezervasyon alınmaz."""
+    if not settings.dry_run:
+        from app.budget import consent                  # döngüsel içe aktarma: consent bu modülü kullanır
+        consent.require(project_id, provider, estimate, scene_id=scene_id, asset_id=asset_id)
     rid = reserve(project_id, estimate, provider, scene_id, variation_id, asset_id=asset_id, details=details)
     charge = Charge(estimate)
     with history.recording() as call:

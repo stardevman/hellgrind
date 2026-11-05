@@ -46,8 +46,11 @@ def paid_errors():
     rezervasyon iade edilmiş ya da hiç alınmamıştır."""
     from app.engine.providers import TransientError
     from app.live import PaidCallBlocked                 # yalnızca kilit; ücretli paket yüklenmez
+    from app.budget.consent import ConsentRequired
     try:
         yield
+    except ConsentRequired:                              # 428: panel izin penceresini açar, izin verilince yineler
+        raise
     except killswitch.ProjectFrozen:
         raise HTTPException(423, "Bütçe limiti doldu ya da proje donduruldu")
     except PaidCallBlocked as e:

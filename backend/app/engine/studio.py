@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from PIL import Image
 
 from app import storage
-from app.budget import killswitch, pricing
+from app.budget import consent, killswitch, pricing
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.db import session_scope
@@ -209,6 +209,10 @@ def run(image_id: str) -> str:
         _finish(image_id, status="done", file_key=key, thumb_key=thumb_key(job["digest"]), cost_usd=cost, engine=engine,
                 error=None)
         return "done"
+    except consent.ConsentRequired as e:               # ücretli görsel izin bekliyor: izin verilince görev yinelenir
+        consent.resume_current(e.request["id"])
+        _finish(image_id, status="failed", error=str(e))
+        return "awaiting_consent"
     except killswitch.ProjectFrozen:
         _finish(image_id, status="failed", error="Bütçe limiti doldu ya da proje donduruldu; görsel üretilmedi.")
         return "frozen"

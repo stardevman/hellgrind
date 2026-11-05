@@ -11,6 +11,7 @@ import { bytesText, clock, durText, stepDurations, usd, usdExact, whenText } fro
 import { COMFY_KIND_TR } from "@/lib/i18n";
 import { primaryRate, renderRows } from "@/lib/pricing";
 import type { ComfyState, PricingTable, ProbeResult, ReplacementJob, ReplacementState, RunpodState, Service, ServiceField, SettingsState, SetupLog, TlsState } from "@/lib/types";
+import type { ConsentState } from "@/lib/consent";
 import { Icon } from "./icons";
 import { FrameRatePanel } from "./FrameRatePanel";
 import { NoteBox, Panel, Section } from "./ui";
@@ -689,6 +690,33 @@ function ViewModeView() {
   );
 }
 
+/** Ücretli ek işlemlerin izni (lib/consent.ts): her seferinde sorulur ya da bu oturum için tümüne izin verilmiştir. */
+function ConsentStatus() {
+  const { data, mutate } = useSWR<ConsentState>("/consent", fetcher, { refreshInterval: POLL_MS });
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  const revoke = async () => {
+    setBusy(true);
+    try { await api.post(`/consent/session/revoke`); await mutate(); } finally { setBusy(false); }
+  };
+  return (
+    <div className="stack">
+      <h3 className="small">Ücretli ek işlemler</h3>
+      <p className="faint small">
+        Video üretimi dışındaki ücretli işlemler (dudak senkronu, görsel, seslendirme, yapay zekâ ile metin, upscale)
+        yapılmadan önce izin sorulur.
+      </p>
+      {data.session.active ? (
+        <div className="row wrap">
+          <span className="note warn grow">Bu oturum için tümüne izin verildi: panel bu sekmede açık kaldıkça sorulmaz.</span>
+          <button type="button" className="btn" disabled={busy} onClick={() => void revoke()}>İzni kaldır</button>
+        </div>
+      ) : <p className="small">Her işlemde izin soruluyor.</p>}
+      {data.pending.length > 0 && <p className="small">İzin bekleyen işlem: {data.pending.length}</p>}
+    </div>
+  );
+}
+
 /** Bütçe ve durum (eskiden alt banttaydı): harcanan / ayrılan / kalan, çalışma modu ve (yönetici) kalite skoru. */
 function StatusView() {
   const { ov, meta, admin } = usePanel();
@@ -725,6 +753,7 @@ function StatusView() {
             </>
           );
         })() : <p className="faint small">Bütçe bir proje açıldığında görünür.</p>}
+        {meta?.dry_run === false && <ConsentStatus />}
         {admin && q && (
           <p className="small">
             <span className={`chip${q.mode === "real" && q.ready ? " free" : q.mode === "dry" ? "" : " paid"}`}>
