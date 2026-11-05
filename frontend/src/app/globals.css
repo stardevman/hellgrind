@@ -138,7 +138,7 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pb-l > *, .pb-r > * { flex: none; }
 .pb-l > .crumbs { flex: 0 1 auto; }           /* yer daralınca önce proje adı kısalır */
 .pb-r { justify-content: flex-end; }
-.pb-c { min-width: 0; overflow: hidden; }
+.pb-c { min-width: 0; }   /* sekme menüsü bandın üstüne taşar: kırpılmaz */
 .pb-btn { position: relative; display: grid; place-items: center; width: 30px; height: 30px; flex: none; border: 0; border-radius: 5px; background: none; color: var(--text-3); }
 .pb-btn svg { width: 16px; height: 16px; }
 .pb-btn:hover { color: var(--text); background: var(--hover); }
@@ -146,37 +146,55 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pb-btn.kill-ico { color: var(--bad); }
 .pb-btn.kill-ico.resume { color: var(--ok); background: rgba(61, 204, 145, .12); }
 .pages { display: flex; align-items: center; justify-content: center; gap: 1px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.pg { position: relative; display: grid; justify-items: center; align-content: start; gap: 3px; width: 68px; height: 42px; padding: 6px 0 0; border: 0; border-radius: 5px; background: none; color: var(--text-3); font-size: 10px; font-weight: 500; white-space: nowrap; transition: color .12s, background .12s; }
-.pg-i { position: relative; display: grid; place-items: center; width: 18px; height: 16px; }
+/* Ana sekme: simge + iki satır yazı (grup adı, altında açık ya da en son açılan sayfa). Bant 48 px kalır. */
+.pg-cell { position: relative; }
+.pg { position: relative; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 10px; border: 0; border-radius: 5px; background: none; color: var(--text-3); font-size: 12px; font-weight: 500; white-space: nowrap; text-align: left; transition: color .12s, background .12s; }
+.pg-i { position: relative; display: grid; place-items: center; width: 18px; height: 16px; flex: none; }
 .pg-i svg { width: 16px; height: 16px; }
-.pg-l { line-height: 1; }
+.pg-t { display: grid; gap: 1px; min-width: 0; }
+.pg-l { display: flex; align-items: center; gap: 5px; line-height: 14px; color: var(--text-2); }
+.pg-s { display: flex; align-items: center; gap: 2px; font-size: 10.5px; line-height: 13px; color: var(--text-3); }
+.pg-s svg { width: 10px; height: 10px; transform: rotate(180deg); }
 .pg:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-.pg[aria-current="page"] { color: var(--accent); }
+.pg:hover:not(:disabled) .pg-l { color: var(--text); }
+.pg[aria-current="page"] { color: var(--accent); background: var(--raised); }
 .pg[aria-current="page"] .pg-l { color: var(--text); }
-.pg[aria-current="page"]::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 2px; border-radius: 1px; background: var(--accent); }
+.pg[aria-current="page"] .pg-s { color: var(--accent); }
+.pg[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 1px; background: var(--accent); }
+.pg[aria-expanded="true"] { background: var(--hover); }
+.pg[aria-expanded="true"] .pg-s svg { transform: none; }
 .pg:disabled { opacity: .3; cursor: not-allowed; }
-.pg .badge { position: absolute; top: -5px; left: 12px; min-width: 14px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--raised); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 8.5px; line-height: 11px; white-space: nowrap; }
-.pg .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
-.pg .badge.ok { color: var(--ok); }
+.pg .badge { min-width: 14px; height: 13px; padding: 0 4px; border-radius: 7px; background: var(--raised); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 8.5px; line-height: 11px; white-space: nowrap; }
+.pg .badge.bad, .pg-row .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
+.pg .badge.ok, .pg-row .badge.ok { color: var(--ok); }
 .pg .pdot { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); border: 1px solid var(--panel); }
-.pg .pdot.warn { background: var(--warn); } .pg .pdot.bad { background: var(--bad); }
-/* Rozetin içindeki nokta: rozeti olan sekmede bekleyen iş rozetin sağ ucunda gösterilir, simgenin üstüne binmez. */
+.pg .pdot.warn, .pg-row .pdot.warn { background: var(--warn); } .pg .pdot.bad, .pg-row .pdot.bad { background: var(--bad); }
+/* Nokta rozetin içinde, sağ ucunda: rozetle üst üste binmez. */
 .badge .bdot { display: inline-block; width: 5px; height: 5px; margin-left: 3px; border-radius: 50%; vertical-align: 1px; background: var(--text-3); }
 .badge .bdot.warn { background: var(--warn); } .badge .bdot.bad { background: var(--bad); }
-/* Alt düğmeler: açık ana sekmenin sayfaları bandın içinde, sekmenin hemen yanında (ör. Hikâye ile Görünüm arasında). */
-.pg-sub { display: flex; }
-.pg-sub > ul { display: flex; align-items: center; gap: 1px; height: 42px; margin: 0 6px 0 2px; padding: 0 3px; list-style: none; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; }
-.sp { position: relative; display: grid; justify-items: center; align-content: start; gap: 3px; width: 62px; height: 38px; padding: 5px 0 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); font-size: 10px; font-weight: 500; white-space: nowrap; transition: color .12s, background .12s; }
-.sp .pg-i svg { width: 14px; height: 14px; }
-.sp:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-.sp[aria-current="page"] { color: var(--accent); background: var(--panel); }
-.sp[aria-current="page"] .pg-l { color: var(--text); }
-.sp:disabled { opacity: .3; cursor: not-allowed; }
-.sp .badge { position: absolute; top: -5px; left: 12px; min-width: 14px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 8.5px; line-height: 11px; white-space: nowrap; }
-.sp .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
-.sp .badge.ok { color: var(--ok); }
-.sp .pdot { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); border: 1px solid var(--raised); }
-.sp .pdot.warn { background: var(--warn); } .sp .pdot.bad { background: var(--bad); }
+/* Sekme menüsü: çok sayfalı sekmenin üstünde açılır; sayfalar açıklamaları, rozet ve noktalarıyla. */
+.pg-pop { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; gap: 2px; width: 320px; padding: 6px; box-sizing: border-box; background: var(--raised); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 14px 36px rgba(0, 0, 0, .5); }
+.pg-pop-h { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 6px; color: var(--text-3); font-size: 11px; font-weight: 600; }
+.pg-pop-h kbd { padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--panel); color: var(--text-3); font-family: var(--mono); font-size: 10px; font-weight: 400; }
+.pg-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--text-2); text-align: left; }
+.pg-row > svg { width: 16px; height: 16px; flex: none; color: var(--text-3); }
+.pg-row:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.pg-row[aria-current="page"] { background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent); }
+.pg-row[aria-current="page"] > svg { color: var(--accent); }
+.pg-row:disabled { opacity: .4; cursor: not-allowed; }
+.pg-row-t { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.pg-row-t b { color: var(--text); font-size: 12.5px; font-weight: 600; }
+.pg-row-t span { color: var(--text-3); font-size: 11px; line-height: 1.35; white-space: normal; }
+.pg-row .badge.in { position: static; flex: none; min-width: 14px; height: 15px; padding: 0 5px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 9.5px; line-height: 13px; white-space: nowrap; }
+.pg-row .pdot.in { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+/* Sıradaki iş: Yapılacaklar'ın ilk maddesi, tek tıkla çözüleceği sayfayı açar. */
+.next-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; max-width: 260px; padding: 0 11px; border: 1px solid rgba(232, 120, 58, .55); border-radius: var(--r); background: rgba(232, 120, 58, .1); color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.next-btn:hover { background: rgba(232, 120, 58, .18); border-color: var(--accent); }
+.next-btn svg { width: 14px; height: 14px; flex: none; color: var(--accent); }
+.next-btn .nb-k { color: var(--accent); font-weight: 600; }
+.next-btn .nb-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.next-btn.bad { border-color: rgba(255, 92, 85, .55); background: rgba(255, 92, 85, .1); }
+.next-btn.bad svg, .next-btn.bad .nb-k { color: var(--bad); }
 
 /* Yapılacaklar: alt bantta sayaçlı düğme, altına açılan sayfaya göre gruplu liste ve müşteri onay kapıları. */
 .todos-wrap { position: relative; }
@@ -799,8 +817,8 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .sw-status { display: none; }
 }
 @media (max-width: 1280px) {
-  .pg { width: 64px; }
-  .pg .badge { left: 12px; }
+  .pg { padding: 0 8px; }
+  .next-btn .nb-t { display: none; }
   .chip { display: none; }
   .pb-r .chip.paid, .lock-chip { display: inline-flex; }
 }
@@ -833,7 +851,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .pb-l, .pb-r { flex-wrap: wrap; justify-content: flex-start; }
   .pb-c { order: -1; }
   .pages { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-  .pg { width: 64px; }
+  .pg-pop { position: fixed; left: 10px; right: 10px; bottom: 150px; width: auto; transform: none; }
   .crumbs { flex: 1; flex-wrap: wrap; row-gap: 6px; }
   .crumbs .switcher { flex: 1 1 0; min-width: 96px; }
   .crumbs .lock-chip { margin-left: 0; }
@@ -845,7 +863,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 }
 @media (max-width: 560px) {
   .cmp-grid, .cmp-grid.n3, .cmp-grid.n4 { grid-template-columns: minmax(0, 1fr); }
-  .pg { width: 58px; }
+  .pg-s { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

@@ -1,6 +1,6 @@
 /* Sayfa grupları (alt bandın ortası). On sayfa beş ana sekmede toplanır: Hikâye (Senaryo, Ses), Görünüm (Stil, Görsel,
-   Varlıklar), Storyboard, Kurgu (Kurgu, Karşılaştır) ve Teslim (Renk, Teslim). Birden çok sayfası olan grup açıkken
-   sayfaları bandın içinde, sekmenin hemen yanında alt düğmeler olarak açılır. Sayfaların adresi (`?page=`) değişmez; gruplar yalnızca
+   Varlıklar), Storyboard, Kurgu (Kurgu, Karşılaştır) ve Teslim (Renk, Teslim). Birden çok sayfası olan grubun sayfaları
+   sekmenin üstünde açılan menüde listelenir. Sayfaların adresi (`?page=`) değişmez; gruplar yalnızca
    menüdür, sıra dayatmaz. Saf fonksiyonlar: tarayıcı gerekmez. */
 import type { Page } from "./panel";
 import type { PageBadge, PageTone } from "./steps";
