@@ -136,10 +136,11 @@ function Messages({ view, onChanged }: { view: AssistantSessionView | undefined;
 function ActionCard({ a, onChanged }: { a: AssistantAction; onChanged: () => void }) {
   const { refresh, note } = usePanel();
   const [sending, setSending] = useState(false);
-  const decide = async (path: string, body?: unknown) => {
+  const decide = async (path: "approve" | "decline", body?: unknown) => {
     setSending(true);
     try {
-      await api.post(`/assistant/actions/${a.id}/${path}`, body);
+      if (path === "approve") await api.post(`/assistant/actions/${a.id}/approve`, body);
+      else await api.post(`/assistant/actions/${a.id}/decline`);
       refresh();
     } catch (e) {
       note("global", (e as Error).message, "err");
