@@ -1,8 +1,8 @@
 "use client";
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
    gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
-   kendiliğinden açılır); ortada beş ana sekme (Hikâye, Görünüm, Storyboard, Kurgu, Teslim) ve açık grubun alt sekme
-   şeridi bandın hemen üstünde; sağda
+   kendiliğinden açılır); ortada beş ana sekme (Hikâye, Görünüm, Storyboard, Kurgu, Teslim); açık grubun sayfaları
+   sekmenin hemen yanında alt düğmeler olarak açılır; sağda
    Yapılacaklar, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
    açıkken dişlide kırmızı nokta durur). Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…5 ana sekmeler arasında
@@ -26,7 +26,7 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { openGroup, Pages, SubPages } from "./PageBar";
+import { openGroup, Pages } from "./PageBar";
 import { ProjectManager } from "./ProjectManager";
 import { Todos } from "./Todos";
 import { StylePage } from "./StylePage";
@@ -50,7 +50,6 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
   return (
     <footer className="dock">
       <Alerts />
-      <SubPages hasShots={hasShots} />
       <div className="pagebar">
         <div className="pb-l">
           <button type="button" className="pb-btn" onClick={onManager} aria-label="Proje yöneticisi" data-tour="home"
