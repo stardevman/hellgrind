@@ -1329,7 +1329,7 @@ comfy-workflows/               MiniMax H3 ComfyUI iş akışları: i2v, r2v, key
                                exported/: dışa aktarılan hâller ve make_templates.py), panel yazar
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (alt bant), PageBar (beş ana sekme ve alt sekme şeridi), Todos (yapılacaklar), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (alt bant), PageBar (beş ana sekme ve yanlarında açılan alt düğmeler), Todos (yapılacaklar), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi

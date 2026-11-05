@@ -160,19 +160,22 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pg .badge.ok { color: var(--ok); }
 .pg .pdot { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); border: 1px solid var(--panel); }
 .pg .pdot.warn { background: var(--warn); } .pg .pdot.bad { background: var(--bad); }
-/* Alt sekme şeridi: açık ana sekmenin sayfaları, sayfa çubuğunun hemen üstünde (grupta tek sayfa varsa gösterilmez). */
-.subpages { display: flex; justify-content: center; min-width: 0; padding: 3px 8px; background: var(--bg); border-top: 1px solid var(--line); }
-.subpages ul { display: flex; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.sp { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 5px; background: none; color: var(--text-3); font-size: 11.5px; font-weight: 500; white-space: nowrap; transition: color .12s, background .12s; }
-.sp svg { width: 13px; height: 13px; }
+/* Rozetin içindeki nokta: rozeti olan sekmede bekleyen iş rozetin sağ ucunda gösterilir, simgenin üstüne binmez. */
+.badge .bdot { display: inline-block; width: 5px; height: 5px; margin-left: 3px; border-radius: 50%; vertical-align: 1px; background: var(--text-3); }
+.badge .bdot.warn { background: var(--warn); } .badge .bdot.bad { background: var(--bad); }
+/* Alt düğmeler: açık ana sekmenin sayfaları bandın içinde, sekmenin hemen yanında (ör. Hikâye ile Görünüm arasında). */
+.pg-sub { display: flex; }
+.pg-sub > ul { display: flex; align-items: center; gap: 1px; height: 42px; margin: 0 6px 0 2px; padding: 0 3px; list-style: none; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; }
+.sp { position: relative; display: grid; justify-items: center; align-content: start; gap: 3px; width: 62px; height: 38px; padding: 5px 0 0; border: 0; border-radius: 4px; background: none; color: var(--text-3); font-size: 10px; font-weight: 500; white-space: nowrap; transition: color .12s, background .12s; }
+.sp .pg-i svg { width: 14px; height: 14px; }
 .sp:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-.sp[aria-current="page"] { color: var(--text); background: var(--raised); box-shadow: inset 0 -2px 0 var(--accent); }
-.sp[aria-current="page"] svg { color: var(--accent); }
+.sp[aria-current="page"] { color: var(--accent); background: var(--panel); }
+.sp[aria-current="page"] .pg-l { color: var(--text); }
 .sp:disabled { opacity: .3; cursor: not-allowed; }
-.sp .badge { min-width: 14px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 8.5px; line-height: 11px; }
+.sp .badge { position: absolute; top: -5px; left: 12px; min-width: 14px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 8.5px; line-height: 11px; white-space: nowrap; }
 .sp .badge.bad { background: rgba(255, 92, 85, .2); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
 .sp .badge.ok { color: var(--ok); }
-.sp .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.sp .pdot { position: absolute; top: -3px; right: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); border: 1px solid var(--raised); }
 .sp .pdot.warn { background: var(--warn); } .sp .pdot.bad { background: var(--bad); }
 
 /* Yapılacaklar: alt bantta sayaçlı düğme, altına açılan sayfaya göre gruplu liste ve müşteri onay kapıları. */
@@ -831,7 +834,6 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .pb-c { order: -1; }
   .pages { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
   .pg { width: 64px; }
-  .subpages { justify-content: flex-start; }
   .crumbs { flex: 1; flex-wrap: wrap; row-gap: 6px; }
   .crumbs .switcher { flex: 1 1 0; min-width: 96px; }
   .crumbs .lock-chip { margin-left: 0; }
