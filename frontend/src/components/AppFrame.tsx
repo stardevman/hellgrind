@@ -3,7 +3,7 @@
    gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
    kendiliğinden açılır); ortada beş ana sekme (Hikâye, Görünüm, Storyboard, Kurgu, Teslim); çok sayfalı sekmenin
    sayfaları sekmenin üstünde açılan menüdedir; sağda
-   Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
+   Geçmiş (yönetici), durdurma düğmesi, Asistan (Claude sohbeti), Rehberler ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
    açıkken dişlide kırmızı nokta durur). Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…5 ana sekmeler arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
@@ -15,6 +15,7 @@ import { GROUPS } from "@/lib/groups";
 import { isExtraPage, NEEDS_SHOTS, usePanel, type Page } from "@/lib/panel";
 import { lockLabel } from "@/lib/series";
 import { AssetsPage } from "./AssetsPage";
+import { AssistantButton } from "./Assistant";
 import { ImagesPage } from "./ImagesPage";
 import { BoardPage } from "./BoardPage";
 import { Breadcrumb } from "./Breadcrumb";
@@ -74,6 +75,7 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
               {frozen ? <Icon.play /> : <Icon.stop />}
             </button>
           )}
+          <AssistantButton />
           <HelpMenu />
           <button type="button" className="pb-btn" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")}
             aria-label="Ayarlar" data-tour="settings"

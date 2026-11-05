@@ -849,3 +849,41 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .studio-src img, .studio-src .ph { width: 40px; height: 40px; object-fit: contain; border-radius: 2px; background: #0b0b0c; flex: none; }
 .mono-wrap { font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--text-2); }
 @media (prefers-reduced-motion: reduce) { .card .th.work, .studio-ph.work { animation: none; } }
+
+/* Panel asistanı (Claude): alt bandın üstünde sağda açılan sohbet paneli; onay kartları sohbetin içinde. */
+.asst { position: fixed; right: 8px; bottom: 56px; z-index: 70; width: min(440px, calc(100vw - 16px)); height: min(640px, calc(100vh - 72px)); display: flex; flex-direction: column; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: 0 12px 40px rgba(0, 0, 0, .5); overflow: hidden; }
+.asst-h { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; border-bottom: 1px solid var(--line); }
+.asst-h > svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.asst-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.asst-pick { min-width: 0; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--text-2); padding: 2px 4px; border-radius: var(--r); }
+.asst-pick:hover { background: var(--hover); color: var(--text); }
+.asst-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asst-pick svg { width: 12px; height: 12px; flex: none; }
+.asst-list { max-height: 220px; overflow: auto; padding: 4px; border-bottom: 1px solid var(--line); display: grid; gap: 2px; }
+.asst-list button { display: flex; gap: 8px; align-items: baseline; text-align: left; padding: 6px 8px; border: 0; border-radius: 6px; background: none; }
+.asst-list button:hover, .asst-list button[aria-current="true"] { background: var(--hover); }
+.asst-warn { padding: 6px 10px; font-size: 12px; background: var(--raised); color: var(--text-2); border-bottom: 1px solid var(--line); }
+.asst-body { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.asst-empty { color: var(--text-2); font-size: 12.5px; line-height: 1.5; display: grid; gap: 6px; }
+.asst-empty ul { margin: 0; padding-left: 18px; }
+.asst-msg { max-width: 92%; padding: 7px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.asst-msg.me { align-self: flex-end; background: var(--accent-soft); border: 1px solid rgba(232, 120, 58, .35); }
+.asst-msg.ai { align-self: flex-start; background: var(--raised); border: 1px solid var(--line); }
+.asst-msg.ai.offline { color: var(--text-2); }
+.asst-tool { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-3); }
+.asst-tool svg { width: 12px; height: 12px; }
+.asst-tool.err { color: var(--warn); }
+.asst-card { align-self: stretch; display: grid; gap: 4px; padding: 9px 10px; border-radius: 8px; background: var(--field); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); }
+.asst-card.done { border-left-color: var(--ok); }
+.asst-card.declined { border-left-color: var(--line-2); }
+.asst-card.failed { border-left-color: var(--bad); }
+.asst-card .bad { color: #ffb3ae; }
+.asst-card-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.asst-typing { align-self: flex-start; font-size: 12px; color: var(--work); }
+.asst-allow { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12px; background: rgba(242, 199, 68, .12); color: #f6dc8a; border-top: 1px solid var(--line); }
+.asst > .note.err { margin: 0 10px 6px; }
+.asst-in { display: grid; gap: 4px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.asst-in .row { flex-wrap: nowrap; align-items: stretch; }
+.asst-in textarea { flex: 1; resize: none; min-height: 40px; max-height: 140px; padding: 6px 8px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--field); }
+.asst-in .btn { height: auto; }
+.asst-in .btn svg { width: 14px; height: 14px; }

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # yoksa ya da ücretsiz modda kurallara düşer, planda uyarı) | rules = kural tabanlı istem
     prompt_writer: str = "llm"
     prompt_writer_model: str = "claude-opus-5-5"     # boşsa HERMES_MODEL
+    # Panel asistanı (sağ alttaki Claude sohbeti): proje durumunu, skorları ve kareleri görür, istekle düzeltir. Ücretli
+    # (ANTHROPIC_API_KEY); her çağrı bütçe rezervasyonundan geçer. Ücretli eylemleri (yeniden üretim, yeni aday) yalnızca
+    # yönetmenin onayıyla başlatır.
+    assistant_model: str = "claude-opus-5-5"
+    assistant_effort: str = "medium"                # low | medium | high | xhigh | max
     # Ücretli model ve uç nokta kimlikleri (panelin Ayarlar sayfasından da düzenlenir; fal.ai model sayfalarıyla doğrula)
     fal_flux_endpoint: str = "fal-ai/flux-lora"
     fal_wan_endpoint: str = "fal-ai/wan/v2.2-a14b/image-to-video"
