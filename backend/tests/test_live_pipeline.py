@@ -149,6 +149,29 @@ def test_switching_the_engine_voices_the_line_again_under_its_own_key(refined, f
     assert len(fakes.tts_calls) == 1
 
 
+def test_a_new_voice_model_voices_the_line_again_and_switching_back_pays_nothing(refined, fakes, monkeypatch):
+    pid, sid = refined
+    voice_and_lipsync(sid)
+    old_key = dialogue_track(sid).file_key
+    monkeypatch.setattr(settings, "elevenlabs_model", "eleven_v4")
+    voice_and_lipsync(sid)
+    track = dialogue_track(sid)
+    assert track.file_key != old_key and track.file_key.startswith(f"audio/elevenlabs/{track.content_hash}_")
+    assert track.file_key.endswith(".mp3") and storage.exists(old_key) and storage.exists(track.file_key)
+    assert len(fakes.tts_calls) == 2
+    monkeypatch.setattr(settings, "elevenlabs_model", "eleven_multilingual_v2")      # eski dosya duruyor: yeniden ödenmez
+    voice_and_lipsync(sid)
+    assert dialogue_track(sid).file_key == old_key and len(fakes.tts_calls) == 2
+
+
+def test_the_voice_key_follows_model_and_language_and_the_default_model_keeps_the_old_key(monkeypatch):
+    assert pipeline.tts_variant("elevenlabs") == "" and pipeline.tts_variant("okur") == ""
+    monkeypatch.setattr(settings, "elevenlabs_model", "eleven_v4")
+    tr = pipeline.tts_variant("elevenlabs")
+    monkeypatch.setattr(settings, "elevenlabs_language", "auto")
+    assert tr.startswith("_") and pipeline.tts_variant("elevenlabs") not in ("", tr) and pipeline.tts_variant("espeak") == ""
+
+
 # ---------- bütçe ----------
 
 def test_an_exhausted_budget_stops_the_paid_voice_before_the_provider_is_called(refined, fakes):

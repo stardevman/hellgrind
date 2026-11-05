@@ -139,6 +139,24 @@ def effective_tts_engine(cfg: dict | None = None) -> str:
     return local_tts_engine() if engine == "okur" else engine
 
 
+DEFAULT_ELEVENLABS_MODEL = "eleven_multilingual_v2"
+
+
+def tts_variant(engine: str) -> str:
+    """Aynı replik metninin hangi seslendirmesi: ElevenLabs'te model ve dil anahtara girer; model ya da dil değişince
+    replik yeniden seslendirilir, eski dosya silinmez. Varsayılan model (Multilingual v2; dil kodu almaz) eski anahtarı
+    kullanır, böylece önceden üretilmiş sesler yeniden ödenmez."""
+    if engine != "elevenlabs" or settings.elevenlabs_model == DEFAULT_ELEVENLABS_MODEL:
+        return ""
+    return "_" + stable_hash({"model": settings.elevenlabs_model, "language": settings.elevenlabs_language or "auto"})[:8]
+
+
+def tts_key(t: AudioTrack, engine: str) -> str:
+    """Sentez repliğinin içerik-adresli anahtarı: audio/{motor}/{özet}[_{model ve dil}].{mp3|wav}."""
+    ext = ".mp3" if engine == "elevenlabs" else ".wav"
+    return f"audio/{engine}/{t.content_hash}{tts_variant(engine)}{ext}"
+
+
 def _paid_tts(t: AudioTrack, scene: Scene, path: str) -> float:
     from app.live.elevenlabs import tts
     with session_scope() as s:
@@ -162,7 +180,7 @@ def ensure_dialogue_audio(t: AudioTrack, scene: Scene, tmp: str, cfg: dict | Non
         return
     engine = effective_tts_engine(cfg)
     ext = ".mp3" if engine == "elevenlabs" else ".wav"
-    key = f"audio/{engine}/{t.content_hash}{ext}"
+    key = tts_key(t, engine)
     if t.file_key == key and t.duration_s and storage.exists(key):
         return
     path = os.path.join(tmp, f"{t.id}{ext}")

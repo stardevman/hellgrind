@@ -1,8 +1,11 @@
 """ÜCRETLİ konuşma sentezi (ElevenLabs). Bu modül hiçbir yerde çalıştırılmadı.
 
-`eleven_multilingual_v2`; duygu `stability` ve `style` değerlerine eşlenir. Her çağrı önce `guard("elevenlabs_api_key")`
-çağırır. İstek biçimi ElevenLabs belgelerinden doğrulandı (2 Ekim 2026): POST /v1/text-to-speech/{voice_id}, başlık
-`xi-api-key`, gövde {text, model_id, voice_settings{stability, similarity_boost, style, use_speaker_boost}}, yanıt ses dosyası.
+Model `settings.elevenlabs_model` (varsayılan `eleven_multilingual_v2`; en yenisi `eleven_v4`); duygu `stability` ve
+`style` değerlerine eşlenir. Her çağrı önce `guard("elevenlabs_api_key")` çağırır. İstek biçimi ElevenLabs belgelerinden
+doğrulandı (2 Ekim 2026, model ve dil alanları 5 Kasım 2026): POST /v1/text-to-speech/{voice_id}, başlık `xi-api-key`, gövde
+{text, model_id, voice_settings{stability, similarity_boost, style, use_speaker_boost}, language_code}, yanıt ses dosyası.
+`language_code` dili sabitler (ör. "Pamuk Nine" İngilizce "nine" okunmaz); Multilingual v2 bu alanı desteklemez, ona
+gönderilmez. v3 ve v4'te stil ve konuşmacı güçlendirme ayarı yoktur, onlara yalnızca kararlılık ve benzerlik gider.
 Çağıran, karakter sayısına göre (`pricing.estimate_tts`) rezervasyon almış olmalıdır.
 """
 import os
@@ -27,9 +30,31 @@ EMOTION_VOICE = {   # duygu -> (stability, style): düşük kararlılık ve yük
 }
 
 
-def voice_settings(emotion: str | None) -> dict:
+NO_LANGUAGE_CODE = ("eleven_multilingual",)     # language_code'u desteklemeyen modeller (API: "not supported for multilingual_v2")
+NO_STYLE = ("eleven_v3", "eleven_v4")           # stil ve konuşmacı güçlendirme ayarı olmayan modeller
+
+
+def language_code(model: str | None = None) -> str | None:
+    """Gönderilecek dil kodu: ayar ("tr"); "auto", boş ya da dil kodu almayan model için yok (model tahmin eder)."""
+    model = model or settings.elevenlabs_model
+    lang = (settings.elevenlabs_language or "").strip()
+    return None if not lang or lang == "auto" or model.startswith(NO_LANGUAGE_CODE) else lang
+
+
+def voice_settings(emotion: str | None, model: str | None = None) -> dict:
+    model = model or settings.elevenlabs_model
     stability, style = EMOTION_VOICE.get(emotion or "neutral", EMOTION_VOICE["neutral"])
+    if model.startswith(NO_STYLE):
+        return {"stability": stability, "similarity_boost": SIMILARITY_BOOST}
     return {"stability": stability, "similarity_boost": SIMILARITY_BOOST, "style": style, "use_speaker_boost": True}
+
+
+def request_body(text: str, emotion: str | None) -> dict:
+    model = settings.elevenlabs_model
+    body = {"text": text, "model_id": model, "voice_settings": voice_settings(emotion, model)}
+    if lang := language_code(model):
+        body["language_code"] = lang
+    return body
 
 
 def tts(text: str, voice_id: str | None, emotion: str | None, out_path: str) -> float:
@@ -37,15 +62,15 @@ def tts(text: str, voice_id: str | None, emotion: str | None, out_path: str) -> 
     key = guard("elevenlabs_api_key")
     if not voice_id:
         raise ValueError("Bu karakter için voice_id tanımlı değil: ElevenLabs ses kimliğini karaktere ekleyin.")
+    body = request_body(text, emotion)
     try:
         response = httpx.post(URL.format(voice_id=voice_id), params={"output_format": OUTPUT_FORMAT},
-                              headers={"xi-api-key": key, "Accept": "audio/mpeg"}, timeout=120,
-                              json={"text": text, "model_id": settings.elevenlabs_model, "voice_settings": voice_settings(emotion)})
+                              headers={"xi-api-key": key, "Accept": "audio/mpeg"}, timeout=120, json=body)
     except (httpx.TransportError, TimeoutError) as e:
         raise TransientError(f"ElevenLabs: {type(e).__name__}: {e}") from e
-    history.step(settings.elevenlabs_model, (getattr(response, "headers", None) or {}).get("request-id"),
-                 characters=len(text), voice_id=voice_id, emotion=emotion or "neutral", voice=voice_settings(emotion),
-                 http_status=response.status_code)
+    history.step(body["model_id"], (getattr(response, "headers", None) or {}).get("request-id"),
+                 characters=len(text), voice_id=voice_id, emotion=emotion or "neutral", voice=body["voice_settings"],
+                 language=body.get("language_code") or "auto", http_status=response.status_code)
     if response.status_code == 429 or response.status_code >= 500:
         raise TransientError(f"ElevenLabs HTTP {response.status_code}")
     if response.status_code >= 400:                           # istek gövdesini ya da başlıkları (anahtar!) günlüğe sızdırma

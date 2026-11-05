@@ -46,6 +46,8 @@ export const secTr = (x: number | null | undefined) => x == null ? "—" : `${Nu
 export function sourceBadge(line: VoiceLine): { text: string; tone: "ok" | "warn" | ""; title: string } {
   if (line.final) return { text: "Final", tone: "ok", title: `Yüklendi${line.filename ? `: ${line.filename}` : ""}` };
   const engine = ({ okur: "Okur", elevenlabs: "ElevenLabs", espeak: "espeak", tone: "ton" } as Record<string, string>)[line.engine ?? ""] ?? null;
+  if (engine && line.outdated) return { text: `Eski model: ${engine}`, tone: "warn",
+    title: "Önceki ses modeliyle ya da diliyle seslendirildi; Geçici sesleri üret yeni modelle yeniden seslendirir" };
   return engine ? { text: `Geçici: ${engine}`, tone: "warn", title: "Sentezlenmiş geçici ses; final kayıt yüklenince yerini alır" }
     : { text: "Seslendirilmedi", tone: "", title: "Geçici ses henüz üretilmedi" };
 }

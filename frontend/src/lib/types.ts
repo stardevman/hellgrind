@@ -707,6 +707,8 @@ export interface VoiceLine {
   start_offset_s: number; slot_s: number; drift: boolean; filename: string | null; version: number;
   /** Ses denetimi (Duyu-small): ses yazıya döküldü ve metinle karşılaştırıldı; cer = harf hata oranı (0-1). */
   check: { ok: boolean; cer: number; heard: string } | null;
+  /** Şu anki motorla ama önceki modelle ya da dille seslendirildi (ör. ElevenLabs modeli değişti); yeniden üretilmeli. */
+  outdated?: boolean;
 }
 export interface VoiceShot {
   scene_id: string; scene_code: string; heading: string; description: string | null; duration_s: number;
@@ -723,7 +725,7 @@ export interface VoiceState {
   /** Ses denetimi açık ve Duyu-small modeli kurulu. */
   checker: boolean;
   counts: { lines: number; final: number; temp: number; unmeasured: number; drift: number; unlocked: number;
-    mismatch: number; unchecked: number };
+    mismatch: number; unchecked: number; outdated?: number };
   pads: { in: number; gap: number; out: number; drift: number }; drift_text: string;
 }
 /** POST /sequences/{id}/voice-lock. */

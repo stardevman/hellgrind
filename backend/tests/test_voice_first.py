@@ -136,6 +136,27 @@ def test_locking_retimes_unrendered_shots_from_the_voice_and_freezes_editing(api
     assert "voice_lock" in actions and "voice_unlock" in actions and "voice_temp" in actions
 
 
+def test_lines_voiced_by_an_earlier_model_are_flagged_revoiced_and_block_the_lock(api, voiced, monkeypatch):
+    """Model ya da dil değişince (anahtar eki değişir) replik "eski model" olur: Geçici sesleri üret yeniden seslendirir,
+    o zamana dek kilit reddedilir (eski sesin süresine kilitlenmesin)."""
+    st, lines = _lines(api, voiced)
+    seq = st["sequences"][0]
+    api.post(f"/api/projects/{voiced}/voice/temp")
+    st, lines = _lines(api, voiced)
+    assert st["counts"]["outdated"] == 0 and not any(ln["outdated"] for _, _, ln in lines)
+    before = {ln["track_id"]: ln["url"] for _, _, ln in lines}
+    monkeypatch.setattr("app.post.pipeline.tts_variant", lambda engine: "_yeni")
+    st, lines = _lines(api, voiced)
+    assert st["counts"]["outdated"] == len(lines) and all(ln["outdated"] for _, _, ln in lines)
+    r = api.post(f"/api/sequences/{seq['id']}/voice-lock", json={"locked": True})
+    assert r.status_code == 409 and "önceki ses modeliyle" in r.json()["detail"]
+    api.post(f"/api/projects/{voiced}/voice/temp")
+    st, lines = _lines(api, voiced)
+    assert st["counts"]["outdated"] == 0 and all(ln["url"] != before[ln["track_id"]] and "_yeni.wav" in ln["url"]
+                                                 for _, _, ln in lines)
+    assert api.post(f"/api/sequences/{seq['id']}/voice-lock", json={"locked": True}).status_code == 200
+
+
 def test_a_rendered_shot_keeps_its_duration_and_only_warns(api, voiced, fast):
     st, _ = _lines(api, voiced)
     talker = next(sh for g in st["sequences"] for sh in g["shots"] if sh["lines"])

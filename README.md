@@ -1310,6 +1310,7 @@ Bilinmesi gerekenler:
 | `H3_TIMEOUT_S` / `H3_START_TIMEOUT_S` / `H3_COMFY_WORKFLOW_DIR` | `3600` / `900` / `/config/comfy` | Tek işin en uzun süresi, otomatik başlatmada bekleme, ComfyUI iş akışı klasörü (`./comfy-workflows`) |
 | `FAL_FLUX_ENDPOINT`, `FAL_WAN_ENDPOINT`, `FAL_SEEDANCE_ENDPOINT`, `FAL_LIPSYNC_ENDPOINT`, `FAL_WAN_V2V_ENDPOINT` | fal.ai model kimlikleri | Ücretli üretimin uç noktaları; `.env.example`'daki değerler varsayılandır |
 | `ELEVENLABS_MODEL` / `HERMES_MODEL` | `eleven_multilingual_v2` / `claude-sonnet-5-5` | Seslendirme ve senaryo ayrıştırma modelleri |
+| `ELEVENLABS_LANGUAGE` | `tr` | ElevenLabs dil kodu (`tr` ya da `auto`). `eleven_v4` ve `eleven_v3` dili Türkçeye sabitler; `eleven_multilingual_v2` dil kodu almaz ve bazı kelimeleri (ör. "Nine") İngilizce okuyabilir. Model ya da dil değişince ElevenLabs replikleri ayrı bir anahtarla yeniden seslendirilir (Ses › Geçici sesleri üret); eski dosyalar silinmez |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
 | `PROMPT_WRITER_MODEL` | `claude-opus-5-5` | İstem yazıcının modeli (boşsa `HERMES_MODEL`) |
 | `PROMPT_WRITER` | `llm` | Sahne istemi: `llm` (Hermes modeli yönetmen tarzı istem yazar; ücretli, anahtar yoksa ya da ücretsiz modda kurallara düşer) ya da `rules` |

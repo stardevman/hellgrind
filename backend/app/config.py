@@ -144,7 +144,8 @@ class Settings(BaseSettings):
     h3_setup_script_url: str = ""      # boşsa setup.sh isteğe gömülür (gzip + base64)
     h3_image_model: str = "qwen-image-2512"   # storyboard ilk karesi: qwen-image-2512 | flux-schnell | none (Apache 2.0)
     h3_setup_timeout_s: int = 5400     # yeni makinede kurulumun (model indirme dahil) en uzun süresi
-    elevenlabs_model: str = "eleven_multilingual_v2"
+    elevenlabs_model: str = "eleven_multilingual_v2"   # eleven_v4 en yenisi; ses anahtarı modele göre ayrılır
+    elevenlabs_language: str = "tr"    # language_code (dili sabitler); "auto" = otomatik; Multilingual v2 desteklemez
     # Panelin yazdığı .env (konteynerlere bağlanır). Boşsa panelden ayar düzenleme kapalıdır (testler, CI).
     config_env_file: str = ""
     # Yönetici modunun şifresi (Ayarlar ve servis geçmişi). Boşsa yönetici modu şifresiz açılır; panelden yazılamaz.
