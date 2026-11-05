@@ -1,16 +1,18 @@
 "use client";
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
    gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
-   kendiliğinden açılır); ortada küçük simgeli sayfa menüsü; sağda
+   kendiliğinden açılır); ortada beş ana sekme (Hikâye, Görünüm, Storyboard, Kurgu, Teslim) ve açık grubun alt sekme
+   şeridi bandın hemen üstünde; sağda
    Yapılacaklar, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
    açıkken dişlide kırmızı nokta durur). Uyarılar bandın hemen üstünde, menüler yukarı
-   açılır. Sayfalar bir sıra değil menüdür. Shift+1…9 sayfalar arasında
+   açılır. Sayfalar bir sıra değil menüdür. Shift+1…5 ana sekmeler arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
    yapmak için gerekenleri gösterir; ücretli servisler, mod, fiyat tablosu, servis geçmişi ve skor ayrıntıları yönetici
    modundadır (şifre tanımlıysa girişle). Rehber turu ilk açılışta kendiliğinden başlar. */
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { api } from "@/lib/api";
-import { isExtraPage, NEEDS_SHOTS, PAGES, usePanel, type Page } from "@/lib/panel";
+import { GROUPS } from "@/lib/groups";
+import { isExtraPage, NEEDS_SHOTS, usePanel, type Page } from "@/lib/panel";
 import { lockLabel } from "@/lib/series";
 import { AssetsPage } from "./AssetsPage";
 import { ImagesPage } from "./ImagesPage";
@@ -24,7 +26,7 @@ import { HistoryPage } from "./HistoryPage";
 import { Icon } from "./icons";
 import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
-import { Pages } from "./PageBar";
+import { openGroup, Pages, SubPages } from "./PageBar";
 import { ProjectManager } from "./ProjectManager";
 import { Todos } from "./Todos";
 import { StylePage } from "./StylePage";
@@ -48,6 +50,7 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
   return (
     <footer className="dock">
       <Alerts />
+      <SubPages hasShots={hasShots} />
       <div className="pagebar">
         <div className="pb-l">
           <button type="button" className="pb-btn" onClick={onManager} aria-label="Proje yöneticisi" data-tour="home"
@@ -285,18 +288,18 @@ export function AppFrame() {
     return () => window.removeEventListener("keydown", onKey);
   }, [safeAreas, setSafeAreas]);
 
-  useEffect(() => {                                       // Shift+1…9, Shift+0: sayfalar arasında geçiş
+  useEffect(() => {                                       // Shift+1…5: ana sekmeler arasında geçiş
     const onKey = (e: KeyboardEvent) => {
       if (!e.shiftKey || !shortcutTarget(e) || !e.code.startsWith("Digit")) return;
-      const n = Number(e.code.slice(5));
-      const i = n === 0 ? 9 : n - 1;
-      if (!Number.isInteger(i) || i < 0 || i >= PAGES.length) return;
+      const g = GROUPS[Number(e.code.slice(5)) - 1];
+      if (!g) return;
       e.preventDefault();
-      setPage(PAGES[i]);
+      const to = openGroup(g, { admin, hasShots });
+      if (to) setPage(to);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setPage]);
+  }, [setPage, admin, hasShots]);
 
   const loading = (!projects && !offline) || (projectId && !ov && !creating && !offline);
   const target: Page = isExtraPage(page) && !creating ? page

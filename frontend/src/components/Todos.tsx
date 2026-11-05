@@ -7,6 +7,7 @@ import { gateChips } from "@/lib/client";
 import { usePanel } from "@/lib/panel";
 import { STEPS, stepReadiness, todosByPage } from "@/lib/steps";
 import { Icon } from "./icons";
+import { pagePath } from "@/lib/groups";
 import { PAGE_LABEL } from "./PageBar";
 import { useDismiss } from "./ui";
 
@@ -36,10 +37,10 @@ export function Todos() {
             const Ico = Icon[g.page];
             return (
               <div key={g.page} className="td-group">
-                <div className="td-h"><Ico />{PAGE_LABEL[g.page]}</div>
+                <div className="td-h"><Ico />{pagePath(g.page, PAGE_LABEL[g.page])}</div>
                 {g.todos.map((t) => (
                   <button key={t.text} type="button" className={`td-item ${t.tone || ""}`} onClick={() => { setPage(t.page); close(); }}
-                    title={`${PAGE_LABEL[t.page]} sayfasına git`}>
+                    title={`${pagePath(t.page, PAGE_LABEL[t.page])} sayfasına git`}>
                     <span className="grow">{t.text}</span><Icon.chevron />
                   </button>
                 ))}

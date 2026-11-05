@@ -10,7 +10,7 @@ import type { AdminState, Meta, Overview, ProjectListItem, Scene, Sequence } fro
 export const POLL_MS = 2000;
 /** Rehberler: panel turu ve kitaptan çizgi film (lib/tour.ts). */
 export type TourId = "panel" | "book";
-/** Sayfalar, üretim sırasıyla (kurgu yazılımlarındaki sayfa çubuğu gibi). */
+/** Sayfalar, üretim sırasıyla. Alt bantta beş ana sekmede gruplanırlar (lib/groups.ts); adresleri (`?page=`) aynıdır. */
 export const PAGES = ["script", "voice", "style", "images", "assets", "board", "edit", "compare", "color", "deliver"] as const;
 /** Sayfa çubuğunda simgesi olmayan sayfalar: Ayarlar (bandın sağındaki dişli) ve Geçmiş (yönetici). */
 export const EXTRA_PAGES = ["settings", "history"] as const;
@@ -21,8 +21,7 @@ export const isExtraPage = (p: string): p is (typeof EXTRA_PAGES)[number] => (EX
 /** Servis geçmişinin URL'de tutulan süzgeçleri (sayfa yenilenince ve bağlantıyla paylaşılınca korunur). */
 export const HISTORY_PARAMS = { project: "hp", service: "hs", operation: "ho", mode: "hm", status: "hst", days: "hd", call: "hc" } as const;
 export type HistoryFilter = Partial<Record<keyof typeof HISTORY_PARAMS, string | null>>;
-/** Çekimi olmayan projede açılamayan sayfalar: senaryo sayfasına düşülür. */
-export const NEEDS_SHOTS: ReadonlySet<Page> = new Set(["voice", "board", "edit", "compare", "color", "deliver"]);
+export { NEEDS_SHOTS } from "./groups";
 export type NoteKind = "ok" | "err" | "";
 export interface Note { text: string; kind: NoteKind }
 export type FilmKind = "final" | "draft";
