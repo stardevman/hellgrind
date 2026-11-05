@@ -187,39 +187,9 @@ kbd { font-family: var(--mono); font-size: 10.5px; padding: 0 4px; border: 1px s
 .pg-row-t span { color: var(--text-3); font-size: 11px; line-height: 1.35; white-space: normal; }
 .pg-row .badge.in { position: static; flex: none; min-width: 14px; height: 15px; padding: 0 5px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text-2); font-family: var(--mono); font-size: 9.5px; line-height: 13px; white-space: nowrap; }
 .pg-row .pdot.in { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
-/* Sıradaki iş: Yapılacaklar'ın ilk maddesi, tek tıkla çözüleceği sayfayı açar. */
-.next-btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; max-width: 260px; padding: 0 11px; border: 1px solid rgba(232, 120, 58, .55); border-radius: var(--r); background: rgba(232, 120, 58, .1); color: var(--text); font-size: 12px; font-weight: 500; white-space: nowrap; }
-.next-btn:hover { background: rgba(232, 120, 58, .18); border-color: var(--accent); }
-.next-btn svg { width: 14px; height: 14px; flex: none; color: var(--accent); }
-.next-btn .nb-k { color: var(--accent); font-weight: 600; }
-.next-btn .nb-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.next-btn.bad { border-color: rgba(255, 92, 85, .55); background: rgba(255, 92, 85, .1); }
-.next-btn.bad svg, .next-btn.bad .nb-k { color: var(--bad); }
 
 /* Yapılacaklar: alt bantta sayaçlı düğme, altına açılan sayfaya göre gruplu liste ve müşteri onay kapıları. */
-.todos-wrap { position: relative; }
-.todos-btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; flex: none; border: 1px solid var(--line-2); border-radius: 13px; background: var(--field); color: var(--text-2); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
-.todos-btn svg { width: 14px; height: 14px; flex: none; }
-.todos-btn > svg:last-child { color: var(--ok); }
-.todos-btn:hover, .todos-btn[aria-expanded="true"] { color: var(--text); border-color: #5a5a62; }
-.todos-btn.warn { border-color: rgba(242, 199, 68, .5); } .todos-btn.bad { border-color: rgba(255, 92, 85, .55); }
-.td-n { min-width: 18px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line-2); font-size: 10px; font-weight: 600; line-height: 14px; text-align: center; color: var(--text); }
-.todos-btn.warn .td-n { background: rgba(242, 199, 68, .18); border-color: rgba(242, 199, 68, .5); color: var(--warn); }
-.todos-btn.bad .td-n { background: rgba(255, 92, 85, .18); border-color: rgba(255, 92, 85, .5); color: #ffb3ae; }
-.todos-pop { left: auto; right: 0; width: 360px; max-width: calc(100vw - 20px); padding: 6px; max-height: min(70vh, 560px); overflow-y: auto; }
-.td-group + .td-group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
-.td-h { display: flex; align-items: center; gap: 6px; padding: 6px 8px 3px; font-size: 11px; font-weight: 600; color: var(--text-3); }
-.td-h svg { width: 14px; height: 14px; }
-.menu .td-item { height: 30px; padding: 0 8px 0 10px; font-size: 12px; }
-.menu .td-item::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex: none; }
-.menu .td-item.warn::before { background: var(--warn); } .menu .td-item.bad::before { background: var(--bad); }
-.menu .td-item svg { width: 13px; height: 13px; color: var(--text-3); transform: rotate(-90deg); flex: none; }
-.td-ok { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 16px 10px; color: var(--ok); font-size: 12.5px; }
-.td-ok svg { width: 15px; height: 15px; }
 .gate-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 8px; }
-.gchip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid var(--line-2); font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
-.gchip.ok { color: var(--ok); border-color: rgba(61, 204, 145, .35); } .gchip.bad { color: var(--bad); border-color: rgba(255, 92, 85, .4); }
-.gchip.warn { color: var(--warn); border-color: rgba(242, 199, 68, .4); }
 
 /* Proje yöneticisi: dizi ve sezon başlıkları altında bölüm kartları, bağımsız filmler ve "Yeni film". */
 .pm { width: min(980px, 100%); max-height: min(86vh, 760px); display: grid; grid-template-rows: auto minmax(0, 1fr); border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: 0 16px 48px rgba(0, 0, 0, .55); overflow: hidden; }
@@ -812,13 +782,11 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 
 /* Orta genişlik: alt bant sığsın diye Yapılacaklar yalnızca simge ve sayaç, logo yalnızca simge olur. */
 @media (max-width: 1480px) {
-  .todos-btn .td-l { display: none; }
   .crumbs .crumb .switch-btn { max-width: 200px; }
   .sw-status { display: none; }
 }
 @media (max-width: 1280px) {
   .pg { padding: 0 8px; }
-  .next-btn .nb-t { display: none; }
   .chip { display: none; }
   .pb-r .chip.paid, .lock-chip { display: inline-flex; }
 }
@@ -856,7 +824,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
   .crumbs .switcher { flex: 1 1 0; min-width: 96px; }
   .crumbs .lock-chip { margin-left: 0; }
   .crumbs .switch-btn { max-width: none; }
-  .crumbs .crumb .menu, .todos-pop { position: fixed; left: 10px; right: 10px; bottom: 140px; top: auto; width: auto; max-width: none; }
+  .crumbs .crumb .menu { position: fixed; left: 10px; right: 10px; bottom: 140px; top: auto; width: auto; max-width: none; }
   .menu { right: 0; max-width: none; }
   .vsep { display: none; }
   .cmp-grid, .cmp-grid.n3, .cmp-grid.n4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

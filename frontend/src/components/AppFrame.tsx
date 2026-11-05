@@ -2,8 +2,8 @@
 /* Stüdyo çerçevesi: çalışma alanı en üstten başlar, bütün denetimler tek alt banttadır (DaVinci Resolve'un sayfa çubuğu
    gibi): solda Proje yöneticisi (ev) ve Dizi › Sezon › Bölüm kırıntısı (ikisi de Proje yöneticisini açar; proje hiç yokken yönetici
    kendiliğinden açılır); ortada beş ana sekme (Hikâye, Görünüm, Storyboard, Kurgu, Teslim); çok sayfalı sekmenin
-   sayfaları sekmenin üstünde açılan menüdedir; sağda Sıradaki iş,
-   Yapılacaklar, Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
+   sayfaları sekmenin üstünde açılan menüdedir; sağda
+   Geçmiş (yönetici), durdurma düğmesi ve Ayarlar (bütçe, çalışma modu ve skor Ayarlar'dadır; ücretli mod
    açıkken dişlide kırmızı nokta durur). Uyarılar bandın hemen üstünde, menüler yukarı
    açılır. Sayfalar bir sıra değil menüdür. Shift+1…5 ana sekmeler arasında
    geçer; G yayın güvenli alanlarını açıp kapatır. Kullanıcı / Yönetici seçimi Ayarlar'dadır: kullanıcı modu yalnızca filmi
@@ -28,7 +28,6 @@ import { ScriptPage } from "./ScriptPage";
 import { SettingsPage } from "./SettingsPage";
 import { openGroup, Pages } from "./PageBar";
 import { ProjectManager } from "./ProjectManager";
-import { NextStep, Todos } from "./Todos";
 import { StylePage } from "./StylePage";
 import { VoicePage } from "./VoicePage";
 import { Tour } from "./Tour";
@@ -58,8 +57,6 @@ function Dock({ hasShots, onManager }: { hasShots: boolean; onManager: () => voi
         </div>
         <Pages hasShots={hasShots} />
         <div className="pb-r">
-          <NextStep />
-          <Todos />
           {admin && (
             <button type="button" className="pb-btn" aria-current={page === "history" ? "page" : undefined}
               onClick={() => { if (page !== "history") setHistory({}, true); }} aria-label="Geçmiş"

@@ -66,7 +66,7 @@ Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, 
 ev simgesi ve proje (dizi bölümüyse `Dizi › Sezon › Bölüm` kırıntısı). Ev simgesi ya da proje adı **Proje yöneticisini**
 açar (diziler sezon sezon, bağımsız filmler, "Yeni film", "Yeni dizi", sezon başına "Yeni bölüm", açık projeyi diziye
 bağlama ve silme); hiç proje yokken bu ekran kendiliğinden açılır. Sezon ve bölüm parçaları kendi menülerini yukarı açar. Ortada küçük simgeli sayfalar; sağda
-**Yapılacaklar**, üretimi durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli).
+üretimi durdurma / devam ettirme simgesi (Kill-Switch; durdurmak onay ister) ve **Ayarlar** (dişli).
 Bütçe (harcanan, ayrılan, kalan ve yumuşak sınır), çalışma modu ve skor rozeti **Ayarlar › Bütçe ve durum** bölümündedir;
 ücretli mod açıkken dişlide kırmızı nokta görünür. Sayfalar bir sıra değil **menüdür**: Senaryo, Ses, Stil,
 Görsel, Varlıklar, Storyboard, Kurgu, (yönetici modunda Karşılaştır), Renk, Teslim (<kbd>Shift</kbd>+<kbd>1</kbd>…<kbd>9</kbd>,
@@ -76,9 +76,7 @@ gerektirenler senaryo işlenene dek kapalıdır. Simgenin köşesindeki rozet sa
 hazır ya da engelli çekim, renk sıçraması, film); nokta o sayfada bekleyen bir iş olduğunu söyler (kırmızı engelleyici,
 amber uyarı, gri sıradan).
 
-**Yapılacaklar** eksik işleri çözüldükleri sayfaya göre listeler; maddeye tıklamak o sayfayı açar, bekleyen iş kalmayınca
-yeşil onay görünür. Altında müşteri onay kapıları (Senaryo, Tasarım, Animatik, Taslak kurgu, Final, Kabul) renkli çipler
-olarak durur. Eksikler arka planda dört üretim grubuna göre hesaplanır (`frontend/src/lib/steps.ts`):
+Alt bantta Yapılacaklar ya da Sıradaki düğmesi yoktur; bekleyen işler sekmelerdeki rozet ve noktalarla görünür. Eksikler arka planda dört üretim grubuna göre hesaplanır (`frontend/src/lib/steps.ts`):
 
 | Grup | Sayfalar | Eksik sayılanlar |
 | --- | --- | --- |
@@ -99,7 +97,7 @@ Yönetici modu `.env`'deki `ADMIN_PASSWORD` ile korunur: tanımlıysa **Yönetic
 hatalı denemeden sonra giriş geçici olarak kilitlenir. Şifre panelden yazılamaz; `.env`'i elle düzenleyin. Boşsa yönetici
 modu şifresiz açılır: yalnızca kendi makinenizde kullanın. Seçilen mod tarayıcıda hatırlanır.
 
-Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, Yapılacaklar'ı, sayfaları, Ayarlar'daki bütçe bölümünü ve Ayarlar düğmesini sırayla gösterir
+Rehber turu ilk açılışta kendiliğinden başlar: sayfa menüsünü, Proje yöneticisini, sayfaları, Ayarlar'daki bütçe bölümünü ve Ayarlar düğmesini sırayla gösterir
 (<kbd>←</kbd> <kbd>→</kbd> ile gezilir, <kbd>Esc</kbd> kapatır). Alt banttaki **Rehberler** (?) düğmesi turu yeniden açar.
 
 **Kitaptan çizgi film rehberi** (Rehberler › Kitaptan çizgi film): kitap sayfaları ve hazır seslerle (anlatım, müzik,
@@ -429,8 +427,7 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 
 - **Onay kapıları:** Senaryo, Tasarım (varlıklar), Animatik, Taslak kurgu, Final ve Kabul.
   - Her kapının durumu: bekliyor, onaylandı ya da değişiklik istendi (`client_gates`, migration 032).
-  - Kapılar Yapılacaklar listesinin altında etiketli çipler olarak görünür: yeşil onaylandı, kırmızı değişiklik istendi, amber müşteride.
-  - Yapılacaklar iki şeyi gösterir: değişiklik istenen kapıyı (engelleyici) ve müşteride bekleyen sürümü (uyarı).
+  - Değişiklik istenen kapı (engelleyici) ve müşteride bekleyen sürüm (uyarı) ilgili sekmenin noktasında görünür.
 - **Sürüm etiketi:** müşteriye gönderilen her birleştirilmiş film `v001`, `v002`… diye etiketlenir (`POST /api/projects/{id}/versions {"gate": "final"}`).
   - Sürüm, gönderildiği anki filmi gösterir; sonradan birleştirilen film onu değiştirmez.
   - Teslim › Müşteri'de sürüm listesi ve hangi sürümün onaylandığı görünür.
@@ -1329,7 +1326,7 @@ comfy-workflows/               MiniMax H3 ComfyUI iş akışları: i2v, r2v, key
                                exported/: dışa aktarılan hâller ve make_templates.py), panel yazar
 frontend/                      yapım stüdyosu paneli: Next.js (App Router) + TypeScript + SWR, statik dışa aktarım
   src/app/                     sayfa, kök düzen, globals.css (tasarım belirteçleri)
-  src/components/              AppFrame (alt bant), PageBar (beş ana sekme ve üstlerinde açılan sayfa menüsü), Todos (yapılacaklar ve Sıradaki düğmesi), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
+  src/components/              AppFrame (alt bant), PageBar (beş ana sekme ve üstlerinde açılan sayfa menüsü), ProjectManager, SettingsPage (ücretli servisler), HistoryPage (servis geçmişi), ScriptPage, StylePage, AssetsPage, BoardPage, EditPage
                                (havuz, izleyici, adaylar, zaman çizelgesi), Inspector, ComparePage, ColorPage, DeliverPage
   src/lib/                     api (istemci), panel (ortak durum, URL), text, compare ve timeline (saf mantık), media, i18n, types
   tests/                       vitest: metinler, karşılaştırma, zaman çizelgesi, tasarım sözleşmesi

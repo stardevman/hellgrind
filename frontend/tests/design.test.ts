@@ -51,9 +51,9 @@ describe("design contract", () => {
     expect(CSS).toMatch(/\.pg-i svg \{ width: 16px/);
     expect(CSS).not.toContain(".topbar");
     for (const sel of [".dock", ".pagebar", ".pb-l", ".pb-c", ".pb-r", ".pb-btn", ".pg[aria-current=\"page\"]", ".pg:disabled", ".pg .badge", ".pg .pdot",
-      ".todos-btn", ".todos-pop", ".td-item", ".td-ok", ".gchip", ".pm-card", ".pm-card.new", ".budget-meter",
+      ".pm-card", ".pm-card.new", ".budget-meter",
       'body[data-admin="0"] .adv', ".modal", ".gate-card", ".tour-spot", ".tour-card"]) expect(CSS).toContain(sel);
-    for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".appbar"]) expect(CSS).not.toContain(sel);
+    for (const sel of [".stp", ".stephead", ".sh-tabs", ".nextup", ".appbar", ".todos-btn", ".next-btn"]) expect(CSS).not.toContain(sel);
   });
 });
 
@@ -77,8 +77,8 @@ describe("documented Turkish texts", () => {
     "Karşılaştır", "Adayları karşılaştır", "Perde (1 ↔ 2)", "Bir kare geri", "Denetçide aç",
     // Stüdyo sayfaları ve kalite skoru
     "Senaryo", "Stil", "Varlıklar", "Storyboard", "Kurgu", "Renk", "Teslim", "Zaman çizelgesi", "İzleyici", "Klip şeridi",
-    // Sayfa çubuğu, Yapılacaklar, Proje yöneticisi, görünüm anahtarı ve rehber turu
-    "Proje yöneticisi", "Yeni film", "Yeni dizi", "Yeni bölüm", "Bağımsız filmler", "Henüz proje yok.", "Yapılacaklar", "Her şey tamam", "Müşteri onayları", "önce senaryo işlenmeli",
+    // Sayfa çubuğu, Proje yöneticisi, görünüm anahtarı ve rehber turu
+    "Proje yöneticisi", "Yeni film", "Yeni dizi", "Yeni bölüm", "Bağımsız filmler", "Henüz proje yok.", "önce senaryo işlenmeli",
     "Kullanıcı", "Yönetici", "Yönetici girişi", "Atla", "İleri", "Bitir",
     "Kalite skoru: gerçek (OpenCLIP + SFace)", "yüzü",
     // Ayarlar (ücretli servisler)

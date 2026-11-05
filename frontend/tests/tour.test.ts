@@ -31,7 +31,7 @@ describe("tour", () => {
   it("presents the pages as a menu, not a sequence, and ends with how to reopen the guide", () => {
     expect(TOUR_STEPS[0].text).toContain("menüdür");
     expect(TOUR_STEPS[0].text).toContain("Sıra zorunlu değildir");
-    expect(TOUR_STEPS.some((s) => s.target === "todos")).toBe(true);
+    expect(TOUR_STEPS.some((s) => s.target === "todos" || s.target === "next-todo")).toBe(false);
     expect(TOUR_STEPS[TOUR_STEPS.length - 1].title).toBe("Hepsi bu");
     expect(TOUR_STEPS[TOUR_STEPS.length - 1].text).toContain("Rehberler");
   });
