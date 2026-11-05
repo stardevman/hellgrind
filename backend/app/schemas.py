@@ -158,6 +158,7 @@ class ScenePatch(BaseModel):
     video_resolution: Literal["auto", "480P", "768P", "1080P", "480p", "720p", "1080p"] | None = None
     video_audio: Literal["auto", "true", "false"] | None = None
     video_audio_ref: Literal["on", "off"] | None = None     # ses-önce: diyalog karışımı video isteğine ses referansı
+    video_end_frame: Literal["auto", "start"] | None = None  # start: video yüklenen ilk karede biter (kitap sayfası)
     h3_mode: Literal["fl2va", "ref2va", "auto"] | None = None          # auto: otomatik seçim (core/h3mode.py)
     face_expected: Literal["auto", "true", "false"] | None = None
     transition_in: Literal["auto", "continuous", "cut", "new_scene"] | None = None   # çekime geçiş (auto: senaryodan)

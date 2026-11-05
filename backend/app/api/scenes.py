@@ -61,6 +61,9 @@ def patch_scene(scene_id: SceneId, body: ScenePatch, s: Session = Depends(get_se
     if "video_audio_ref" in changes:
         value = changes.pop("video_audio_ref")
         opts.update(audio_ref=True) if value == "on" else opts.pop("audio_ref", None)
+    if "video_end_frame" in changes:
+        value = changes.pop("video_end_frame")
+        opts.update(end_frame="start") if value == "start" else opts.pop("end_frame", None)
     if opts != (sc.video_opts or {}):
         sc.video_opts = opts or None
     for key, value in changes.items():

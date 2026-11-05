@@ -471,6 +471,10 @@ function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
     const r = await api.del<{ hint: string }>(`/scenes/${sc.id}/keyframe`);
     note("inspector", r.hint, "ok");
   }, "inspector");
+  const setEndFrame = (video_end_frame: string) => act(async () => {
+    await api.patch(`/scenes/${sc.id}`, { video_end_frame });
+    note("inspector", `${sc.scene_code}: son kare ${video_end_frame === "start" ? "ilk kareyle aynı" : "otomatik"}. Uygulamak için "Bu sahneyi baştan üret".`, "ok");
+  }, "inspector");
   const impactOk = async (what: string) => {
     const i = await api.get<{ frames: number; clips: number; estimate_usd: number; clip_codes: string[] }>(`/scenes/${sc.id}/chain-impact`);
     if (i.frames <= 1 && i.clips === 0) return true;
@@ -594,6 +598,16 @@ function H3({ sc, fal = false }: { sc: Scene; fal?: boolean }) {
       )}
       <div data-tour="first-frame"><UploadForm label="Kendi ilk kareni yükle" accept="image/png,image/jpeg,image/webp" button="Yükle" onUpload={upload} /></div>
       {sc.keyframe_source === "upload" && <div className="row"><button className="btn ghost" type="button" disabled={busy} onClick={clear}>Yüklenen kareyi kaldır</button></div>}
+      {sc.keyframe_source === "upload" && (
+        <label className="field" data-tour="end-frame">Son kare
+          <select value={sc.video_opts?.end_frame === "start" ? "start" : "auto"} disabled={busy || frozen} aria-label="Son kare"
+            title={frozen ? FROZEN_TITLE : "Kitap sayfası gibi kendi başına duran karede video aynı karede biter; çizim iki uçta da sayfaya bağlı kalır"}
+            onChange={(e) => setEndFrame(e.target.value)}>
+            <option value="auto">Otomatik (zincir ya da serbest)</option>
+            <option value="start">İlk kareyle aynı (yüklenen kare)</option>
+          </select>
+        </label>
+      )}
       {!fal && sc.h3_mode === "ref2va" && (
         <>
           <h4 className="small dim">Karakter referans seti ({sc.h3_refs.length}/9)</h4>
