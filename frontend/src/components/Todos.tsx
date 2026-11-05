@@ -5,7 +5,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { gateChips } from "@/lib/client";
 import { usePanel } from "@/lib/panel";
-import { STEPS, stepReadiness, todosByPage } from "@/lib/steps";
+import { nextTodo, STEPS, stepReadiness, todosByPage } from "@/lib/steps";
 import { Icon } from "./icons";
 import { pagePath } from "@/lib/groups";
 import { PAGE_LABEL } from "./PageBar";
@@ -58,5 +58,20 @@ export function Todos() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Sıradaki iş (alt bant): ilk tamamlanmamış adımın ilk eksiği; tıklamak onu çözen sayfayı açar. Eksik yoksa görünmez. */
+export function NextStep() {
+  const { ov, setPage } = usePanel();
+  const next = useMemo(() => (ov ? nextTodo(stepReadiness(ov)) : null), [ov]);
+  if (!next) return null;
+  const { todo } = next;
+  const where = pagePath(todo.page, PAGE_LABEL[todo.page]);
+  return (
+    <button type="button" className={`next-btn ${todo.tone || ""}`} data-tour="next-todo" onClick={() => setPage(todo.page)}
+      title={`Sıradaki iş: ${todo.text} (${where} sayfasını açar)`} aria-label={`Sıradaki iş: ${todo.text}. ${where} sayfasını açar`}>
+      <Icon.arrow /><span className="nb-k">Sıradaki</span><span className="nb-t">{todo.text}</span>
+    </button>
   );
 }

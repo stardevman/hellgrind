@@ -32,6 +32,7 @@ export const Icon = {
   list: () => S(<><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></>),
   plus: () => S(<path d="M12 5v14M5 12h14" />),
   chevron: () => S(<path d="M6 9l6 6 6-6" />),
+  arrow: () => S(<path d="M5 12h14M13 6l6 6-6 6" />),
   check: () => S(<path d="M5 12.5l4.5 4.5L19 7.5" />),
   trash: () => S(<><path d="M4 7h16M10 3h4M6 7l1 13h10l1-13M10 11v6M14 11v6" /></>),
   receipt: () => S(<><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z" /><path d="M9 7h6M9 11h6M9 15h4" /></>),
