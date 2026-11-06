@@ -12,8 +12,9 @@ import { passText, stripText } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
 import type { DispatchAll, Film, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
-import { SafeAreas, SafeToggle } from "./Broadcast";
-import { NoteBox, useSynced } from "./ui";
+import { SafeAreas } from "./Broadcast";
+import { Icon } from "./icons";
+import { NoteBox, ToolMenu, useSynced } from "./ui";
 
 const TONE: Record<string, string> = { approved: "ok", changes_requested: "bad", pending: "" };
 const SEAM: Record<string, { mark: string; title: string }> = {
@@ -170,7 +171,7 @@ function Animatic() {
 }
 
 export function BoardPage() {
-  const { ov, projectId, busy, frozen, act, note, meta, admin } = usePanel();
+  const { ov, projectId, busy, frozen, act, note, meta, admin, safeAreas, setSafeAreas } = usePanel();
   const [tab, setTab] = useState<"frames" | "animatic">("frames");
   if (!ov) return null;
   const refMode = meta?.video_input_mode === "reference";
@@ -182,6 +183,14 @@ export function BoardPage() {
   const groups = ov.sequences.map((q) => ({ id: q.id, title: `${q.code} · ${q.title}`, scenes: scenes.filter((s) => s.sequence_id === q.id) }));
   const loose = scenes.filter((s) => !ov.sequences.some((q) => q.id === s.sequence_id));
   if (loose.length) groups.push({ id: "none", title: "Sekanssız", scenes: loose });
+  const draftPass = () => act(async () => {
+    const r = await api.post<DispatchAll>(`/projects/${projectId}/draft-pass`);
+    note("board", passText(r, "Taslak geçiş") + " Son çekim bitince kaba kurgu kendiliğinden birleşir.", "ok");
+  }, "board");
+  const upgradePass = () => act(async () => {
+    const r = await api.post<DispatchAll>(`/projects/${projectId}/upgrade-pass`);
+    note("board", passText(r, "Tam tura alınan"), "ok");
+  }, "board");
   return (
     <div className="page" data-tour="board">
       <section className="pnl" aria-labelledby="board-title">
@@ -207,19 +216,6 @@ export function BoardPage() {
             const r = await api.post<{ queued: string[] }>(`/projects/${projectId}/storyboard`);
             note("board", r.queued.length ? `Kareler hazırlanıyor: ${r.queued.join(", ")}.` : "Bütün kareler güncel.", "ok");
           }, "board")}>Kareleri hazırla</button>}
-          <SafeToggle />
-          <a className="btn" href={`/api/projects/${projectId}/storyboard.pdf`} download="storyboard.pdf">PDF indir</a>
-          <span className="vsep" />
-          {!refMode && <label className="check">
-            <input type="checkbox" checked={required} disabled={busy} onChange={(e) => {
-              const on = e.target.checked;
-              void act(async () => {
-                await api.patch(`/projects/${projectId}`, { settings: { require_board_approval: on } });
-                note("board", on ? "Onaylanmamış karesi olan çekimde görüntü üretilmez." : "Kare onayı artık zorunlu değil.", "ok");
-              }, "board");
-            }} /> Görüntü üretimi için kare onayı zorunlu
-          </label>}
-          {!refMode && <span className="vsep" />}
           {!refMode && <button className="btn primary" type="button" disabled={busy || !scenes.some((x) => x.board_url)}
             title="Şeritteki bütün kareleri (ilk ve son kareler) onaylar, sonra videoları başlatır. İnceleme bekleyen kare onaylanmaz."
             onClick={() => act(async () => {
@@ -227,14 +223,32 @@ export function BoardPage() {
               const t = stripText(r);
               note("board", t.text, t.bad ? "err" : "ok");
             }, "board")}>Şeridi onayla ve videoları başlat</button>}
-          <button className="btn" type="button" disabled={busy || frozen} onClick={() => act(async () => {
-            const r = await api.post<DispatchAll>(`/projects/${projectId}/draft-pass`);
-            note("board", passText(r, "Taslak geçiş") + " Son çekim bitince kaba kurgu kendiliğinden birleşir.", "ok");
-          }, "board")}>Taslak geçişi başlat</button>
-          <button className="btn" type="button" disabled={busy || frozen || !flagged} onClick={() => act(async () => {
-            const r = await api.post<DispatchAll>(`/projects/${projectId}/upgrade-pass`);
-            note("board", passText(r, "Tam tura alınan"), "ok");
-          }, "board")}>{flagged ? `İyileştirme geçişi (${flagged} çekim)` : "İyileştirme geçişi"}</button>
+          {refMode && flagged > 0 && <button className="btn primary" type="button" disabled={busy || frozen} onClick={upgradePass}>İyileştirme geçişi ({flagged} çekim)</button>}
+          <ToolMenu title="Geçişler, PDF, güvenli alanlar ve kare onayı ayarı" tour="board-more">{(close) => <>
+            <button type="button" role="menuitem" disabled={busy || frozen} onClick={() => { close(); void draftPass(); }}>
+              <span className="mi-ck" /><span className="mi-t">Taslak geçişi başlat</span><span className="mi-s">test turu</span>
+            </button>
+            {!(refMode && flagged > 0) && <button type="button" role="menuitem" disabled={busy || frozen || !flagged} onClick={() => { close(); void upgradePass(); }}>
+              <span className="mi-ck" /><span className="mi-t">{flagged ? `İyileştirme geçişi (${flagged} çekim)` : "İyileştirme geçişi"}</span>{!flagged && <span className="mi-s">işaretli çekim yok</span>}
+            </button>}
+            <div className="menu-sep" />
+            <a role="menuitem" href={`/api/projects/${projectId}/storyboard.pdf`} download="storyboard.pdf" onClick={close}>
+              <span className="mi-ck"><Icon.download /></span><span className="mi-t">PDF indir</span>
+            </a>
+            <button type="button" role="menuitemcheckbox" aria-checked={safeAreas} onClick={() => setSafeAreas(!safeAreas)}
+              title="Güvenli alanlar: action safe %93, title safe %90 (G)">
+              <span className="mi-ck">{safeAreas && <Icon.check />}</span><span className="mi-t">Güvenli alanlar</span><span className="mi-s">G</span>
+            </button>
+            {!refMode && <button type="button" role="menuitemcheckbox" aria-checked={required} disabled={busy} onClick={() => {
+              const on = !required;
+              void act(async () => {
+                await api.patch(`/projects/${projectId}`, { settings: { require_board_approval: on } });
+                note("board", on ? "Onaylanmamış karesi olan çekimde görüntü üretilmez." : "Kare onayı artık zorunlu değil.", "ok");
+              }, "board");
+            }}>
+              <span className="mi-ck">{required && <Icon.check />}</span><span className="mi-t">Görüntü üretimi için kare onayı zorunlu</span>
+            </button>}
+          </>}</ToolMenu>
         </header>
         {tab === "animatic" ? <div className="pnl-b"><div className="pad"><NoteBox id="board" /></div><Animatic /></div> : <div className="pnl-b">
           <div className="pad stack">
