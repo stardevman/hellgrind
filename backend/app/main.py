@@ -10,9 +10,9 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp
 
 from app import migrate, runtime_config, storage
-from app.api import (admin, assets, budget, consent as consent_api, delivery, export, finishing, grade, history, images,
-                     methods, panel, projects, render_plan, scenes, sequences, series, review, services, storyboard, style,
-                     voice)
+from app.api import (admin, assets, assistant, budget, consent as consent_api, delivery, export, finishing, grade, history,
+                     images, methods, panel, projects, render_plan, scenes, sequences, series, review, services, storyboard,
+                     style, voice)
 from app.budget import consent, history as service_history, killswitch
 from app.config import settings
 from app.db import session_scope
@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
 for module in (projects, scenes, render_plan, finishing, methods, grade, sequences, storyboard, assets, images, style, budget, export, services,
-               history, panel, admin, voice, review, delivery, series, consent_api):
+               history, panel, admin, voice, review, delivery, series, consent_api, assistant):
     app.include_router(module.router, prefix="/api")
 app.include_router(review.public_router, prefix="/api")     # müşterinin belirteçli uçları (dışarıya app.review_main açar)
 app.mount("/panel", panel_app(pathlib.Path(settings.panel_web_dir)), name="panel")

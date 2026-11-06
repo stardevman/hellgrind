@@ -512,6 +512,31 @@ Tasarım notu: [docs/dizi-hiyerarsisi.md](docs/dizi-hiyerarsisi.md). **Bölüm, 
 - **Migration'lar:** `035_series.sql` (dizi, sezon, bölüm numarası), `036_series_assets.sql` (dizi kütüphanesi ve `episode_assets` bağları, sabit sürüm), `037_episode_lock.sql` (teslim kilidi). Sezon ve dizi bütçe tavanı (`038_series_budget.sql`, isteğe bağlı) henüz yok: bütçe bölüm ve sekans başınadır.
 - **Kapsam dışı:** stil kılavuzu bölüm başına kalır; kürasyon kaydı, metrikler ve servis geçmişi bölüm başınadır.
 
+## Panel asistanı (Claude)
+
+Alt bandın sağındaki sohbet düğmesi asistanı açar. Asistan (`ASSISTANT_MODEL`, varsayılan `claude-opus-5-5`) projeyi
+baştan sona izler: çekimlerin durumunu, skorlarını, anomalilerini, istemlerini ve bütçeyi okur, çekimin videosundan
+kareleri çıkarıp kendisi bakar (`view_shot`), sorunu açıklar ve istenince düzeltir. Seçili çekim ve açık sayfa her
+mesajla gider; "bu çekimde havada uçan bir şey var, düzelt" demek yeter.
+
+- **Ücretsiz düzeltmeler hemen yapılır:** çekim tarifi, yönetmen notu, süre ve yönetmen istemi (`update_shot`); filmi
+  yeniden birleştirme. Her değişiklik kürasyon kaydına `assistant_edit` olarak düşer, önceki değer saklanır.
+- **Üreten her eylem onay ister:** yeniden üretim, yeni aday ve aday seçimi (ücretli modda dudak senkronu çalışabilir)
+  sohbette tahmini bedelli bir kartla gelir: **İzin ver** (yalnızca bu eylem), **Bu oturum için tümüne izin ver** (bu
+  sohbetteki sonraki eylemler sormadan başlar; "İzni kaldır" ile kapanır) ve **Vazgeç**. Onaylanan eylem panelin kendi
+  uç noktasıyla başlar (Kill-Switch, bütçe rezervasyonu, referans eksiksizliği ve plan onayı aynen geçerli); karar
+  kürasyon kaydına `assistant_approve` / `assistant_decline` olarak yazılır ve asistan sonucu bir sonraki mesajda öğrenir.
+  Ücretli çağrı izin akışı (`app.budget.consent`) kuruluysa onay oraya da "izin verildi" olarak yazılır.
+- **Bedel:** asistanın her yanıtı bir Claude çağrısıdır ve bütçe rezervasyonundan geçer (gerçek bedel belirteç
+  kullanımından; sistem istemi ve geçmiş önbelleğe alınır). Kalan bütçe bir yanıtın tahminine yetmiyorsa çağrı yapılmaz
+  ve proje dondurulmaz. Kareler nesne deposunda (`assistant/…`) saklanır.
+- **Ücretsiz modda** Claude çağrılmaz: asistan yerel bir durum özeti (tamamlanan çekimler, harcama, hatalı çekimler)
+  verir.
+- **Uç noktalar:** `GET /api/projects/{id}/assistant`, `POST /api/projects/{id}/assistant/sessions`,
+  `GET|DELETE /api/assistant/sessions/{id}`, `POST /api/assistant/sessions/{id}/messages` (yanıt arka planda yazılır,
+  panel yoklar), `POST /api/assistant/actions/{id}/approve {scope: once|session}`, `POST /api/assistant/actions/{id}/decline`,
+  `POST /api/assistant/sessions/{id}/allow-all?on=`. Migration: `043_assistant.sql`.
+
 ## Bütçe ve Kill-Switch
 
 - Her çağrı önce `reserve` (atomik, limit aşılacaksa reddeder ve projeyi dondurur), sonra `commit` ya da hata durumunda `release` yapar.
@@ -1333,6 +1358,8 @@ Bilinmesi gerekenler:
 | `ELEVENLABS_LANGUAGE` | `tr` | ElevenLabs dil kodu (`tr` ya da `auto`). `eleven_v4` ve `eleven_v3` dili Türkçeye sabitler; `eleven_multilingual_v2` dil kodu almaz ve bazı kelimeleri (ör. "Nine") İngilizce okuyabilir. Model ya da dil değişince ElevenLabs replikleri ayrı bir anahtarla yeniden seslendirilir (Ses › Geçici sesleri üret); eski dosyalar silinmez |
 | `HERMES_MODE` | `rules` | `rules` (ücretsiz) ya da `llm` (Anthropic) |
 | `PROMPT_WRITER_MODEL` | `claude-opus-5-5` | İstem yazıcının modeli (boşsa `HERMES_MODEL`) |
+| `ASSISTANT_MODEL` | `claude-opus-5-5` | Panel asistanının modeli (ücretli) |
+| `ASSISTANT_EFFORT` | `medium` | Panel asistanının çabası: `low`, `medium`, `high`, `xhigh`, `max` |
 | `PROMPT_WRITER` | `llm` | Sahne istemi: `llm` (Hermes modeli yönetmen tarzı istem yazar; ücretli, anahtar yoksa ya da ücretsiz modda kurallara düşer) ya da `rules` |
 | `CONFIG_ENV_FILE` | `/config/.env` (docker-compose) | Panelin yazdığı ayar dosyası; boşsa panelden düzenleme kapalıdır |
 

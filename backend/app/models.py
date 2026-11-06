@@ -499,3 +499,45 @@ class StudioImage(Base):
     assignments: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AssistantSession(Base):
+    """Panel asistanının bir sohbeti (042). allow_all: yönetmen "bu oturum için tümüne izin ver" dedi."""
+    __tablename__ = "assistant_sessions"
+    id: Mapped[uuid.UUID] = PK()
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
+    title: Mapped[str | None] = mapped_column(Text)
+    allow_all: Mapped[bool] = mapped_column(Boolean, default=False)
+    busy: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    spent_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssistantMessage(Base):
+    """Sohbetin bir mesajı: content API'ye giden bloklardır (yalnızca eklenir), meta paneldeki gösterim içindir."""
+    __tablename__ = "assistant_messages"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assistant_sessions.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(Text)
+    content: Mapped[list] = mapped_column(JSONB)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssistantAction(Base):
+    """Asistanın önerdiği, onay bekleyen (ücretli olabilecek) eylem: yeniden üret, yeni aday, aday seç."""
+    __tablename__ = "assistant_actions"
+    id: Mapped[uuid.UUID] = PK()
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assistant_sessions.id", ondelete="CASCADE"))
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("scenes.id", ondelete="CASCADE"))
+    tool: Mapped[str] = mapped_column(Text)
+    input: Mapped[dict] = mapped_column(JSONB, default=dict)
+    summary: Mapped[str] = mapped_column(Text)
+    estimate_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    status: Mapped[str] = mapped_column(Text, default="pending")
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
