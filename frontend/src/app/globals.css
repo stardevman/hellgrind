@@ -327,7 +327,14 @@ body[data-admin="0"] .adv { display: none !important; }
 .pnl { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .pnl-h { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--raised); flex: none; }
 .pnl-h h2 { font-size: 12px; font-weight: 600; }
-.pnl-h .meta { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pnl-h .meta { font-size: 11.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pnl-h .seg, .pnl-h > .btn, .pnl-h h2 { flex: none; white-space: nowrap; }
+/* Başlıktaki "Diğer" menüsü: ikincil eylemler; sağa yaslı, aşağı açılır. */
+.tool-menu { position: relative; flex: none; }
+.tool-menu > .btn svg { width: 14px; height: 14px; margin: 0 -2px 0 2px; }
+.tool-menu .menu { position: fixed; left: auto; z-index: 120; min-width: 300px; }
+.menu a[role="menuitem"] { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border-radius: 5px; color: var(--text); font-size: 12.5px; text-decoration: none; }
+.menu a[role="menuitem"]:hover, .menu a[role="menuitem"]:focus-visible { background: var(--hover); }
 .pnl-b { flex: 1; min-height: 0; overflow: auto; }
 .pad { padding: 10px; }
 .pnl-tabs { display: flex; height: 32px; border-bottom: 1px solid var(--line); background: var(--raised); flex: none; }

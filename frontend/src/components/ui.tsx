@@ -1,8 +1,9 @@
 "use client";
 /* Ortak küçük parçalar: panel, akordeon bölümü, durum noktası, not, yükleme formu, senkron yerel durum. */
-import { useEffect, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { STATUS_TR, WORKING } from "@/lib/i18n";
 import { usePanel } from "@/lib/panel";
+import { Icon } from "./icons";
 
 /** Açılır pencere (menü, bütçe, yapılacaklar): dışarı tıklama ve Esc kapatır. */
 export function useDismiss(open: boolean, close: () => void, box: RefObject<HTMLElement | null>) {
@@ -14,6 +15,34 @@ export function useDismiss(open: boolean, close: () => void, box: RefObject<HTML
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
   }, [open, close, box]);
+}
+
+/** Panel başlığındaki ikincil eylemler için açılır menü ("Diğer"): başlık ekrana sığsın diye seyrek kullanılan düğmeler
+    burada toplanır. `children` menüyü kapatma işleviyle çizer; dışarı tıklama ve Esc kapatır. Menü sağa yaslı, aşağı açılır. */
+export function ToolMenu({ label = "Diğer", title, tour, children }: { label?: string; title?: string; tour?: string; children: (close: () => void) => ReactNode }) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setPos(null), []);
+  useDismiss(pos !== null, close, box);
+  useEffect(() => {
+    if (!pos) return;
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
+  }, [pos, close]);
+  // Panel gövdesi taşanı kırptığı için menü sabit konumla, düğmenin hemen altına çizilir.
+  const toggle = () => {
+    const r = btn.current?.getBoundingClientRect();
+    setPos(pos || !r ? null : { top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+  };
+  return (
+    <div className="tool-menu" ref={box}>
+      <button ref={btn} type="button" className="btn" aria-haspopup="menu" aria-expanded={pos !== null} title={title} data-tour={tour} onClick={toggle}>
+        {label}<Icon.chevron />
+      </button>
+      {pos && <div className="menu" role="menu" style={{ top: pos.top, right: pos.right }}>{children(close)}</div>}
+    </div>
+  );
 }
 
 /** Başlıklı panel (kurgu yazılımlarındaki yerleşik pencereler gibi). */
