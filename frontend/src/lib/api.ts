@@ -1,6 +1,8 @@
 /* API istemcisi. Bütün çağrılar bu nesneden geçer: backend/tests/test_panel_next.py, panelin çağırdığı her yolun
    arka uçta o yöntemle var olduğunu `api.<yöntem>(\`...\`)` kalıbından okuyarak denetler. */
 
+import { sessionId, waitForConsent } from "./consent";
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -18,8 +20,8 @@ export function detailOf(data: unknown): string {
   return "";
 }
 
-async function request<T>(method: string, path: string, body?: unknown, file?: File): Promise<T> {
-  const headers: Record<string, string> = {};
+async function request<T>(method: string, path: string, body?: unknown, file?: File, retried = false): Promise<T> {
+  const headers: Record<string, string> = { "X-HG-Session": sessionId() };
   let payload: BodyInit | undefined;
   if (file) {
     headers["Content-Type"] = file.type || "application/octet-stream";
@@ -31,6 +33,12 @@ async function request<T>(method: string, path: string, body?: unknown, file?: F
   const res = await fetch("/api" + path, { method, headers, body: payload });
   let data: unknown = null;
   try { data = await res.json(); } catch { /* gövde yok */ }
+  const consent = (data as { consent?: { id?: string } } | null)?.consent;
+  if (res.status === 428 && consent?.id && !retried) {
+    // Ücretli ek işlem izin bekliyor: izin penceresinde karar verilene dek beklenir, izin verilirse istek yinelenir.
+    if (await waitForConsent(consent.id)) return request<T>(method, path, body, file, true);
+    throw new ApiError("İzin verilmedi: ücretli işlem yapılmadı.", 428);
+  }
   if (!res.ok) {
     const fallback = file ? `Yükleme başarısız (${res.status})` : `İstek başarısız (${res.status})`;
     throw new ApiError(detailOf(data) || fallback, res.status);

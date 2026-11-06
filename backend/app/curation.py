@@ -75,6 +75,8 @@ ACTIONS_TR = {
     "prompt_rerender": "Parça yönetmen istemiyle yeniden üretildi (onaylı)",
     "more_candidates": "Yeni aday üretimi onaylandı (ek maliyetli)",
     "more_candidates_decline": "Yeni aday önerisi reddedildi (mevcut aday kalsın)",
+    "consent_grant": "Ücretli ek işleme izin verildi", "consent_session": "Bu oturum için bütün ücretli ek işlemlere izin verildi",
+    "consent_deny": "Ücretli ek işlem reddedildi",
 }
 ID_FIELDS = ("project_id", "scene_id", "variation_id", "asset_id", "sequence_id", "track_id")
 QUERY_FIELDS = ("n", "kind", "filename", "note", "force_visual", "start_s", "end_s", "gain_db", "fade_in_s", "fade_out_s")

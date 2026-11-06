@@ -887,3 +887,8 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .asst-in textarea { flex: 1; resize: none; min-height: 40px; max-height: 140px; padding: 6px 8px; border-radius: var(--r); border: 1px solid var(--line-2); background: var(--field); }
 .asst-in .btn { height: auto; }
 .asst-in .btn svg { width: 14px; height: 14px; }
+/* Ücretli ek işlem izni (ConsentDialog) */
+.modal.consent { width: min(460px, 100%); }
+.consent-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 40vh; overflow: auto; }
+.consent-list li { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); font-size: 12.5px; }
+.note.warn { border-left-color: var(--warn); }

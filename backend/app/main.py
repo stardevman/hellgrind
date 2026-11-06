@@ -4,15 +4,16 @@ import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp
 
 from app import migrate, runtime_config, storage
-from app.api import (admin, assets, assistant, budget, delivery, export, finishing, grade, history, images, methods,
-                     panel, projects, render_plan, scenes, sequences, series, review, services, storyboard, style, voice)
-from app.budget import history as service_history, killswitch
+from app.api import (admin, assets, assistant, budget, consent as consent_api, delivery, export, finishing, grade, history,
+                     images, methods, panel, projects, render_plan, scenes, sequences, series, review, services, storyboard,
+                     style, voice)
+from app.budget import consent, history as service_history, killswitch
 from app.config import settings
 from app.db import session_scope
 
@@ -70,7 +71,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Hell Grind — Kontrol Düzlemi", lifespan=lifespan)
 for module in (projects, scenes, render_plan, finishing, methods, grade, sequences, storyboard, assets, images, style, budget, export, services,
-               history, panel, admin, voice, review, delivery, series, assistant):
+               history, panel, admin, voice, review, delivery, series, consent_api, assistant):
     app.include_router(module.router, prefix="/api")
 app.include_router(review.public_router, prefix="/api")     # müşterinin belirteçli uçları (dışarıya app.review_main açar)
 app.mount("/panel", panel_app(pathlib.Path(settings.panel_web_dir)), name="panel")
@@ -78,10 +79,24 @@ app.mount("/panel", panel_app(pathlib.Path(settings.panel_web_dir)), name="panel
 
 @app.middleware("http")
 async def config_refresh(request, call_next):
-    """Ayarlar başka bir süreçte (panel, worker) değiştiyse istekten önce .env'den tazelenir."""
+    """Ayarlar başka bir süreçte (panel, worker) değiştiyse istekten önce .env'den tazelenir. Panelin oturum başlığı
+    (X-HG-Session) "bu oturum için tümüne izin ver" iznini tazeler: panel kapanınca izin kısa süre sonra biter."""
     if request.url.path.startswith("/api"):
         await run_in_threadpool(runtime_config.refresh_if_changed)
+        session_id = request.headers.get("x-hg-session")
+        if session_id:
+            try:
+                await run_in_threadpool(consent.touch, session_id[:80])
+            except Exception:                                   # noqa: BLE001 — Redis yoksa izin tazelenmez, istek sürer
+                logging.getLogger("hellgrind").warning("oturum izni tazelenemedi", exc_info=True)
     return await call_next(request)
+
+
+@app.exception_handler(consent.ConsentRequired)
+async def consent_required(request, exc: consent.ConsentRequired):
+    """İstek içindeki ücretli ek işlem izin bekliyor: 428 + bekleyen istek. Panel izin penceresini açar ve izin
+    verilince isteği yineler; çağrı yapılmadı, rezervasyon alınmadı."""
+    return JSONResponse(status_code=428, content={"detail": str(exc), "consent": exc.request})
 
 
 @app.get("/", include_in_schema=False)

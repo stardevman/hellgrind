@@ -311,7 +311,7 @@ def test_view_shot_sends_evenly_spaced_frames_of_the_final_clip(chat, monkeypatc
     assert "base64" not in raw and raw.count('"hg_key"') == 3
 
 
-def test_paid_call_reserves_budget_and_commits_the_real_cost(mk_project, paid, monkeypatch):
+def test_paid_call_reserves_budget_and_commits_the_real_cost(mk_project, paid, consent_asks, monkeypatch):
     """Ücretli modda gerçek SDK, sahte HTTP aktarımıyla (ağa çıkılmaz): istek gövdesi, rezervasyon ve gerçek bedel."""
     anthropic = pytest.importorskip("anthropic")
     httpx2 = pytest.importorskip("httpx2")
@@ -352,3 +352,16 @@ def test_too_small_budget_is_refused_before_reserving(mk_project, paid):
         assistant_llm.ask(pid, "sys", tools.TOOLS, [{"role": "user", "content": [{"type": "text", "text": "x"}]}])
     from app.budget import killswitch
     assert not killswitch.is_frozen(pid)
+
+
+def test_approval_is_a_real_consent_grant_for_the_shot(chat, renders, api, paid, consent_asks):
+    """Ücretli modda kartın "İzin ver"i izin akışına yazılır: üretim zincirindeki dudak senkronu ikinci kez sormaz."""
+    from app.budget import consent
+    pid, sid, session_id, say = chat
+    say("Yeniden üret", tool_answer("rerender_shot", {"shot": code_of(sid), "reason": "a"}), text_answer("Kart."))
+    card = next(i for i in view(session_id)["items"] if i["role"] == "action")["action"]
+    target = consent.target_of(scene_id=sid)
+    assert not consent.allowed(pid, "lipsync", target)
+    assert api.post(f"/api/assistant/actions/{card['id']}/approve", json={"scope": "once"}).status_code == 200
+    assert consent.allowed(pid, "lipsync", target) and not consent.session_active()
+    consent.require(pid, "fal_lipsync", 0.5, scene_id=sid)          # izin var: istek açılmaz, hata yok

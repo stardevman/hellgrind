@@ -222,6 +222,12 @@ export function tileSpec(v: Variation, prev?: Variation) {
 
 export const variationTitle = (v: Variation) => `${v.tier === "probe" ? "Test turu" : "Tam tur"} · ${v.wave_no + 1}. dalga`;
 
+/** Ücretli ek işlem türleri (app/budget/consent.py KINDS). */
+const CONSENT_TR: Record<string, string> = {
+  lipsync: "dudak senkronu", image: "görsel üretimi", voice: "seslendirme", llm: "yapay zekâ ile metin",
+  upscale: "video büyütme", other: "ücretli ek işlem",
+};
+
 /** Olay akışındaki bir kaydın metni ve tonu (good / bad). */
 export function eventText(e: PanelEvent, codes: Record<string, string>): { t: string; c?: "good" | "bad" | "" } {
   const x = e as PanelEvent & Record<string, any>;     // olay alanları türüne göre değişir
@@ -276,6 +282,13 @@ export function eventText(e: PanelEvent, codes: Record<string, string>): { t: st
     case "cut_failed": return { t: `${x.code}: kesme yöntemi (${CUT_METHOD_TR[String(x.method ?? x.cut_method)] ?? x.cut_method}) uygulanamadı: ${x.error}; bu deneme metinle kamera tarifiyle çizildi`, c: "bad" };
     case "chain_waiting": return { t: `${x.code}: zincirdeki önceki kare (${x.parent}) inceleme bekliyor; bu kare ondan çizilecek`, c: "bad" };
     case "refunded": return { t: `İade: ${x.count} "${x.label === "h3:idle" ? "GPU makinesi boşta" : x.label}" kaydı, ${usd(Number(x.usd))} (${x.reason})`, c: "good" };
+    case "consent_requested": return { t: `${where}ücretli işlem için izin bekleniyor: ${CONSENT_TR[x.operation] ?? x.operation} (~${usd(Number(x.usd))})`, c: "bad" };
+    case "consent_grant": return { t: `${where}ücretli işleme izin verildi: ${CONSENT_TR[x.operation] ?? x.operation}`, c: "good" };
+    case "consent_session": return { t: "Bu oturum için bütün ücretli ek işlemlere izin verildi", c: "good" };
+    case "consent_allowed": return { t: `Ücretli işleme önceden izin verildi: ${CONSENT_TR[x.operation] ?? x.operation}${x.scope === "session" ? " (bu oturum için tümü)" : ""}`, c: "good" };
+    case "consent_deny": return { t: `${where}ücretli işlem reddedildi: ${CONSENT_TR[x.operation] ?? x.operation}; çağrı yapılmadı` };
+    case "consent_resumed": return { t: `${where}izin sonrası iş sürüyor` };
+    case "consent_resume_failed": return { t: `${where}izin verildi ama iş sürdürülemedi: ${x.error}`, c: "bad" };
     case "budget_changed": return { t: `Bütçe ${usd(Number(x.old))} → ${usd(Number(x.new))}` };
     case "chain_invalidated": {
       const frames = (x.frames as string[] | undefined) ?? [];

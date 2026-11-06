@@ -535,7 +535,7 @@ mesajla gider; "bu çekimde havada uçan bir şey var, düzelt" demek yeter.
 - **Uç noktalar:** `GET /api/projects/{id}/assistant`, `POST /api/projects/{id}/assistant/sessions`,
   `GET|DELETE /api/assistant/sessions/{id}`, `POST /api/assistant/sessions/{id}/messages` (yanıt arka planda yazılır,
   panel yoklar), `POST /api/assistant/actions/{id}/approve {scope: once|session}`, `POST /api/assistant/actions/{id}/decline`,
-  `POST /api/assistant/sessions/{id}/allow-all?on=`. Migration: `042_assistant.sql`.
+  `POST /api/assistant/sessions/{id}/allow-all?on=`. Migration: `043_assistant.sql`.
 
 ## Bütçe ve Kill-Switch
 
@@ -544,6 +544,26 @@ mesajla gider; "bu çekimde havada uçan bir şey var, düzelt" demek yeter.
 - Hız bekçisi 30 saniyede bir son 10 dakikanın harcamasına bakar; `max_spend_per_10min` aşılırsa projeyi dondurur. Panel, yeni projeyi bu sınır bütçenin yarısı olacak şekilde açar: yerel motor saniyeler içinde üretir ve Seedance seçilmiş çekimler varsayılan 20 USD sınırını filmin ortasında doldurabilirdi.
 - Bayat rezervasyon toplayıcı 5 dakikada bir, 60 dakikadan eski ve eşi olmayan rezervasyonları iade eder.
 - Fiyatlar `backend/pricing.yaml` dosyasındadır: fal.ai fiyatları (Ekim 2026) ve MiniMax H3 için kiraladığınız makinenin saatlik ücreti ile video saniyesi başına GPU süresi (`self_hosted.h3`). Periyodik olarak güncelleyin.
+
+### Ücretli ek işlemler için izin
+
+Ücretli modda **video üretimi dışındaki** her ücretli çağrı (dudak senkronu, görsel üretimi: storyboard, ilk kare, referans,
+görsel stüdyosu; ElevenLabs seslendirmesi; Claude ile metin; upscale) önce yönetmenin iznini bekler (`app/budget/consent.py`,
+denetim bütçe rezervasyonunun girişinde, `killswitch.spend`). İzin yokken çağrı yapılmaz ve bütçeden para ayrılmaz; panelde
+**Ücretli işlem için izin** penceresi açılır ve işlemi, çekimi ve tahmini tutarı gösterir:
+
+- **İzin ver:** yalnızca listelenen işlem(ler) yapılır (aynı çekimde aynı tür için 30 dakika geçerlidir).
+- **Bu oturum için tümüne izin ver:** panel bu sekmede açık kaldıkça bütün ücretli ek işlemler sormadan yapılır. Sekme
+  kapanınca 15 dakika içinde düşer; **Ayarlar › Bütçe ve durum**'daki **İzni kaldır** hemen kaldırır.
+- **Reddet:** çağrı yapılmaz. Reddedilen dudak senkronunda çekim senkronsuz biter; diğer türlerde çekim "İzin verilmedi"
+  hatasıyla durur ve **Bu sahneyi baştan üret** izni yeniden sorar.
+
+Video üretimi (H3 Max, Seedance, previs aktarımı, hareket testi) ve makinenin boşta bedeli izin istemez; ücretsiz modda hiçbir
+şey sorulmaz. İzin beklerken çekim **İzin bekliyor** durumunda kalır ve zincirin sonraki aşamaları çalışmaz; izin verilince
+çekim kaldığı yerden sürer. Kararlar kürasyon kaydına yazılır. API: `GET /api/consent`, `POST /api/consent/{id}/grant`
+(`scope: once|session`), `POST /api/consent/{id}/deny`, `POST /api/consent/allow` (bekleyen istek olmadan önceden izin),
+`POST /api/consent/session/revoke`. İstek içinde yapılan ücretli çağrı izin beklerse uç nokta 428 döner; panel izni alınca
+isteği yineler.
 
 ## Servis geçmişi (panelin Geçmiş sayfası)
 

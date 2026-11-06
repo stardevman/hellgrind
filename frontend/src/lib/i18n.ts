@@ -6,6 +6,7 @@ export const STATUS_TR: Record<string, string> = {
   refined: "Rafine", needs_review: "İnceleme gerekli", audio: "Ses", lipsync: "Dudak senkronu", muxing: "Montaj",
   done: "Hazır", failed: "Hata", frozen: "Donduruldu", blocked: "Engellendi",
   storyboard: "Storyboard", board_review: "Kare onay bekliyor", plan_review: "Plan onay bekliyor", grading: "Renk",
+  awaiting_consent: "İzin bekliyor",
 };
 
 export const WORKING = new Set(["storyboard", "probing", "generating", "correcting", "audio", "lipsync", "grading", "muxing"]);
