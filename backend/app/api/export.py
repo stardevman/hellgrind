@@ -18,7 +18,7 @@ from app.curation import ACTIONS_TR
 from app.db import get_session
 from app.models import CurationEvent, Project, Scene
 from app.post import export
-from app.quality import metrics
+from app.quality import directing, metrics
 
 router = APIRouter(tags=["export"])
 
@@ -71,6 +71,14 @@ def curation_recent(project_id: ProjectId, limit: int = Query(30, ge=1, le=500),
 def project_metrics(project_id: ProjectId, s: Session = Depends(get_session)):
     project_or_404(s, project_id)
     return metrics.compute(project_id)
+
+
+@router.get("/projects/{project_id}/directing-review")
+def directing_review(project_id: ProjectId, s: Session = Depends(get_session)):
+    """Yönetmen kontrolü: çekim listesinde kamera/çerçeve çeşitliliği, tempo, nefes çekimi, açılış (ücretsiz)."""
+    project_or_404(s, project_id)
+    scenes = s.scalars(select(Scene).where(Scene.project_id == project_id))
+    return directing.review(directing.shot_rows(scenes))
 
 
 def _cut(p: Project) -> dict:

@@ -17,10 +17,13 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.core.hashing import stable_hash
 from app.engine import fal_plan
+from app.quality import directing
 
 log = logging.getLogger("hellgrind.prompt_writer")
 
-WRITER_VERSION = 2                      # sistem istemi ya da girdi biçimi değişince artar (önbellek yenilenir)
+WRITER_VERSION = 2                      # girdi biçimi değişince artar (önbellek yenilenir). Yönetmenlik kuralları
+                                        # (quality/directing) eklenirken bilerek artırılmadı: yazılmış istemler ve
+                                        # yönetmen istemleri eskimiş sayılmaz, yeniden yazım için LLM harcanmaz.
 TARGET_CHARS = (1500, 2500)             # hedef uzunluk (dışı yalnızca uyarı)
 HARD_CHARS = (700, 4000)                # dışı doğrulama hatası
 MAX_ATTEMPTS = 2                        # bir yazım + bir yeniden yazım; sonra kurallar istemi
@@ -115,6 +118,8 @@ they enter from, which side the camera is on) in a sensible way, consistent acro
 (e.g. "camera at human eye level / street level").
 - Only the listed cast appears; no extra people, animals or figures.
 - Target length 1,500-2,500 characters. Write in English. Output only the prompt text, no headings, no markdown.
+
+{directing.writer_rules(audio)}
 
 Examples of the expected style (other scenes; follow their form, not their content). Keep the rules above even where \
 an example phrases something differently (e.g. always write the location rule and tag every reference in a shot):
