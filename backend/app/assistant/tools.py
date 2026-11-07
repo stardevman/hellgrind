@@ -72,6 +72,11 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "shot": {"type": "string"}, "variation_id": {"type": "string"}, "reason": {"type": "string"}},
          "required": ["shot", "variation_id", "reason"], "additionalProperties": False}},
+    {"name": "directing_review",
+     "description": "Yönetmen kontrolü (ücretsiz, hiçbir şey üretmez): filmin çekim listesinde kamera hareketi ve çerçeve "
+                    "çeşitliliği, art arda aynı çerçeve, tekdüze tempo, nefes çekimi ve açılış. Bulgular çekim kodlarıyla "
+                    "gelir; filmi değerlendirirken buradan başla, sonra adı geçen çekimlere view_shot ile bak.",
+     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "assemble_film",
      "description": "Tamamlanan çekimleri filmde yeniden birleştirir (ücretsiz, yerel). Düzeltmelerden sonra kullan.",
      "input_schema": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -80,7 +85,7 @@ TOOL_NAMES = {t["name"] for t in TOOLS}
 
 # Paneldeki etkinlik satırı (asistan ne yaptı)
 ACTIVITY = {"project_overview": "Proje durumuna baktı", "shot_details": "{shot} ayrıntılarını okudu",
-            "view_shot": "{shot} karelerine baktı", "update_shot": "{shot} metnini düzeltti",
+            "view_shot": "{shot} karelerine baktı", "directing_review": "Yönetmen kontrolü yaptı", "update_shot": "{shot} metnini düzeltti",
             "rerender_shot": "{shot} için yeniden üretim önerdi", "more_candidates": "{shot} için yeni aday önerdi",
             "use_candidate": "{shot} için aday değişikliği önerdi", "assemble_film": "Filmi yeniden birleştirdi"}
 
@@ -291,6 +296,13 @@ def update_shot(s, ctx: Ctx, inp: dict):
                   "hint": result.get("hint") or "Değişiklik bir sonraki üretimde kullanılır."})
 
 
+def directing_review(s, ctx: Ctx, inp: dict):
+    from app.models import Scene
+    from app.quality import directing
+    scenes = s.scalars(select(Scene).where(Scene.project_id == ctx.project_id))
+    return _text(directing.review(directing.shot_rows(scenes)))
+
+
 def assemble_film(s, ctx: Ctx, inp: dict):
     from fastapi import HTTPException
 
@@ -347,7 +359,8 @@ def propose(s, ctx: Ctx, tool: str, inp: dict):
 
 
 IMPL = {"project_overview": project_overview, "shot_details": shot_details, "view_shot": view_shot,
-        "update_shot": update_shot, "assemble_film": assemble_film}
+        "update_shot": update_shot, "assemble_film": assemble_film,
+        "directing_review": directing_review}
 
 
 def run(s, ctx: Ctx, name: str, inp: dict) -> tuple[list, bool]:

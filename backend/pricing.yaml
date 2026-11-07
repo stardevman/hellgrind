@@ -50,6 +50,12 @@ fal_video:
     included_reference_tokens: 4096   # her istekte dahil (4 görsel)
     image_tokens: 1024                # her girdi görseli (referans, ilk ve son kare) bu kadar token sayılır
     extra_per_1k_tokens: 0.02         # dahil olanın üstü
+    # Referans videosu (model sayfası 2026-11-07; 16:9, 24 fps): token sayısı çözünürlüğe ve süreye bağlı, basamaklı.
+    # Sayılan kareler istenen çıktı süresiyle sınırlıdır. Ara süreler doğrusal yaklaşımdır.
+    video_tokens:
+      "480P": {2: 4680, 5: 12480, 10: 26130, 15: 39780}
+      "768P": {2: 12096, 5: 32256, 10: 67536, 15: 102816}
+      "1080P": {2: 12096, 5: 32256, 10: 67536, 15: 102816}
     billing_factor: 1.05              # test: 10 sn 768P + 5 görsel formülle 0,82 $, faturalanan 17,19 birim ≈ 0,86 $
                                       # (çıktı ~0,7 sn uzun olabilir, istem token'ları)
   seedance25:         # Seedance 2.5: token = yükseklik × genişlik × (girdi videosu sn + çıktı sn) × 24 / 1024

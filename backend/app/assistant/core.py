@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from app.assistant import tools
 from app.config import settings
 from app.db import session_scope
+from app.quality import directing
 
 log = logging.getLogger("hellgrind.assistant")
 
@@ -47,7 +48,9 @@ generated before the result arrives.
 shot text does not pin down, so fixes usually mean making the description concrete (who is where, what moves, what \
 must NOT appear) rather than adding adjectives.
 - Respect the budget shown in project_overview; mention when a fix would not fit.
-- Panel notes in square brackets (e.g. [Panel notu: ...]) are written by the panel, not by the director."""
+- Panel notes in square brackets (e.g. [Panel notu: ...]) are written by the panel, not by the director.
+
+""" + directing.ASSISTANT_GUIDE
 
 
 def ASK(project_id: str, system: str, tool_defs: list, messages: list) -> dict:   # noqa: N802 — testler değiştirir

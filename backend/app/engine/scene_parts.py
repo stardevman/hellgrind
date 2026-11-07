@@ -37,6 +37,15 @@ MAX_FILES = {"h3max": 12, "seedance25": 50, "flux3max": 2}
 # (en çok 10, her biri 1,8-30,2 sn). Parça başına tek karışım dosyası gider.
 AUDIO_REF_FIELD = {"h3max": "reference_audio_urls", "seedance25": "audio_urls"}
 AUDIO_REF_SECONDS = {"h3max": (2.0, 15.0), "seedance25": (1.8, 30.2)}
+# Kukla rehberi (hareketli animatiğin düz renkli sürümü): yalnızca hareket, zamanlama ve kamera taşır, görünüş taşımaz.
+GUIDE_SENTENCE = {
+    "h3max": "Video 1 is a motion guide made of flat grey placeholder shapes: follow only its blocking, movement, timing "
+             "and camera move. Take every character's and place's look from the first frame and the reference images, "
+             "never from the guide's shapes, colours, labels or grid.",
+    "seedance25": "@Video1 is a motion guide made of flat grey placeholder shapes: follow only its blocking, movement, "
+                  "timing and camera move. Take every character's and place's look from the reference images, never "
+                  "from the guide's shapes, colours, labels or grid.",
+}
 AUDIO_REF_SENTENCE = {
     "h3max": "Audio 1 is the recorded dialogue of this scene: mouth movements and the timing of the action follow Audio 1.",
     "seedance25": "@Audio1 is the recorded dialogue of this scene: mouth movements and the timing of the action follow "
@@ -563,6 +572,7 @@ class PartPlan:
     prompt_meta: dict = field(default_factory=dict)   # {"llm", "override", "estimate", "input_hash", "writer"}
     writer_input: dict = field(default_factory=dict)
     start_key: str | None = None                      # yalnızca i2v motorları: yönetmenin yüklediği başlangıç karesi
+    guide: dict = field(default_factory=dict)         # kukla rehberi: {"key", "seconds", "shots", "warning"}
 
     @property
     def mode(self) -> str:
@@ -727,6 +737,12 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     chosen = prompt_writer.choose(s, inp, rules_prompt, override_of(part), [x.scene_code for x in part])
     prompt = chosen["prompt"]
     warnings += chosen["warnings"]
+    from app.post import animatic
+    guide = {"key": None} if i2v_only else animatic.part_guide(s, part, engine)
+    if guide.get("warning"):
+        warnings.append(guide["warning"])
+    if guide.get("key"):
+        prompt = f"{prompt} {GUIDE_SENTENCE[engine]}"
     audio_ref = audio_reference(s, part, engine)
     if audio_ref and audio_ref["key"]:
         prompt = f"{prompt} {AUDIO_REF_SENTENCE[engine]}"
@@ -742,7 +758,8 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
     plan_hash = stable_hash([engine, resolution, audio, prompt, total, [r.key for r in refs], bool(cont.get("expected")),
                              [x.scene_code for x in part], *(["draft"] if draft else []),
                              *([audio_ref["key"]] if audio_ref and audio_ref["key"] else []),
-                             *([start_key] if start_key else [])])
+                             *([start_key] if start_key else []),
+                             *([{"guide": guide["key"]}] if guide.get("key") else [])])
     part_hash = stable_hash([plan_hash, cont.get("frame_key"), [x.prompt_revision for x in part]])
     seed = seed_for(part_hash, "part", 0)
     frame_field = engine == "h3max" or i2v_only        # Seedance: kare image_urls'ün başında
@@ -752,16 +769,19 @@ def plan_part(s, sc, engine: str | None = None, frame_key: str | None = None, wi
                                    resolution_=resolution, audio_=audio,
                                    seed=seed, image_url=frame_local if frame_field else None,
                                    reference_urls=ref_urls, draft_=draft,
-                                   audio_urls=[fal_plan.local_url(audio_ref["key"])] if audio_ref and audio_ref["key"] else ())
-    files = len(ref_urls) + (1 if frame_field and frame_local else 0) + int(bool(audio_ref and audio_ref["key"]))
+                                   audio_urls=[fal_plan.local_url(audio_ref["key"])] if audio_ref and audio_ref["key"] else (),
+                                   video_urls=[fal_plan.local_url(guide["key"])] if guide.get("key") else ())
+    files = len(ref_urls) + (1 if frame_field and frame_local else 0) + int(bool(audio_ref and audio_ref["key"])) + \
+        int(bool(guide.get("key")))
     if files > MAX_FILES[engine]:
         warnings.append(f"Dosya sınırı aşıldı ({files} > {MAX_FILES[engine]}).")
     images = len(ref_urls) + (1 if frame_field and frame_local else 0)
     plan = PartPlan(engine=engine, shots=part, timeline=[(x.scene_code, a, b) for x, a, b in timeline(part)], refs=refs,
                     dropped=dropped, missing=missing, continuity=cont, prompt=prompt, unmapped=unmapped,
                     endpoint=endpoint, body=body, resolution=resolution, audio=audio, duration_s=total,
-                    cost=fal_plan.cost(engine, resolution, total, images, "i2v" if i2v_only else "ref", draft),
-                    plan_hash=plan_hash, start_key=start_key,
+                    cost=fal_plan.cost(engine, resolution, total, images, "i2v" if i2v_only else "ref", draft,
+                                       video_s=guide.get("seconds") or 0.0),
+                    plan_hash=plan_hash, start_key=start_key, guide=guide,
                     part_hash=part_hash,
                     seed=seed, warnings=warnings, draft=draft, lint=list(lint_missing.values()),
                     lint_blocks=lint_blocks, prompt_source=chosen["source"], prompt_rules=rules_prompt,
@@ -812,6 +832,12 @@ def uploads(plan: PartPlan, with_sha: bool) -> list[dict]:
     name = "reference_image_urls" if plan.engine == "h3max" else "image_urls"
     for i, r in enumerate([] if plan.mode == "i2v" else plan.refs):
         rows.append(_upload_row(f"{name}[{i + shift}]", r.key, with_sha))
+    if plan.guide.get("key"):                                # kukla rehberi: üretimde yerel olarak çizilir
+        name_v = "reference_video_urls" if plan.engine == "h3max" else "video_urls"
+        rows.append({"field": f"{name_v}[0]", "key": plan.guide["key"], "path": plan.guide["key"],
+                     "upload": "yüklenmedi (kuru çalıştırma)",
+                     "note": f"kukla rehberi: {', '.join(plan.guide['shots'])}, {plan.guide['seconds']:g} sn "
+                             "(hareketli animatikten, üretimde yerel olarak çizilir)"})
     if plan.audio_ref and plan.audio_ref["key"]:            # diyalog karışımı: üretimde oluşturulup yüklenir
         rows.append({"field": f"{plan.audio_ref['field']}[0]", "key": plan.audio_ref["key"], "path": plan.audio_ref["key"],
                      "upload": "yüklenmedi (kuru çalıştırma)",

@@ -77,7 +77,8 @@ class LocalProvider:
         if self.engine in ("h3max", "seedance25", "flux3max"):     # fal: aynı isteğin tahmini (referans görselleri dahil)
             from app.engine.fal_plan import cost
             return cost(self.engine, req.resolution, req.duration_s, int(req.extra.get("fal_images") or 0),
-                        req.extra.get("fal_mode") or "ref", bool(req.extra.get("fal_draft")))["reserve_usd"]
+                        req.extra.get("fal_mode") or "ref", bool(req.extra.get("fal_draft")),
+                        video_s=float(req.extra.get("fal_video_s") or 0.0))["reserve_usd"]
         return pricing.estimate_video(self.engine, req.resolution, billed_seconds(self.engine, req.duration_s),
                                       mode=req.extra.get("h3_mode"))
 

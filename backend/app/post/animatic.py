@@ -6,6 +6,11 @@ diyalog; referans modunda kare çizilmez). Çekimin bütün replikleri ölçülm
 sentez replikleri önce geçici sesle üretilir. Çıktı içerik-adreslidir: animatic/{proje}/{özet}.mp4 ve yanında kesme
 listesi .json (çekimler, sekanslar, toplam süre). Hiçbir ücretli servis çağrılmaz (geçici ses ücretli modda ElevenLabs
 olabilir; o da bütçe rezervasyonundan geçer).
+
+Hareketli animatik (post/staging.py): çekimin görseli varsa (yönetmenin yüklediği ilk kare, onaylı storyboard karesi ya da
+kadronun ve mekânın referans görselleri) durağan kare yerine sahnelenmiş kısa bir klip çizilir: görseller kesik kâğıt gibi
+yerleşir, karakterler duyguya göre oynar, kamera çekimin hareketini yapar, replikler alt yazı olarak görünür. Sahneleme
+planı çekimin `staging` alanındadır (yönetmen düzenler); boşsa kurallardan çıkarılır. Görseli olmayan çekim kart kalır.
 """
 import json
 import os
@@ -54,14 +59,182 @@ def plan(s, project_id: str) -> list[dict]:
             source = "shot"
         key, still = _still(sc)
         q = seqs.get(sc.sequence_id)
-        out.append({"scene_code": sc.scene_code, "description": sc.description or "", "duration_s": round(total, 3),
+        out.append({"scene_id": str(sc.id), "scene_code": sc.scene_code, "description": sc.description or "",
+                    "duration_s": round(total, 3),
                     "timing": source, "still": still, "image_key": key,
                     "heading": (sc.script_text or "").split("\n")[0],
                     "sequence": q.code if q else "", "sequence_title": q.title if q else "",
                     "lines": [{"key": t.file_key, "offset_s": off, "gain_db": float(t.gain_db),
+                               "duration_s": float(t.duration_s) if t.duration_s else None,
                                "character": names.get(t.character_id) or "Anlatıcı", "text": t.text or ""}
                               for t, off in zip(lines, offsets)]})
     return out
+
+
+# ---------- hareketli animatik (sahneleme) ----------
+
+def frame_key(sc: Scene) -> tuple[str | None, str | None]:
+    """(sahnelemenin karesi, sürüm özeti): yönetmenin yüklediği ilk kare, yoksa onaylı storyboard karesi."""
+    if sc.keyframe_key:
+        return sc.keyframe_key, sc.keyframe_hash or sc.keyframe_key
+    key, src = _still(sc)
+    return (key, sc.visual_hash or key) if src == "board" else (None, None)
+
+
+def shot_images(s, sc: Scene) -> tuple[dict, dict]:
+    """(görsel adı -> nesne anahtarı, kurallar planı girdisi; kare kutusu henüz yok). Görsel adları: frame,
+    character:<ad>, location:<ad>, prop:<ad>."""
+    from app.core.state import load_assets, load_characters
+    from app.engine.fal_plan import references
+    from app.models import SceneCharacter
+    chars, assets = load_characters(s, sc.id), load_assets(s, sc.id)
+    images, digests = {}, {}
+    fk, fh = frame_key(sc)
+    if fk:
+        images["frame"], digests["frame"] = fk, fh
+    for r in references(sc, chars, assets, strict=False, limit=12):
+        images[f"{r.kind}:{r.name}"] = r.key
+    pos = {cid: p for cid, p in s.execute(select(SceneCharacter.character_id, SceneCharacter.screen_position)
+                                          .where(SceneCharacter.scene_id == sc.id))}
+    cast = [{"name": ch.name, "position": pos.get(ch.id), "has_image": f"character:{ch.name}" in images} for ch in chars]
+    location = next((a.name for a in assets if a.type == "location" and f"location:{a.name}" in images), None)
+    info = {"camera": dict(sc.camera_plan or sc.camera or {}), "emotion": sc.emotion, "cast": cast, "location": location,
+            "_digests": digests}
+    return images, info
+
+
+def has_staging(images: dict) -> bool:
+    return bool(images)
+
+
+def captions_of(shot: dict) -> list[dict]:
+    """Repliklerin alt yazıları: çekim içi başlangıç, süre (yoksa sonraki repliğe ya da çekim sonuna kadar)."""
+    lines = [ln for ln in shot["lines"] if (ln.get("text") or "").strip()]
+    out = []
+    for i, ln in enumerate(lines):
+        t0 = float(ln["offset_s"])
+        nxt = float(lines[i + 1]["offset_s"]) if i + 1 < len(lines) else shot["duration_s"]
+        t1 = t0 + float(ln["duration_s"]) + 0.3 if ln.get("duration_s") else nxt
+        out.append({"t0": round(t0, 3), "t1": round(min(t1, shot["duration_s"]), 3), "text": ln["text"].strip()})
+    return out
+
+
+def effective_plan(sc: Scene, images: dict, info: dict, duration_s: float, local: dict) -> dict:
+    """Yönetmenin planı (çekimin staging alanı) ya da kurallar planı. local: indirilmiş görsellerin yolları."""
+    if sc.staging:
+        return dict(sc.staging)
+    return rules_for(info, duration_s, local)
+
+
+def rules_for(info: dict, duration_s: float, local: dict) -> dict:
+    """Kuralların planı (karenin kesik kâğıt kutusu indirilmiş kareden)."""
+    from app.post import staging
+    frame = None
+    if local.get("frame"):
+        im = Image.open(local["frame"])
+        page = staging.is_page(im)
+        frame = (im.width, im.height, page, staging.cutout(im).info["box"] if page else None)
+    return staging.rules_plan({**info, "duration_s": duration_s, "frame": frame})
+
+
+def clip_key(sc: Scene, images: dict, info: dict, duration_s: float, caps: list, dummy: bool, tag: str) -> str:
+    """Sahnelenmiş klibin içerik-adresli anahtarı, çizmeden (indirme yok): planın kaynağı (yönetmenin planı ya da
+    kuralların girdisi), görsellerin sürüm özetleri, süre, alt yazılar, kukla ve künye. Kurallar planı bu girdilerden
+    deterministik çıkar."""
+    from app.post import staging
+    digests = info.get("_digests") or {}
+    source = dict(sc.staging) if sc.staging else {"rules": {k: v for k, v in info.items() if k != "_digests"}}
+    digest = stable_hash([staging.RENDERER_VERSION, source, {k: digests.get(k, v) for k, v in images.items()},
+                          round(float(duration_s), 3), caps, dummy, tag])
+    return f"animatic/{sc.project_id}/{'guide' if dummy else 'shots'}/{digest}.mp4"
+
+
+def staged_clip(s, sc: Scene, shot: dict, tmp: str, dummy: bool = False, label: str | None = None) -> str | None:
+    """Çekimin sahnelenmiş klibi (nesne anahtarı). İçerik-adreslidir: aynı plan, görsel ve süre aynı anahtarı verir,
+    varsa yeniden çizilmez. Görseli olmayan çekim: None."""
+    from app.post import staging
+    images, info = shot_images(s, sc)
+    if not has_staging(images):
+        return None
+    caps = captions_of(shot) if not dummy else []
+    tag = label if label is not None else sc.scene_code
+    key = clip_key(sc, images, info, shot["duration_s"], caps, dummy, tag)
+    if storage.exists(key):
+        return key
+    local = {}
+    for i, (name, k) in enumerate(sorted(images.items())):
+        if storage.exists(k):
+            local[name] = storage.download(k, os.path.join(tmp, f"{sc.scene_code}_{i}{os.path.splitext(k)[1] or '.png'}"))
+    plan_ = effective_plan(sc, images, info, shot["duration_s"], local)
+    out = staging.render(plan_, local, shot["duration_s"], os.path.join(tmp, f"{os.path.basename(key)}"), dummy=dummy,
+                         captions=caps, label=tag)
+    storage.put_file(out, key)
+    return key
+
+
+# ---------- kukla rehberi: video modeline hareket referansı ----------
+
+GUIDE_SECONDS = {"h3max": (2.0, 15.0), "seedance25": (1.8, 30.0)}     # şema: tek video ve toplam süre sınırı
+
+
+def guide_shot(sc: Scene) -> dict:
+    """Rehberin zamanı videonunkidir: çekimin üretim süresi (parça zaman çizelgesiyle aynı), alt yazısız."""
+    return {"duration_s": round(float(sc.duration_s or 5.0), 3), "lines": []}
+
+
+def guide_key(s, sc: Scene) -> str | None:
+    """Çekimin kukla rehberinin anahtarı (çizmeden). Görseli yoksa None."""
+    images, info = shot_images(s, sc)
+    if not has_staging(images):
+        return None
+    return clip_key(sc, images, info, guide_shot(sc)["duration_s"], [], True, "")
+
+
+def part_guide(s, part: list, engine: str) -> dict:
+    """Parçanın rehberi: çekimlerin kukla rehberleri sırayla, tek video. {"key", "seconds", "shots", "warning"}; rehber
+    gönderilmeyecekse key None (yalnızca açık olan çekimler varsa uyarıyla)."""
+    on = [x for x in part if getattr(x, "motion_guide", False)]
+    out = {"key": None, "seconds": 0.0, "shots": [x.scene_code for x in on], "warning": None}
+    if not on:
+        return out
+    if engine not in GUIDE_SECONDS:
+        out["warning"] = "Kukla rehberi yalnızca H3 Max ve Seedance 2.5 reference-to-video ile gönderilir."
+        return out
+    if len(on) < len(part):
+        out["warning"] = (f"Kukla rehberi parçanın bütün çekimlerinde açık değil ({', '.join(x.scene_code for x in on)} "
+                          f"açık): rehber gönderilmez.")
+        return out
+    keys = [guide_key(s, x) for x in part]
+    if not all(keys):
+        none = [x.scene_code for x, k in zip(part, keys) if not k]
+        out["warning"] = f"Kukla rehberi çizilemiyor (görseli yok: {', '.join(none)}): rehber gönderilmez."
+        return out
+    seconds = round(sum(guide_shot(x)["duration_s"] for x in part), 3)
+    lo, hi = GUIDE_SECONDS[engine]
+    if not lo <= seconds <= hi:
+        out["warning"] = f"Kukla rehberi {seconds:g} sn; model {lo:g}-{hi:g} sn arası kabul eder: rehber gönderilmez."
+        return out
+    key = keys[0] if len(keys) == 1 else f"animatic/{part[0].project_id}/guide/part_{stable_hash(keys)}.mp4"
+    out.update(key=key, seconds=seconds)
+    return out
+
+
+def ensure_part_guide(s, part: list, engine: str, tmp: str) -> str | None:
+    """Parçanın rehberini depoda hazırlar (yoksa çekim rehberlerini çizip birleştirir; yerel, ücretsiz)."""
+    g = part_guide(s, part, engine)
+    if not g["key"] or storage.exists(g["key"]):
+        return g["key"]
+    keys = [staged_clip(s, x, guide_shot(x), tmp, dummy=True, label="") for x in part]
+    if len(keys) == 1:
+        return keys[0]
+    lst = os.path.join(tmp, "guide.txt")
+    with open(lst, "w") as f:
+        f.writelines(f"file '{storage.download(k, os.path.join(tmp, f'g{i}.mp4'))}'\n" for i, k in enumerate(keys))
+    out = os.path.join(tmp, "guide_part.mp4")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy",
+                    "-movflags", "+faststart", out], check=True)
+    storage.put_file(out, g["key"])
+    return g["key"]
 
 
 def card(shot: dict, path: str) -> str:
@@ -101,11 +274,19 @@ def assemble(project_id: str) -> dict:
         shots = plan(s, project_id)
     if not shots:
         return {"error": "Projede çekim yok."}
+    with workspace() as tmp, session_scope() as s:          # çekimlerin sahnelenmiş klipleri (önbellekli)
+        for sh in shots:
+            try:
+                sh["clip_key"] = staged_clip(s, s.get(Scene, sh["scene_id"]), sh, tmp)
+            except Exception as e:                       # noqa: BLE001 — bir çekimin çizimi animatiği düşürmez
+                sh["clip_key"], sh["staging_error"] = None, f"{type(e).__name__}: {e}"
+            if sh["clip_key"]:
+                sh["still"] = "motion"
     key = f"animatic/{project_id}/{stable_hash([shots, WIDTH, HEIGHT, FPS])}.mp4"
     cut_key = key[:-4] + ".json"
     clips, sequences, at = [], [], 0.0
     for sh in shots:
-        clips.append({"scene_code": sh["scene_code"], "in_s": round(at, 3), "out_s": round(at + sh["duration_s"], 3),
+        clips.append({"scene_id": sh["scene_id"], "scene_code": sh["scene_code"], "in_s": round(at, 3), "out_s": round(at + sh["duration_s"], 3),
                       "description": sh["description"], "still": sh["still"], "timing": sh["timing"],
                       "sequence": sh["sequence"]})
         if not sequences or sequences[-1]["code"] != sh["sequence"]:
@@ -117,9 +298,12 @@ def assemble(project_id: str) -> dict:
         with workspace() as tmp:
             parts, inputs, start = [], [], 0.0
             for i, sh in enumerate(shots):
-                still = (storage.download(sh["image_key"], os.path.join(tmp, f"k{i}.jpg")) if sh["image_key"]
-                         else card(sh, os.path.join(tmp, f"k{i}.png")))
-                parts.append(_segment(still, sh["duration_s"], os.path.join(tmp, f"s{i}.mp4")))
+                if sh.get("clip_key"):
+                    parts.append(storage.download(sh["clip_key"], os.path.join(tmp, f"s{i}.mp4")))
+                else:
+                    still = (storage.download(sh["image_key"], os.path.join(tmp, f"k{i}.jpg")) if sh["image_key"]
+                             else card(sh, os.path.join(tmp, f"k{i}.png")))
+                    parts.append(_segment(still, sh["duration_s"], os.path.join(tmp, f"s{i}.mp4")))
                 for j, ln in enumerate(sh["lines"]):
                     if ln["key"]:
                         path = storage.download(ln["key"], os.path.join(tmp, f"a{i}_{j}{os.path.splitext(ln['key'])[1]}"))
@@ -137,7 +321,9 @@ def assemble(project_id: str) -> dict:
                                   "-t", f"{total:.3f}", "-movflags", "+faststart", out], check=True)
             storage.put_file(out, key)
     cut = {"clips": clips, "sequences": sequences, "duration_s": total,
-           "voiced": sum(1 for sh in shots if sh["timing"] == "voice"), "boards": sum(1 for sh in shots if sh["still"] == "board")}
+           "voiced": sum(1 for sh in shots if sh["timing"] == "voice"), "boards": sum(1 for sh in shots if sh["still"] == "board"),
+           "motion": sum(1 for sh in shots if sh["still"] == "motion"),
+           "errors": {sh["scene_code"]: sh["staging_error"] for sh in shots if sh.get("staging_error")}}
     storage.client().put_object(Bucket=settings.s3_bucket, Key=cut_key, Body=json.dumps(cut).encode(),
                                 ContentType="application/json")
     with session_scope() as s:

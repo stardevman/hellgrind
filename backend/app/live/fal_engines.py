@@ -6,6 +6,9 @@ istemciyle çalışır; canlı üretim yönetmenin ayrıca onayıyla yapılır.
 (başlangıç ve bitiş karesi, referans görselleri) fal deposuna SHA-256 önbellekli yüklenir (app/live/fal_queue). Sonuç
 gelir gelmez indirilir; çağıran nesne deposuna yazar.
 
+Kukla rehberi (hareketli animatiğin düz renkli sürümü) açıksa referans videosu olarak yüklenir (reference_video_urls /
+video_urls); bedeli H3 Max'te video token'ı, Seedance'ta girdi saniyesi olarak tahmine girer.
+
 Bedel: rezervasyon fal_plan.cost (Seedance tahmini %25 paylı); işlenen tutar çıktının ölçülen boyu ve süresinden
 (Seedance token × billing_factor) ya da istenen süre ve görsel sayısından (H3 Max). fal yanıtı fatura tutarı döndürmez:
 kesin tutar fal.ai faturasındadır; kayıtta tahmin edilen birimler (Seedance token, H3 Max 0,05 $'lık birim) durur.
@@ -79,7 +82,12 @@ class FalVideoProvider:
 
     def estimate(self, req: GenRequest) -> float:
         return fal_plan.cost(self.engine, self.resolution(req.resolution), req.duration_s, self.images(req), self.mode(req),
-                             bool(req.extra.get("fal_draft")))["reserve_usd"]
+                             bool(req.extra.get("fal_draft")), video_s=self.video_seconds(req))["reserve_usd"]
+
+    def video_seconds(self, req: GenRequest) -> float:
+        """Referans videosunun (kukla rehberi) süresi; yalnızca reference-to-video."""
+        return float(req.extra.get("fal_video_s") or 0.0) if self.mode(req) == "ref" and req.extra.get("fal_video_refs") \
+            else 0.0
 
     def upload(self, path: str) -> str:
         guard("fal_key")
@@ -92,11 +100,13 @@ class FalVideoProvider:
             if mode == "ref" else []
         sounds = [fal_queue.upload_key(self.client(), key) for key in req.extra.get("fal_audio_refs") or []] \
             if mode == "ref" else []
+        videos = [fal_queue.upload_key(self.client(), key) for key in req.extra.get("fal_video_refs") or []] \
+            if mode == "ref" else []
         return fal_plan.body(self.engine, mode, prompt=req.prompt, duration_s=req.duration_s,
                              resolution_=self.resolution(req.resolution),
                              audio_=bool(req.extra.get("fal_audio", settings.seedance25_audio)), seed=req.seed,
                              image_url=req.image_url, end_image_url=req.extra.get("last_frame"), reference_urls=refs,
-                             draft_=bool(req.extra.get("fal_draft")), audio_urls=sounds)
+                             draft_=bool(req.extra.get("fal_draft")), audio_urls=sounds, video_urls=videos)
 
     def billed(self, req: GenRequest, args: dict, measured: dict) -> dict:
         """İşlenen tutar ve tahmini faturalanan birimler."""
@@ -104,7 +114,8 @@ class FalVideoProvider:
         if self.engine == "seedance25":
             size = (measured["width"], measured["height"]) if measured.get("width") else None
             seconds = measured.get("duration_s") or fal_plan.billed_seconds(self.engine, req.duration_s)
-            c = pricing.seedance25_cost("480p" if args.get("draft") else res, seconds, size=size, measured=True)
+            c = pricing.seedance25_cost("480p" if args.get("draft") else res, seconds, self.video_seconds(req), size=size,
+                                        measured=True)
             return {"usd": c["usd"], "tokens": c["billed_tokens"], "measured_tokens": c["tokens"],
                     "per_1k_tokens_usd": c["per_1k_tokens_usd"]}
         if self.engine == "flux3max":                  # video saniyesi başına: üretilen (ölçülen) süre, yoksa istenen
@@ -112,7 +123,7 @@ class FalVideoProvider:
             c = pricing.flux3max_cost(res, max(float(seconds), fal_plan.billed_seconds(self.engine, req.duration_s)))
             return {"usd": c["usd"], "seconds": c["duration_s"], "per_second_usd": c["per_second_usd"]}
         c = pricing.h3max_cost(res, fal_plan.billed_seconds(self.engine, req.duration_s), fal_plan.images_in(args),
-                               mode=self.mode(req))
+                               mode=self.mode(req), video_seconds=self.video_seconds(req))
         return {"usd": c["usd"], "units": c["units"], "reference_tokens": c["reference_tokens"]}
 
     def generate(self, req: GenRequest) -> GenResult:

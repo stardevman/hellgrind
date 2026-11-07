@@ -34,6 +34,8 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
     Yöntem (Faz 15): dış çekimin görüntüsünü yalnızca yüklenen dosya belirler (özeti, dosyanın içerik özetidir);
     previs rehberli çekimde rehber dosyanın özeti de girer.
 
+    Kukla rehberi (hareketli animatik) yalnızca açıkken girer: sahneleme planı (ya da kurallar) değişince yeniden üretilir.
+
     MiniMax H3 koşulu: yönetmenin yüklediği ilk kare (özeti) ve Ref2VA seçimi yalnızca varsa girer; varsayılan FL2VA
     (storyboard karesinden) özeti değiştirmez. Storyboard karesi zaten bu özetten türer.
     """
@@ -68,6 +70,8 @@ def visual_fingerprint(scene, characters, assets=(), style_version: int | None =
             payload["end_frame"] = "start"
     if getattr(scene, "camera_plan", None):             # kesme kamerası (30° kuralı): kare ve video istemine girer
         payload["camera_plan"] = scene.camera_plan
+    if getattr(scene, "motion_guide", False):           # kukla rehberi (hareket referansı): yalnızca açıkken girer
+        payload["motion_guide"] = scene.staging or "rules"
     from app.core.h3mode import effective_mode
     if (engine or "h3") == "h3" and effective_mode(scene, characters, assets) == "ref2va":
         payload["h3_mode"] = "ref2va"

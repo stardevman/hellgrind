@@ -388,14 +388,29 @@ export interface Sequence {
 }
 
 export interface CutClip {
-  scene_code: string; in_s: number; out_s: number; description?: string; emotion?: string;
-  /** Animatik: kare (onaylı storyboard karesi ya da çekim kartı) ve sürenin kaynağı (ses ya da çekim süresi). */
-  still?: "board" | "card"; timing?: "voice" | "shot"; sequence?: string;
+  scene_code: string; in_s: number; out_s: number; description?: string; emotion?: string; scene_id?: string;
+  /** Animatik: hareketli sahneleme, onaylı storyboard karesi ya da çekim kartı; sürenin kaynağı (ses ya da çekim süresi). */
+  still?: "motion" | "board" | "card"; timing?: "voice" | "shot"; sequence?: string;
 }
+/** Hareketli animatik: çekimin sahneleme planı (GET/PUT /scenes/{id}/staging). */
+export interface StagingView {
+  scene_id: string; scene_code: string; duration_s: number; source: "director" | "rules" | "claude" | null;
+  plan: Record<string, unknown> | null; images: string[]; actions: string[]; note: string | null;
+  guide?: StagingGuide;
+}
+/** Kukla rehberi: video isteğine hareket referansı olarak eklenir mi, süresi ve ekleyeceği yaklaşık bedel. */
+export interface StagingGuide {
+  on: boolean; seconds: number; engine: string; engine_label: string; extra_usd: number | null;
+  base_usd?: number; resolution?: string;
+}
+/** POST /scenes/{id}/staging/write: Claude'un yazdığı plan (görünüm) ve bedeli. */
+export interface StagingWritten extends StagingView { usd: number; model: string | null }
+export interface StagingPreview { key: string; url: string; dummy: boolean; duration_s: number }
 export interface CutSequence { code: string; title: string; in_s: number; out_s: number }
 export interface Film {
   url: string;
-  cut: { clips?: CutClip[]; sequences?: CutSequence[]; duration_s?: number; voiced?: number; boards?: number } | null;
+  cut: { clips?: CutClip[]; sequences?: CutSequence[]; duration_s?: number; voiced?: number; boards?: number;
+    motion?: number; errors?: Record<string, string> } | null;
 }
 
 export interface PanelEvent { kind: string; ts: number; scene_id?: string; [key: string]: unknown }
