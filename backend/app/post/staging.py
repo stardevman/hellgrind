@@ -27,6 +27,7 @@ W, H, FPS = 1280, 720, 24
 RENDERER_VERSION = 2              # çizim değişince artar: önbellekteki klipler yeniden çizilir
 PAPER = (252, 250, 246)
 DUMMY_BG = (226, 228, 232)
+CUTOUT_MAX = 1600                 # kesik kâğıt maskesinin en uzun kenarı (büyük sayfalar küçültülerek ayrılır)
 
 # çerçeve -> karakterin kare boyuna oranı ve ayak hizası (kadraj dışına taşan yakın çekimler)
 FRAMING = {"extreme_wide": (0.22, 0.80), "wide": (0.4, 0.86), "pov": (0.6, 0.98), "medium": (0.66, 1.0),
@@ -119,22 +120,62 @@ def is_page(im: Image.Image) -> bool:
     return float((edge > 225).mean()) > 0.8
 
 
+def _runs_min(lab: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Her satırdaki kesintisiz maske dizisine, dizideki en küçük etiketi yayar (C sırası, satır satır)."""
+    prev = np.zeros_like(mask)
+    prev[:, 1:] = mask[:, :-1]
+    flat_mask = mask.ravel()
+    starts = (mask & ~prev).ravel()[flat_mask]
+    idx = np.flatnonzero(starts)
+    vals = lab.ravel()[flat_mask]
+    mins = np.minimum.reduceat(vals, idx)
+    out = lab.copy()
+    out.ravel()[flat_mask] = np.repeat(mins, np.diff(np.append(idx, len(vals))))
+    return out
+
+
+def _label(mask: np.ndarray) -> np.ndarray:
+    """4-komşulu bağlı bileşen etiketi (yalnızca numpy): 0 = maske dışı, aynı bileşen = aynı etiket.
+    Satır ve sütun dizileri boyunca en küçük etiket, değişmeyene dek sırayla yayılır."""
+    big = mask.size + 1
+    lab = np.where(mask, np.arange(1, mask.size + 1, dtype=np.int32).reshape(mask.shape), np.int32(big))
+    if not mask.any():
+        return np.zeros(mask.shape, np.int32)
+    mask_t = np.ascontiguousarray(mask.T)
+    while True:
+        new = _runs_min(lab, mask)
+        new = np.ascontiguousarray(_runs_min(np.ascontiguousarray(new.T), mask_t).T)
+        if np.array_equal(new, lab):
+            break
+        lab = new
+    return np.where(mask, lab, 0)
+
+
+def _border_labels(lab: np.ndarray) -> np.ndarray:
+    return np.setdiff1d(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])), [0])
+
+
 def cutout(im: Image.Image, threshold: float = 249) -> Image.Image:
     """Beyaz zemini kenarlardan doldurarak atar; kalan şekil(ler) RGBA, sıkı kırpılmış. info["box"]: kaynaktaki yeri."""
-    from scipy import ndimage as nd
     rgb = im.convert("RGB")
-    a = np.asarray(rgb).astype(np.int16)
+    k = min(1.0, CUTOUT_MAX / max(rgb.size))              # maske en çok CUTOUT_MAX pikselde hesaplanır (hız)
+    small = rgb if k == 1 else rgb.resize((max(1, round(rgb.width * k)), max(1, round(rgb.height * k))), Image.BOX)
+    a = np.asarray(small).astype(np.int16)
     light = (a.min(2) > threshold) & ((a.max(2) - a.min(2)) < 40)
-    lab, _ = nd.label(light)
-    edge = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]).tolist())) - {0}
-    fg = ~np.isin(lab, list(edge))
-    fg = nd.binary_opening(fg, iterations=2)
-    lab2, n = nd.label(fg)
-    if n:
-        sizes = nd.sum(fg, lab2, range(1, n + 1))
-        fg = np.isin(lab2, [i + 1 for i, v in enumerate(sizes) if v > sizes.max() * 0.04])
-    fg = nd.binary_fill_holes(fg)
-    alpha = Image.fromarray((fg * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.2))
+    lab = _label(light)
+    fg = ~np.isin(lab, _border_labels(lab))
+    m = Image.fromarray((fg * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(5))
+    fg = np.asarray(m) > 127                                    # açma: kırıntılar ve ince çizgiler gider
+    lab2 = _label(fg)
+    ids, sizes = np.unique(lab2[fg], return_counts=True)
+    if len(ids):
+        fg = np.isin(lab2, ids[sizes > sizes.max() * 0.04])
+    holes = _label(~fg)                                         # içteki beyaz delikler doldurulur
+    fg = np.isin(holes, _border_labels(holes), invert=True) & (holes > 0) | fg
+    alpha = Image.fromarray((fg * 255).astype(np.uint8))
+    if k != 1:
+        alpha = alpha.resize(rgb.size, Image.BILINEAR)
+    alpha = alpha.filter(ImageFilter.GaussianBlur(1.2 / k))
     out = rgb.copy()
     out.putalpha(alpha)
     box = out.getbbox() or (0, 0, out.width, out.height)
