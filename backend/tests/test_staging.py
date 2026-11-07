@@ -5,9 +5,12 @@ Kabul:
   - Kurallar planı kadrajdan boy, kamera hareketinden anahtar kare, duygudan hareket çıkarır.
   - Çizici aynı plandan aynı kareyi verir; hareket kareleri değiştirir; kukla sürümü görünüş taşımaz.
   - Görseli olan çekim animatikte hareketli klip olur, olmayan kart kalır; yönetmenin planı doğrulanır ve kullanılır.
+  - Grup görseli karakterlere bölünür (crop): dilimler kendi yerinde durur, birlikte dururken grup gibi görünür.
+  - Planı Claude yazabilir: ücretsiz modda çağrı yok; ücretli modda önce izin (428), geçersiz plan bir kez onarılır.
   - Kukla rehberi açıkken sahnenin isteğine referans videosu olarak girer (şemaya uygun, istemde "Video 1"), bedeli
     referans token'ıyla artar, parçanın her çekiminde açık değilse gönderilmez; üretimde yerel olarak çizilir.
 """
+import json
 import subprocess
 import uuid
 
@@ -260,3 +263,107 @@ def test_a_paid_request_uploads_the_guide_as_video_1(ref_defaults, paid, s3, mk_
     assert endpoint == "minimax/h3-max/reference-to-video" and validate(endpoint, body) == []
     assert len(body["reference_video_urls"]) == 1 and len(body["reference_image_urls"]) == 4
     assert body["reference_video_urls"][0].startswith("https://") and "Video 1 is a motion guide" in body["prompt"]
+
+
+# ---------- grup dilimleri ve Claude'un planı ----------
+
+def _three(tmp_path):
+    im = Image.new("RGB", (1280, 720), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    for i, c in enumerate([(200, 60, 60), (60, 160, 60), (60, 60, 200)]):
+        d.ellipse((380 + i * 180, 260, 560 + i * 180, 700), fill=c)
+    im.save(tmp_path / "three.png")
+    return str(tmp_path / "three.png")
+
+
+def test_a_group_split_into_slices_stays_in_place_and_each_slice_moves_alone(tmp_path):
+    images = {"frame": _three(tmp_path)}
+    whole = {"background": {"kind": "paper"}, "layers": [{"id": "Grup", "image": "frame"}], "camera": [{"t": 0, "zoom": 1}]}
+    cuts = [[0, 0.4], [0.4, 0.55], [0.55, 1]]
+    split = {**whole, "layers": [{"id": n, "image": "frame", "crop": c} for n, c in zip(("A", "B", "C"), cuts)]}
+    a = np.asarray(staging.Stage(whole, images, 1.0).frame(0.0)).astype(int)
+    b = np.asarray(staging.Stage(split, images, 1.0).frame(0.0)).astype(int)
+    assert np.abs(a - b).mean() < 0.5                                      # dikişsiz: dilimler yerinde
+    hop = {**split, "layers": [*split["layers"][:2], {**split["layers"][2], "actions": [{"type": "hop", "t0": 0, "t1": 0.8}]}]}
+    c = np.asarray(staging.Stage(hop, images, 1.0).frame(0.5)).astype(int)
+    moved = np.abs(c - b).sum(2) > 30
+    cols = np.nonzero(moved.any(0))[0]
+    assert cols.min() > 0.55 * 1280 - 40                                   # yalnızca C (sağdaki) zıpladı
+    assert staging.validate({"layers": [{"id": "x", "crop": [0.6, 0.2]}]})[0].startswith("x: crop")
+    dummy = np.asarray(staging.Stage(split, images, 1.0, dummy=True).frame(0.0))
+    assert tuple(dummy[5, 5]) == staging.DUMMY_BG
+
+
+def test_claudes_reply_is_parsed_and_checked():
+    from app.post import staging_writer as sw
+    plan = {"note": "Not", "layers": [{"id": "A", "image": "frame", "actions": [{"type": "hop", "t0": 1, "t1": 1.8}]}]}
+    assert sw.parse("```json\n" + json.dumps(plan) + "\n```") == plan
+    assert sw.parse("İşte plan: " + json.dumps(plan) + " Bitti.") == plan and sw.parse("yok") is None
+    assert sw.check(plan, 5.0, {"frame": "k"}) == []
+    assert any("görseli yok" in e for e in sw.check(plan, 5.0, {}))
+    late = {"layers": [{"id": "A", "actions": [{"type": "hop", "t0": 9, "t1": 9.5}]}]}
+    assert any("arasında olmalı" in e for e in sw.check(late, 5.0, {}))
+    out = sw.finalize({**plan, "source": "x"}, "claude-opus-5-5", 0.0412)
+    assert out["source"] == "claude" and out["usd"] == 0.0412 and out["note"] == "Not"
+    assert "crop" in sw.SYSTEM and all(a in sw.SYSTEM for a in staging.ACTIONS)
+
+
+class _FakeLLM:
+    def __init__(self, replies):
+        self.replies, self.calls = list(replies), []
+
+    def invoke(self, messages):
+        from types import SimpleNamespace
+        self.calls.append(messages)
+        return SimpleNamespace(content=self.replies.pop(0), id=f"msg_{len(self.calls)}",
+                               usage_metadata={"input_tokens": 4000, "output_tokens": 700},
+                               response_metadata={"model_name": "claude-opus-5-5"})
+
+
+def test_free_mode_never_calls_claude_for_staging(ref_defaults, mk_project, s3, api, tmp_path):
+    from app import storage
+    from app.db import session_scope
+    from app.models import Scene
+    pid, ids = nora(mk_project)
+    sid = ids["S001_SH01"]
+    key = f"keyframes/{pid}/{uuid.uuid4().hex}.png"
+    storage.put_file(_three(tmp_path), key, "image/png")
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        sc.keyframe_key, sc.keyframe_hash = key, "k3"
+    free = api.post(f"/api/scenes/{sid}/staging/write")
+    assert free.status_code == 409 and "engellendi" in free.json()["detail"]          # ücretsiz mod: çağrı yok
+
+
+def test_claude_writes_the_plan_after_consent_and_one_repair(ref_defaults, paid, mk_project, s3, api, tmp_path, monkeypatch,
+                                                            consent_asks):
+    from app import storage
+    from app.budget import consent
+    from app.db import session_scope
+    from app.live import anthropic_client
+    from app.models import Scene
+    pid, ids = nora(mk_project)
+    sid = ids["S001_SH01"]
+    key = f"keyframes/{pid}/{uuid.uuid4().hex}.png"
+    storage.put_file(_three(tmp_path), key, "image/png")
+    with session_scope() as s:
+        sc = s.get(Scene, sid)
+        sc.keyframe_key, sc.keyframe_hash = key, "k3"
+    good = {"note": "Üçü ayrı oynar.", "background": {"kind": "paper"},
+            "layers": [{"id": "Nora", "image": "frame", "crop": [0, 0.4], "actions": [{"type": "laugh", "t0": 0.2, "t1": 2}]},
+                       {"id": "Pip", "image": "frame", "crop": [0.4, 1], "actions": [{"type": "hop", "t0": 1, "t1": 1.8}]}],
+            "camera": [{"t": 0, "zoom": 1.0}, {"t": 2.5, "zoom": 1.2, "cx": 0.5, "cy": 0.5}]}
+    bad = {"layers": [{"id": "Nora", "image": "frame", "actions": [{"type": "dance"}]}]}
+    fake = _FakeLLM([json.dumps(bad), "```json\n" + json.dumps(good) + "\n```"])
+    monkeypatch.setattr(anthropic_client, "make", lambda *a, **k: fake)
+    first = api.post(f"/api/scenes/{sid}/staging/write")
+    assert first.status_code == 428 and first.json()["consent"]["kind"] == "llm" and fake.calls == []
+    consent.allow(pid, "llm", consent.target_of(scene_id=sid))
+    out = api.post(f"/api/scenes/{sid}/staging/write").json()
+    assert out["source"] == "claude" and out["plan"]["note"] == "Üçü ayrı oynar." and len(fake.calls) == 2
+    assert out["usd"] > 0 and out["plan"]["layers"][1]["crop"] == [0.4, 1]
+    human = fake.calls[0][1][1]                                             # ilk tur: kare görseli + çekim bilgisi
+    assert human[0]["type"] == "image_url" and "S001_SH01" in human[1]["text"] and "cutout_box" in human[1]["text"]
+    assert "bilinmeyen hareket" in fake.calls[1][-1][1]                     # onarım turu hatayı görür
+    view = api.get(f"/api/scenes/{sid}/staging").json()
+    assert view["source"] == "claude" and view["plan"]["model"] == "claude-opus-5-5"

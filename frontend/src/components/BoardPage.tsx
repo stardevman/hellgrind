@@ -12,7 +12,7 @@ import { usePanel } from "@/lib/panel";
 import { passText, stripText, usdTr } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
-import type { DispatchAll, Film, Scene, StagingGuide, StagingPreview, StagingView, StoryboardPlan, StripApproval } from "@/lib/types";
+import type { DispatchAll, Film, Scene, StagingGuide, StagingPreview, StagingView, StagingWritten, StoryboardPlan, StripApproval } from "@/lib/types";
 import { SafeAreas } from "./Broadcast";
 import { Icon } from "./icons";
 import { NoteBox, ToolMenu, useSynced } from "./ui";
@@ -130,12 +130,14 @@ const STILL: Record<string, { color: string; tr: string }> = {
 };
 
 /** Seçili çekimin sahneleme planı: kaynak (kurallar / yönetmen), JSON düzenleme, önizleme ve kukla rehber videosu. */
+const SOURCE_TR: Record<string, string> = { director: "yönetmen planı", claude: "Claude planı", rules: "kurallardan" };
+
 function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void }) {
-  const { busy, act, note } = usePanel();
+  const { busy, act, note, meta } = usePanel();
   const [view, setView] = useState<StagingView | null>(null);
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<StagingPreview | null>(null);
-  const [working, setWorking] = useState<"" | "preview" | "guide">("");
+  const [working, setWorking] = useState<"" | "preview" | "guide" | "write">("");
   useEffect(() => {
     let live = true;
     setView(null); setPreview(null);
@@ -159,6 +161,15 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
     note("board", `${view.scene_code} sahnelemesi kurallara döndü.`, "ok");
     onSaved();
   }, "board");
+  const write = () => act(async () => {
+    setWorking("write");
+    try {
+      const v = await api.post<StagingWritten>(`/scenes/${sceneId}/staging/write`);
+      show(v);
+      note("board", `${view.scene_code} sahnelemesini Claude yazdı (${usdTr(v.usd)}). Önizleyip beğenmezsen düzenleyebilir ya da kurallara dönebilirsin.`, "ok");
+      onSaved();
+    } finally { setWorking(""); }
+  }, "board");
   const toggleGuide = (on: boolean) => act(async () => {
     show(await api.put<StagingView>(`/scenes/${sceneId}/staging/guide`, { on }));
     note("board", on ? `${view.scene_code}: kukla rehberi video isteğine eklendi; plan ve bedel yenilendi (onay yeniden istenir).`
@@ -173,7 +184,7 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
   return (
     <div className="staging" data-tour="board-staging">
       <div className="row"><b className="mono">{view.scene_code}</b>
-        <span className="faint">{view.source === "director" ? "yönetmen planı" : view.source === "rules" ? "kurallardan" : "görsel yok"} · {secTr(view.duration_s)}</span></div>
+        <span className="faint">{view.source ? SOURCE_TR[view.source] ?? view.source : "görsel yok"} · {secTr(view.duration_s)}</span></div>
       {view.note ? <p className="faint small">{view.note}</p> : <>
         {preview && <video key={preview.url} src={preview.url} controls autoPlay muted playsInline />}
         <div className="row wrap">
@@ -181,14 +192,18 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
           <button className="btn" type="button" disabled={busy || Boolean(working)} onClick={() => void render(true)}
             title="Görünüş taşımayan, adı yazılı siluetler: video modeline hareket ve kamera rehberi">{working === "guide" ? "Çiziliyor…" : "Kukla rehberi"}</button>
           {preview && <a className="btn ghost" href={preview.url} download>İndir</a>}
+          <button className="btn" type="button" disabled={busy || Boolean(working) || meta?.dry_run !== false} onClick={() => void write()}
+            title={meta?.dry_run !== false ? "Ücretsiz modda Claude çağrılmaz." : "Claude kareye bakıp planı yazar: grubu karakterlere böler, hareketleri anlatıma oturtur, kamerayı gerekçelendirir. Ücretli (çekim başına yaklaşık 0,05 $), önce izin sorulur."}>
+            {working === "write" ? "Claude yazıyor…" : "Claude ile yaz"}</button>
         </div>
+        {typeof view.plan?.note === "string" && view.plan.note && <p className="small staging-note">{view.plan.note}</p>}
         {view.guide && <GuideToggle guide={view.guide} busy={busy} onChange={(on) => void toggleGuide(on)} />}
-        <label className="faint small" htmlFor={`staging-${sceneId}`}>Plan (JSON): konum x/y, boy h (kare oranı), hareketler, kamera</label>
+        <label className="faint small" htmlFor={`staging-${sceneId}`}>Plan (JSON): konum x/y, boy h (kare oranı), grubu bölmek için crop, hareketler, kamera</label>
         <textarea id={`staging-${sceneId}`} className="mono staging-plan" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} rows={12} />
         <p className="faint small">Hareketler: {view.actions.join(", ")} · görseller: {view.images.join(", ") || "yok"}</p>
         <div className="row wrap">
           <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>Planı kaydet</button>
-          {view.source === "director" && <button className="btn ghost" type="button" disabled={busy} onClick={() => void reset()}>Kurallara dön</button>}
+          {(view.source === "director" || view.source === "claude") && <button className="btn ghost" type="button" disabled={busy} onClick={() => void reset()}>Kurallara dön</button>}
         </div>
       </>}
     </div>

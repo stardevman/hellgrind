@@ -57,7 +57,8 @@ def view(s, sc: Scene) -> dict:
             local["frame"] = storage.download(images["frame"], os.path.join(tmp, "frame" + (os.path.splitext(images["frame"])[1] or ".jpg")))
         plan = animatic.effective_plan(sc, images, info, shot["duration_s"], local) if images else None
     return {"scene_id": str(sc.id), "scene_code": sc.scene_code, "duration_s": shot["duration_s"],
-            "source": "director" if sc.staging else ("rules" if images else None), "plan": plan,
+            "source": (sc.staging.get("source") or "director") if sc.staging else ("rules" if images else None),
+            "plan": plan,
             "images": sorted(images), "actions": list(staging.ACTIONS), "guide": guide_info(s, sc, images),
             "note": None if images else "Çekimin görseli yok (ilk kare, onaylı kare ya da kadro/mekân referansı): "
                                         "animatikte çekim kartı görünür."}
@@ -119,3 +120,52 @@ def put_guide(scene_id: SceneId, on: bool = Body(..., embed=True), s: Session = 
     sc.motion_guide = bool(on)
     s.commit()
     return view(s, sc)
+
+
+def _write(scene_id: str) -> dict:
+    """Claude sahneleme planını yazar (ücretli; izin, kilit ve bütçe app/live/staging_llm'de). Geçersiz plan bir kez
+    hatalarıyla geri gönderilir; yine geçersizse 422 (harcama yapılmış olur, planda değişiklik olmaz)."""
+    from app.api.deps import paid_errors
+    from app.live import staging_llm
+    from app.post import staging_writer as sw
+    with session_scope() as s, workspace() as tmp:
+        sc = s.get(Scene, scene_id)
+        shot = _shot(s, sc)
+        images, info = animatic.shot_images(s, sc)
+        if not images:
+            raise HTTPException(409, "Çekimin görseli yok (ilk kare, onaylı kare ya da kadro/mekân referansı): Claude'un "
+                                     "sahneleyeceği bir şey bulunamadı.")
+        frame = None
+        if "frame" in images and storage.exists(images["frame"]):
+            frame = storage.download(images["frame"], os.path.join(tmp, "frame" + (os.path.splitext(images["frame"])[1] or ".jpg")))
+        rules = animatic.rules_for(info, shot["duration_s"], {"frame": frame} if frame else {})
+        inp = sw.shot_input(sc, shot, images, info, rules, frame)
+        image = sw.image_b64(sw.frame_jpeg(frame)) if frame else None
+        project_id = str(sc.project_id)
+    usd, model, plan, errs, history_ = 0.0, None, None, [], None
+    with paid_errors():
+        for turn in range(2):
+            text = sw.user_text(inp) if turn == 0 else sw.REPAIR.format(errors="\n".join(f"- {e}" for e in errs))
+            out = staging_llm.ask(project_id, scene_id, sw.SYSTEM, text, image, history_)
+            usd, model, history_ = usd + out["usd"], out["model"], out["messages"]
+            plan = sw.parse(out["text"])
+            errs = sw.check(plan, shot["duration_s"], images) if plan is not None else ["Yanıt JSON değil."]
+            if not errs:
+                break
+    if errs:
+        raise HTTPException(422, f"Claude'un planı geçersiz kaldı ({usd:.3f} $ harcandı, plan değişmedi): " + " ".join(errs))
+    with session_scope() as s:
+        sc = s.get(Scene, scene_id)
+        sc.staging = sw.finalize(plan, model, usd)
+        s.flush()
+        return {**view(s, sc), "usd": round(usd, 4), "model": model}
+
+
+@router.post("/scenes/{scene_id}/staging/write")
+@curated("staging_claude")
+async def write_staging(scene_id: SceneId):
+    """Sahneleme planını Claude yazar (ücretli: önce izin kartı; ücretsiz modda 409, çağrı yok). Yazılan plan çekimin
+    planı olur (kaynak "claude"); yönetmen düzenleyebilir ya da kurallara döndürebilir."""
+    with session_scope() as s:
+        scene_or_404(s, scene_id)
+    return await run_in_threadpool(_write, scene_id)

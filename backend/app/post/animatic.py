@@ -121,9 +121,14 @@ def captions_of(shot: dict) -> list[dict]:
 
 def effective_plan(sc: Scene, images: dict, info: dict, duration_s: float, local: dict) -> dict:
     """Yönetmenin planı (çekimin staging alanı) ya da kurallar planı. local: indirilmiş görsellerin yolları."""
-    from app.post import staging
     if sc.staging:
         return dict(sc.staging)
+    return rules_for(info, duration_s, local)
+
+
+def rules_for(info: dict, duration_s: float, local: dict) -> dict:
+    """Kuralların planı (karenin kesik kâğıt kutusu indirilmiş kareden)."""
+    from app.post import staging
     frame = None
     if local.get("frame"):
         im = Image.open(local["frame"])

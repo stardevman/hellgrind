@@ -394,7 +394,7 @@ export interface CutClip {
 }
 /** Hareketli animatik: çekimin sahneleme planı (GET/PUT /scenes/{id}/staging). */
 export interface StagingView {
-  scene_id: string; scene_code: string; duration_s: number; source: "director" | "rules" | null;
+  scene_id: string; scene_code: string; duration_s: number; source: "director" | "rules" | "claude" | null;
   plan: Record<string, unknown> | null; images: string[]; actions: string[]; note: string | null;
   guide?: StagingGuide;
 }
@@ -403,6 +403,8 @@ export interface StagingGuide {
   on: boolean; seconds: number; engine: string; engine_label: string; extra_usd: number | null;
   base_usd?: number; resolution?: string;
 }
+/** POST /scenes/{id}/staging/write: Claude'un yazdığı plan (görünüm) ve bedeli. */
+export interface StagingWritten extends StagingView { usd: number; model: string | null }
 export interface StagingPreview { key: string; url: string; dummy: boolean; duration_s: number }
 export interface CutSequence { code: string; title: string; in_s: number; out_s: number }
 export interface Film {

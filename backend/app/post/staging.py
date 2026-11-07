@@ -4,9 +4,12 @@ Plan (çekim başına JSON, `scenes.staging`; boşsa kurallardan çıkarılır):
   {"version": 1, "source": "rules" | "director",
    "background": {"kind": "paper"} | {"kind": "image", "image": "frame" | "location:<ad>"},
    "layers": [{"id", "image": "frame" | "character:<ad>" | "prop:<ad>", "cutout": bool, "x", "y", "h",
-               "keys": [{"t", "x"?, "y"?, "h"?}], "actions": [{"type", "t0", "t1", ...}]}],
+               "crop"?: [x0, x1], "keys": [{"t", "x"?, "y"?, "h"?}], "actions": [{"type", "t0", "t1", ...}]}],
    "camera": [{"t", "zoom", "cx", "cy"}], "captions": bool}
 x: katmanın yatay ortası, y: alt kenarı (ayaklar), h: boyu; üçü de kare oranıdır (0-1). Zamanlar çekim içi saniyedir.
+crop: grup görselinden tek karakter, kaynağın genişlik oranıyla yatay dilim [x0, x1]; dilimin boyu grubunkiyle aynıdır
+(y ve h grubunki, x dilimin ortası). İç kenarlar yumuşak geçişle komşu dilimle örtüşür: birlikte dururken dikiş
+görünmez. "note": planı yazanın sahneleme gerekçesi (panelde görünür).
 Hareketler (squash & stretch, DIRECTOR.md §9'dan): breathe, sigh, laugh, droop, lean, hop, shake, tremble.
 Kamera: anahtar kareler arasında yumuşak geçişle yakınlaşma (zoom) ve odak (cx, cy).
 
@@ -24,7 +27,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 W, H, FPS = 1280, 720, 24
-RENDERER_VERSION = 2              # çizim değişince artar: önbellekteki klipler yeniden çizilir
+RENDERER_VERSION = 3              # çizim değişince artar: önbellekteki klipler yeniden çizilir
 PAPER = (252, 250, 246)
 DUMMY_BG = (226, 228, 232)
 CUTOUT_MAX = 1600                 # kesik kâğıt maskesinin en uzun kenarı (büyük sayfalar küçültülerek ayrılır)
@@ -184,6 +187,42 @@ def cutout(im: Image.Image, threshold: float = 249) -> Image.Image:
     return res
 
 
+def strip(im: Image.Image, x0: float, x1: float, m: float = 0.012) -> Image.Image:
+    """Kesik görselden yatay dilim (x0-x1: kaynağın genişlik oranı). İç kenarlar m genişliğinde yumuşak geçişle dışa taşar:
+    ayrı oynarken sert kesik çizgi olmaz; komşu dilimle birlikte dururken geçişin her noktasında dilimlerden biri tam
+    opak olduğu için dikiş görünmez (hangisi önde çizilirse çizilsin). Dilim grubun boyunu korur."""
+    src_w = float(im.info.get("src_w") or im.width)
+    bx0 = (im.info.get("box") or (0, 0, im.width, im.height))[0]
+    a0, a1 = max(0.0, x0 - m), min(1.0, x1 + m)
+    c0 = max(0, min(im.width - 1, round(a0 * src_w - bx0)))
+    c1 = max(c0 + 1, min(im.width, round(a1 * src_w - bx0)))
+    s = im.crop((c0, 0, c1, im.height))
+    u = (bx0 + c0 + np.arange(s.width) + 0.5) / src_w
+    v = np.ones(s.width)
+    if x0 > 0:
+        v = np.minimum(v, (u - (x0 - m)) / m)
+    if x1 < 1:
+        v = np.minimum(v, ((x1 + m) - u) / m)
+    ramp = Image.fromarray(np.tile((np.clip(v, 0, 1) * 255).astype(np.uint8), (s.height, 1)))
+    s.putalpha(ImageChops.multiply(s.getchannel("A"), ramp))
+    box = im.info.get("box") or (0, 0, im.width, im.height)
+    lo, hi = max(x0 * src_w, box[0]), min(x1 * src_w, box[2])          # dilimin görünen kısmı (kaynakta)
+    s.info.update(box=(round(lo), box[1], round(hi), box[3]), src_w=src_w, src_h=im.info.get("src_h"),
+                  anchor=((lo + hi) / 2 - (bx0 + c0)) / max(1, s.width))
+    return s
+
+
+def natural(im: Image.Image) -> tuple[float, float, float]:
+    """Kesik görselin (ya da dilimin) kaynaktaki yeri: (x ortası, y alt kenarı, h boyu), kaynağın oranı. Kare (frame)
+    katmanında x, y, h verilmezse görsel kendi yerinde durur."""
+    src_w, src_h = im.info.get("src_w"), im.info.get("src_h")
+    box = im.info.get("box")
+    if not (src_w and src_h and box):
+        return 0.5, 1.0, 0.6
+    x0, y0, x1, y1 = box
+    return (x0 + x1) / 2 / src_w, y1 / src_h, (y1 - y0) / src_h
+
+
 def silhouette(im: Image.Image, label: str) -> Image.Image:
     """Kukla: aynı biçimde düz renk (görselin ortalama rengi, açılmış), koyu kontur ve ad etiketi."""
     al = im.getchannel("A")
@@ -302,7 +341,7 @@ class Stage:
                     g.line([(x, 0), (x, H)], fill=(212, 214, 219))
                 for y in range(0, H, 80):
                     g.line([(0, y), (W, y)], fill=(212, 214, 219))
-        self.sprites = {}
+        self.sprites, self._cuts = {}, {}
         for L in plan.get("layers", []):
             self.sprites[L["id"]] = self._sprite(L, images)
 
@@ -310,19 +349,34 @@ class Stage:
         name = L.get("id", "")
         path = images.get(L.get("image"))
         if path:
-            im = Image.open(path)
-            if L.get("cutout", True) and is_page(im):
-                im = cutout(im)
-            else:
-                im = im.convert("RGBA")
+            im = self._source(path, bool(L.get("cutout", True)))
+            if L.get("crop"):
+                im = strip(im, *[float(v) for v in L["crop"]])
         else:                                           # görseli yok: oval kukla
             im = Image.new("RGBA", (300, 600), (0, 0, 0, 0))
             dd = ImageDraw.Draw(im)
             dd.ellipse((70, 0, 230, 160), fill=(150, 150, 165, 255))
             dd.rounded_rectangle((40, 150, 260, 600), 90, fill=(150, 150, 165, 255))
         if self.dummy or not path:
+            info = dict(im.info)
             im = silhouette(im, name)
+            im.info.update(info)                        # yer bilgisi (kutu, dilim çapası) kuklada da kalır
         return im
+
+    def _source(self, path: str, cut: bool) -> Image.Image:
+        """Görselin kesik kâğıt hâli (aynı görsel birden çok katmanda kullanılırsa bir kez kesilir)."""
+        cache = self._cuts
+        if (path, cut) not in cache:
+            im = Image.open(path)
+            src_w, src_h = im.size
+            if cut and is_page(im):
+                im = cutout(im)
+            else:
+                im = im.convert("RGBA")
+                im.info["box"] = (0, 0, im.width, im.height)
+            im.info["src_w"], im.info["src_h"] = src_w, src_h
+            cache[(path, cut)] = im
+        return cache[(path, cut)]
 
     def frame(self, t: float) -> Image.Image:
         world = self.bg.copy().convert("RGBA")
@@ -331,14 +385,17 @@ class Stage:
                 continue
             im = self.sprites[L["id"]]
             keys = L.get("keys", [])
-            x, y, h = keyed(keys, t, "x", L.get("x", 0.5)), keyed(keys, t, "y", L.get("y", 1.0)), keyed(keys, t, "h", L.get("h", 0.6))
+            nx, ny, nh = natural(im)
+            x, y = keyed(keys, t, "x", L.get("x", nx)), keyed(keys, t, "y", L.get("y", ny))
+            h = keyed(keys, t, "h", L.get("h", nh))
             dx, dy, sx, sy, rot = motion(L.get("actions", []), t)
             th = max(2, round(h * H * sy))
             tw = max(2, round(im.width * (h * H / im.height) * sx))
             sp = im.resize((tw, th), Image.BILINEAR)
             if abs(rot) > 0.05:
                 sp = sp.rotate(rot, resample=Image.BICUBIC, expand=True, center=(tw / 2, th))
-            world.paste(sp, (round((x + dx) * W - sp.width / 2), round((y + dy) * H - sp.height)), sp)
+            anchor = float(im.info.get("anchor", 0.5))
+            world.paste(sp, (round((x + dx) * W - sp.width * anchor), round((y + dy) * H - sp.height)), sp)
         cam = self.plan.get("camera", [])
         z = max(1.0, keyed(cam, t, "zoom", 1.0))
         cx, cy = keyed(cam, t, "cx", 0.5) * W, keyed(cam, t, "cy", 0.5) * H
@@ -420,6 +477,14 @@ def validate(plan) -> list[str]:
             v = L.get(k)
             if v is not None and not (isinstance(v, (int, float)) and -1 <= v <= 3):
                 errs.append(f"{L['id']}: {k} -1 ile 3 arasında bir sayı olmalı.")
+        crop = L.get("crop")
+        if crop is not None and not (isinstance(crop, list) and len(crop) == 2
+                                     and all(isinstance(c, (int, float)) for c in crop) and 0 <= crop[0] < crop[1] <= 1):
+            errs.append(f"{L['id']}: crop [x0, x1] olmalı (0 ≤ x0 < x1 ≤ 1, görselin genişlik oranı).")
+        for k in L.get("keys") or []:
+            if not isinstance(k, dict) or not isinstance(k.get("t"), (int, float)):
+                errs.append(f"{L['id']}: keys içindeki her anahtar karede sayı olarak 't' gerekli.")
+                break
         for a in L.get("actions") or []:
             if not isinstance(a, dict) or a.get("type") not in ACTIONS:
                 errs.append(f"{L['id']}: bilinmeyen hareket ({a.get('type') if isinstance(a, dict) else a}). "

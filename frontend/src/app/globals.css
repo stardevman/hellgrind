@@ -681,6 +681,7 @@ button.card:hover { border-color: var(--line-2); background: var(--hover); }
 .staging-guide { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
 .staging-guide > span { display: grid; gap: 2px; }
 .staging-guide input { margin-top: 3px; }
+.staging-note { margin: 0; padding: 6px 8px; border-left: 2px solid var(--accent); background: var(--raised); }
 .staging .row.wrap { flex-wrap: wrap; gap: 4px; justify-content: flex-start; }
 .staging-plan { width: 100%; font-size: 11px; line-height: 1.35; background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: var(--r); padding: 6px; resize: vertical; }
