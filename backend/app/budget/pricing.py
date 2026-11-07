@@ -1,5 +1,6 @@
 import math
 from functools import lru_cache
+from itertools import pairwise
 
 import yaml
 
@@ -77,20 +78,43 @@ def fal_video(engine: str, prices: dict | None = None) -> dict | None:
     return ((prices or table()).get("fal_video") or {}).get(engine)
 
 
-def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict | None = None, mode: str = "ref") -> dict:
+def h3max_video_tokens(resolution: str, seconds: float, out_seconds: float | None = None, prices: dict | None = None) -> int:
+    """Referans videosunun token'ı (model sayfasının tablosundan doğrusal ara değer). Sayılan kareler istenen çıktı
+    süresiyle sınırlıdır."""
+    if not seconds:
+        return 0
+    row = fal_video("h3max", prices)
+    tables = row.get("video_tokens") or {}
+    table_ = tables.get(resolution) or max(tables.values(), key=lambda t: max(t.values()))
+    pts = sorted((float(k), float(v)) for k, v in table_.items())
+    t = min(float(seconds), float(out_seconds)) if out_seconds else float(seconds)
+    if t <= pts[0][0]:
+        return round(pts[0][1])
+    for (a, va), (b, vb) in pairwise(pts):
+        if t <= b:
+            return round(va + (vb - va) * (t - a) / (b - a))
+    (a, va), (b, vb) = pts[-2], pts[-1]
+    return round(vb + (vb - va) * (t - b) / (b - a))
+
+
+def h3max_cost(resolution: str, duration_s: float, images: int = 0, prices: dict | None = None, mode: str = "ref",
+               video_seconds: float = 0.0) -> dict:
     """MiniMax H3 Max: istenen süre × saniye ücreti (480P 0,05 / 768P 0,08 / 1080P 0,16) + referans token fazlası (her
-    girdi görseli 1.024 token; 4.096 token dahil, fazlası 0,02 $ / 1000), × billing_factor (ölçülen fatura). Bilinmeyen
-    çözünürlük: en pahalısı."""
+    girdi görseli 1.024 token, referans videosu süresine göre (video_tokens tablosu); 4.096 token dahil, fazlası
+    0,02 $ / 1000), × billing_factor (ölçülen fatura). Bilinmeyen çözünürlük: en pahalısı."""
     row = fal_video("h3max", prices)
     rates = row.get("per_second_i2v") if mode == "i2v" and row.get("per_second_i2v") else row["per_second"]
     rate = float(rates.get(resolution, max(rates.values())))
     tokens = int(images) * int(row.get("image_tokens", 1024)) if mode != "i2v" else 0   # token fazlası: reference-to-video
+    video_tokens = h3max_video_tokens(resolution, video_seconds, duration_s, prices) if mode != "i2v" else 0
+    tokens += video_tokens
     extra_tokens = max(0, tokens - int(row.get("included_reference_tokens", 4096)))
     base = rate * float(duration_s) + extra_tokens / 1000.0 * float(row.get("extra_per_1k_tokens", 0.02))
     factor = float(row.get("billing_factor", 1.0))
     usd = round(base * factor, 4)
     return {"engine": "h3max", "mode": mode, "resolution": resolution, "duration_s": float(duration_s), "per_second_usd": rate,
-            "images": int(images), "reference_tokens": tokens, "extra_tokens": extra_tokens, "base_usd": round(base, 4),
+            "images": int(images), "video_seconds": float(video_seconds), "video_tokens": video_tokens,
+            "reference_tokens": tokens, "extra_tokens": extra_tokens, "base_usd": round(base, 4),
             "billing_factor": factor, "usd": usd, "reserve_usd": usd, "units": round(usd / 0.05, 2)}
 
 
@@ -150,7 +174,7 @@ def fal_video_cost(engine: str, resolution: str, duration_s: float, images: int 
     """Çağrıdan önceki tahmin (bütçe kapısı): {"usd", "reserve_usd", ...}. mode: H3 Max uç noktası (i2v | ref);
     draft: Seedance 2.5 taslağı (480p fiyatı)."""
     if engine == "h3max":
-        return h3max_cost(resolution, duration_s, images, prices, mode)
+        return h3max_cost(resolution, duration_s, images, prices, mode, video_seconds=in_video_seconds)
     if engine == "flux3max":
         return flux3max_cost(resolution, duration_s, prices)
     if engine == "seedance25":

@@ -5,6 +5,8 @@ Kabul:
   - Kurallar planı kadrajdan boy, kamera hareketinden anahtar kare, duygudan hareket çıkarır.
   - Çizici aynı plandan aynı kareyi verir; hareket kareleri değiştirir; kukla sürümü görünüş taşımaz.
   - Görseli olan çekim animatikte hareketli klip olur, olmayan kart kalır; yönetmenin planı doğrulanır ve kullanılır.
+  - Kukla rehberi açıkken sahnenin isteğine referans videosu olarak girer (şemaya uygun, istemde "Video 1"), bedeli
+    referans token'ıyla artar, parçanın her çekiminde açık değilse gönderilmez; üretimde yerel olarak çizilir.
 """
 import subprocess
 import uuid
@@ -13,7 +15,12 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
+from app.budget import pricing
+from app.config import settings
+from app.engine import fal_plan
 from app.post import staging
+from tests.fal_queue_fake import FakeQueue, validate
+from tests.test_reference_mode import nora, plan_for, ref_defaults  # noqa: F401 (fikstür)
 
 
 def page(path, box=(500, 300, 700, 620), color=(220, 90, 40)):
@@ -148,3 +155,108 @@ def test_a_shot_with_a_frame_is_staged_in_the_animatic_and_the_director_can_edit
     assert api.delete(f"/api/scenes/{sid}/staging").json()["source"] == "rules"
     other = next(c for c in cut["clips"] if c["scene_code"] != code)
     assert api.post(f"/api/scenes/{other['scene_id']}/staging/preview").status_code == 409
+
+
+# ---------- kukla rehberi: video modeline hareket referansı ----------
+
+def test_the_guide_is_a_reference_video_in_the_body_and_costs_reference_tokens():
+    kw = {"prompt": "x", "duration_s": 5.0, "resolution_": "480P", "audio_": False, "seed": 1}
+    endpoint, body = fal_plan.body("h3max", "ref", video_urls=["https://v/g.mp4"], **kw)
+    assert body["reference_video_urls"] == ["https://v/g.mp4"] and validate(endpoint, body) == []
+    endpoint, body = fal_plan.body("h3max", "i2v", image_url="https://v/f.png", video_urls=["https://v/g.mp4"], **kw)
+    assert "reference_video_urls" not in body and validate(endpoint, body) == []           # image-to-video almaz
+    endpoint, body = fal_plan.body("seedance25", "ref", video_urls=["https://v/g.mp4"], **{**kw, "resolution_": "720p"})
+    assert body["video_urls"] == ["https://v/g.mp4"] and validate(endpoint, body) == []
+    assert pricing.h3max_video_tokens("768P", 5) == 32256 and pricing.h3max_video_tokens("480P", 0) == 0
+    assert pricing.h3max_video_tokens("768P", 7.5) == round((32256 + 67536) / 2)
+    assert pricing.h3max_video_tokens("768P", 12, out_seconds=5) == 32256               # çıktı süresiyle sınırlı
+    plain, guided = fal_plan.cost("h3max", "768P", 5, 2), fal_plan.cost("h3max", "768P", 5, 2, video_s=5)
+    assert guided["usd"] - plain["usd"] == pytest.approx((32256 + 2048 - 4096) / 1000 * 0.02 * 1.05, abs=1e-3)
+    assert fal_plan.cost("h3max", "768P", 5, 2, "i2v", video_s=5)["usd"] == fal_plan.cost("h3max", "768P", 5, 2, "i2v")["usd"]
+
+
+def _guide(ids, on=True, codes=None):
+    from app.db import session_scope
+    from app.models import Scene
+    with session_scope() as s:
+        for code, sid in ids.items():
+            if codes is None or code in codes:
+                s.get(Scene, sid).motion_guide = on
+
+
+def test_the_guide_goes_with_the_whole_scene_only_when_every_shot_has_it(ref_defaults, mk_project, s3, api, tmp_path):
+    from app import storage
+    from app.core.hashing import visual_fingerprint
+    from app.db import session_scope
+    from app.models import Scene
+    from app.post import animatic
+    pid, ids = nora(mk_project)
+    before = plan_for(ids["S001_SH01"])
+    assert "reference_video_urls" not in before["body"] and "Video 1" not in before["body"]["prompt"]
+    _guide(ids, codes={"S001_SH01"})
+    half = plan_for(ids["S001_SH01"])
+    assert "reference_video_urls" not in half["body"] and any("bütün çekimlerinde açık değil" in w for w in half["warnings"])
+    with session_scope() as s:
+        sc = s.get(Scene, ids["S001_SH02"])
+        fp_off = visual_fingerprint(sc, [], [])
+        sc.motion_guide = True
+        assert visual_fingerprint(sc, [], []) != fp_off                                # rehber görüntüyü belirler
+    _guide(ids)
+    plan = plan_for(ids["S001_SH01"])
+    body = plan["body"]
+    (url,) = body["reference_video_urls"]
+    assert url.startswith(f"local:animatic/{pid}/guide/part_") and validate(plan["endpoint"], body) == []
+    assert "Video 1 is a motion guide" in body["prompt"] and len(body["reference_image_urls"]) == 4
+    assert plan["cost"]["video_tokens"] == pricing.h3max_video_tokens("480P", 10.0)
+    assert plan["cost"]["usd"] > before["cost"]["usd"] and plan["plan_hash"] != before["plan_hash"]
+    assert any(u["field"] == "reference_video_urls[0]" and "kukla rehberi" in u["note"] for u in plan["uploads"])
+
+    view = api.get(f"/api/scenes/{ids['S001_SH02']}/staging").json()["guide"]
+    assert view["on"] and view["seconds"] == 3.0 and view["extra_usd"] > 0
+    off = api.put(f"/api/scenes/{ids['S001_SH02']}/staging/guide", json={"on": False}).json()["guide"]
+    assert off["on"] is False and "reference_video_urls" not in plan_for(ids["S001_SH01"])["body"]
+    assert api.put(f"/api/scenes/{ids['S001_SH02']}/staging/guide", json={"on": True}).json()["guide"]["on"]
+
+    with session_scope() as s:                                                  # üretimde: yerel, ücretsiz çizim
+        part = [s.get(Scene, ids[c]) for c in ("S001_SH01", "S001_SH02", "S001_SH03")]
+        key = animatic.ensure_part_guide(s, part, "h3max", str(tmp_path))
+    assert f"local:{key}" == url and storage.exists(key)
+    path = storage.download(key, str(tmp_path / "g.mp4"))
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                               capture_output=True, text=True, check=True).stdout)
+    assert abs(dur - 10.0) < 0.2
+
+
+def test_a_paid_request_uploads_the_guide_as_video_1(ref_defaults, paid, s3, mk_project, monkeypatch, tmp_path, api,
+                                                     fast):
+    import sys
+    import uuid as uuid_
+
+    from app.engine.iteration import run_tiered_generation
+    from app.engine.procedural import render_clip
+    from app.live import fal_queue, fal_video
+    from app.quality import gate
+    fake = FakeQueue()
+    monkeypatch.setitem(sys.modules, "fal_client", fake.module())
+    monkeypatch.setattr(fal_queue, "POLL_S", 0)
+    monkeypatch.setattr(settings, "quality_scorer", "dry")
+    monkeypatch.setattr(gate, "ensure_scorer", lambda: None)
+    fal_queue._local_uploads.clear()
+    for key in fal_queue._r().scan_iter("hg:fal:*"):
+        fal_queue._r().delete(key)
+
+    def download(url, suffix=".mp4"):
+        path = str(tmp_path / f"{uuid_.uuid4().hex}{suffix}")
+        render_clip(path, 1, 160, 90, 10.5, 8, emotion="neutral", camera={"shot": "wide"}, characters=["Nora"])
+        return path
+    monkeypatch.setattr(fal_video, "_download", download)
+    pid, ids = nora(mk_project)
+    _guide(ids)
+    plan = api.get(f"/api/scenes/{ids['S001_SH01']}/fal-plan").json()
+    assert api.post(f"/api/scenes/{ids['S001_SH01']}/plan/approve", json={"plan_hash": plan["plan_hash"]}).status_code == 200
+    for sid in ids.values():
+        assert run_tiered_generation(pid, sid) == "refined"
+    (endpoint, body), = [(e, b) for e, b in fake.submits]
+    assert endpoint == "minimax/h3-max/reference-to-video" and validate(endpoint, body) == []
+    assert len(body["reference_video_urls"]) == 1 and len(body["reference_image_urls"]) == 4
+    assert body["reference_video_urls"][0].startswith("https://") and "Video 1 is a motion guide" in body["prompt"]

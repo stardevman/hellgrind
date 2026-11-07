@@ -313,12 +313,15 @@ def build_prompt(engine: str, mode: str, composed, refs: list[Ref], style, names
 
 def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_: str, audio_: bool, seed: int | None,
          image_url: str | None = None, end_image_url: str | None = None, reference_urls=(),
-         draft_: bool = False, audio_urls=()) -> tuple[str, dict]:
+         draft_: bool = False, audio_urls=(), video_urls=()) -> tuple[str, dict]:
     """(uç nokta, istek gövdesi). Tipler şemaya uyar (testler OpenAPI tanımıyla doğrular). audio_urls: ses referansı
-    (yalnızca reference-to-video; H3 Max reference_audio_urls en çok 3, Seedance 2.5 audio_urls en çok 10)."""
+    (yalnızca reference-to-video; H3 Max reference_audio_urls en çok 3, Seedance 2.5 audio_urls en çok 10). video_urls:
+    hareket referansı (kukla rehberi; yalnızca reference-to-video; H3 Max reference_video_urls en çok 3, Seedance 2.5
+    video_urls en çok 10)."""
     seconds = request_seconds(engine, duration_s)
     refs = list(reference_urls)
     sounds = list(audio_urls)
+    videos = list(video_urls)
     if engine == "h3max":
         args = {"prompt": prompt, "prompt_expansion_mode": settings.h3max_prompt_expansion or "disabled",
                 "duration": seconds, "resolution": resolution_}
@@ -335,6 +338,8 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
             args["aspect_ratio"] = "16:9"
             if refs:
                 args["reference_image_urls"] = refs[:H3_MAX_REFERENCES]
+            if videos:
+                args["reference_video_urls"] = videos[:3]
             if sounds:
                 args["reference_audio_urls"] = sounds[:3]
             if image_url:                                   # ilk kare ref modunda da verilebilir (referanslar korunur)
@@ -367,6 +372,8 @@ def body(engine: str, mode: str, *, prompt: str, duration_s: float, resolution_:
     args.update(task="reference", aspect_ratio="16:9")
     if refs:
         args["image_urls"] = refs[:SEEDANCE_MAX_REFERENCES]
+    if videos:
+        args["video_urls"] = videos[:10]
     if sounds:
         args["audio_urls"] = sounds[:10]
     if seed is not None:
@@ -381,10 +388,12 @@ def images_in(args: dict) -> int:
 
 
 def cost(engine: str, resolution_: str, duration_s: float, images: int = 0, mode: str = "ref",
-         draft_: bool = False) -> dict:
-    """Uç noktaya göre tahmin: H3 Max image-to-video ve reference-to-video ayrı fiyatlı; Seedance taslağı 480p."""
+         draft_: bool = False, video_s: float = 0.0) -> dict:
+    """Uç noktaya göre tahmin: H3 Max image-to-video ve reference-to-video ayrı fiyatlı; Seedance taslağı 480p. video_s:
+    referans videosunun (kukla rehberi) süresi: H3 Max'te token, Seedance'ta girdi saniyesi olarak eklenir."""
     return pricing.fal_video_cost(engine, norm_resolution(engine, resolution_), billed_seconds(engine, duration_s),
-                                  images=images, mode=mode, draft=draft_)
+                                  images=images, in_video_seconds=video_s if mode == "ref" else 0.0, mode=mode,
+                                  draft=draft_)
 
 
 def sha256_of(path: str) -> str:

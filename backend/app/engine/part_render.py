@@ -347,14 +347,27 @@ def _request(plan, snap: dict, seed: int, provider) -> GenRequest:
     sounds = []
     if plan.audio_ref and plan.audio_ref.get("key") and hasattr(provider, "upload"):
         sounds = [_audio_mix(plan)]                     # ses-önce: diyalog karışımı (yerel FFmpeg; içerik-adresli)
+    videos = []
+    if plan.guide.get("key") and hasattr(provider, "upload"):
+        videos = [_guide(plan)]                         # kukla rehberi: hareketli animatikten (yerel; içerik-adresli)
     return GenRequest(prompt=plan.prompt, seed=seed, resolution=plan.resolution, duration_s=plan.duration_s,
                       image_url=image_url,
                       extra={**snap["render"], "label": f"{'+'.join(snap['codes'])}  {plan.engine}",
                              "fal_mode": plan.mode, "fal_refs": refs, "fal_ref_names": [r.name for r in plan.refs],
-                             "fal_audio_refs": sounds,
+                             "fal_audio_refs": sounds, "fal_video_refs": videos,
+                             "fal_video_s": plan.guide.get("seconds") or 0.0,
                              "fal_images": images, "fal_audio": plan.audio, "fal_draft": plan.draft,
                              "scene_id": snap["leader"],
                              "project_id": str(plan.leader.project_id)})
+
+
+def _guide(plan) -> str:
+    """Parçanın kukla rehberini depoda hazırlar (yoksa çizer); anahtarını döndürür."""
+    from app.post import animatic
+    os.makedirs(settings.work_dir, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=settings.work_dir) as tmp, session_scope() as s:
+        part = [s.get(Scene, x.id) for x in plan.shots]
+        return animatic.ensure_part_guide(s, part, plan.engine, tmp)
 
 
 def _audio_mix(plan) -> str:

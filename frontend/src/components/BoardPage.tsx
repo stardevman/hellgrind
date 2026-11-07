@@ -9,10 +9,10 @@ import { api } from "@/lib/api";
 import { BOARD_TR, MOVE_TR, SHOT_TR } from "@/lib/i18n";
 import { pickMedia, posterOf } from "@/lib/media";
 import { usePanel } from "@/lib/panel";
-import { passText, stripText } from "@/lib/text";
+import { passText, stripText, usdTr } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
-import type { DispatchAll, Film, Scene, StagingPreview, StagingView, StoryboardPlan, StripApproval } from "@/lib/types";
+import type { DispatchAll, Film, Scene, StagingGuide, StagingPreview, StagingView, StoryboardPlan, StripApproval } from "@/lib/types";
 import { SafeAreas } from "./Broadcast";
 import { Icon } from "./icons";
 import { NoteBox, ToolMenu, useSynced } from "./ui";
@@ -159,6 +159,12 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
     note("board", `${view.scene_code} sahnelemesi kurallara döndü.`, "ok");
     onSaved();
   }, "board");
+  const toggleGuide = (on: boolean) => act(async () => {
+    show(await api.put<StagingView>(`/scenes/${sceneId}/staging/guide`, { on }));
+    note("board", on ? `${view.scene_code}: kukla rehberi video isteğine eklendi; plan ve bedel yenilendi (onay yeniden istenir).`
+      : `${view.scene_code}: kukla rehberi video isteğinden çıkarıldı.`, "ok");
+    onSaved();
+  }, "board");
   const render = (dummy: boolean) => act(async () => {
     setWorking(dummy ? "guide" : "preview");
     try { setPreview(await api.post<StagingPreview>(`/scenes/${sceneId}/staging/preview?dummy=${dummy}`)); }
@@ -176,6 +182,7 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
             title="Görünüş taşımayan, adı yazılı siluetler: video modeline hareket ve kamera rehberi">{working === "guide" ? "Çiziliyor…" : "Kukla rehberi"}</button>
           {preview && <a className="btn ghost" href={preview.url} download>İndir</a>}
         </div>
+        {view.guide && <GuideToggle guide={view.guide} busy={busy} onChange={(on) => void toggleGuide(on)} />}
         <label className="faint small" htmlFor={`staging-${sceneId}`}>Plan (JSON): konum x/y, boy h (kare oranı), hareketler, kamera</label>
         <textarea id={`staging-${sceneId}`} className="mono staging-plan" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} rows={12} />
         <p className="faint small">Hareketler: {view.actions.join(", ")} · görseller: {view.images.join(", ") || "yok"}</p>
@@ -185,6 +192,22 @@ function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void })
         </div>
       </>}
     </div>
+  );
+}
+
+/** Kukla rehberini video isteğine ekleme anahtarı: ne işe yaradığı ve ek bedeli (referans videosu token'ı) yazılı. */
+function GuideToggle({ guide, busy, onChange }: { guide: StagingGuide; busy: boolean; onChange: (on: boolean) => void }) {
+  const cost = guide.extra_usd != null
+    ? `${guide.engine_label}${guide.resolution ? ` ${guide.resolution}` : ""}: istek başına yaklaşık +${usdTr(guide.extra_usd)}`
+    : `${guide.engine_label} rehber almaz (yalnızca H3 Max ve Seedance 2.5)`;
+  return (
+    <label className="staging-guide">
+      <input type="checkbox" checked={guide.on} disabled={busy} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <b>Kukla rehberini video modeline ver</b>
+        <span className="faint small">Model hareketi, zamanlamayı ve kamerayı rehberden ({secTr(guide.seconds)}, çekimin video süresi) alır; görünüşü ilk kare ve referanslardan. {cost}.</span>
+      </span>
+    </label>
   );
 }
 
