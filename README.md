@@ -415,8 +415,11 @@ Sektörde diyalog animasyondan önce kaydedilir; çekim süresi ve tempo sesten 
 - **Proje ayarı `voice_first`** (varsayılan kapalı; Ses sayfası › Ses-önce ayarı, yönetici):
   - Açıkken sesi kilitlenmemiş sekansta görüntü üretimi başlamaz. Dağıtım `awaiting_voice` döner; planlayıcı aynı kalır.
   - Yapılacaklar listesi "N sekansın sesi kilitlenmedi" ve "N replik final sesi bekliyor" eksiklerini gösterir.
-- **Animatik** (Storyboard › Animatik): onaylı kareleri, karesi olmayan çekimde ise çekim kartını geçici ya da final sesle, sesin süresine göre dizer.
-  - Yerel FFmpeg ile birleştirilir (`POST /api/projects/{id}/animatic`; çıktı `animatic/{proje}/{özet}.mp4` ve kesme listesi).
+- **Animatik** (Storyboard › Animatik): çekimleri geçici ya da final sesle, sesin süresine göre dizer. Görseli hiç olmayan çekim kart olarak görünür.
+  - **Hareketli animatik:** görseli olan çekim (yönetmenin yüklediği ilk kare, onaylı storyboard karesi, kadronun ve mekânın referans görselleri) durağan kare yerine sahnelenir. Beyaz zeminli görseller kesik kâğıt gibi yerleşir, karakterler duyguya göre oynar (nefes, iç çekme, gülme, boyun bükme, sıçrama…), kamera çekimin hareketini yapar, replikler alt yazı olarak görünür. Boyalı (zemini beyaz olmayan) kare arka plan olur, yalnızca kamera hareket eder.
+  - Sahneleme planı çekimin `staging` alanındadır (JSON: konum, boy, hareketler, kamera anahtar kareleri). Boşsa kurallardan çıkarılır (kadraj, kamera hareketi, duygu, kadro). Bir çekim seçilince panelde düzenlenir, önizlenir ve kurallara döndürülür (`GET/PUT/DELETE /api/scenes/{id}/staging`, `POST /api/scenes/{id}/staging/preview`).
+  - **Kukla rehberi** (`preview?dummy=true`): aynı planın görünüş taşımayan sürümü (düz renkli, adı yazılı siluetler; boyalı karede yalnızca çizgiler). Video modeline hareket ve kamera rehberi olarak verilmek içindir.
+  - Yerel çizilir ve FFmpeg ile birleştirilir (`POST /api/projects/{id}/animatic`; çıktı `animatic/{proje}/{özet}.mp4` ve kesme listesi). Çekim klipleri içerik-adreslidir; değişmeyen çekim yeniden çizilmez. Ücretsizdir.
   - Toplam süre ve sekans süreleri görünür.
 - **Kurgu denetçisi › Ses:** kilit durumu, çekim süresi ve "sesten" etiketi görünür. Yönetici modunda iki ek bilgi var:
   - **Ses referansı: açık / kapalı.** Açıkken parçanın diyalog karışımı video isteğine eklenir. Alan adı şemadandır: Seedance 2.5'te `audio_urls`, H3 Max'te `reference_audio_urls`.

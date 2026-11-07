@@ -183,6 +183,7 @@ class Scene(Base):
     external_hash: Mapped[str | None] = mapped_column(Text)
     guide_key: Mapped[str | None] = mapped_column(Text)
     guide_hash: Mapped[str | None] = mapped_column(Text)
+    staging: Mapped[dict | None] = mapped_column(JSONB)                    # 044: animatik sahneleme planı (boş: kurallar)
     grade: Mapped[dict] = mapped_column(JSONB, default=dict)
     grade_hash: Mapped[str | None] = mapped_column(Text)
     graded_video_key: Mapped[str | None] = mapped_column(Text)

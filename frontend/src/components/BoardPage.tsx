@@ -1,8 +1,9 @@
 "use client";
 /* Storyboard sayfası (storyboard yazılımları gibi): sekans sekans kare ızgarası; her karede kamera, süre, diyalog,
    yönetmen notu ve onay. Üst araç çubuğu kareleri hazırlar, PDF verir, taslak ve iyileştirme geçişlerini başlatır.
-   "Animatik" sekmesi onaylı kareleri (yoksa çekim kartını) geçici ya da final sesle, sesin süresine göre dizer; ücretsiz
-   modda yerel olarak birleştirilir. Toplam süre ve sekans süreleri görünür. */
+   "Animatik" sekmesi çekimleri geçici ya da final sesle, sesin süresine göre dizer: görseli olan çekim (ilk kare, onaylı
+   kare, kadro ve mekân referansları) sahnelenir (kesik kâğıt, duyguya göre hareket, kamera), olmayan kart kalır. Bir
+   çekim seçilince sahneleme planı düzenlenir, önizlenir; kukla sürümü video modeline hareket rehberidir. Ücretsizdir. */
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { BOARD_TR, MOVE_TR, SHOT_TR } from "@/lib/i18n";
@@ -11,7 +12,7 @@ import { usePanel } from "@/lib/panel";
 import { passText, stripText } from "@/lib/text";
 import { timecode } from "@/lib/timeline";
 import { secTr } from "@/lib/voice";
-import type { DispatchAll, Film, Scene, StoryboardPlan, StripApproval } from "@/lib/types";
+import type { DispatchAll, Film, Scene, StagingPreview, StagingView, StoryboardPlan, StripApproval } from "@/lib/types";
 import { SafeAreas } from "./Broadcast";
 import { Icon } from "./icons";
 import { NoteBox, ToolMenu, useSynced } from "./ui";
@@ -123,12 +124,78 @@ function BoardCard({ sc, refMode }: { sc: Scene; refMode: boolean }) {
   );
 }
 
+const STILL: Record<string, { color: string; tr: string }> = {
+  motion: { color: "#2f7d63", tr: "hareketli sahneleme" }, board: { color: "#3a5f9e", tr: "onaylı kare" },
+  card: { color: "#3a3c42", tr: "çekim kartı" },
+};
+
+/** Seçili çekimin sahneleme planı: kaynak (kurallar / yönetmen), JSON düzenleme, önizleme ve kukla rehber videosu. */
+function Staging({ sceneId, onSaved }: { sceneId: string; onSaved: () => void }) {
+  const { busy, act, note } = usePanel();
+  const [view, setView] = useState<StagingView | null>(null);
+  const [text, setText] = useState("");
+  const [preview, setPreview] = useState<StagingPreview | null>(null);
+  const [working, setWorking] = useState<"" | "preview" | "guide">("");
+  useEffect(() => {
+    let live = true;
+    setView(null); setPreview(null);
+    api.get<StagingView>(`/scenes/${sceneId}/staging`).then((v) => {
+      if (!live) return;
+      setView(v); setText(v.plan ? JSON.stringify(v.plan, null, 1) : "");
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [sceneId]);
+  if (!view) return <p className="faint small">Sahneleme okunuyor…</p>;
+  const show = (v: StagingView) => { setView(v); setText(v.plan ? JSON.stringify(v.plan, null, 1) : ""); setPreview(null); };
+  const save = () => act(async () => {
+    let plan: unknown;
+    try { plan = JSON.parse(text); } catch { note("board", "Plan geçerli bir JSON değil.", "err"); return; }
+    show(await api.put<StagingView>(`/scenes/${sceneId}/staging`, { plan }));
+    note("board", `${view.scene_code} sahnelemesi kaydedildi; animatiği yeniden birleştirince görünür.`, "ok");
+    onSaved();
+  }, "board");
+  const reset = () => act(async () => {
+    show(await api.del<StagingView>(`/scenes/${sceneId}/staging`));
+    note("board", `${view.scene_code} sahnelemesi kurallara döndü.`, "ok");
+    onSaved();
+  }, "board");
+  const render = (dummy: boolean) => act(async () => {
+    setWorking(dummy ? "guide" : "preview");
+    try { setPreview(await api.post<StagingPreview>(`/scenes/${sceneId}/staging/preview?dummy=${dummy}`)); }
+    finally { setWorking(""); }
+  }, "board");
+  return (
+    <div className="staging" data-tour="board-staging">
+      <div className="row"><b className="mono">{view.scene_code}</b>
+        <span className="faint">{view.source === "director" ? "yönetmen planı" : view.source === "rules" ? "kurallardan" : "görsel yok"} · {secTr(view.duration_s)}</span></div>
+      {view.note ? <p className="faint small">{view.note}</p> : <>
+        {preview && <video key={preview.url} src={preview.url} controls autoPlay muted playsInline />}
+        <div className="row wrap">
+          <button className="btn" type="button" disabled={busy || Boolean(working)} onClick={() => void render(false)}>{working === "preview" ? "Çiziliyor…" : "Önizle"}</button>
+          <button className="btn" type="button" disabled={busy || Boolean(working)} onClick={() => void render(true)}
+            title="Görünüş taşımayan, adı yazılı siluetler: video modeline hareket ve kamera rehberi">{working === "guide" ? "Çiziliyor…" : "Kukla rehberi"}</button>
+          {preview && <a className="btn ghost" href={preview.url} download>İndir</a>}
+        </div>
+        <label className="faint small" htmlFor={`staging-${sceneId}`}>Plan (JSON): konum x/y, boy h (kare oranı), hareketler, kamera</label>
+        <textarea id={`staging-${sceneId}`} className="mono staging-plan" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} rows={12} />
+        <p className="faint small">Hareketler: {view.actions.join(", ")} · görseller: {view.images.join(", ") || "yok"}</p>
+        <div className="row wrap">
+          <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>Planı kaydet</button>
+          {view.source === "director" && <button className="btn ghost" type="button" disabled={busy} onClick={() => void reset()}>Kurallara dön</button>}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 /** Animatik: oynatıcı, kesme şeridi ve sekans süreleri. Birleştirme kuyruğa verilir; film adresi değişince biter. */
 function Animatic() {
   const { ov, projectId, busy, act, note } = usePanel();
   const video = useRef<HTMLVideoElement | null>(null);
   const [now, setNow] = useState(0);
   const [waiting, setWaiting] = useState<{ before: string | null; at: number } | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   const film: Film | null = ov?.animatic ?? null;
   const pending = Boolean(waiting && film?.url === waiting.before && Date.now() - waiting.at < 120000);
   useEffect(() => { if (waiting && !pending) setWaiting(null); }, [waiting, pending]);
@@ -139,32 +206,37 @@ function Animatic() {
   const build = () => act(async () => {
     setWaiting({ before: film?.url ?? null, at: Date.now() });
     await api.post(`/projects/${projectId}/animatic`);
-    note("board", "Animatik birleştirmeye alındı: seslendirilmemiş replikler önce geçici sesle üretilir.", "ok");
+    setStale(false);
+    note("board", "Animatik birleştirmeye alındı: seslendirilmemiş replikler önce geçici sesle üretilir, görseli olan çekimler sahnelenir.", "ok");
   }, "board");
   return (
     <div className="animatic">
       <div className="stack">
         {film ? <video key={film.url} ref={video} src={film.url} controls preload="metadata" playsInline onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} />
-          : <p className="empty">Henüz animatik yok. Onaylı kareler (yoksa çekim kartları) sesle dizilir; birleştirmek ücretsizdir.</p>}
+          : <p className="empty">Henüz animatik yok. Görseli olan çekimler sahnelenir, olmayanlar kart olarak sesle dizilir; birleştirmek ücretsizdir.</p>}
         {clips.length > 0 && (
           <div className="cutbar" aria-label="Animatik çekimleri">
             {clips.map((c) => (
-              <button key={c.scene_code} type="button" className={`cut${now >= c.in_s && now < c.out_s ? " active" : ""}`}
-                style={{ flex: `${Math.max(0.1, c.out_s - c.in_s)} 1 0`, background: c.still === "board" ? "#3a5f9e" : "#3a3c42" }}
-                title={`${c.scene_code} · ${secTr(c.out_s - c.in_s)} · ${c.still === "board" ? "onaylı kare" : "çekim kartı"} · ${c.timing === "voice" ? "süre sesten" : "çekim süresi"}`}
-                onClick={() => { const v = video.current; if (v) { v.currentTime = c.in_s + 0.05; v.play().catch(() => {}); } }}>{c.scene_code}</button>
+              <button key={c.scene_code} type="button" className={`cut${now >= c.in_s && now < c.out_s ? " active" : ""}${c.scene_id && c.scene_id === sel ? " sel" : ""}`}
+                style={{ flex: `${Math.max(0.1, c.out_s - c.in_s)} 1 0`, background: (STILL[c.still ?? "card"] ?? STILL.card).color }}
+                aria-pressed={Boolean(c.scene_id && c.scene_id === sel)}
+                title={`${c.scene_code} · ${secTr(c.out_s - c.in_s)} · ${(STILL[c.still ?? "card"] ?? STILL.card).tr} · ${c.timing === "voice" ? "süre sesten" : "çekim süresi"}${cut?.errors?.[c.scene_code] ? ` · çizilemedi: ${cut.errors[c.scene_code]}` : ""}`}
+                onClick={() => { if (c.scene_id) setSel(c.scene_id); const v = video.current; if (v) { v.currentTime = c.in_s + 0.05; v.play().catch(() => {}); } }}>{c.scene_code}</button>
             ))}
           </div>
         )}
       </div>
       <div className="stack anim-seq">
         <button className="btn primary" type="button" disabled={busy || pending} onClick={() => void build()}>{pending ? "Birleştiriliyor…" : film ? "Animatiği yeniden birleştir" : "Animatiği birleştir"}</button>
+        {stale && <p className="warn small">Sahneleme değişti: görmek için animatiği yeniden birleştir.</p>}
         <div className="row"><b>Toplam</b><span className="mono">{timecode(total)} · {secTr(total)}</span></div>
         {(cut?.sequences ?? []).map((q) => (
           <div key={q.code} className="row"><span>{q.code} · {q.title}</span><span className="mono">{secTr(q.out_s - q.in_s)}</span></div>
         ))}
-        {cut && <p className="faint small">{cut.boards ?? 0} onaylı kare, {clips.length - (cut.boards ?? 0)} çekim kartı · {cut.voiced ?? 0} çekimin süresi sesten.</p>}
+        {cut && <p className="faint small">{cut.motion ?? 0} sahnelenmiş çekim, {cut.boards ?? 0} onaylı kare, {clips.length - (cut.boards ?? 0) - (cut.motion ?? 0)} çekim kartı · {cut.voiced ?? 0} çekimin süresi sesten.</p>}
         <p className="faint small">Süre: çekimin bütün replikleri seslendirildiyse giriş payı + replikler + çıkış payı, değilse çekim süresi. Ses ve kareler değişince yeniden birleştir.</p>
+        {sel ? <Staging sceneId={sel} onSaved={() => setStale(true)} />
+          : clips.some((c) => c.scene_id) && <p className="faint small">Sahnelemesini görmek ve düzenlemek için şeritten bir çekim seç.</p>}
       </div>
     </div>
   );
