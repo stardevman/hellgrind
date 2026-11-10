@@ -24,20 +24,23 @@ const overlay=()=>{ if(document.getElementById('demo-cap')) return;
  const move=async(x,y,steps=25)=>{await p.mouse.move(x,y,{steps});mx=x;my=y;};
  const click=async(loc)=>{const bb=await loc.boundingBox();await move(bb.x+bb.width/2,bb.y+bb.height/2);await W(250);await loc.click();await W(400);};
  const hover=async(loc)=>{const bb=await loc.boundingBox();if(bb) await move(bb.x+bb.width/2,bb.y+bb.height/2,30);};
- const go=async(pg,proj=REAL)=>{await p.goto(`${B}?p=${proj}&page=${pg}`);await W(2500);await cap(...(await p.evaluate(()=>window.__lastCap||['',''])));};
+ const go=async(pg,proj=REAL)=>{await p.goto(`${B}?p=${proj}&page=${pg}`,{waitUntil:'domcontentloaded'});await W(2500);await cap(...(await p.evaluate(()=>window.__lastCap||['',''])));};
  const safety=async()=>{ // refuse any consent dialog that appears
    const no=p.getByRole('button',{name:/Vazgeç|Reddet|Hayır|İptal/}); if(await no.count()) {await no.first().click().catch(()=>{});} };
 
- // ---- 0. Giriş
- await p.goto(`${B}?p=${REAL}&page=deliver`);await W(1500);
- await cap('Hellgrind Stüdyo · Üretim adımları','“Ponpon Kediye Ne Oldu? – Uzatılmış (sesli)” · 26 çekim · 1:56');await W(4500);
+ // ---- 0. Giriş: boş stüdyo, hiçbir üretim görünmez
+ const blank=async(on)=>{await p.evaluate((on)=>{let st=document.getElementById('demo-blank');
+   if(on&&!st){st=document.createElement('style');st.id='demo-blank';st.textContent=`.pm-card:not(.new),.pm-sec:not(:has(.pm-card.new)),.pagebar,.alerts,.pm-q{display:none!important} main,.page{visibility:hidden}`;document.head.appendChild(st);}
+   if(!on&&st) st.remove();},on);};
+ await p.goto(`${B}?p=${REAL}&page=script`,{waitUntil:'domcontentloaded'});await W(2500);await blank(true);await ensure();await W(1500);
+ await cap('Hellgrind Stüdyo','Sıfırdan bir çizgi film: “Ponpon Kediye Ne Oldu?”');await W(4000);
 
  // ---- 1. Yeni film
  await cap('1 · Yeni film oluştur','Proje yöneticisi › Yeni film');
- await click(p.locator('button.pb-btn[data-tour=home]'));await W(1500);
- await click(p.locator('.pm-card.new'));await W(1200);
+ await p.evaluate(()=>document.querySelector('button.pb-btn[data-tour=home]').click());await W(1500);
+ await click(p.locator('.pm-card.new'));await p.evaluate(()=>{const st=document.getElementById('demo-blank');st.textContent=st.textContent.replace('main,.page{visibility:hidden}','');});await W(1200);
  const title=p.locator('label.field:has-text("Proje adı") input');await click(title);
- await title.fill('');await title.pressSequentially('Ponpon Kediye Ne Oldu? - DEMO',{delay:60});
+ await title.fill('');await title.focus();await p.keyboard.type('Ponpon Kediye Ne Oldu?',{delay:60});
  const bud=p.locator('label.field:has-text("Sanal bütçe") input');await click(bud);await bud.fill('');await bud.pressSequentially('7',{delay:120});
  await click(p.locator('input[name=intensity][value=brief]'));await W(800);
 
@@ -47,7 +50,7 @@ const overlay=()=>{ if(document.getElementById('demo-cap')) return;
  const head=SCRIPT.slice(0,420);await ta.pressSequentially(head,{delay:14});
  await ta.fill(SCRIPT);await p.evaluate(()=>{const t=document.querySelector('textarea');t.scrollTop=t.scrollHeight;});await W(1800);
  await cap('2 · Senaryoyu işle ve üret','Ücretsiz mod: harcama sanal, hiçbir ücretli servis çağrılmaz');
- await p.screenshot({path:'shots/t_before_submit.png'}); if(process.env.TEST){await cap('(TEST: gönderim atlandı)');} else {await click(p.getByRole('button',{name:/Senaryoyu işle ve üret/}));await W(6000);await safety();await p.screenshot({path:'shots/t_after_submit.png'});}
+ await p.screenshot({path:'shots/t_before_submit.png'}); if(process.env.TEST){await cap('(TEST: gönderim atlandı)');} else {await click(p.getByRole('button',{name:/Senaryoyu işle ve üret/}));await blank(false);await W(6000);await safety();await p.screenshot({path:'shots/t_after_submit.png'});}
  await cap('Senaryo 26 çekime ayrıştırıldı','Bundan sonrası: aynı senaryonun gerçek üretimi');await W(4000);
 
  // ---- 3. Görünüm: stil + varlıklar (gerçek proje, sadece bakış)
