@@ -60,6 +60,25 @@ parçacığı havuzu; kalite skorlayıcısı ~3,6 GB bir kez yüklenir), `beat`,
 | http://localhost:9001 | MinIO konsolu (kullanıcı `minio`, parola `minio12345`) |
 | http://localhost:5555 | Flower (görev kuyruğu) |
 
+### Mac uygulaması (DMG)
+
+Panel bir Mac uygulaması olarak da kurulur: **Hell Grind.app** hattı yine Docker Desktop'ta çalıştırır (Docker'ı kendisi açar,
+`docker compose -p hellgrind up -d --build` çalıştırır, `/healthz` hazır olunca paneli kendi penceresinde gösterir).
+`make up` ile aynı proje adını kullandığı için aynı veritabanı ve MinIO birimlerini görür: mevcut projeler kaybolmaz.
+
+- **Derleme:** macOS'ta `make dmg` (Xcode Command Line Tools) ya da GitHub'da **Actions › mac-app › Run workflow**;
+  DMG `mac/dist/` altına ya da çalıştırmanın Artifacts bölümüne düşer. Uygulama, derlendiği commit'teki hat dosyalarını
+  taşır (`.env` asla girmez).
+- **İlk açılış** iki yol sorar: *Bu Mac'te çalıştır* (mevcut repo klasörünü seçmek ya da uygulamanın kendi kopyasını
+  `~/Library/Application Support/Hellgrind/stack` altına kurmak; `.env` yoksa `.env.example`'dan, ücretsiz modda oluşur)
+  ya da *Sunucuya bağlan* (Docker'sız; başka bir bilgisayardaki Hell Grind'in adresi, ör. Tailscale ile `http://mac-adi:8000`).
+- **Sunucu kipi için sunucuda:** videolar MinIO'dan imzalı adresle gelir; sunucunun `.env`'inde
+  `S3_PUBLIC_ENDPOINT_URL=http://mac-adi:9000` olmalı. Stüdyo (8000) girişsizdir: yalnızca özel ağda, güvendiğin kişilerle paylaş.
+- **İmza:** uygulama ad-hoc imzalıdır (Apple Developer hesabı yok). İlk açılışta *Sistem Ayarları › Gizlilik ve Güvenlik ›
+  Yine de Aç* gerekir (DMG'deki `Önce oku.txt`).
+- Menüler: *Hat › Günlükler*, *Servisleri Durdur*, *Hattı Yeniden Kur ve Başlat*, *Hat Klasörünü Değiştir…*,
+  *Sunucuya Bağlan…*; *Hell Grind › Çıkarken servisleri durdur*. İndirmeler `~/Downloads`'a iner, dış bağlantılar tarayıcıda açılır.
+
 ## Kullanım
 
 Panel DaVinci Resolve'un düzenini izler: çalışma alanı en üstten başlar, bütün denetimler tek **alt banttadır**. Solda

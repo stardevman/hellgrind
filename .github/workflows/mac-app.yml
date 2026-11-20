@@ -1,0 +1,34 @@
+name: mac-app
+# Mac uygulamasını (DMG) GitHub'ın macOS makinesinde derler; DMG, çalıştırmanın "Artifacts" bölümünden indirilir.
+# Ücretli hiçbir servis çağrılmaz; yalnızca Swift derlemesi ve paketleme.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["mac-v*"]
+  pull_request:
+    paths: ["mac/**", ".github/workflows/mac-app.yml"]
+jobs:
+  dmg:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # sürüm numarası commit sayısından
+      - run: ./mac/build.sh
+      - name: Paket içeriğini denetle
+        run: |
+          APP="mac/build/Hell Grind.app"
+          file "$APP/Contents/MacOS/Hellgrind"
+          lipo -archs "$APP/Contents/MacOS/Hellgrind" | grep -q arm64
+          test -f "$APP/Contents/Resources/stack/docker-compose.yml"
+          test ! -e "$APP/Contents/Resources/stack/.env"
+          plutil -lint "$APP/Contents/Info.plist"
+      - name: Uygulama açılıyor mu (5 sn)
+        run: |
+          "mac/build/Hell Grind.app/Contents/MacOS/Hellgrind" & PID=$!
+          sleep 5
+          kill -0 $PID && echo "açık" && kill $PID
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hellgrind-dmg
+          path: mac/dist/*.dmg
+          if-no-files-found: error
