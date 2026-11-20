@@ -1,0 +1,21 @@
+Hell Grind — Mac kurulumu
+=========================
+
+1) "Hell Grind" simgesini yanındaki "Applications" klasörüne sürükle.
+
+2) İlk açılış: uygulama Apple'a kayıtlı bir geliştirici imzası taşımadığı için macOS ilk seferde
+   "açılamıyor" der. Bir kez şunu yap:
+     - Applications'ta Hell Grind'e çift tıkla, uyarıyı kapat.
+     - Sistem Ayarları › Gizlilik ve Güvenlik'i aç, en altta "Hell Grind engellendi" satırındaki
+       "Yine de Aç" düğmesine bas, parolanı gir.
+   (Terminal'i biliyorsan aynısı: xattr -dr com.apple.quarantine "/Applications/Hell Grind.app")
+
+3) Uygulama açılınca iki yol sorar:
+   - Bu Mac'te çalıştır: Docker Desktop gerekir (kişisel kullanımda ücretsiz,
+     https://www.docker.com/products/docker-desktop/). Uygulama Docker'ı kendisi açar, hattı kurar ve paneli
+     kendi penceresinde gösterir. İlk kurulum 10–30 dakika sürebilir; sonraki açılışlar saniyeler.
+   - Sunucuya bağlan: Hell Grind başka bir bilgisayarda çalışıyorsa onun adresini yaz
+     (ör. Tailscale ile http://bilgisayar-adi:8000). Bu Mac'te Docker gerekmez.
+
+Hell Grind her zaman ücretsiz modda başlar; ücretli moda geçiş yalnızca panelin Ayarlar sayfasından yapılır.
+Menüler: Hat › Günlükler (sorun olursa), Hat › Servisleri Durdur, Hell Grind › Çıkarken servisleri durdur.

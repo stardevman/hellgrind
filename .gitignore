@@ -9,3 +9,7 @@ samples/
 .DS_Store
 .venv/
 dump.rdb
+
+# Mac uygulaması derleme çıktıları
+mac/build/
+mac/dist/

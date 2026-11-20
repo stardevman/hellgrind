@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>Hell Grind</string>
+	<key>CFBundleDisplayName</key><string>Hell Grind</string>
+	<key>CFBundleIdentifier</key><string>com.stardevman.hellgrind</string>
+	<key>CFBundleExecutable</key><string>Hellgrind</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
+	<key>CFBundleVersion</key><string>__BUILD__</string>
+	<key>CFBundleDevelopmentRegion</key><string>tr</string>
+	<key>LSMinimumSystemVersion</key><string>12.0</string>
+	<key>LSApplicationCategoryType</key><string>public.app-category.video</string>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+	<key>NSHumanReadableCopyright</key><string>Hell Grind otonom animasyon hattı</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Panel yerelde (localhost) ya da özel ağdaki (Tailscale) bir sunucuda düz HTTP ile çalışır. -->
+		<key>NSAllowsLocalNetworking</key><true/>
+		<key>NSAllowsArbitraryLoads</key><true/>
+	</dict>
+</dict>
+</plist>

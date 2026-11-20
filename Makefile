@@ -1,4 +1,4 @@
-.PHONY: up down reset smoke test logs ps panel web-dev web-build web-test
+.PHONY: up down reset smoke test logs ps panel web-dev web-build web-test dmg
 
 up:        ## Tüm servisleri derle ve başlat
 	docker compose up -d --build
@@ -20,6 +20,9 @@ web-test:  ## Panelin tip denetimi ve birim testleri (Node 22)
 
 panel:     ## Paneli tarayıcıda aç (macOS/Linux)
 	@python3 -m webbrowser http://localhost:8000 || true
+
+dmg:       ## Mac uygulamasını ve DMG'sini derle (macOS + Xcode araçları; çıktı mac/dist/)
+	./mac/build.sh
 
 logs:
 	docker compose logs -f api worker worker-gen
